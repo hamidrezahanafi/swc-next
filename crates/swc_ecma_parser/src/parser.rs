@@ -745,6 +745,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             ast.allocator(),
             source,
             allow_html_like_comments,
+            options.lang.is_typescript(),
             options.comments == CommentMode::Attached,
             config,
         );
@@ -1258,18 +1259,52 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
 
     fn parse_export_decorated(
         &mut self,
-        decorators_start: u32,
+        _decorators_start: u32,
         decorators: TypedSubRange<Decorator>,
     ) -> Option<Stmt> {
         let export_start = self.current_token.span.start;
         self.advance()?;
+        self.finish_export_decorated(export_start, decorators)
+    }
+
+    fn finish_export_decorated(
+        &mut self,
+        export_start: u32,
+        outer_decorators: TypedSubRange<Decorator>,
+    ) -> Option<Stmt> {
+        let mut decorators_before_default = TypedSubRange::empty();
+        let mut class_start = None;
+        if self.current_token.tag == TokenTag::At {
+            let (start, decorators) = self.parse_decorators()?;
+            decorators_before_default = decorators;
+            class_start = Some(start);
+        }
         let is_default = self.eat(TokenTag::Default)?;
+        if is_default {
+            // Decorators between `export` and `default` are retained, but the
+            // legacy TypeScript tree does not include them in the class span.
+            class_start = None;
+        }
+        let mut decorators_after_default = TypedSubRange::empty();
+        if self.current_token.tag == TokenTag::At {
+            let (start, decorators) = self.parse_decorators()?;
+            decorators_after_default = decorators;
+            class_start = Some(start);
+        }
+        let decorators = self.merge_decorator_ranges(&[
+            outer_decorators,
+            decorators_before_default,
+            decorators_after_default,
+        ]);
+        if class_start.is_none() && self.current_token.tag != TokenTag::Class {
+            class_start = Some(export_start);
+        }
         let class = self.parse_class_decorated(
             ParseClassOpts {
                 is_default_export: is_default,
                 ..ParseClassOpts::default()
             },
-            Some(decorators_start),
+            class_start,
             decorators,
         )?;
         let end = class.span(self.ast).end;
@@ -1386,7 +1421,9 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     fn parse_import_declaration_or_expression(&mut self) -> Option<Stmt> {
         debug_assert_eq!(self.current_token.tag, TokenTag::Import);
         let next = self.peek_ahead()?;
-        if matches!(next.tag, TokenTag::LeftParen | TokenTag::Dot) {
+        if matches!(next.tag, TokenTag::LeftParen | TokenTag::Dot)
+            || (self.lang.is_typescript() && is_angle_open(next.tag))
+        {
             return self.parse_expression_statement();
         }
         self.parse_import_declaration()
@@ -1402,7 +1439,10 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         //
         // This also lets ASI terminate `let` before a binding-looking token:
         // `if (false) let\nvalue = 1`.
-        if !self.statement_context.permits_declaration() && next.tag != TokenTag::LeftBracket {
+        if !self.lang.is_typescript()
+            && !self.statement_context.permits_declaration()
+            && next.tag != TokenTag::LeftBracket
+        {
             return Some(true);
         }
 
@@ -1743,6 +1783,15 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             let mut declaration_end = first.span(self.ast).end;
             self.scratch_a.append(first);
             while self.eat(TokenTag::Comma)? {
+                if !can_start_let_binding(self.current_token.tag) {
+                    self.report(
+                        self.current_token.span,
+                        "Expected a variable declarator after ','",
+                        ReportOptions::default(),
+                    );
+                    declaration_end = self.prev_token_end;
+                    break;
+                }
                 let declarator = self.parse_variable_declarator(kind, context)?;
                 declaration_end = declarator.span(self.ast).end;
                 self.scratch_a.append(declarator);
@@ -2183,6 +2232,14 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             } else {
                 None
             };
+            if self.current_token.tag == TokenTag::Comma {
+                self.report(
+                    self.current_token.span,
+                    "A class extends clause cannot end with a comma",
+                    ReportOptions::default(),
+                );
+                self.advance()?;
+            }
             (Some(super_class), type_arguments)
         } else {
             (None, None)
@@ -2316,6 +2373,17 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         }
         let key = key.unwrap();
 
+        if self.current_token.tag == TokenTag::LeftBrace
+            && self.prop_name_eq(key, "static").is_some()
+        {
+            self.report(
+                Span::new(element_start, key.span(self.ast).start),
+                "Modifiers are not permitted on a static block",
+                ReportOptions::default(),
+            );
+            return self.parse_static_block(element_start);
+        }
+
         let mut optional = false;
         let mut definite = false;
         if self.lang.is_typescript() {
@@ -2436,6 +2504,18 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     ) -> Option<ClassModifierStep> {
         let token = self.current_token;
         let is_typescript = self.lang.is_typescript();
+        if is_typescript && matches!(token.tag, TokenTag::Const | TokenTag::Export) {
+            let next = self.peek_ahead()?;
+            if can_start_element_key(next.tag) && !next.has_line_terminator_before() {
+                self.report(
+                    token.span,
+                    "This modifier is not permitted on a class element",
+                    ReportOptions::default(),
+                );
+                self.advance_without_escape_check()?;
+                return Some(ClassModifierStep::Consumed);
+            }
+        }
         if !is_modifier(token.tag, is_typescript) {
             return Some(ClassModifierStep::None);
         }
@@ -2447,8 +2527,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             next.tag == TokenTag::Star && matches!(token.tag, TokenTag::Get | TokenTag::Set);
         let consume_as_modifier = can_start_element_key(next.tag)
             && !accessor_before_star
-            && !(requires_same_line(token.tag) && next.has_line_terminator_before())
-            && !modifiers.conflicts(token.tag);
+            && !(requires_same_line(token.tag) && next.has_line_terminator_before());
 
         if !consume_as_modifier {
             self.advance_without_escape_check()?;
@@ -2459,6 +2538,13 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         }
 
         self.report_if_escaped_keyword(token);
+        if modifiers.conflicts(token.tag) {
+            self.report(
+                token.span,
+                "Duplicate or conflicting class element modifier",
+                ReportOptions::default(),
+            );
+        }
         self.advance_without_escape_check()?;
         modifiers.set(token.tag);
         Some(ClassModifierStep::Consumed)
@@ -2473,6 +2559,15 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             return None;
         }
         let static_token = self.current_token;
+        let start = if decorators.is_empty() {
+            static_token.span.start
+        } else {
+            decorators
+                .get_node(self.ast, 0)
+                .expect("non-empty decorator range contains its first node")
+                .span(self.ast)
+                .start
+        };
         if !decorators.is_empty() {
             self.report(
                 decorators
@@ -2485,7 +2580,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         }
         self.report_if_escaped_keyword(static_token);
         self.advance_without_escape_check()?;
-        self.parse_static_block(static_token.span.start)
+        self.parse_static_block(start)
     }
 
     fn parse_static_block(&mut self, start: u32) -> Option<ClassElement> {
@@ -2545,7 +2640,8 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         modifiers: &mut ClassElementModifiers,
         computed: bool,
     ) {
-        if modifiers.is_static || computed {
+        if modifiers.is_static || computed || (modifiers.is_generator && self.lang.is_typescript())
+        {
             return;
         }
         let Some(span) = self.prop_name_eq(key, "constructor") else {
@@ -2554,6 +2650,14 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         match modifiers.kind {
             MethodDefinitionKind::Method => {
                 modifiers.kind = MethodDefinitionKind::Constructor;
+                if modifiers.r#override {
+                    self.report(
+                        span,
+                        "A constructor cannot have an 'override' modifier",
+                        ReportOptions::default(),
+                    );
+                    modifiers.r#override = false;
+                }
             }
             MethodDefinitionKind::Get | MethodDefinitionKind::Set => self.report(
                 span,
@@ -2835,6 +2939,24 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         result
     }
 
+    fn merge_decorator_ranges(
+        &mut self,
+        ranges: &[TypedSubRange<Decorator>],
+    ) -> TypedSubRange<Decorator> {
+        let checkpoint = self.scratch_decorators.begin();
+        for range in ranges {
+            for index in 0..range.len() {
+                let decorator = range
+                    .get_node(self.ast, index)
+                    .expect("decorator sub-range index is in bounds");
+                self.scratch_decorators.append(decorator);
+            }
+        }
+        let decorators = self.add_extra_from_scratch_decorators(checkpoint);
+        self.scratch_decorators.reset(checkpoint);
+        decorators
+    }
+
     fn parse_decorator(&mut self) -> Option<Decorator> {
         let start = self.current_token.span.start;
         if !self.expect(TokenTag::At, "Expected '@' to start a decorator", None) {
@@ -2873,6 +2995,9 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                     self.parse_non_null_expression(expression)?
                 }
                 TokenTag::LessThan | TokenTag::LeftShift if self.lang.is_typescript() => {
+                    if !can_have_type_arguments(expression, self.ast) {
+                        break;
+                    }
                     let Some(next) =
                         self.parse_type_argumented_call_or_instantiation(expression)?
                     else {
@@ -2970,18 +3095,24 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                     };
 
                 if self.current_token.tag == TokenTag::Spread {
-                    rest = Some(self.parse_binding_rest_element(decorators)?);
+                    let rest_element =
+                        self.parse_binding_rest_element(decorators, parameter_start)?;
                     if self.eat(TokenTag::Comma)? {
-                        return {
-                            let span = self.current_token.span;
-                            self.report(
-                                span,
-                                "Rest parameter must be the last parameter",
-                                ReportOptions::default(),
-                            );
-                            None
-                        };
+                        self.report(
+                            self.current_token.span,
+                            "Rest parameter must be the last parameter",
+                            ReportOptions::default(),
+                        );
+                        let span = rest_element.span(self.ast);
+                        let pattern = FormalParameterPattern::BindingPattern(
+                            BindingPattern::BindingRestElement(rest_element),
+                        );
+                        let parameter = self.ast.formal_parameter(span, pattern);
+                        self.scratch_a
+                            .append(FormalParameterItem::FormalParameter(parameter));
+                        continue;
                     }
+                    rest = Some(rest_element);
                     break;
                 }
 
@@ -3083,26 +3214,58 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     fn parse_binding_rest_element(
         &mut self,
         decorators: TypedSubRange<Decorator>,
+        start: u32,
     ) -> Option<BindingRestElement> {
         debug_assert_eq!(self.current_token.tag, TokenTag::Spread);
-        let start = self.current_token.span.start;
         self.advance()?;
-        let argument = self.parse_binding_pattern()?;
+        let mut argument = self.parse_binding_pattern()?;
+        let optional = if self.lang.is_typescript() && self.current_token.tag == TokenTag::Question
+        {
+            self.report(
+                self.current_token.span,
+                "A rest parameter cannot be optional",
+                ReportOptions::default(),
+            );
+            self.advance()?;
+            true
+        } else {
+            false
+        };
         let type_annotation =
             if self.lang.is_typescript() && self.current_token.tag == TokenTag::Colon {
                 Some(self.parse_type_annotation()?)
             } else {
                 None
             };
-        let end = type_annotation.map_or(argument.span(self.ast).end, |annotation| {
+        let mut end = type_annotation.map_or(self.prev_token_end, |annotation| {
             annotation.span(self.ast).end
         });
+        if self.current_token.tag == TokenTag::Assign {
+            self.report(
+                self.current_token.span,
+                "A rest parameter cannot have an initializer",
+                ReportOptions::default(),
+            );
+            self.advance()?;
+            let initializer =
+                self.parse_expr(Precedence::Assignment, ParseExpressionOpts::default())?;
+            end = initializer.span(self.ast).end;
+            let assignment_span = Span::new(argument.span(self.ast).start, end);
+            argument = self.ast.binding_pattern_assignment_pattern(
+                assignment_span,
+                argument,
+                initializer,
+                TypedSubRange::empty(),
+                None,
+                false,
+            );
+        }
         Some(self.ast.binding_rest_element(
             Span::new(start, end),
             argument,
             decorators,
             type_annotation,
-            false,
+            optional,
         ))
     }
 
@@ -3221,6 +3384,28 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         } else if self.current_token.tag == TokenTag::Defer && next.tag == TokenTag::Star {
             phase = Some(ImportPhase::Defer);
             self.advance()?;
+        } else if self.current_token.tag == TokenTag::Defer {
+            let is_default_binding = if matches!(next.tag, TokenTag::Comma | TokenTag::Assign) {
+                true
+            } else if next.tag == TokenTag::From {
+                let mut peek = self.begin_peek();
+                let after_from = (|| {
+                    peek.next()?;
+                    peek.next()
+                })();
+                peek.end();
+                after_from.is_some_and(|token| token.tag == TokenTag::StringLiteral)
+            } else {
+                false
+            };
+            if !is_default_binding {
+                self.report(
+                    self.current_token.span,
+                    "A deferred import must use a namespace binding",
+                    ReportOptions::default(),
+                );
+                self.advance()?;
+            }
         }
 
         if self.lang.is_typescript()
@@ -3650,6 +3835,9 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         debug_assert_eq!(self.current_token.tag, TokenTag::Export);
         let start = self.current_token.span.start;
         self.advance()?;
+        if self.current_token.tag == TokenTag::At {
+            return self.finish_export_decorated(start, TypedSubRange::empty());
+        }
         if self.lang.is_typescript() {
             match self.current_token.tag {
                 TokenTag::Assign => return self.parse_ts_export_assignment(start),
@@ -3883,6 +4071,39 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     }
 
     fn parse_export_with_declaration(&mut self, start: u32) -> Option<Stmt> {
+        if self.lang.is_typescript() && self.current_token.tag == TokenTag::Declare {
+            let mut peek = self.begin_peek();
+            let mut after_modifiers = peek.next()?;
+            while matches!(after_modifiers.tag, TokenTag::Declare | TokenTag::Export) {
+                after_modifiers = peek.next()?;
+            }
+            let is_export_assignment = after_modifiers.tag == TokenTag::Assign;
+            peek.end();
+            if is_export_assignment {
+                while matches!(self.current_token.tag, TokenTag::Declare | TokenTag::Export) {
+                    self.report(
+                        self.current_token.span,
+                        "This modifier is not permitted on an export assignment",
+                        ReportOptions::default(),
+                    );
+                    self.advance()?;
+                }
+                return self.parse_ts_export_assignment(start);
+            }
+        }
+        let mut duplicate_export_start = None;
+        while self.lang.is_typescript() && self.current_token.tag == TokenTag::Export {
+            duplicate_export_start.get_or_insert(self.current_token.span.start);
+            self.report(
+                self.current_token.span,
+                "Duplicate 'export' modifier",
+                ReportOptions::default(),
+            );
+            self.advance()?;
+        }
+        if self.lang.is_typescript() && self.current_token.tag == TokenTag::Assign {
+            return self.parse_ts_export_assignment(start);
+        }
         if self.lang.is_typescript() && self.is_start_of_ts_declaration()? {
             let statement = self.parse_ts_declaration()?;
             let declaration = match self.ast.stmt_data(statement) {
@@ -3896,6 +4117,12 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                     return None;
                 }
             };
+            if let Some(duplicate_export_start) = duplicate_export_start {
+                declaration.set_span(
+                    self.ast,
+                    Span::new(duplicate_export_start, declaration.span(self.ast).end),
+                );
+            }
             let export_kind = self.export_kind_for_declaration(declaration);
             let end = declaration.span(self.ast).end;
             let specifiers = TypedSubRange::empty();
@@ -3910,14 +4137,30 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             ));
         }
         if self.lang.is_typescript() && self.current_token.tag == TokenTag::Import {
-            let statement = self.parse_import_declaration()?;
-            let StmtData::Declaration(declaration) = self.ast.stmt_data(statement) else {
+            let mut peek = self.begin_peek();
+            let local = peek.next()?;
+            let assign = if local.tag.is_identifier_like() {
+                peek.next()
+            } else {
+                None
+            };
+            let is_import_equals = assign.is_some_and(|token| token.tag == TokenTag::Assign);
+            peek.end();
+            if !is_import_equals {
                 self.report(
-                    statement.span(self.ast),
-                    "expected an import-equals declaration after 'export'",
+                    self.current_token.span,
+                    "An ECMAScript import cannot have an 'export' modifier",
                     ReportOptions::default(),
                 );
-                return None;
+            }
+            let statement = if is_import_equals {
+                self.parse_import_declaration()?
+            } else {
+                self.advance()?;
+                self.parse_import_declaration_from(start)?
+            };
+            let StmtData::Declaration(declaration) = self.ast.stmt_data(statement) else {
+                return Some(statement);
             };
             let DeclData::TsImportEqualsDeclaration(_) = self.ast.decl_data(declaration) else {
                 unreachable!()
@@ -3962,6 +4205,12 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         ) {
             let declaration =
                 self.parse_variable_declaration(ParseVariableDeclarationOpts::default(), None)?;
+            if let Some(duplicate_export_start) = duplicate_export_start {
+                declaration.set_span(
+                    self.ast,
+                    Span::new(duplicate_export_start, declaration.span(self.ast).end),
+                );
+            }
             let end = declaration.span(self.ast).end;
             let specifiers = TypedSubRange::empty();
             let attributes = TypedSubRange::empty();
@@ -4005,6 +4254,12 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                 )?
                 .into_declaration()
             };
+            if let Some(duplicate_export_start) = duplicate_export_start {
+                declaration.set_span(
+                    self.ast,
+                    Span::new(duplicate_export_start, declaration.span(self.ast).end),
+                );
+            }
             let end = declaration.span(self.ast).end;
             let specifiers = TypedSubRange::empty();
             let attributes = TypedSubRange::empty();
@@ -4219,7 +4474,15 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                 "Import attribute value must be a string literal",
                 ReportOptions::default(),
             );
-            return None;
+            let expression =
+                self.parse_expr(Precedence::Assignment, ParseExpressionOpts::default())?;
+            let span = expression.span(self.ast);
+            let raw = self.ast.source_slice(span.start, span.end);
+            let value = self.ast.string_literal(span, raw.into(), raw);
+            return Some(
+                self.ast
+                    .import_attribute(Span::new(start, span.end), key, value),
+            );
         }
         let value = self.parse_string_literal()?;
         Some(
@@ -4285,13 +4548,22 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         let mut has_declare = false;
         let mut has_abstract = false;
 
-        if current.tag == TokenTag::Declare {
+        while current.tag == TokenTag::Declare {
             current = peek.next()?;
             if current.has_line_terminator_before() {
                 peek.end();
                 return Some(false);
             }
             has_declare = true;
+        }
+        if has_declare && current.tag == TokenTag::Export {
+            while current.tag == TokenTag::Export {
+                current = peek.next()?;
+            }
+            if current.tag == TokenTag::Assign {
+                peek.end();
+                return Some(true);
+            }
         }
         if current.tag == TokenTag::Abstract {
             let next = peek.next()?;
@@ -4375,8 +4647,27 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     fn parse_ts_declaration(&mut self) -> Option<Stmt> {
         let start = self.current_token.span.start;
         let mut modifiers = TsDeclarationModifiers::default();
-        if self.eat(TokenTag::Declare)? {
+        while self.current_token.tag == TokenTag::Declare {
+            if modifiers.declare {
+                self.report(
+                    self.current_token.span,
+                    "Duplicate 'declare' modifier",
+                    ReportOptions::default(),
+                );
+            }
+            self.advance()?;
             modifiers.declare = true;
+        }
+        while modifiers.declare && self.current_token.tag == TokenTag::Export {
+            self.report(
+                self.current_token.span,
+                "This 'export' modifier is not permitted here",
+                ReportOptions::default(),
+            );
+            self.advance()?;
+        }
+        if modifiers.declare && self.current_token.tag == TokenTag::Assign {
+            return self.parse_ts_export_assignment(start);
         }
         if self.eat(TokenTag::Abstract)? {
             modifiers.r#abstract = true;
@@ -4532,6 +4823,17 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                     HeritageEntry::Class(node) => self.scratch_a.append(node),
                 }
                 if !self.eat(TokenTag::Comma)? {
+                    break;
+                }
+                if matches!(
+                    self.current_token.tag,
+                    TokenTag::LeftBrace | TokenTag::Implements
+                ) {
+                    self.report(
+                        self.current_token.span,
+                        "A heritage clause cannot end with a comma",
+                        ReportOptions::default(),
+                    );
                     break;
                 }
             }
@@ -4690,6 +4992,17 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         if token.tag.is_identifier_like() {
             return Some((
                 TsEnumMemberName::IdentifierName(self.parse_identifier_name()?),
+                false,
+            ));
+        }
+        if token.tag == TokenTag::PrivateIdentifier {
+            self.report(
+                token.span,
+                "Private names are not permitted as enum member names",
+                ReportOptions::default(),
+            );
+            return Some((
+                TsEnumMemberName::Expr(Expr::PrivateIdentifier(self.parse_private_identifier()?)),
                 false,
             ));
         }
@@ -4905,8 +5218,15 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             if self.current_token.tag == TokenTag::Is && !self.current_token.is_escaped() {
                 self.advance()?;
                 let inner = self.parse_type()?;
-                end = inner.span(self.ast).end;
-                Some(self.ast.ts_type_annotation(inner.span(self.ast), inner))
+                let inner_span = inner.span(self.ast);
+                end = inner_span.end;
+                let annotation_span = match self.ast.ts_type_data(inner) {
+                    TsTypeData::TsParenthesizedType(parenthesized) => {
+                        parenthesized.type_annotation(self.ast).span(self.ast)
+                    }
+                    _ => inner_span,
+                };
+                Some(self.ast.ts_type_annotation(annotation_span, inner))
             } else {
                 None
             };
@@ -5169,12 +5489,16 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                 TokenTag::Import => return self.parse_import_type(),
                 TokenTag::Question => return self.parse_jsdoc_nullable_or_unknown_type(),
                 TokenTag::LogicalNot => return self.parse_jsdoc_non_nullable_type(),
+                TokenTag::Star if self.lexer.config.preserve_estree_assignment_targets() => {
+                    self.advance()?;
+                    return Some(TsType::TsJsDocUnknownType(
+                        self.ast.ts_js_doc_unknown_type(token.span),
+                    ));
+                }
                 _ => {}
             }
         }
-        if (token.tag.is_identifier_like() && !token.tag.is_unconditionally_reserved())
-            || token.tag == TokenTag::Const
-        {
+        if token.tag.is_identifier_like() || token.tag == TokenTag::Const {
             return self.parse_type_reference();
         }
         None
@@ -5267,7 +5591,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         if self.current_token.tag == TokenTag::Spread {
             let start = self.current_token.span.start;
             self.advance()?;
-            let inner = self.parse_tuple_element_body()?;
+            let inner = self.parse_tuple_element_body(false)?;
             if let TsTupleElementData::TsNamedTupleMember(named) =
                 self.ast.ts_tuple_element_data(inner)
             {
@@ -5290,25 +5614,35 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                 self.ast.ts_rest_type(span, inner_type),
             )));
         }
-        self.parse_tuple_element_body()
+        self.parse_tuple_element_body(true)
     }
 
-    fn parse_tuple_element_body(&mut self) -> Option<TsTupleElement> {
+    fn parse_tuple_element_body(
+        &mut self,
+        convert_postfix_nullable: bool,
+    ) -> Option<TsTupleElement> {
         if self.is_named_tuple_element()? {
             return self.parse_named_tuple_member();
         }
-        let type_annotation = self.parse_type()?;
-        if let TsTypeData::TsJsDocNullableType(nullable) = self.ast.ts_type_data(type_annotation)
-            && nullable.postfix(self.ast)
-        {
-            return Some(TsTupleElement::TsType(TsType::TsOptionalType(
-                self.ast.ts_optional_type(
-                    type_annotation.span(self.ast),
-                    nullable.type_annotation(self.ast),
-                ),
-            )));
+        let mut type_annotation = self.parse_type()?;
+        if convert_postfix_nullable {
+            type_annotation = self.tuple_postfix_nullable_as_optional(type_annotation);
         }
         Some(TsTupleElement::TsType(type_annotation))
+    }
+
+    fn tuple_postfix_nullable_as_optional(&mut self, type_annotation: TsType) -> TsType {
+        let TsTypeData::TsJsDocNullableType(nullable) = self.ast.ts_type_data(type_annotation)
+        else {
+            return type_annotation;
+        };
+        if !nullable.postfix(self.ast) {
+            return type_annotation;
+        }
+        TsType::TsOptionalType(self.ast.ts_optional_type(
+            type_annotation.span(self.ast),
+            nullable.type_annotation(self.ast),
+        ))
     }
 
     fn is_named_tuple_element(&mut self) -> Option<bool> {
@@ -5342,7 +5676,18 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         ) {
             return None;
         }
-        let element_type = self.parse_type()?;
+        let element_type = if self.current_token.tag == TokenTag::Spread {
+            let spread_start = self.current_token.span.start;
+            self.advance()?;
+            let inner = self.parse_type()?;
+            TsType::TsRestType(
+                self.ast
+                    .ts_rest_type(Span::new(spread_start, inner.span(self.ast).end), inner),
+            )
+        } else {
+            let inner = self.parse_type()?;
+            self.tuple_postfix_nullable_as_optional(inner)
+        };
         let span = Span::new(start, element_type.span(self.ast).end);
         Some(TsTupleElement::TsNamedTupleMember(
             self.ast
@@ -5584,7 +5929,19 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         ) {
             return None;
         }
-        let source = self.parse_string_literal()?;
+        let source = if self.current_token.tag == TokenTag::StringLiteral {
+            self.parse_string_literal()?
+        } else {
+            self.report(
+                self.current_token.span,
+                "An import type requires a string literal argument",
+                ReportOptions::default(),
+            );
+            let invalid = self.parse_type()?;
+            let span = invalid.span(self.ast);
+            let raw = self.ast.source_slice(span.start, span.end);
+            self.ast.string_literal(span, raw.into(), raw)
+        };
         let options = self.parse_import_type_options()?;
         if !self.expect(
             TokenTag::RightParen,
@@ -6103,16 +6460,28 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     fn is_index_signature_start(&mut self) -> Option<bool> {
         debug_assert_eq!(self.current_token.tag, TokenTag::LeftBracket);
         let mut peek = self.begin_peek();
-        let Some(name) = peek.next() else {
+        let Some(first) = peek.next() else {
             return Some(false);
         };
-        if !name.tag.is_identifier_like() {
+        if matches!(first.tag, TokenTag::RightBracket | TokenTag::Spread) {
+            return Some(true);
+        }
+        if !first.tag.is_identifier_like() {
             return Some(false);
         }
         let Some(second) = peek.next() else {
             return Some(false);
         };
-        Some(matches!(second.tag, TokenTag::Colon | TokenTag::Comma))
+        if matches!(second.tag, TokenTag::Colon | TokenTag::Comma) {
+            return Some(true);
+        }
+        if second.tag != TokenTag::Question {
+            return Some(false);
+        }
+        Some(
+            peek.next()
+                .is_some_and(|third| matches!(third.tag, TokenTag::Colon | TokenTag::RightBracket)),
+        )
     }
 
     fn parse_index_signature(
@@ -6123,53 +6492,112 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     ) -> Option<TsTypeElement> {
         debug_assert_eq!(self.current_token.tag, TokenTag::LeftBracket);
         self.advance()?;
-        let parameter = self.parse_index_signature_parameter()?;
-        if self.current_token.tag == TokenTag::Comma {
-            return {
-                let span = self.current_token.span;
+        let checkpoint = self.scratch_a.begin();
+        let result = (|| {
+            while !matches!(
+                self.current_token.tag,
+                TokenTag::RightBracket | TokenTag::Eof
+            ) {
+                if self.current_token.tag == TokenTag::Spread {
+                    self.report(
+                        self.current_token.span,
+                        "An index signature parameter cannot be a rest parameter",
+                        ReportOptions::default(),
+                    );
+                    self.advance()?;
+                }
+                let parameter = self.parse_index_signature_parameter()?;
+                self.scratch_a.append(parameter);
+                if self.current_token.tag == TokenTag::Assign {
+                    self.report(
+                        self.current_token.span,
+                        "An index signature parameter cannot have an initializer",
+                        ReportOptions::default(),
+                    );
+                    self.advance()?;
+                    let _ =
+                        self.parse_expr(Precedence::Assignment, ParseExpressionOpts::default())?;
+                }
+                if !self.eat(TokenTag::Comma)? {
+                    break;
+                }
                 self.report(
-                    span,
+                    self.current_token.span,
                     "An index signature must have exactly one parameter",
                     ReportOptions::default(),
                 );
-                None
+            }
+            if self.scratch_a.items.len() == checkpoint {
+                self.report(
+                    Span::new(start, self.current_token.span.start),
+                    "An index signature must have exactly one parameter",
+                    ReportOptions::default(),
+                );
+            }
+            if !self.expect(
+                TokenTag::RightBracket,
+                "Expected ']' to close an index signature parameter list",
+                Some("An index signature is written '[name: KeyType]: ValueType'"),
+            ) {
+                return None;
+            }
+            let parameters = self.add_extra_from_scratch_a(checkpoint);
+            let (type_annotation, end) = if self.current_token.tag == TokenTag::Colon {
+                let annotation = self.parse_type_annotation()?;
+                (annotation, annotation.span(self.ast).end)
+            } else {
+                self.report_expected(
+                    self.current_token.span,
+                    "Expected ':' after index signature parameters",
+                    ReportOptions {
+                        help: Some(Cow::Borrowed(
+                            "An index signature requires a value type: '[k: string]: number'",
+                        )),
+                        ..ReportOptions::default()
+                    },
+                );
+                let placeholder_span = Span::new(self.prev_token_end, self.prev_token_end);
+                let placeholder = TsType::TsAnyKeyword(self.ast.ts_any_keyword(placeholder_span));
+                (
+                    self.ast.ts_type_annotation(placeholder_span, placeholder),
+                    self.prev_token_end,
+                )
             };
-        }
-        let parameters = self.ast.add_typed_sub_range([parameter]);
-        if !self.expect(
-            TokenTag::RightBracket,
-            "Expected ']' to close an index signature parameter list",
-            Some("An index signature is written '[name: KeyType]: ValueType'"),
-        ) {
-            return None;
-        }
-        if self.current_token.tag != TokenTag::Colon {
-            self.report_expected(
-                self.current_token.span,
-                "Expected ':' after index signature parameters",
-                ReportOptions {
-                    help: Some(Cow::Borrowed(
-                        "An index signature requires a value type: '[k: string]: number'",
-                    )),
-                    ..ReportOptions::default()
-                },
-            );
-            return None;
-        }
-        let type_annotation = self.parse_type_annotation()?;
-        let end = type_annotation.span(self.ast).end;
-        Some(self.ast.ts_type_element_ts_index_signature(
-            Span::new(start, end),
-            parameters,
-            type_annotation,
-            readonly,
-            r#static,
-        ))
+            Some(self.ast.ts_type_element_ts_index_signature(
+                Span::new(start, end),
+                parameters,
+                type_annotation,
+                readonly,
+                r#static,
+            ))
+        })();
+        self.scratch_a.reset(checkpoint);
+        result
     }
 
     fn parse_index_signature_parameter(&mut self) -> Option<BindingIdentifier> {
         let name = self.parse_binding_identifier()?;
-        if self.current_token.tag != TokenTag::Colon {
+        if self.current_token.tag == TokenTag::Question {
+            name.set_optional(self.ast, true);
+            name.set_span(
+                self.ast,
+                Span::new(name.span(self.ast).start, self.current_token.span.end),
+            );
+            self.report(
+                self.current_token.span,
+                "An index signature parameter cannot be optional",
+                ReportOptions::default(),
+            );
+            self.advance()?;
+        }
+        if self.current_token.tag == TokenTag::Colon {
+            let annotation = self.parse_type_annotation()?;
+            name.set_type_annotation(self.ast, Some(annotation));
+            name.set_span(
+                self.ast,
+                Span::new(name.span(self.ast).start, annotation.span(self.ast).end),
+            );
+        } else {
             self.report_expected(
                 self.current_token.span,
                 "Expected ':' after index signature parameter name",
@@ -6180,14 +6608,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                     ..ReportOptions::default()
                 },
             );
-            return None;
         }
-        let annotation = self.parse_type_annotation()?;
-        name.set_type_annotation(self.ast, Some(annotation));
-        name.set_span(
-            self.ast,
-            Span::new(name.span(self.ast).start, annotation.span(self.ast).end),
-        );
         Some(name)
     }
 
@@ -6210,7 +6631,13 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         }
         let computed = self.current_token.tag == TokenTag::LeftBracket;
         let key = self.parse_property_key(false)?;
-        let mut end = key.span(self.ast).end;
+        let mut end = if computed {
+            // A computed key stores only its inner expression, while the
+            // signature span includes the closing bracket.
+            self.prev_token_end
+        } else {
+            key.span(self.ast).end
+        };
         let optional = if self.current_token.tag == TokenTag::Question {
             end = self.current_token.span.end;
             self.advance()?;
@@ -6265,13 +6692,20 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                     "A 'set' accessor cannot have a return type annotation",
                     ReportOptions::default(),
                 );
-                return None;
             }
             Some(annotation)
         } else {
             None
         };
-        let end = return_type.map_or(self.prev_token_end, |ty| ty.span(self.ast).end);
+        let mut end = return_type.map_or(self.prev_token_end, |ty| ty.span(self.ast).end);
+        if self.current_token.tag == TokenTag::LeftBrace {
+            self.report(
+                self.current_token.span,
+                "A type member cannot have an implementation body",
+                ReportOptions::default(),
+            );
+            end = self.parse_block_statement()?.span(self.ast).end;
+        }
         Some(self.ast.ts_type_element_ts_method_signature(
             Span::new(start, end),
             key,
@@ -6311,6 +6745,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             );
             return None;
         }
+        self.validate_identifier(token, "a type name");
         let name = self.identifier_name(token);
         let mut type_name = self.ast.ts_type_name_identifier_reference(token.span, name);
         self.advance_without_escape_check()?;
@@ -6337,6 +6772,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             );
             return None;
         }
+        self.validate_identifier(token, "a type name");
         let name = self.identifier_name(token);
         let right = self.ast.identifier_name(token.span, name);
         self.advance_without_escape_check()?;
@@ -6598,14 +7034,9 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             TokenTag::Using => {
                 let next = self.peek_ahead()?;
                 if next.has_line_terminator_before()
-                    || matches!(
-                        next.tag,
-                        TokenTag::In
-                            | TokenTag::Dot
-                            | TokenTag::LeftParen
-                            | TokenTag::LeftBracket
-                            | TokenTag::LeftBrace
-                    )
+                    || matches!(next.tag, TokenTag::In | TokenTag::Dot | TokenTag::LeftParen)
+                    || (!self.lang.is_typescript()
+                        && matches!(next.tag, TokenTag::LeftBracket | TokenTag::LeftBrace))
                 {
                     return self.parse_for_with_expression(start, is_for_await);
                 }
@@ -6667,6 +7098,15 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             let mut declaration_end = first.span(self.ast).end;
             self.scratch_a.append(first);
             while self.eat(TokenTag::Comma)? {
+                if !can_start_let_binding(self.current_token.tag) {
+                    self.report(
+                        self.current_token.span,
+                        "Expected a variable declarator after ','",
+                        ReportOptions::default(),
+                    );
+                    declaration_end = self.prev_token_end;
+                    break;
+                }
                 let declarator = self.parse_variable_declarator(kind, DeclaratorCtx::ForLoop)?;
                 declaration_end = declarator.span(self.ast).end;
                 self.scratch_a.append(declarator);
@@ -6918,7 +7358,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                     "Destructuring declaration in for loop initializer must be initialized",
                     ReportOptions::default(),
                 );
-                return None;
+                continue;
             }
             if kind == VariableKind::Const {
                 self.report(
@@ -6926,7 +7366,6 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                     "'const' declarations in for loop initializer must be initialized",
                     ReportOptions::default(),
                 );
-                return None;
             }
         }
         Some(())
@@ -7119,6 +7558,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             let token = self.current_token;
             if is_ts
                 && is_angle_open(token.tag)
+                && can_have_type_arguments(left, self.ast)
                 && max_left_precedence(left, self.ast) >= Precedence::Call
                 && let Some(expression) = self.parse_type_argumented_call_or_instantiation(left)?
             {
@@ -7155,6 +7595,9 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     }
 
     fn infix_precedence(&self, token: Token) -> Precedence {
+        if self.lang.is_typescript() && token.tag == TokenTag::NullishCoalescing {
+            return Precedence::LogicalOr;
+        }
         match token.tag {
             TokenTag::Increment | TokenTag::Decrement | TokenTag::As | TokenTag::Satisfies
                 if token.has_line_terminator_before() =>
@@ -7190,14 +7633,16 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         }
 
         if token.tag.is_logical_operator() {
-            return self.parse_logical_expression(left, token.tag);
+            return self.parse_logical_expression(left, token.tag, precedence);
         }
 
         if token.tag.is_assignment_operator() {
             return self.parse_assignment_expression(precedence, left, token.tag);
         }
 
-        if token.tag == TokenTag::Arrow && !token.has_line_terminator_before() {
+        if token.tag == TokenTag::Arrow
+            && (!token.has_line_terminator_before() || self.lang.is_typescript())
+        {
             return self.parse_simple_arrow_function(left);
         }
 
@@ -7265,14 +7710,55 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             return self.parse_parenthesized_or_arrow_function(None, minimum);
         }
 
-        if tag == TokenTag::Await && self.context.r#await {
-            let start = self.current_token.span.start;
-            self.advance()?;
-            return self.parse_await_expression(start);
+        if tag == TokenTag::Await {
+            let next = self.peek_ahead()?;
+            if in_cover
+                && self.lang.is_typescript()
+                && matches!(
+                    next.tag,
+                    TokenTag::RightBracket | TokenTag::RightBrace | TokenTag::Comma
+                )
+            {
+                return self.parse_identifier();
+            }
+            if self.context.r#await
+                || (self.lang.is_typescript()
+                    && !next.has_line_terminator_before()
+                    && next.tag != TokenTag::LeftParen
+                    && !next.tag.is_unary_operator()
+                    && is_start_of_expression(next.tag))
+            {
+                let token = self.current_token;
+                self.advance()?;
+                if !self.context.r#await {
+                    self.report(
+                        token.span,
+                        "'await' expressions are only allowed in async functions or modules",
+                        ReportOptions::default(),
+                    );
+                }
+                return self.parse_await_expression(token.span.start);
+            }
         }
 
-        if tag == TokenTag::Yield && self.context.r#yield && minimum < Precedence::Add {
-            return self.parse_yield_expression();
+        if tag == TokenTag::Yield && minimum < Precedence::Add {
+            let next = self.peek_ahead()?;
+            if self.context.r#yield
+                || (self.lang.is_typescript()
+                    && !next.has_line_terminator_before()
+                    && !matches!(next.tag, TokenTag::LeftParen | TokenTag::Star)
+                    && !next.tag.is_unary_operator()
+                    && is_start_of_expression(next.tag))
+            {
+                if !self.context.r#yield {
+                    self.report(
+                        self.current_token.span,
+                        "'yield' expressions are only allowed in generator functions",
+                        ReportOptions::default(),
+                    );
+                }
+                return self.parse_yield_expression();
+            }
         }
 
         if tag == TokenTag::New {
@@ -7683,7 +8169,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         }
         let cover = self.parse_parenthesized_cover()?;
         let is_arrow = self.current_token.tag == TokenTag::Arrow
-            && !self.current_token.has_line_terminator_before()
+            && (!self.current_token.has_line_terminator_before() || self.lang.is_typescript())
             && minimum <= Precedence::Assignment;
         if is_arrow {
             return self.cover_to_arrow_function(cover, false, start);
@@ -7888,7 +8374,6 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                                     ..ReportOptions::default()
                                 },
                             );
-                            return None;
                         }
                         let parameter = self.convert_to_formal_parameter(expression)?;
                         self.scratch_cover.append(parameter);
@@ -7905,7 +8390,6 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                                     ..ReportOptions::default()
                                 },
                             );
-                            return None;
                         }
                         if cover.has_trailing_comma {
                             self.report(
@@ -7918,7 +8402,6 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                                     ..ReportOptions::default()
                                 },
                             );
-                            return None;
                         }
                         let argument =
                             self.expression_to_binding_pattern(spread.argument(self.ast))?;
@@ -7988,12 +8471,17 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                     .into_function_expression(),
                 ))
             }
-            TokenTag::LeftParen => self.parse_async_arrow_function_or_call(
-                token.span,
-                async_identifier,
-                minimum,
-                token.is_escaped(),
-            ),
+            TokenTag::LeftParen => {
+                if token.is_escaped() {
+                    self.report_escaped_keyword(token.span);
+                }
+                self.parse_async_arrow_function_or_call(
+                    token.span,
+                    async_identifier,
+                    minimum,
+                    token.is_escaped(),
+                )
+            }
             TokenTag::LessThan if self.lang.is_typescript() => {
                 if let Some(arrow) = self.try_parse_generic_arrow(true, token.span.start)? {
                     if token.is_escaped() {
@@ -8006,7 +8494,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             tag if tag.is_identifier_like() => {
                 let after_identifier = self.peek_ahead()?;
                 if after_identifier.tag == TokenTag::Arrow
-                    && !after_identifier.has_line_terminator_before()
+                    && (!after_identifier.has_line_terminator_before() || self.lang.is_typescript())
                 {
                     if token.is_escaped() {
                         self.report_escaped_keyword(token.span);
@@ -8041,17 +8529,13 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             }
         }
 
-        let context = if escaped_async {
-            self.context
-        } else {
-            enter_grammar_context![&mut self.context, +Await]
-        };
+        let context = enter_grammar_context![&mut self.context, +Await];
         let cover = self.parse_parenthesized_cover();
         self.context = context;
         let cover = cover?;
 
         let is_arrow = self.current_token.tag == TokenTag::Arrow
-            && !self.current_token.has_line_terminator_before()
+            && (!self.current_token.has_line_terminator_before() || self.lang.is_typescript())
             && minimum <= Precedence::Assignment;
         if is_arrow {
             if escaped_async {
@@ -8230,9 +8714,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         } else {
             None
         };
-        if self.current_token.tag != TokenTag::Arrow
-            || self.current_token.has_line_terminator_before()
-        {
+        if self.current_token.tag != TokenTag::Arrow {
             return None;
         }
         self.build_arrow_function(start, params, is_async, type_parameters, return_type)
@@ -8246,6 +8728,13 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         type_parameters: Option<TsTypeParameterDeclaration>,
         return_type: Option<TsTypeAnnotation>,
     ) -> Option<Expr> {
+        if self.current_token.has_line_terminator_before() {
+            self.report(
+                self.current_token.span,
+                "A line terminator is not permitted before '=>'",
+                ReportOptions::default(),
+            );
+        }
         self.advance()?;
         let context = enter_function_grammar_context(&mut self.context, false, async_function);
         let body = self.parse_arrow_body();
@@ -8455,6 +8944,13 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                             ..ReportOptions::default()
                         },
                     );
+                    if self.lang.is_typescript() {
+                        let recovered = self.recover_invalid_assignment_target(inner);
+                        let target = recovered
+                            .as_simple_assignment_target(self.ast)
+                            .expect("invalid TypeScript target recovery uses a simple target");
+                        return Some(BindingPattern::SimpleAssignmentTarget(target));
+                    }
                     return None;
                 }
                 self.expression_to_pattern(inner, context)
@@ -8475,6 +8971,13 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                     },
                 );
                 None
+            }
+            _ if context == PatternContext::Assignment && self.lang.is_typescript() => {
+                let recovered = self.recover_invalid_assignment_target(expression);
+                let target = recovered
+                    .as_simple_assignment_target(self.ast)
+                    .expect("invalid TypeScript target recovery uses a simple target");
+                Some(BindingPattern::SimpleAssignmentTarget(target))
             }
             _ => {
                 self.report(
@@ -8602,12 +9105,19 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                             argument,
                             TypedSubRange::empty(),
                             None,
-                            false,
+                            context == PatternContext::Assignment
+                                && self.ast.node_kind(argument.node_id())
+                                    == NodeKind::AssignmentPattern,
                         );
                         // SAFETY: `temporary` is the unattached last node, and
                         // `spread` is retired in favor of the returned handle.
-                        rest = Some(unsafe { self.ast.replace_data(spread, temporary) });
-                        break;
+                        let rest_element = unsafe { self.ast.replace_data(spread, temporary) };
+                        if index + 1 == source_elements_len {
+                            rest = Some(rest_element);
+                            break;
+                        }
+                        self.scratch_cover
+                            .append(BindingPattern::BindingRestElement(rest_element));
                     }
                 }
             }
@@ -8765,8 +9275,23 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                         );
                         // SAFETY: `temporary` is the unattached last node, and
                         // `spread` is retired in favor of the returned handle.
-                        rest = Some(unsafe { self.ast.replace_data(spread, temporary) });
-                        break;
+                        if index + 1 == source_properties_len {
+                            rest = Some(unsafe { self.ast.replace_data(spread, temporary) });
+                            break;
+                        }
+                        let argument_span = argument.span(self.ast);
+                        let raw = self
+                            .ast
+                            .source_slice(argument_span.start, argument_span.end);
+                        let key = self.ast.property_key_identifier_name(argument_span, raw);
+                        let property = self.ast.binding_property(
+                            spread.span(self.ast),
+                            key,
+                            argument,
+                            true,
+                            false,
+                        );
+                        self.scratch_cover.append(property);
                     }
                 }
             }
@@ -9062,10 +9587,22 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                             ..ParseExpressionOpts::default()
                         },
                     )?;
-                    let spread = self.ast.spread_element(
-                        Span::new(spread_start, expression.span(self.ast).end),
-                        expression,
-                    );
+                    let mut spread_end = expression.span(self.ast).end;
+                    if self.lang.is_typescript() && self.current_token.tag == TokenTag::Colon {
+                        self.report(
+                            self.current_token.span,
+                            "An object rest element cannot have a property name",
+                            ReportOptions::default(),
+                        );
+                        self.advance()?;
+                        spread_end = self
+                            .parse_expr(Precedence::Assignment, ParseExpressionOpts::default())?
+                            .span(self.ast)
+                            .end;
+                    }
+                    let spread = self
+                        .ast
+                        .spread_element(Span::new(spread_start, spread_end), expression);
                     ObjectPropertyKind::SpreadElement(spread)
                 } else {
                     self.parse_cover_property()?
@@ -9192,6 +9729,15 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             }
         };
         let key_span = key.span(self.ast);
+
+        if self.lang.is_typescript() && self.current_token.tag == TokenTag::Question {
+            self.report(
+                self.current_token.span,
+                "Object literal members cannot be optional",
+                ReportOptions::default(),
+            );
+            self.advance()?;
+        }
 
         if self.current_token.tag == TokenTag::LeftParen
             || (self.lang.is_typescript() && is_angle_open(self.current_token.tag))
@@ -9395,9 +9941,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                 };
             let params =
                 self.parse_formal_parameters(FormalParameterKind::UniqueFormalParameters, false)?;
-            if !self.check_accessor_arity(kind, params) {
-                return None;
-            }
+            let _ = self.check_accessor_arity(kind, params);
             let return_type =
                 if self.lang.is_typescript() && self.current_token.tag == TokenTag::Colon {
                     Some(self.parse_return_type_annotation()?)
@@ -9438,7 +9982,10 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     fn is_property_key_start(tag: TokenTag) -> bool {
         matches!(
             tag,
-            TokenTag::Star | TokenTag::LeftBracket | TokenTag::StringLiteral
+            TokenTag::Star
+                | TokenTag::LeftBracket
+                | TokenTag::StringLiteral
+                | TokenTag::PrivateIdentifier
         ) || tag.is_numeric_literal()
             || tag.is_identifier_like()
     }
@@ -9447,8 +9994,21 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         let token = self.current_token;
         if token.tag == TokenTag::LeftBracket {
             self.advance()?;
-            let expression =
-                self.parse_expr(Precedence::Assignment, ParseExpressionOpts::default())?;
+            let expression = self.parse_expr(
+                if self.lang.is_typescript() {
+                    Precedence::Comma
+                } else {
+                    Precedence::Assignment
+                },
+                ParseExpressionOpts::default(),
+            )?;
+            if self.ast.node_kind(expression.node_id()) == NodeKind::SequenceExpression {
+                self.report(
+                    expression.span(self.ast),
+                    "Comma expressions are not allowed in computed class keys",
+                    ReportOptions::default(),
+                );
+            }
             if !self.expect(
                 TokenTag::RightBracket,
                 "Expected ']' after computed property key",
@@ -9501,7 +10061,11 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             TokenTag::LeftBracket => {
                 self.advance()?;
                 let expression = self.parse_expr(
-                    Precedence::Assignment,
+                    if self.lang.is_typescript() {
+                        Precedence::Comma
+                    } else {
+                        Precedence::Assignment
+                    },
                     ParseExpressionOpts {
                         in_cover,
                         ..ParseExpressionOpts::default()
@@ -9522,6 +10086,16 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             }
             TokenTag::StringLiteral => {
                 Some(PropertyKey::StringLiteral(self.parse_string_literal()?))
+            }
+            TokenTag::PrivateIdentifier => {
+                self.report(
+                    token.span,
+                    "Private names are not allowed as object or type member keys",
+                    ReportOptions::default(),
+                );
+                Some(PropertyKey::PrivateIdentifier(
+                    self.parse_private_identifier()?,
+                ))
             }
             tag if tag.is_numeric_literal() => {
                 let expression = self.parse_numeric_literal()?;
@@ -9708,6 +10282,19 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     fn parse_optional_chain(&mut self, left: Expr) -> Option<Expr> {
         let start = left.span(self.ast).start;
         self.advance()?;
+        if self.lang.is_typescript()
+            && matches!(
+                self.current_token.tag,
+                TokenTag::NoSubstitutionTemplate | TokenTag::TemplateHead
+            )
+        {
+            self.report(
+                self.current_token.span,
+                "Tagged template expressions are not permitted in an optional chain",
+                ReportOptions::default(),
+            );
+            return self.parse_tagged_template_expression(left, None);
+        }
         let mut expression = self.parse_optional_chain_element(left, true)?;
         loop {
             expression = match self.current_token.tag {
@@ -9727,6 +10314,9 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                     self.parse_non_null_expression(expression)?
                 }
                 TokenTag::LessThan | TokenTag::LeftShift if self.lang.is_typescript() => {
+                    if !can_have_type_arguments(expression, self.ast) {
+                        break;
+                    }
                     let Some(next) =
                         self.parse_type_argumented_call_or_instantiation(expression)?
                     else {
@@ -9931,6 +10521,26 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         match self.current_token.tag {
             TokenTag::Dot => self.parse_import_meta_or_phase_import(import_name),
             TokenTag::LeftParen => self.parse_dynamic_import(start, None),
+            tag if self.lang.is_typescript() && is_angle_open(tag) => {
+                self.report(
+                    self.current_token.span,
+                    "Dynamic imports cannot have type arguments",
+                    ReportOptions::default(),
+                );
+                let type_arguments = self.parse_type_arguments()?;
+                if self.current_token.tag == TokenTag::LeftParen {
+                    return self.parse_dynamic_import(start, None);
+                }
+                let expression = self.ast.expr_identifier_reference(
+                    import_name.span(self.ast),
+                    import_name.name(self.ast),
+                );
+                Some(self.ast.expr_ts_instantiation_expression(
+                    Span::new(start, type_arguments.span(self.ast).end),
+                    expression,
+                    type_arguments,
+                ))
+            }
             _ => {
                 self.report(
                     self.current_token.span,
@@ -9944,36 +10554,41 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
 
     fn parse_import_meta_or_phase_import(&mut self, import_name: IdentifierName) -> Option<Expr> {
         self.advance()?;
-        let property = self.current_token;
-        let phase = match property.tag {
+        let property_token = self.current_token;
+        if !property_token.tag.is_identifier_like() {
+            self.report_expected(
+                property_token.span,
+                "Expected a meta-property name after 'import.'",
+                ReportOptions::default(),
+            );
+            return None;
+        }
+        let phase = match property_token.tag {
             TokenTag::Source => Some(ImportPhase::Source),
             TokenTag::Defer => Some(ImportPhase::Defer),
-            TokenTag::Identifier if property.text(self.source) == "meta" => {
-                let property = self.parse_identifier_name()?;
-                self.has_module_syntax = true;
-                return Some(self.ast.expr_meta_property(
-                    Span::new(
-                        import_name.span(self.ast).start,
-                        property.span(self.ast).end,
-                    ),
-                    import_name,
-                    property,
-                ));
-            }
-            _ => {
-                return {
-                    let span = self.current_token.span;
-                    self.report(
-                        span,
-                        "The only valid meta properties for 'import' are 'import.meta', 'import.source()', or 'import.defer()'",
-                        ReportOptions::default(),
-                    );
-                    None
-                };
-            }
+            _ => None,
         };
-        self.advance()?;
-        self.parse_dynamic_import(import_name.span(self.ast).start, phase)
+        let property = self.parse_identifier_name()?;
+        if phase.is_some() && self.current_token.tag == TokenTag::LeftParen {
+            return self.parse_dynamic_import(import_name.span(self.ast).start, phase);
+        }
+        if property_token.text(self.source) == "meta" {
+            self.has_module_syntax = true;
+        } else {
+            self.report(
+                property_token.span,
+                "Invalid import meta-property",
+                ReportOptions::default(),
+            );
+        }
+        Some(self.ast.expr_meta_property(
+            Span::new(
+                import_name.span(self.ast).start,
+                property.span(self.ast).end,
+            ),
+            import_name,
+            property,
+        ))
     }
 
     fn parse_dynamic_import(&mut self, start: u32, phase: Option<ImportPhase>) -> Option<Expr> {
@@ -10011,15 +10626,14 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         self.advance()?;
         let property_token = self.current_token;
         if property_token.text(self.source) != "target" {
-            return {
-                let span = self.current_token.span;
-                self.report(
-                    span,
-                    "The only valid meta property for 'new' is 'new.target'",
-                    ReportOptions::default(),
-                );
-                None
-            };
+            self.report(
+                property_token.span,
+                "The only valid meta property for 'new' is 'new.target'",
+                ReportOptions::default(),
+            );
+        }
+        if !property_token.tag.is_identifier_like() {
+            return None;
         }
         let property = self.parse_identifier_name()?;
         Some(self.ast.expr_meta_property(
@@ -10206,7 +10820,13 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     fn jsx_names_match(&self, a: JsxElementName, b: JsxElementName) -> bool {
         let a = a.span(self.ast);
         let b = b.span(self.ast);
-        a.end - a.start == b.end - b.start && self.span_text(a) == self.span_text(b)
+        self.span_text(a)
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .eq(self
+                .span_text(b)
+                .chars()
+                .filter(|character| !character.is_whitespace()))
     }
 
     fn parse_jsx_fragment(&mut self, start: u32, context: JsxElementContext) -> Option<Expr> {
@@ -10529,7 +11149,6 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                             ..ReportOptions::default()
                         },
                     );
-                    return None;
                 }
                 Some(JsxAttributeValue::JsxExpressionContainer(container))
             }
@@ -10902,9 +11521,13 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         ))
     }
 
-    fn parse_logical_expression(&mut self, left: Expr, tag: TokenTag) -> Option<Expr> {
+    fn parse_logical_expression(
+        &mut self,
+        left: Expr,
+        tag: TokenTag,
+        precedence: Precedence,
+    ) -> Option<Expr> {
         let start = left.span(self.ast).start;
-        let precedence = tag.precedence();
         self.advance()?;
         let right = self.parse_expr(precedence.next(), ParseExpressionOpts::default())?;
         let operator = match tag {
@@ -10929,7 +11552,6 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                     "Logical expressions and nullish coalescing cannot be mixed",
                     ReportOptions::default(),
                 );
-                return None;
             }
         }
         Some(self.ast.expr_logical_expression(
@@ -10959,17 +11581,15 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             };
             self.expression_to_assignment_target(target)?
         } else {
-            self.report(
-                left.span(self.ast),
-                "Invalid assignment target",
-                ReportOptions {
-                    help: Some(Cow::Borrowed(
-                        "The left-hand side of a compound assignment must be a variable or property access",
-                    )),
-                    ..ReportOptions::default()
-                },
-            );
-            return None;
+            if !self.lang.is_typescript() {
+                self.report(
+                    left.span(self.ast),
+                    "Invalid assignment target",
+                    ReportOptions::default(),
+                );
+                return None;
+            }
+            self.recover_invalid_assignment_target(left)
         };
         self.advance()?;
         let right = self.parse_expr(precedence, ParseExpressionOpts::default())?;
@@ -11179,10 +11799,30 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                 }
                 self.expression_to_assignment_target(inner)
             }
+            _ if self.is_simple_assignment_target(expression) => {
+                Some(AssignmentTarget::SimpleAssignmentTarget(
+                    self.expression_to_simple_assignment_target(expression)?,
+                ))
+            }
+            _ if self.lang.is_typescript() => {
+                Some(self.recover_invalid_assignment_target(expression))
+            }
             _ => Some(AssignmentTarget::SimpleAssignmentTarget(
                 self.expression_to_simple_assignment_target(expression)?,
             )),
         }
+    }
+
+    fn recover_invalid_assignment_target(&mut self, expression: Expr) -> AssignmentTarget {
+        let span = expression.span(self.ast);
+        self.report(span, "Invalid assignment target", ReportOptions::default());
+        let marker = self
+            .ast
+            .ts_type_ts_any_keyword(Span::new(span.end, span.end));
+        AssignmentTarget::SimpleAssignmentTarget(
+            self.ast
+                .simple_assignment_target_ts_as_expression(span, expression, marker),
+        )
     }
 
     #[inline(always)]
@@ -11528,6 +12168,23 @@ fn max_left_precedence(expression: Expr, ast: &Ast<'_>) -> Precedence {
     }
 }
 
+fn can_have_type_arguments(expression: Expr, ast: &Ast<'_>) -> bool {
+    match ast.expr_data(expression) {
+        ExprData::IdentifierReference(_)
+        | ExprData::MemberExpression(_)
+        | ExprData::CallExpression(_)
+        | ExprData::NewExpression(_)
+        | ExprData::ChainExpression(_)
+        | ExprData::TsInstantiationExpression(_)
+        | ExprData::TsNonNullExpression(_)
+        | ExprData::Function(_) => true,
+        ExprData::ParenthesizedExpression(parenthesized) => {
+            can_have_type_arguments(parenthesized.expression(ast), ast)
+        }
+        _ => false,
+    }
+}
+
 fn is_angle_open(tag: TokenTag) -> bool {
     matches!(tag, TokenTag::LessThan | TokenTag::LeftShift)
 }
@@ -11603,6 +12260,7 @@ fn is_start_of_type(tag: TokenTag) -> bool {
             | TokenTag::Asserts
             | TokenTag::Question
             | TokenTag::LogicalNot
+            | TokenTag::Star
             | TokenTag::Spread
             | TokenTag::BitwiseAnd
             | TokenTag::BitwiseOr
@@ -11991,6 +12649,607 @@ mod tests {
     }
 
     #[test]
+    fn excludes_pre_export_decorators_from_exported_class_span() {
+        let allocator = Allocator::new();
+        let source = "@dec export class C {}";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+        assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+        let statement = result.program.body(&ast).get_node(&ast, 0).unwrap();
+        let StmtData::ExportNamedDeclaration(export) = ast.stmt_data(statement) else {
+            panic!("expected an export declaration");
+        };
+        let declaration = export.declaration(&ast).unwrap();
+        let DeclData::Class(class) = ast.decl_data(declaration) else {
+            panic!("expected a class declaration");
+        };
+        assert_eq!(class.span(&ast), Span::new(12, source.len() as u32));
+        assert_eq!(class.decorators(&ast).len(), 1);
+    }
+
+    #[test]
+    fn generator_named_constructor_remains_a_method() {
+        let allocator = Allocator::new();
+        let source = "class C { *constructor() {} }";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+        assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+        let statement = result.program.body(&ast).get_node(&ast, 0).unwrap();
+        let StmtData::Declaration(declaration) = ast.stmt_data(statement) else {
+            panic!("expected a declaration");
+        };
+        let DeclData::Class(class) = ast.decl_data(declaration) else {
+            panic!("expected a class declaration");
+        };
+        let element = class.body(&ast).body(&ast).get_node(&ast, 0).unwrap();
+        let ClassElementData::MethodDefinition(method) = ast.class_element_data(element) else {
+            panic!("expected a method definition");
+        };
+        assert_eq!(method.kind(&ast), MethodDefinitionKind::Method);
+    }
+
+    #[test]
+    fn computed_type_member_span_includes_closing_bracket() {
+        let allocator = Allocator::new();
+        let source = "interface I { [a] }";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+        assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+        let statement = result.program.body(&ast).get_node(&ast, 0).unwrap();
+        let StmtData::Declaration(declaration) = ast.stmt_data(statement) else {
+            panic!("expected a declaration");
+        };
+        let DeclData::TsInterfaceDeclaration(interface) = ast.decl_data(declaration) else {
+            panic!("expected an interface declaration");
+        };
+        let member = interface.body(&ast).body(&ast).get_node(&ast, 0).unwrap();
+        assert_eq!(member.span(&ast), Span::new(14, 17));
+    }
+
+    #[test]
+    fn retains_object_accessor_with_invalid_arity() {
+        let allocator = Allocator::new();
+        let source = "const value = { set item() {} };";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        assert!(!result.diagnostics.is_empty());
+        let statement = result.program.body(&ast).get_node(&ast, 0).unwrap();
+        let StmtData::Declaration(declaration) = ast.stmt_data(statement) else {
+            panic!("expected the variable declaration to be retained");
+        };
+        assert!(matches!(
+            ast.decl_data(declaration),
+            DeclData::VariableDeclaration(_)
+        ));
+    }
+
+    #[test]
+    fn retains_private_object_property_keys() {
+        let allocator = Allocator::new();
+        let source = "const value = { get #item() {} };";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        let statement = result.program.body(&ast).get_node(&ast, 0).unwrap();
+        let StmtData::Declaration(declaration) = ast.stmt_data(statement) else {
+            panic!("expected a variable declaration");
+        };
+        let DeclData::VariableDeclaration(variable) = ast.decl_data(declaration) else {
+            panic!("expected a variable declaration");
+        };
+        let declarator = variable.declarators(&ast).get_node(&ast, 0).unwrap();
+        let expression = declarator.init(&ast).unwrap();
+        let ExprData::ObjectExpression(object) = ast.expr_data(expression) else {
+            panic!("expected an object expression");
+        };
+        let property = object.properties(&ast).get_node(&ast, 0).unwrap();
+        let property = property.as_object_property(&ast).unwrap();
+        assert!(property.key(&ast).as_private_identifier(&ast).is_some());
+    }
+
+    #[test]
+    fn decorated_rest_parameter_span_includes_decorators() {
+        let allocator = Allocator::new();
+        let source = "class C { method(@first value, @second ...rest) {} }";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        let statement = result.program.body(&ast).get_node(&ast, 0).unwrap();
+        let StmtData::Declaration(declaration) = ast.stmt_data(statement) else {
+            panic!("expected a class declaration");
+        };
+        let DeclData::Class(class) = ast.decl_data(declaration) else {
+            panic!("expected a class declaration");
+        };
+        let element = class.body(&ast).body(&ast).get_node(&ast, 0).unwrap();
+        let ClassElementData::MethodDefinition(method) = ast.class_element_data(element) else {
+            panic!("expected a method definition");
+        };
+        let params = method.value(&ast).params(&ast);
+        let parameter = params.items(&ast).get_node(&ast, 0).unwrap();
+        assert_eq!(
+            parameter.span(&ast).start,
+            source.find("value").unwrap() as u32
+        );
+        assert_eq!(
+            params.rest(&ast).unwrap().span(&ast).start,
+            source.find("@second").unwrap() as u32
+        );
+    }
+
+    #[test]
+    fn parenthesized_type_predicate_annotation_excludes_parentheses() {
+        let allocator = Allocator::new();
+        let source = "function f(value: unknown): value is (string) { return true; }";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+        assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+
+        let statement = result.program.body(&ast).get_node(&ast, 0).unwrap();
+        let StmtData::Declaration(declaration) = ast.stmt_data(statement) else {
+            panic!("expected a function declaration");
+        };
+        let DeclData::Function(function) = ast.decl_data(declaration) else {
+            panic!("expected a function declaration");
+        };
+        let return_type = function.return_type(&ast).unwrap().type_annotation(&ast);
+        let TsTypeData::TsTypePredicate(predicate) = ast.ts_type_data(return_type) else {
+            panic!("expected a type predicate");
+        };
+        let annotation = predicate.type_annotation(&ast).unwrap();
+        let string_start = source.find("string").unwrap() as u32;
+        assert_eq!(
+            annotation.span(&ast),
+            Span::new(string_start, string_start + 6)
+        );
+        assert_eq!(
+            predicate.span(&ast).end,
+            source.find(") {").unwrap() as u32 + 1
+        );
+    }
+
+    #[test]
+    fn decorated_static_block_span_includes_decorator() {
+        let allocator = Allocator::new();
+        let source = "class C { @dec static {} }";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+        assert!(!result.diagnostics.is_empty());
+
+        let statement = result.program.body(&ast).get_node(&ast, 0).unwrap();
+        let StmtData::Declaration(declaration) = ast.stmt_data(statement) else {
+            panic!("expected a class declaration");
+        };
+        let DeclData::Class(class) = ast.decl_data(declaration) else {
+            panic!("expected a class declaration");
+        };
+        let element = class.body(&ast).body(&ast).get_node(&ast, 0).unwrap();
+        let ClassElementData::StaticBlock(block) = ast.class_element_data(element) else {
+            panic!("expected a static block");
+        };
+        assert_eq!(block.span(&ast).start, source.find("@dec").unwrap() as u32);
+    }
+
+    #[test]
+    fn retains_contextually_invalid_await_and_yield_expressions() {
+        let allocator = Allocator::new();
+        let source = "function f() { await value; yield value; }";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+        assert!(!result.diagnostics.is_empty());
+
+        let statement = result.program.body(&ast).get_node(&ast, 0).unwrap();
+        let StmtData::Declaration(declaration) = ast.stmt_data(statement) else {
+            panic!("expected a function declaration");
+        };
+        let DeclData::Function(function) = ast.decl_data(declaration) else {
+            panic!("expected a function declaration");
+        };
+        let body = function.body(&ast).body(&ast);
+        assert_eq!(body.len(), 2);
+        let first = body.get_node(&ast, 0).unwrap();
+        let StmtData::ExpressionStatement(first) = ast.stmt_data(first) else {
+            panic!("expected an expression statement");
+        };
+        assert!(matches!(
+            ast.expr_data(first.expression(&ast)),
+            ExprData::AwaitExpression(_)
+        ));
+        let second = body.get_node(&ast, 1).unwrap();
+        let StmtData::ExpressionStatement(second) = ast.stmt_data(second) else {
+            panic!("expected an expression statement");
+        };
+        assert!(matches!(
+            ast.expr_data(second.expression(&ast)),
+            ExprData::YieldExpression(_)
+        ));
+    }
+
+    #[test]
+    fn retains_invalid_mixed_nullish_expressions() {
+        let allocator = Allocator::new();
+        let source = "a ?? b || c; a || b ?? c;";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        assert!(!result.diagnostics.is_empty());
+        assert_eq!(result.program.body(&ast).len(), 2);
+    }
+
+    #[test]
+    fn retains_invalid_optional_chain_tagged_template() {
+        let allocator = Allocator::new();
+        let source = "a?.`value`;";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        assert!(!result.diagnostics.is_empty());
+        let statement = result.program.body(&ast).get_node(&ast, 0).unwrap();
+        let StmtData::ExpressionStatement(statement) = ast.stmt_data(statement) else {
+            panic!("expected an expression statement");
+        };
+        assert!(matches!(
+            ast.expr_data(statement.expression(&ast)),
+            ExprData::TaggedTemplateExpression(_)
+        ));
+    }
+
+    #[test]
+    fn retains_class_elements_with_invalid_modifiers() {
+        let allocator = Allocator::new();
+        let source = "class C { static const x = 1; export method() {} readonly readonly y; }";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        assert!(!result.diagnostics.is_empty());
+        let statement = result.program.body(&ast).get_node(&ast, 0).unwrap();
+        let StmtData::Declaration(declaration) = ast.stmt_data(statement) else {
+            panic!("expected a class declaration");
+        };
+        let DeclData::Class(class) = ast.decl_data(declaration) else {
+            panic!("expected a class declaration");
+        };
+        assert_eq!(class.body(&ast).body(&ast).len(), 3);
+    }
+
+    #[test]
+    fn retains_sequence_expression_as_computed_property_key() {
+        let allocator = Allocator::new();
+        let source = "const value = { [0, 1]: true };";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+        assert_eq!(result.program.body(&ast).len(), 1);
+    }
+
+    #[test]
+    fn retains_conditional_expression_as_computed_class_key() {
+        let allocator = Allocator::new();
+        let source = "class C { [a ? b : c]() {} }";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        assert_eq!(
+            result.program.body(&ast).len(),
+            1,
+            "{:#?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn retains_contextually_invalid_await_binding_in_module() {
+        let allocator = Allocator::new();
+        let source = "export {}; var [await] = [1];";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                source_type: SourceType::Module,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        assert_eq!(
+            result.program.body(&ast).len(),
+            2,
+            "{:#?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn retains_decorators_around_export_and_default() {
+        let allocator = Allocator::new();
+        let source = "@outer export @inner class C {}\nexport @before default class D {}\n@outer export default @inner class E {}";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                source_type: SourceType::Module,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        let body = result.program.body(&ast);
+        assert_eq!(body.len(), 3, "{:#?}", result.diagnostics);
+        for (index, expected_decorators) in [2, 1, 2].into_iter().enumerate() {
+            let statement = body.get_node(&ast, index).unwrap();
+            let declaration = match ast.stmt_data(statement) {
+                StmtData::ExportNamedDeclaration(export) => export.declaration(&ast).unwrap(),
+                StmtData::ExportDefaultDeclaration(export) => {
+                    let class = export.declaration(&ast).as_class(&ast).unwrap();
+                    assert_eq!(class.decorators(&ast).len(), expected_decorators);
+                    continue;
+                }
+                _ => panic!("expected an exported class"),
+            };
+            let DeclData::Class(class) = ast.decl_data(declaration) else {
+                panic!("expected a class declaration");
+            };
+            assert_eq!(class.decorators(&ast).len(), expected_decorators);
+        }
+    }
+
+    #[test]
+    fn recovers_reserved_type_and_trailing_variable_comma() {
+        let allocator = Allocator::new();
+        let source = "class Foo { public method(x: break) {} }\nvar a,\nreturn;";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        let body = result.program.body(&ast);
+        assert_eq!(body.len(), 3, "{:#?}", result.diagnostics);
+        let variable = body.get_node(&ast, 1).unwrap();
+        let StmtData::Declaration(declaration) = ast.stmt_data(variable) else {
+            panic!("expected a variable declaration");
+        };
+        let DeclData::VariableDeclaration(variable) = ast.decl_data(declaration) else {
+            panic!("expected a variable declaration");
+        };
+        assert_eq!(variable.declarators(&ast).len(), 1);
+    }
+
+    #[test]
+    fn distinguishes_optional_index_signature_from_conditional_key() {
+        let allocator = Allocator::new();
+        let source = "interface I { [a?] } class C { [a ? b : c]() {} }";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        assert_eq!(
+            result.program.body(&ast).len(),
+            2,
+            "{:#?}",
+            result.diagnostics
+        );
+    }
+
+    #[test]
+    fn preserves_invalid_named_and_postfix_nullable_tuple_shapes() {
+        let allocator = Allocator::new();
+        let source = "type T = [rest: ...string[]]; type U = [...string?];";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        let body = result.program.body(&ast);
+        assert_eq!(body.len(), 2, "{:#?}", result.diagnostics);
+        let first = body.get_node(&ast, 0).unwrap();
+        let StmtData::Declaration(first) = ast.stmt_data(first) else {
+            panic!("expected a type alias");
+        };
+        let DeclData::TsTypeAliasDeclaration(first) = ast.decl_data(first) else {
+            panic!("expected a type alias");
+        };
+        let TsTypeData::TsTupleType(first) = ast.ts_type_data(first.type_annotation(&ast)) else {
+            panic!("expected a tuple type");
+        };
+        let first_element = first.element_types(&ast).get_node(&ast, 0).unwrap();
+        let TsTupleElementData::TsNamedTupleMember(first_element) =
+            ast.ts_tuple_element_data(first_element)
+        else {
+            panic!("expected a named tuple member");
+        };
+        assert!(matches!(
+            ast.ts_type_data(first_element.element_type(&ast)),
+            TsTypeData::TsRestType(_)
+        ));
+
+        let second = body.get_node(&ast, 1).unwrap();
+        let StmtData::Declaration(second) = ast.stmt_data(second) else {
+            panic!("expected a type alias");
+        };
+        let DeclData::TsTypeAliasDeclaration(second) = ast.decl_data(second) else {
+            panic!("expected a type alias");
+        };
+        let TsTypeData::TsTupleType(second) = ast.ts_type_data(second.type_annotation(&ast)) else {
+            panic!("expected a tuple type");
+        };
+        let second_element = second.element_types(&ast).get_node(&ast, 0).unwrap();
+        let TsTupleElementData::TsType(second_element) = ast.ts_tuple_element_data(second_element)
+        else {
+            panic!("expected an unnamed tuple member");
+        };
+        let TsTypeData::TsRestType(second_element) = ast.ts_type_data(second_element) else {
+            panic!("expected a rest type");
+        };
+        assert!(matches!(
+            ast.ts_type_data(second_element.type_annotation(&ast)),
+            TsTypeData::TsJsDocNullableType(_)
+        ));
+    }
+
+    #[test]
+    fn retains_parenthesized_generic_function_call() {
+        let allocator = Allocator::new();
+        let source = "(function <T>() {})<string>();";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+        let statement = result.program.body(&ast).get_node(&ast, 0).unwrap();
+        let StmtData::ExpressionStatement(statement) = ast.stmt_data(statement) else {
+            panic!("expected an expression statement");
+        };
+        assert!(matches!(
+            ast.expr_data(statement.expression(&ast)),
+            ExprData::CallExpression(_)
+        ));
+    }
+
+    #[test]
     fn parses_long_escaped_identifier_value() {
         let allocator = Allocator::new();
         let source = format!("_{}", "\\u0816".repeat(100));
@@ -12019,5 +13278,149 @@ mod tests {
         };
         let quasi = template.quasis(&ast).get_node(&ast, 0).unwrap();
         assert_eq!(ast.get_utf8(quasi.raw(&ast)), "a\nb\nc");
+    }
+
+    #[test]
+    fn decorated_abstract_exports_do_not_panic() {
+        for source in [
+            "@dec export abstract class C {}",
+            "@dec export default abstract class C {}",
+        ] {
+            let allocator = Allocator::new();
+            let mut ast = Ast::new(source, &allocator);
+            let result = Parser::init(
+                &mut ast,
+                Options {
+                    lang: Lang::Ts,
+                    source_type: SourceType::Module,
+                    ..Options::default()
+                },
+                NoTokenParserConfig,
+            )
+            .parse();
+
+            assert!(!result.diagnostics.is_empty());
+        }
+    }
+
+    #[test]
+    fn reports_diagnostics_while_retaining_recovered_typescript_nodes() {
+        for source in [
+            "({ #x: 1 })",
+            "let x: break;",
+            "interface I { []: string }",
+            "function f(...args?) {}",
+            "class C { [a, b] = 1 }",
+        ] {
+            let allocator = Allocator::new();
+            let mut ast = Ast::new(source, &allocator);
+            let result = Parser::init(
+                &mut ast,
+                Options {
+                    lang: Lang::Ts,
+                    ..Options::default()
+                },
+                NoTokenParserConfig,
+            )
+            .parse();
+
+            assert!(!result.diagnostics.is_empty(), "{source}");
+            if !source.starts_with("class C") {
+                assert!(!result.program.body(&ast).is_empty(), "{source}");
+            }
+        }
+    }
+
+    #[test]
+    fn reports_javascript_generator_constructors() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("class C { *constructor() {} }", &allocator);
+        let result = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+
+        assert!(!result.diagnostics.is_empty());
+        assert_eq!(result.program.body(&ast).len(), 1);
+    }
+
+    #[test]
+    fn accepts_exported_import_equals_without_diagnostics() {
+        let allocator = Allocator::new();
+        let source = "export import x = require('x');";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                source_type: SourceType::Module,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+        assert_eq!(result.program.body(&ast).len(), 1);
+    }
+
+    #[test]
+    fn keeps_script_await_and_yield_as_identifiers_before_unary_operators() {
+        let allocator = Allocator::new();
+        let source = "await + 1; yield - 1;";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                source_type: SourceType::Script,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+        for index in 0..2 {
+            let statement = result.program.body(&ast).get_node(&ast, index).unwrap();
+            let StmtData::ExpressionStatement(statement) = ast.stmt_data(statement) else {
+                panic!("expected an expression statement");
+            };
+            assert!(
+                matches!(
+                    ast.expr_data(statement.expression(&ast)),
+                    ExprData::BinaryExpression(_)
+                ),
+                "{:?}",
+                ast.node_kind(statement.expression(&ast).node_id())
+            );
+        }
+    }
+
+    #[test]
+    fn retains_rest_parameter_initializer_for_estree_recovery() {
+        let allocator = Allocator::new();
+        let source = "function f(...args = []) {}";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        assert!(!result.diagnostics.is_empty());
+        let statement = result.program.body(&ast).get_node(&ast, 0).unwrap();
+        let StmtData::Declaration(declaration) = ast.stmt_data(statement) else {
+            panic!("expected a function declaration");
+        };
+        let DeclData::Function(function) = ast.decl_data(declaration) else {
+            panic!("expected a function declaration");
+        };
+        let rest = function.params(&ast).rest(&ast).unwrap();
+        assert!(matches!(
+            ast.binding_pattern_data(rest.argument(&ast)),
+            BindingPatternData::AssignmentPattern(_)
+        ));
     }
 }

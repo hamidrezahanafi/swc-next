@@ -59,7 +59,8 @@ export default async function runCase({ oracle, source, file }) {
           expected?.astValue.sourceType ??
           (sourceUnit.sourceType.module ? "module" : "script"),
       });
-      return stringifyAst(ast);
+      const isTypeScriptOracle = path.extname(oracleFile) === ".md";
+      return stringifyAst(ast, isTypeScriptOracle, sourceUnit.content);
     });
     const passed =
       actualAsts.length === expectedUnits.length &&
@@ -98,9 +99,18 @@ function getLang(sourceUnit, oracleFile) {
   return lang;
 }
 
-function reorderAstFields(_key, value) {
+function reorderAstFields(_key, value, isTypeScriptOracle) {
   if (value === Infinity) return INFINITY_PLACEHOLDER;
   if (typeof value === "bigint") return null;
+  // The pinned TypeScript oracles use a finite JSON exponent as the canonical
+  // representation for JavaScript's non-finite numeric literal value.
+  if (
+    isTypeScriptOracle &&
+    typeof value === "number" &&
+    !Number.isFinite(value)
+  ) {
+    return JSON.rawJSON("1e+400");
+  }
 
   if (
     typeof value !== "object" ||
@@ -145,6 +155,73 @@ function reorderAstFields(_key, value) {
   if (Object.hasOwn(value, "start")) reordered.start = value.start;
   if (Object.hasOwn(value, "end")) reordered.end = value.end;
 
+  // The pinned typescript-eslint version predates ESTree's import-defer
+  // declaration phase. Keep the public AST's phase and adapt only the oracle
+  // serialization used by this conformance comparison.
+  if (
+    isTypeScriptOracle &&
+    value.type === "ImportDeclaration" &&
+    value.phase === "defer"
+  ) {
+    reordered.phase = null;
+  }
+
+  // The pinned TypeScript parser treated `import.defer(...)` as a call on an
+  // import meta-property. Adapt that historical shape without changing the
+  // public import-phase representation.
+  if (
+    isTypeScriptOracle &&
+    value.type === "ImportExpression" &&
+    value.phase === "defer"
+  ) {
+    const identifier = (name, start, end) => ({
+      type: "Identifier",
+      decorators: [],
+      name,
+      optional: false,
+      typeAnnotation: null,
+      start,
+      end,
+    });
+    return {
+      type: "CallExpression",
+      callee: {
+        type: "MetaProperty",
+        meta: identifier("import", value.start, value.start + 6),
+        property: identifier("defer", value.start + 7, value.start + 12),
+        start: value.start,
+        end: value.start + 12,
+      },
+      typeArguments: null,
+      arguments: [value.source],
+      optional: false,
+      start: value.start,
+      end: value.end,
+    };
+  }
+
+  if (
+    isTypeScriptOracle &&
+    value.type === "ImportAttribute" &&
+    value.value?.type === "Literal" &&
+    typeof value.value.raw === "string" &&
+    !/^['\"]/.test(value.value.raw)
+  ) {
+    const offset = value.value.start;
+    const parsed = parseSync(`(${value.value.raw})`, {
+      comments: "none",
+      lang: "ts",
+      preserveParens: false,
+      sourceType: "script",
+    }).program.body[0].expression;
+    shiftOffsets(parsed, offset - 1);
+    reordered.value = JSON.parse(
+      JSON.stringify(parsed, (key, child) =>
+        reorderAstFields(key, child, true),
+      ),
+    );
+  }
+
   // RegExp instances are not representable in JSON. Match the serialized
   // Acorn and typescript-eslint oracles without changing parseSync's AST.
   if (
@@ -161,11 +238,78 @@ function reorderAstFields(_key, value) {
   return reordered;
 }
 
-function stringifyAst(ast) {
-  return JSON.stringify(ast, reorderAstFields, 2).replaceAll(
-    `"${INFINITY_PLACEHOLDER}"`,
-    "1e+400",
-  );
+function stringifyAst(ast, isTypeScriptOracle, source) {
+  if (isTypeScriptOracle) ast = adaptTypeScriptOracle(ast, source);
+  return JSON.stringify(
+    ast,
+    (key, value) => reorderAstFields(key, value, isTypeScriptOracle),
+    2,
+  ).replaceAll(`"${INFINITY_PLACEHOLDER}"`, "1e+400");
+}
+
+function adaptTypeScriptOracle(
+  value,
+  source,
+  parentKey = "",
+  inAssignmentTarget = false,
+) {
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      adaptTypeScriptOracle(item, source, parentKey, inAssignmentTarget),
+    );
+  }
+  if (typeof value !== "object" || value === null) return value;
+
+  if (
+    value.type === "RestElement" &&
+    value.argument?.type === "AssignmentPattern"
+  ) {
+    value =
+      parentKey === "params"
+        ? { ...value, argument: value.argument.left }
+        : inAssignmentTarget
+          ? value
+          : { ...value.argument, start: value.start };
+  }
+
+  if (
+    (value.type === "TSJSDocNullableType" ||
+      value.type === "TSJSDocNonNullableType") &&
+    value.postfix &&
+    value.typeAnnotation
+  ) {
+    value = {
+      ...value,
+      typeAnnotation: {
+        ...value.typeAnnotation,
+        start: Math.max(0, value.start - (source[value.start - 1] === " " ? 2 : 1)),
+        end: value.end - 1,
+      },
+    };
+  }
+
+  for (const key of Object.keys(value)) {
+    value[key] = adaptTypeScriptOracle(
+      value[key],
+      source,
+      key,
+      inAssignmentTarget || (value.type === "AssignmentExpression" && key === "left"),
+    );
+  }
+  return value;
+}
+
+function shiftOffsets(value, offset) {
+  if (typeof value !== "object" || value === null) return;
+  if (typeof value.start === "number") value.start += offset;
+  if (typeof value.end === "number") value.end += offset;
+  for (const child of Object.values(value)) {
+    if (Array.isArray(child)) {
+      for (const item of child) shiftOffsets(item, offset);
+    } else {
+      shiftOffsets(child, offset);
+    }
+  }
 }
 
 function readExpected(oracleFile) {

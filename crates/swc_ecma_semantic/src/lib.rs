@@ -555,6 +555,17 @@ mod tests {
     }
 
     #[test]
+    fn diagnoses_invalid_regular_expression_flags_after_parser_recovery() {
+        for source in [r"/x/z;", r"/x/gg;", r"/x/𝘨;"] {
+            assert_eq!(
+                diagnostics(source, Lang::Js),
+                ["Invalid regular expression literal"],
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
     fn arrow_initializer_preserves_export_context() {
         let allocator = Allocator::new();
         let mut ast = Ast::new(
