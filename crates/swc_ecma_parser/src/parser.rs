@@ -631,6 +631,7 @@ pub struct Parser<'parser, 'a, C: ParserConfig = NoTokenParserConfig> {
     statement_context: StatementContext,
     ts_context: TsContext,
     state: ParserState,
+    parenthesized_assignment_targets: Vec<(NodeId, Span)>,
     /// Start offsets which failed speculative parenthesized-arrow parsing.
     ///
     /// This cache is intentionally not part of [`Checkpoint`]: a failed
@@ -660,6 +661,7 @@ struct Checkpoint {
     nodes_len: usize,
     extra_len: usize,
     diagnostics_len: usize,
+    parenthesized_assignment_targets_len: usize,
     // Parser flags, copied by value.
     context: Context,
     statement_context: StatementContext,
@@ -773,6 +775,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                 ..TsContext::default()
             },
             state: ParserState::default(),
+            parenthesized_assignment_targets: Vec::new(),
             not_parenthesized_arrow: FxHashSet::default(),
         }
     }
@@ -1045,6 +1048,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             nodes_len: self.ast.node_count(),
             extra_len: self.ast.extra_data_count(),
             diagnostics_len: self.diagnostics.len(),
+            parenthesized_assignment_targets_len: self.parenthesized_assignment_targets.len(),
             context: self.context,
             statement_context: self.statement_context,
             ts_context: self.ts_context,
@@ -1065,6 +1069,8 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         self.ast
             .truncate(checkpoint.nodes_len, checkpoint.extra_len);
         self.diagnostics.truncate(checkpoint.diagnostics_len);
+        self.parenthesized_assignment_targets
+            .truncate(checkpoint.parenthesized_assignment_targets_len);
         self.context = checkpoint.context;
         self.statement_context = checkpoint.statement_context;
         self.ts_context = checkpoint.ts_context;
@@ -8441,7 +8447,10 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                     );
                     return None;
                 }
-                self.expression_to_pattern(inner, context)
+                let pattern = self.expression_to_pattern(inner, context)?;
+                self.parenthesized_assignment_targets
+                    .push((pattern.node_id(), expression.span(self.ast)));
+                Some(pattern)
             }
             ExprData::ChainExpression(_) => {
                 self.report(
@@ -8786,6 +8795,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                 if context == PatternContext::Assignment {
                     return Some(BindingPattern::SimpleAssignmentTarget(target));
                 }
+                self.report_parenthesized_binding_target(target.node_id());
                 match self.ast.simple_assignment_target_data(target) {
                     SimpleAssignmentTargetData::IdentifierReference(identifier) => {
                         let decorators = TypedSubRange::empty();
@@ -8833,11 +8843,71 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                 }
             }
             AssignmentTargetData::ArrayAssignmentTarget(pattern) => {
-                Some(BindingPattern::ArrayPattern(pattern))
+                let pattern = BindingPattern::ArrayPattern(pattern);
+                if context == PatternContext::Binding {
+                    self.report_parenthesized_binding_targets(pattern);
+                }
+                Some(pattern)
             }
             AssignmentTargetData::ObjectAssignmentTarget(pattern) => {
-                Some(BindingPattern::ObjectPattern(pattern))
+                let pattern = BindingPattern::ObjectPattern(pattern);
+                if context == PatternContext::Binding {
+                    self.report_parenthesized_binding_targets(pattern);
+                }
+                Some(pattern)
             }
+        }
+    }
+
+    fn report_parenthesized_binding_target(&mut self, node_id: NodeId) {
+        if let Some(span) = self
+            .parenthesized_assignment_targets
+            .iter()
+            .find_map(|(target, span)| (*target == node_id).then_some(*span))
+        {
+            self.report(
+                span,
+                "Parentheses are not allowed in an arrow function binding pattern",
+                ReportOptions::default(),
+            );
+        }
+    }
+
+    fn report_parenthesized_binding_targets(&mut self, pattern: BindingPattern) {
+        self.report_parenthesized_binding_target(pattern.node_id());
+        match self.ast.binding_pattern_data(pattern) {
+            BindingPatternData::AssignmentPattern(assignment) => {
+                self.report_parenthesized_binding_targets(assignment.left(self.ast));
+            }
+            BindingPatternData::BindingRestElement(rest) => {
+                self.report_parenthesized_binding_targets(rest.argument(self.ast));
+            }
+            BindingPatternData::ArrayPattern(array) => {
+                for index in 0..array.elements(self.ast).len() {
+                    if let Some(element) =
+                        array.elements(self.ast).get_node(self.ast, index).unwrap()
+                    {
+                        self.report_parenthesized_binding_targets(element);
+                    }
+                }
+                if let Some(rest) = array.rest(self.ast) {
+                    self.report_parenthesized_binding_targets(rest.argument(self.ast));
+                }
+            }
+            BindingPatternData::ObjectPattern(object) => {
+                for index in 0..object.properties(self.ast).len() {
+                    let property = object
+                        .properties(self.ast)
+                        .get_node(self.ast, index)
+                        .unwrap();
+                    self.report_parenthesized_binding_targets(property.value(self.ast));
+                }
+                if let Some(rest) = object.rest(self.ast) {
+                    self.report_parenthesized_binding_targets(rest.argument(self.ast));
+                }
+            }
+            BindingPatternData::BindingIdentifier(_)
+            | BindingPatternData::SimpleAssignmentTarget(_) => {}
         }
     }
 
@@ -11120,7 +11190,10 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                     );
                     return None;
                 }
-                self.expression_to_assignment_target(inner)
+                let target = self.expression_to_assignment_target(inner)?;
+                self.parenthesized_assignment_targets
+                    .push((target.node_id(), expression.span(self.ast)));
+                Some(target)
             }
             _ => Some(AssignmentTarget::SimpleAssignmentTarget(
                 self.expression_to_simple_assignment_target(expression)?,
@@ -11909,6 +11982,20 @@ mod tests {
         assert_eq!(
             parser.diagnostics[0].message,
             "'if' is reserved and cannot be used as an identifier"
+        );
+    }
+
+    #[test]
+    fn rejects_parenthesized_arrow_binding_in_nested_assignment_pattern() {
+        let allocator = Allocator::new();
+        let source = "([[(a)] = []] = []) => {}";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+
+        assert_eq!(result.diagnostics.len(), 1);
+        assert_eq!(
+            result.diagnostics[0].message,
+            "Parentheses are not allowed in an arrow function binding pattern"
         );
     }
 
