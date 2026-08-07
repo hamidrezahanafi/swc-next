@@ -74,15 +74,15 @@ function requireNative() {
   } else if (process.platform === 'android') {
     if (process.arch === 'arm64') {
       try {
-        return require('./swc-next.android-arm64.node')
+        return require('./swc-next-core.android-arm64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@swc-next/binding-android-arm64')
-        const bindingPackageVersion = require('@swc-next/binding-android-arm64/package.json').version
-        if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('@swc-next/core-binding-android-arm64')
+        const bindingPackageVersion = require('@swc-next/core-binding-android-arm64/package.json').version
+        if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -90,15 +90,15 @@ function requireNative() {
       }
     } else if (process.arch === 'arm') {
       try {
-        return require('./swc-next.android-arm-eabi.node')
+        return require('./swc-next-core.android-arm-eabi.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@swc-next/binding-android-arm-eabi')
-        const bindingPackageVersion = require('@swc-next/binding-android-arm-eabi/package.json').version
-        if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('@swc-next/core-binding-android-arm-eabi')
+        const bindingPackageVersion = require('@swc-next/core-binding-android-arm-eabi/package.json').version
+        if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -111,15 +111,15 @@ function requireNative() {
     if (process.arch === 'x64') {
       if ((process.config && process.config.variables && process.config.variables.shlib_suffix === 'dll.a') || (process.config && process.config.variables && process.config.variables.node_target_type === 'shared_library')) {
         try {
-        return require('./swc-next.win32-x64-gnu.node')
+        return require('./swc-next-core.win32-x64-gnu.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@swc-next/binding-win32-x64-gnu')
-        const bindingPackageVersion = require('@swc-next/binding-win32-x64-gnu/package.json').version
-        if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('@swc-next/core-binding-win32-x64-gnu')
+        const bindingPackageVersion = require('@swc-next/core-binding-win32-x64-gnu/package.json').version
+        if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -127,15 +127,15 @@ function requireNative() {
       }
       } else {
         try {
-        return require('./swc-next.win32-x64-msvc.node')
+        return require('./swc-next-core.win32-x64-msvc.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@swc-next/binding-win32-x64-msvc')
-        const bindingPackageVersion = require('@swc-next/binding-win32-x64-msvc/package.json').version
-        if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('@swc-next/core-binding-win32-x64-msvc')
+        const bindingPackageVersion = require('@swc-next/core-binding-win32-x64-msvc/package.json').version
+        if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -144,15 +144,15 @@ function requireNative() {
       }
     } else if (process.arch === 'ia32') {
       try {
-        return require('./swc-next.win32-ia32-msvc.node')
+        return require('./swc-next-core.win32-ia32-msvc.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@swc-next/binding-win32-ia32-msvc')
-        const bindingPackageVersion = require('@swc-next/binding-win32-ia32-msvc/package.json').version
-        if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('@swc-next/core-binding-win32-ia32-msvc')
+        const bindingPackageVersion = require('@swc-next/core-binding-win32-ia32-msvc/package.json').version
+        if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -160,15 +160,15 @@ function requireNative() {
       }
     } else if (process.arch === 'arm64') {
       try {
-        return require('./swc-next.win32-arm64-msvc.node')
+        return require('./swc-next-core.win32-arm64-msvc.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@swc-next/binding-win32-arm64-msvc')
-        const bindingPackageVersion = require('@swc-next/binding-win32-arm64-msvc/package.json').version
-        if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('@swc-next/core-binding-win32-arm64-msvc')
+        const bindingPackageVersion = require('@swc-next/core-binding-win32-arm64-msvc/package.json').version
+        if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -179,15 +179,15 @@ function requireNative() {
     }
   } else if (process.platform === 'darwin') {
     try {
-      return require('./swc-next.darwin-universal.node')
+      return require('./swc-next-core.darwin-universal.node')
     } catch (e) {
       loadErrors.push(e)
     }
     try {
-      const binding = require('@swc-next/binding-darwin-universal')
-      const bindingPackageVersion = require('@swc-next/binding-darwin-universal/package.json').version
-      if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-        throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+      const binding = require('@swc-next/core-binding-darwin-universal')
+      const bindingPackageVersion = require('@swc-next/core-binding-darwin-universal/package.json').version
+      if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+        throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
       }
       return binding
     } catch (e) {
@@ -195,15 +195,15 @@ function requireNative() {
     }
     if (process.arch === 'x64') {
       try {
-        return require('./swc-next.darwin-x64.node')
+        return require('./swc-next-core.darwin-x64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@swc-next/binding-darwin-x64')
-        const bindingPackageVersion = require('@swc-next/binding-darwin-x64/package.json').version
-        if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('@swc-next/core-binding-darwin-x64')
+        const bindingPackageVersion = require('@swc-next/core-binding-darwin-x64/package.json').version
+        if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -211,15 +211,15 @@ function requireNative() {
       }
     } else if (process.arch === 'arm64') {
       try {
-        return require('./swc-next.darwin-arm64.node')
+        return require('./swc-next-core.darwin-arm64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@swc-next/binding-darwin-arm64')
-        const bindingPackageVersion = require('@swc-next/binding-darwin-arm64/package.json').version
-        if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('@swc-next/core-binding-darwin-arm64')
+        const bindingPackageVersion = require('@swc-next/core-binding-darwin-arm64/package.json').version
+        if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -231,15 +231,15 @@ function requireNative() {
   } else if (process.platform === 'freebsd') {
     if (process.arch === 'x64') {
       try {
-        return require('./swc-next.freebsd-x64.node')
+        return require('./swc-next-core.freebsd-x64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@swc-next/binding-freebsd-x64')
-        const bindingPackageVersion = require('@swc-next/binding-freebsd-x64/package.json').version
-        if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('@swc-next/core-binding-freebsd-x64')
+        const bindingPackageVersion = require('@swc-next/core-binding-freebsd-x64/package.json').version
+        if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -247,15 +247,15 @@ function requireNative() {
       }
     } else if (process.arch === 'arm64') {
       try {
-        return require('./swc-next.freebsd-arm64.node')
+        return require('./swc-next-core.freebsd-arm64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@swc-next/binding-freebsd-arm64')
-        const bindingPackageVersion = require('@swc-next/binding-freebsd-arm64/package.json').version
-        if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('@swc-next/core-binding-freebsd-arm64')
+        const bindingPackageVersion = require('@swc-next/core-binding-freebsd-arm64/package.json').version
+        if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -268,15 +268,15 @@ function requireNative() {
     if (process.arch === 'x64') {
       if (isMusl()) {
         try {
-          return require('./swc-next.linux-x64-musl.node')
+          return require('./swc-next-core.linux-x64-musl.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@swc-next/binding-linux-x64-musl')
-          const bindingPackageVersion = require('@swc-next/binding-linux-x64-musl/package.json').version
-          if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('@swc-next/core-binding-linux-x64-musl')
+          const bindingPackageVersion = require('@swc-next/core-binding-linux-x64-musl/package.json').version
+          if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -284,15 +284,15 @@ function requireNative() {
         }
       } else {
         try {
-          return require('./swc-next.linux-x64-gnu.node')
+          return require('./swc-next-core.linux-x64-gnu.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@swc-next/binding-linux-x64-gnu')
-          const bindingPackageVersion = require('@swc-next/binding-linux-x64-gnu/package.json').version
-          if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('@swc-next/core-binding-linux-x64-gnu')
+          const bindingPackageVersion = require('@swc-next/core-binding-linux-x64-gnu/package.json').version
+          if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -302,15 +302,15 @@ function requireNative() {
     } else if (process.arch === 'arm64') {
       if (isMusl()) {
         try {
-          return require('./swc-next.linux-arm64-musl.node')
+          return require('./swc-next-core.linux-arm64-musl.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@swc-next/binding-linux-arm64-musl')
-          const bindingPackageVersion = require('@swc-next/binding-linux-arm64-musl/package.json').version
-          if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('@swc-next/core-binding-linux-arm64-musl')
+          const bindingPackageVersion = require('@swc-next/core-binding-linux-arm64-musl/package.json').version
+          if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -318,15 +318,15 @@ function requireNative() {
         }
       } else {
         try {
-          return require('./swc-next.linux-arm64-gnu.node')
+          return require('./swc-next-core.linux-arm64-gnu.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@swc-next/binding-linux-arm64-gnu')
-          const bindingPackageVersion = require('@swc-next/binding-linux-arm64-gnu/package.json').version
-          if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('@swc-next/core-binding-linux-arm64-gnu')
+          const bindingPackageVersion = require('@swc-next/core-binding-linux-arm64-gnu/package.json').version
+          if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -336,15 +336,15 @@ function requireNative() {
     } else if (process.arch === 'arm') {
       if (isMusl()) {
         try {
-          return require('./swc-next.linux-arm-musleabihf.node')
+          return require('./swc-next-core.linux-arm-musleabihf.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@swc-next/binding-linux-arm-musleabihf')
-          const bindingPackageVersion = require('@swc-next/binding-linux-arm-musleabihf/package.json').version
-          if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('@swc-next/core-binding-linux-arm-musleabihf')
+          const bindingPackageVersion = require('@swc-next/core-binding-linux-arm-musleabihf/package.json').version
+          if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -352,15 +352,15 @@ function requireNative() {
         }
       } else {
         try {
-          return require('./swc-next.linux-arm-gnueabihf.node')
+          return require('./swc-next-core.linux-arm-gnueabihf.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@swc-next/binding-linux-arm-gnueabihf')
-          const bindingPackageVersion = require('@swc-next/binding-linux-arm-gnueabihf/package.json').version
-          if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('@swc-next/core-binding-linux-arm-gnueabihf')
+          const bindingPackageVersion = require('@swc-next/core-binding-linux-arm-gnueabihf/package.json').version
+          if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -370,15 +370,15 @@ function requireNative() {
     } else if (process.arch === 'loong64') {
       if (isMusl()) {
         try {
-          return require('./swc-next.linux-loong64-musl.node')
+          return require('./swc-next-core.linux-loong64-musl.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@swc-next/binding-linux-loong64-musl')
-          const bindingPackageVersion = require('@swc-next/binding-linux-loong64-musl/package.json').version
-          if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('@swc-next/core-binding-linux-loong64-musl')
+          const bindingPackageVersion = require('@swc-next/core-binding-linux-loong64-musl/package.json').version
+          if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -386,15 +386,15 @@ function requireNative() {
         }
       } else {
         try {
-          return require('./swc-next.linux-loong64-gnu.node')
+          return require('./swc-next-core.linux-loong64-gnu.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@swc-next/binding-linux-loong64-gnu')
-          const bindingPackageVersion = require('@swc-next/binding-linux-loong64-gnu/package.json').version
-          if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('@swc-next/core-binding-linux-loong64-gnu')
+          const bindingPackageVersion = require('@swc-next/core-binding-linux-loong64-gnu/package.json').version
+          if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -404,15 +404,15 @@ function requireNative() {
     } else if (process.arch === 'riscv64') {
       if (isMusl()) {
         try {
-          return require('./swc-next.linux-riscv64-musl.node')
+          return require('./swc-next-core.linux-riscv64-musl.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@swc-next/binding-linux-riscv64-musl')
-          const bindingPackageVersion = require('@swc-next/binding-linux-riscv64-musl/package.json').version
-          if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('@swc-next/core-binding-linux-riscv64-musl')
+          const bindingPackageVersion = require('@swc-next/core-binding-linux-riscv64-musl/package.json').version
+          if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -420,15 +420,15 @@ function requireNative() {
         }
       } else {
         try {
-          return require('./swc-next.linux-riscv64-gnu.node')
+          return require('./swc-next-core.linux-riscv64-gnu.node')
         } catch (e) {
           loadErrors.push(e)
         }
         try {
-          const binding = require('@swc-next/binding-linux-riscv64-gnu')
-          const bindingPackageVersion = require('@swc-next/binding-linux-riscv64-gnu/package.json').version
-          if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+          const binding = require('@swc-next/core-binding-linux-riscv64-gnu')
+          const bindingPackageVersion = require('@swc-next/core-binding-linux-riscv64-gnu/package.json').version
+          if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+            throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
           }
           return binding
         } catch (e) {
@@ -437,15 +437,15 @@ function requireNative() {
       }
     } else if (process.arch === 'ppc64') {
       try {
-        return require('./swc-next.linux-ppc64-gnu.node')
+        return require('./swc-next-core.linux-ppc64-gnu.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@swc-next/binding-linux-ppc64-gnu')
-        const bindingPackageVersion = require('@swc-next/binding-linux-ppc64-gnu/package.json').version
-        if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('@swc-next/core-binding-linux-ppc64-gnu')
+        const bindingPackageVersion = require('@swc-next/core-binding-linux-ppc64-gnu/package.json').version
+        if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -453,15 +453,15 @@ function requireNative() {
       }
     } else if (process.arch === 's390x') {
       try {
-        return require('./swc-next.linux-s390x-gnu.node')
+        return require('./swc-next-core.linux-s390x-gnu.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@swc-next/binding-linux-s390x-gnu')
-        const bindingPackageVersion = require('@swc-next/binding-linux-s390x-gnu/package.json').version
-        if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('@swc-next/core-binding-linux-s390x-gnu')
+        const bindingPackageVersion = require('@swc-next/core-binding-linux-s390x-gnu/package.json').version
+        if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -473,15 +473,15 @@ function requireNative() {
   } else if (process.platform === 'openharmony') {
     if (process.arch === 'arm64') {
       try {
-        return require('./swc-next.openharmony-arm64.node')
+        return require('./swc-next-core.openharmony-arm64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@swc-next/binding-openharmony-arm64')
-        const bindingPackageVersion = require('@swc-next/binding-openharmony-arm64/package.json').version
-        if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('@swc-next/core-binding-openharmony-arm64')
+        const bindingPackageVersion = require('@swc-next/core-binding-openharmony-arm64/package.json').version
+        if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -489,15 +489,15 @@ function requireNative() {
       }
     } else if (process.arch === 'x64') {
       try {
-        return require('./swc-next.openharmony-x64.node')
+        return require('./swc-next-core.openharmony-x64.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@swc-next/binding-openharmony-x64')
-        const bindingPackageVersion = require('@swc-next/binding-openharmony-x64/package.json').version
-        if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('@swc-next/core-binding-openharmony-x64')
+        const bindingPackageVersion = require('@swc-next/core-binding-openharmony-x64/package.json').version
+        if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -505,15 +505,15 @@ function requireNative() {
       }
     } else if (process.arch === 'arm') {
       try {
-        return require('./swc-next.openharmony-arm.node')
+        return require('./swc-next-core.openharmony-arm.node')
       } catch (e) {
         loadErrors.push(e)
       }
       try {
-        const binding = require('@swc-next/binding-openharmony-arm')
-        const bindingPackageVersion = require('@swc-next/binding-openharmony-arm/package.json').version
-        if (bindingPackageVersion !== '1.0.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-          throw new Error(`Native binding package version mismatch, expected 1.0.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        const binding = require('@swc-next/core-binding-openharmony-arm')
+        const bindingPackageVersion = require('@swc-next/core-binding-openharmony-arm/package.json').version
+        if (bindingPackageVersion !== '0.11.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+          throw new Error(`Native binding package version mismatch, expected 0.11.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
         }
         return binding
       } catch (e) {
@@ -543,7 +543,7 @@ if (!nativeBinding || forceWasi) {
   let wasiBinding = null
   let wasiBindingError = null
   try {
-    wasiBinding = require('./swc-next.wasi.cjs')
+    wasiBinding = require('./swc-next-core.wasi.cjs')
     nativeBinding = wasiBinding
   } catch (err) {
     if (forceWasi) {
@@ -552,7 +552,7 @@ if (!nativeBinding || forceWasi) {
   }
   if (!nativeBinding || forceWasi) {
     try {
-      wasiBinding = require('@swc-next/binding-wasm32-wasi')
+      wasiBinding = require('@swc-next/core-binding-wasm32-wasi')
       nativeBinding = wasiBinding
     } catch (err) {
       if (forceWasi) {
@@ -590,10 +590,10 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { CommentMode, Lang, langFromPath, parseSync, SourceType, sourceTypeFromPath } = nativeBinding
-export { CommentMode }
-export { Lang }
+const { langFromPath, parseSync, sourceTypeFromPath, CommentMode, Lang, SourceType } = nativeBinding
 export { langFromPath }
 export { parseSync }
-export { SourceType }
 export { sourceTypeFromPath }
+export { CommentMode }
+export { Lang }
+export { SourceType }

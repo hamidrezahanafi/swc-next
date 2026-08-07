@@ -22,10 +22,12 @@ use crate::{
     util::{InlineStorageMode, calculate_inline_layout},
 };
 
-const PRETTY_OUTPUT_PATH: &str = "napi/core/src-js/decode.pretty.js";
-const MINIFIED_OUTPUT_PATH: &str = "napi/core/src-js/decode.js";
+const CORE_PRETTY_OUTPUT_PATH: &str = "napi/core/src-js/decode.pretty.js";
+const CORE_MINIFIED_OUTPUT_PATH: &str = "napi/core/src-js/decode.js";
+const PARSER_PRETTY_OUTPUT_PATH: &str = "napi/parser/src-js/decode.pretty.js";
+const PARSER_MINIFIED_OUTPUT_PATH: &str = "napi/parser/src-js/decode.js";
 
-pub fn estree_decoder(schema: &Schema) -> (RawOutput, RawOutput) {
+pub fn estree_decoder(schema: &Schema) -> Vec<RawOutput> {
     let mut output = String::new();
     output.push_str(PREAMBLE);
 
@@ -43,23 +45,31 @@ pub fn estree_decoder(schema: &Schema) -> (RawOutput, RawOutput) {
 
     output.push_str(POSTAMBLE);
     let minified = minify(&output);
-    (
+    vec![
         RawOutput {
-            path: PRETTY_OUTPUT_PATH.into(),
+            path: CORE_PRETTY_OUTPUT_PATH.into(),
+            content: output.as_bytes().to_vec(),
+        },
+        RawOutput {
+            path: CORE_MINIFIED_OUTPUT_PATH.into(),
+            content: minified.as_bytes().to_vec(),
+        },
+        RawOutput {
+            path: PARSER_PRETTY_OUTPUT_PATH.into(),
             content: output.into_bytes(),
         },
         RawOutput {
-            path: MINIFIED_OUTPUT_PATH.into(),
+            path: PARSER_MINIFIED_OUTPUT_PATH.into(),
             content: minified.into_bytes(),
         },
-    )
+    ]
 }
 
 fn minify(source: &str) -> String {
     GLOBALS.set(&Globals::new(), || {
         let source_map = Lrc::new(SourceMap::default());
         let source_file = source_map.new_source_file(
-            FileName::Custom(PRETTY_OUTPUT_PATH.into()).into(),
+            FileName::Custom(CORE_PRETTY_OUTPUT_PATH.into()).into(),
             source.to_owned(),
         );
         let lexer = Lexer::new(

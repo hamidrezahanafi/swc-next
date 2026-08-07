@@ -1,14 +1,20 @@
 {
   "name": "swc-next",
-  "version": "1.0.0",
+  "version": "0.11.0",
+  "private": true,
   "description": "",
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "build:core": "pnpm --filter @swc-next/core build"
+    "build:core": "pnpm --filter @swc-next/core build",
+    "build:parser": "pnpm --filter @swc-next/parser build",
+    "build:napi": "pnpm --filter @swc-next/core --filter @swc-next/parser build"
   },
   "keywords": [],
   "author": "",
   "license": "Apache-2.0",
-  "packageManager": "pnpm@11.17.0"
+  "packageManager": "pnpm@11.17.0",
+  "devDependencies": {
+    "@napi-rs/cli": "catalog:"
+  }
 }

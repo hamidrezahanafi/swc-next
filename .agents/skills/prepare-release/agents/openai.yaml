@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prepare Release"
+  short_description: "Prepare and validate synchronized SWC Next releases"
+  default_prompt: "Use $prepare-release to prepare a reviewed version bump pull request."

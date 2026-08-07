@@ -1,0 +1,90 @@
+name: Bump PR Check
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - package.json
+      - crates/*/Cargo.toml
+      - napi/*/Cargo.toml
+      - napi/core/package.json
+      - napi/parser/package.json
+      - napi/core/src-js/binding.js
+      - napi/parser/src-js/binding.js
+      - pnpm-lock.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  filter:
+    name: Filter release PR
+    runs-on: ubuntu-latest
+    outputs:
+      is_release: ${{ steps.release.outputs.is_release }}
+    steps:
+      - name: Match release branch and title
+        id: release
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if [[ "$HEAD_REF" =~ ^release/v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  check:
+    if: needs.filter.outputs.is_release == 'true'
+    name: Validate release bump
+    needs: filter
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release PR
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: git fetch origin main
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@dc354b3df5a8e4db0bff5361fa176da74fcf3151 # v1v1
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.17.0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24.16.0
+          cache: pnpm
+
+      - name: Install Node.js dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate release branch, title, and versions
+        env:
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: .agents/skills/prepare-release/scripts/check-bump-pr.sh --base-ref origin/main
+
+      - name: Check Rust workspace
+        run: cargo check --workspace --locked
+
+      - name: Rebuild checked-in N-API loaders
+        run: pnpm build:napi
+
+      - name: Check generated loader drift
+        run: git diff --exit-code -- napi/core/src-js napi/parser/src-js
+
+      - name: Run focused parser tests
+        run: pnpm --filter @swc-next/parser test
+
+      - name: Check npm package tarballs
+        run: |
+          pnpm --filter @swc-next/core pack --dry-run
+          pnpm --filter @swc-next/parser pack --dry-run
