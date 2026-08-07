@@ -85,7 +85,7 @@ jobs:
           version: 11.17.0
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 24
+          node-version: 24.16.0
           cache: pnpm
       - name: Install Node.js dependencies
         run: pnpm install --frozen-lockfile
