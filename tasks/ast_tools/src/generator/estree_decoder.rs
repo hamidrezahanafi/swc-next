@@ -27,7 +27,7 @@ const CORE_MINIFIED_OUTPUT_PATH: &str = "napi/core/src-js/decode.js";
 const PARSER_PRETTY_OUTPUT_PATH: &str = "napi/parser/src-js/decode.pretty.js";
 const PARSER_MINIFIED_OUTPUT_PATH: &str = "napi/parser/src-js/decode.js";
 
-pub fn estree_decoder(schema: &Schema) -> Vec<RawOutput> {
+pub fn estree_decoder(schema: &Schema) -> (RawOutput, RawOutput, RawOutput, RawOutput) {
     let mut output = String::new();
     output.push_str(PREAMBLE);
 
@@ -45,7 +45,7 @@ pub fn estree_decoder(schema: &Schema) -> Vec<RawOutput> {
 
     output.push_str(POSTAMBLE);
     let minified = minify(&output);
-    vec![
+    (
         RawOutput {
             path: CORE_PRETTY_OUTPUT_PATH.into(),
             content: output.as_bytes().to_vec(),
@@ -62,7 +62,7 @@ pub fn estree_decoder(schema: &Schema) -> Vec<RawOutput> {
             path: PARSER_MINIFIED_OUTPUT_PATH.into(),
             content: minified.into_bytes(),
         },
-    ]
+    )
 }
 
 fn minify(source: &str) -> String {

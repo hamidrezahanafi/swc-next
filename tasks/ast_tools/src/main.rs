@@ -43,7 +43,14 @@ fn main() {
     let ast_extra_data_compact = ast_extra_compact(&schema);
     ast_extra_data_compact.write_to_file().unwrap();
 
-    for output in estree_decoder(&schema) {
-        output.write_to_file().unwrap();
-    }
+    let (
+        core_estree_decoder_pretty,
+        core_estree_decoder_minified,
+        parser_estree_decoder_pretty,
+        parser_estree_decoder_minified,
+    ) = estree_decoder(&schema);
+    core_estree_decoder_pretty.write_to_file().unwrap();
+    core_estree_decoder_minified.write_to_file().unwrap();
+    parser_estree_decoder_pretty.write_to_file().unwrap();
+    parser_estree_decoder_minified.write_to_file().unwrap();
 }
