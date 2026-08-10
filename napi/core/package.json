@@ -1,7 +1,12 @@
 {
   "name": "@swc-next/core",
-  "version": "1.0.0",
-  "description": "",
+  "version": "0.11.0",
+  "description": "The extensible Node.js API for SWC Next",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/swc-project/swc-next.git",
+    "directory": "napi/core"
+  },
   "main": "src-js/index.js",
   "type": "module",
   "types": "./src-js/index.d.ts",
@@ -11,6 +16,17 @@
       "types": "./src-js/index.d.ts"
     }
   },
+  "files": [
+    "src-js/binding.d.ts",
+    "src-js/binding.js",
+    "src-js/decode.js",
+    "src-js/index.d.ts",
+    "src-js/index.js"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "build": "napi build --esm --platform --js binding.js --dts binding.d.ts --output-dir src-js",
     "conformance": "pnpm build --release && node ./test/estree-conformance.ts"
@@ -19,8 +35,8 @@
   "author": "",
   "license": "Apache-2.0",
   "napi": {
-    "binaryName": "swc-next",
-    "packageName": "@swc-next/binding",
+    "binaryName": "swc-next-core",
+    "packageName": "@swc-next/core-binding",
     "targets": [
       "aarch64-apple-darwin",
       "aarch64-unknown-linux-gnu",
