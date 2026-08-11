@@ -10820,8 +10820,14 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         } else {
             argument.span(self.ast).start
         };
-        let unwrapped = self.unwrap_parens(argument);
-        if !self.is_simple_assignment_target(unwrapped) {
+        let target_expression = if self.should_preserve_estree_assignment_target(argument) {
+            argument
+        } else {
+            self.unwrap_parens(argument)
+        };
+        if !self.is_simple_assignment_target(target_expression)
+            && !self.should_preserve_estree_assignment_target(target_expression)
+        {
             self.report(
                 argument.span(self.ast),
                 "Invalid operand for increment/decrement operator",
@@ -10834,7 +10840,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             );
             return None;
         }
-        let target = self.expression_to_simple_assignment_target(unwrapped)?;
+        let target = self.expression_to_simple_assignment_target(target_expression)?;
         let operator = if token.tag == TokenTag::Increment {
             UpdateOperator::Increment
         } else {
@@ -10926,8 +10932,15 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         let start = left.span(self.ast).start;
         let target = if tag == TokenTag::Assign {
             self.expression_to_assignment_target(left)?
-        } else if self.is_simple_assignment_target(left) {
-            self.expression_to_assignment_target(self.unwrap_parens(left))?
+        } else if self.is_simple_assignment_target(left)
+            || self.should_preserve_estree_assignment_target(left)
+        {
+            let target = if self.should_preserve_estree_assignment_target(left) {
+                left
+            } else {
+                self.unwrap_parens(left)
+            };
+            self.expression_to_assignment_target(target)?
         } else {
             self.report(
                 left.span(self.ast),
@@ -11012,6 +11025,14 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         &mut self,
         expression: Expr,
     ) -> Option<SimpleAssignmentTarget> {
+        if self.should_preserve_estree_assignment_target(expression) {
+            // SAFETY: this parser mode is used only for immediate raw ESTree
+            // serialization. The raw format stores the node id and the JS
+            // decoder dispatches using the node's actual expression kind.
+            return Some(unsafe {
+                SimpleAssignmentTarget::from_node_id_unchecked(expression.node_id())
+            });
+        }
         if !self.is_simple_assignment_target(expression) {
             self.report(
                 expression.span(self.ast),
@@ -11087,7 +11108,29 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         }
     }
 
+    fn should_preserve_estree_assignment_target(&self, expression: Expr) -> bool {
+        if !self.lexer.config.preserve_estree_assignment_targets() {
+            return false;
+        }
+        match self.ast.expr_data(expression) {
+            ExprData::ParenthesizedExpression(parenthesized) => {
+                self.is_simple_assignment_target(parenthesized.expression(self.ast))
+            }
+            // Annex B permits these forms in sloppy scripts. Preserve the
+            // expression for ESTree and leave rejection to semantic analysis.
+            ExprData::CallExpression(_) => {
+                !self.lang.is_typescript() && self.source_type != SourceType::Module
+            }
+            _ => false,
+        }
+    }
+
     fn expression_to_assignment_target(&mut self, expression: Expr) -> Option<AssignmentTarget> {
+        if self.should_preserve_estree_assignment_target(expression) {
+            // SAFETY: see `expression_to_simple_assignment_target`; raw ESTree
+            // serialization preserves the concrete node kind behind this id.
+            return Some(unsafe { AssignmentTarget::from_node_id_unchecked(expression.node_id()) });
+        }
         match self.ast.expr_data(expression) {
             ExprData::ArrayExpression(_) | ExprData::ObjectExpression(_) => {
                 let pattern = self.expression_to_assignment_pattern(expression)?;
