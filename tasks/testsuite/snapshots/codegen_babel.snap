@@ -1,6 +1,6 @@
 codegen * babel
 ========================
-Positive Passed: 2131/2238 (95.22%)
+Positive Passed: 2139/2238 (95.58%)
 Negative Passed: 0/0 (0.00%)
 Panicked: 0/2238 (0.00%)
 Failed: fixtures/babel/packages/babel-parser/test/fixtures/annex-b/enabled/valid-assignment-target-type-createParenthesizedExpressions/input.js - parser: Invalid assignment target at 22..29
@@ -11,10 +11,6 @@ Failed: fixtures/babel/packages/babel-parser/test/fixtures/core/uncategorised/10
 Failed: fixtures/babel/packages/babel-parser/test/fixtures/core/uncategorised/101/input.js - core/uncategorised/101: codegen output changed after reparse 
 Failed: fixtures/babel/packages/babel-parser/test/fixtures/core/uncategorised/263/input.js - core/uncategorised/263: codegen output changed after reparse 
 Failed: fixtures/babel/packages/babel-parser/test/fixtures/core/uncategorised/264/input.js - core/uncategorised/264: codegen output changed after reparse 
-Failed: fixtures/babel/packages/babel-parser/test/fixtures/core/uncategorised/306/input.js - core/uncategorised/306: codegen output changed after reparse 
-Failed: fixtures/babel/packages/babel-parser/test/fixtures/core/uncategorised/309/input.js - core/uncategorised/309: codegen output changed after reparse 
-Failed: fixtures/babel/packages/babel-parser/test/fixtures/core/uncategorised/312/input.js - core/uncategorised/312: codegen output changed after reparse 
-Failed: fixtures/babel/packages/babel-parser/test/fixtures/core/uncategorised/315/input.js - core/uncategorised/315: codegen output changed after reparse 
 Failed: fixtures/babel/packages/babel-parser/test/fixtures/core/uncategorised/318/input.js - core/uncategorised/318: codegen output changed after reparse 
 Failed: fixtures/babel/packages/babel-parser/test/fixtures/core/uncategorised/322/input.js - core/uncategorised/322: codegen output changed after reparse 
 Failed: fixtures/babel/packages/babel-parser/test/fixtures/core/uncategorised/86/input.js - core/uncategorised/86: codegen output changed after reparse 
@@ -54,10 +50,6 @@ Failed: fixtures/babel/packages/babel-parser/test/fixtures/es2026/explicit-resou
 Failed: fixtures/babel/packages/babel-parser/test/fixtures/es2026/explicit-resource-management/valid-using-as-identifier-for-init/input.js - parser: Unexpected token ';' in binding pattern at 13..14
 Failed: fixtures/babel/packages/babel-parser/test/fixtures/es2026/explicit-resource-management/valid-using-as-identifier-for-of/input.js - parser: Unexpected token '``' in binding pattern at 77..79
 Failed: fixtures/babel/packages/babel-parser/test/fixtures/es2026/explicit-resource-management/valid-using-as-identifier-in/input.js - parser: 'in' is reserved and cannot be used as a binding identifier at 6..8
-Failed: fixtures/babel/packages/babel-parser/test/fixtures/esprima/automatic-semicolon-insertion/migrated_0006/input.js - esprima/automatic-semicolon-insertion/migrated_0006: codegen output changed after reparse 
-Failed: fixtures/babel/packages/babel-parser/test/fixtures/esprima/automatic-semicolon-insertion/migrated_0009/input.js - esprima/automatic-semicolon-insertion/migrated_0009: codegen output changed after reparse 
-Failed: fixtures/babel/packages/babel-parser/test/fixtures/esprima/automatic-semicolon-insertion/migrated_0012/input.js - esprima/automatic-semicolon-insertion/migrated_0012: codegen output changed after reparse 
-Failed: fixtures/babel/packages/babel-parser/test/fixtures/esprima/automatic-semicolon-insertion/migrated_0015/input.js - esprima/automatic-semicolon-insertion/migrated_0015: codegen output changed after reparse 
 Failed: fixtures/babel/packages/babel-parser/test/fixtures/esprima/directive-prolog/migrated_0000/input.js - esprima/directive-prolog/migrated_0000: codegen output changed after reparse 
 Failed: fixtures/babel/packages/babel-parser/test/fixtures/esprima/directive-prolog/migrated_0001/input.js - esprima/directive-prolog/migrated_0001: codegen output changed after reparse 
 Failed: fixtures/babel/packages/babel-parser/test/fixtures/esprima/es2015-destructuring-assignment-array-pattern/dup-assignment/input.js - esprima/es2015-destructuring-assignment-array-pattern/dup-assignment: codegen output changed after reparse 

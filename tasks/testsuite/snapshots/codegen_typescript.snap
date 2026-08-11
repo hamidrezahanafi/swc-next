@@ -1,6 +1,6 @@
 codegen * typescript
 ========================
-Positive Passed: 12669/13156 (96.30%)
+Positive Passed: 12668/13156 (96.29%)
 Negative Passed: 0/0 (0.00%)
 Panicked: 0/13156 (0.00%)
 Failed: fixtures/typescript/tests/cases/compiler/ambientConstLiterals.ts - ambientConstLiterals.ts: codegen output changed after reparse 
@@ -11,6 +11,7 @@ Failed: fixtures/typescript/tests/cases/compiler/ambientEnumElementInitializer4.
 Failed: fixtures/typescript/tests/cases/compiler/ambientEnumElementInitializer5.ts - ambientEnumElementInitializer5.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/ambientEnumElementInitializer6.ts - ambientEnumElementInitializer6.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/ambientModuleWithTemplateLiterals.ts - ambientModuleWithTemplateLiterals.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/compiler/amdLikeInputDeclarationEmit.ts - ExtendedClass.js: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/amdModuleConstEnumUsage.ts - /proj/defs/cc.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/arrowExpressionBodyJSDoc.ts - mytest.js: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/arrowExpressionJs.ts - mytest.js: codegen output changed after reparse 
@@ -41,6 +42,7 @@ Failed: fixtures/typescript/tests/cases/compiler/commentOnExportEnumDeclaration.
 Failed: fixtures/typescript/tests/cases/compiler/commentOnSimpleArrowFunctionBody1.ts - commentOnSimpleArrowFunctionBody1.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/commentsAfterSpread.ts - commentsAfterSpread.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/commentsEnums.ts - commentsEnums.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/compiler/commentsFormatting.ts - commentsFormatting.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/commentsFunction.ts - commentsFunction.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/commentsInterface.ts - commentsInterface.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/commentsdoNotEmitComments.ts - commentsdoNotEmitComments.ts: codegen output changed after reparse 
@@ -192,7 +194,6 @@ Failed: fixtures/typescript/tests/cases/compiler/lambdaASIEmit.ts - lambdaASIEmi
 Failed: fixtures/typescript/tests/cases/compiler/localImportNameVsGlobalName.ts - localImportNameVsGlobalName.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/mappedToToIndexSignatureInference.ts - mappedToToIndexSignatureInference.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/mappedTypeNotMistakenlyHomomorphic.ts - mappedTypeNotMistakenlyHomomorphic.ts: codegen output changed after reparse 
-Failed: fixtures/typescript/tests/cases/compiler/matchReturnTypeInAllBranches.ts - matchReturnTypeInAllBranches.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/mergeWithImportedType.ts - f1.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/mergedDeclarations2.ts - mergedDeclarations2.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/mergedEnumDeclarationCodeGen.ts - mergedEnumDeclarationCodeGen.ts: codegen output changed after reparse 
@@ -458,7 +459,7 @@ Failed: fixtures/typescript/tests/cases/conformance/types/primitives/void/invali
 Failed: fixtures/typescript/tests/cases/conformance/types/rest/genericRestParameters3.ts - parser: Expected a type, but found '...' at 2066..2069
 Failed: fixtures/typescript/tests/cases/conformance/types/specifyingTypes/typeReferences/nonGenericTypeReferenceWithTypeArguments.ts - nonGenericTypeReferenceWithTypeArguments.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/types/tuple/castingTuple.ts - castingTuple.ts: codegen output changed after reparse 
-Failed: fixtures/typescript/tests/cases/conformance/types/tuple/named/namedTupleMembers.ts - parser: Expected a type, but found '...' at 497..500
+Failed: fixtures/typescript/tests/cases/conformance/types/tuple/named/namedTupleMembers.ts - parser: Expected a type, but found '...' at 495..498
 Failed: fixtures/typescript/tests/cases/conformance/types/typeAliases/typeAliases.ts - typeAliases.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/types/typeParameters/typeParameterLists/typeParameterConstModifiersReturnsAndYields.ts - typeParameterConstModifiersReturnsAndYields.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/types/typeRelationships/assignmentCompatibility/anyAssignabilityInInheritance.ts - anyAssignabilityInInheritance.ts: codegen output changed after reparse 
