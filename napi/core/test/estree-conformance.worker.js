@@ -8,6 +8,7 @@ const ROOT_DIR = path.resolve(import.meta.dirname, "../../..");
 const FIXTURE_DIR = path.resolve(ROOT_DIR, "tasks/testsuite/fixtures");
 const TEST_HARNESS = path.resolve(FIXTURE_DIR, "estree-conformance/src");
 const FIELD_ORDERS_FILE = path.resolve(TEST_HARNESS, "field-orders.json");
+const INFINITY_PLACEHOLDER = "__INFINITY__INFINITY__INFINITY__";
 
 // ========================= Runner =============================
 const { makeUnitsFromTest } = await import(
@@ -58,7 +59,7 @@ export default async function runCase({ oracle, source, file }) {
           expected?.astValue.sourceType ??
           (sourceUnit.sourceType.module ? "module" : "script"),
       });
-      return JSON.stringify(ast, reorderAstFields, 2);
+      return stringifyAst(ast);
     });
     const passed =
       actualAsts.length === expectedUnits.length &&
@@ -98,6 +99,7 @@ function getLang(sourceUnit, oracleFile) {
 }
 
 function reorderAstFields(_key, value) {
+  if (value === Infinity) return INFINITY_PLACEHOLDER;
   if (typeof value === "bigint") return null;
 
   if (
@@ -157,6 +159,13 @@ function reorderAstFields(_key, value) {
   }
 
   return reordered;
+}
+
+function stringifyAst(ast) {
+  return JSON.stringify(ast, reorderAstFields, 2).replaceAll(
+    `"${INFINITY_PLACEHOLDER}"`,
+    "1e+400",
+  );
 }
 
 function readExpected(oracleFile) {

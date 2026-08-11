@@ -900,9 +900,18 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     }
 
     fn decode_escaped_identifier(&mut self, start: u32, end: u32) -> AstUtf8 {
+        let raw = &self.source[start as usize..end as usize];
         let mut buffer = [0u8; 256];
-        let value =
-            decode_identifier_escapes(&self.source[start as usize..end as usize], &mut buffer);
+        if let Some(value) = decode_identifier_escapes(raw, &mut buffer) {
+            // Safety: the lexer rejects lone surrogates and invalid identifier escapes.
+            return self
+                .ast
+                .add_utf8(unsafe { std::str::from_utf8_unchecked(value) });
+        }
+
+        let mut buffer = vec![0u8; raw.len()];
+        let value = decode_identifier_escapes(raw, &mut buffer)
+            .expect("the lexer validated this escaped identifier");
         // Safety:
         // Source code is guaranteed to be valid UTF-8.
         // Lone surrogates are not valid in identifiers.
@@ -7615,7 +7624,15 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
 
     fn add_template_element(&mut self, token: Token, tail: bool, tagged: bool) -> TemplateElement {
         let span = self.get_template_element_span(token);
-        let raw = self.ast.source_slice(span.start, span.end);
+        let source_raw = &self.source[span.start as usize..span.end as usize];
+        // Acorn normalizes JavaScript template raw values, while the
+        // typescript-eslint ESTree contract preserves the source line endings.
+        let raw = if matches!(self.lang, Lang::Js | Lang::Jsx) && source_raw.contains('\r') {
+            let normalized = source_raw.replace("\r\n", "\n").replace('\r', "\n");
+            self.ast.add_utf8(&normalized)
+        } else {
+            self.ast.source_slice(span.start, span.end)
+        };
         let is_cooked_undefined = token.has_invalid_escape();
         if is_cooked_undefined && !tagged {
             self.report(
@@ -10820,8 +10837,14 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         } else {
             argument.span(self.ast).start
         };
-        let unwrapped = self.unwrap_parens(argument);
-        if !self.is_simple_assignment_target(unwrapped) {
+        let target_expression = if self.should_preserve_estree_assignment_target(argument) {
+            argument
+        } else {
+            self.unwrap_parens(argument)
+        };
+        if !self.is_simple_assignment_target(target_expression)
+            && !self.should_preserve_estree_assignment_target(target_expression)
+        {
             self.report(
                 argument.span(self.ast),
                 "Invalid operand for increment/decrement operator",
@@ -10834,7 +10857,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             );
             return None;
         }
-        let target = self.expression_to_simple_assignment_target(unwrapped)?;
+        let target = self.expression_to_simple_assignment_target(target_expression)?;
         let operator = if token.tag == TokenTag::Increment {
             UpdateOperator::Increment
         } else {
@@ -10926,8 +10949,15 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         let start = left.span(self.ast).start;
         let target = if tag == TokenTag::Assign {
             self.expression_to_assignment_target(left)?
-        } else if self.is_simple_assignment_target(left) {
-            self.expression_to_assignment_target(self.unwrap_parens(left))?
+        } else if self.is_simple_assignment_target(left)
+            || self.should_preserve_estree_assignment_target(left)
+        {
+            let target = if self.should_preserve_estree_assignment_target(left) {
+                left
+            } else {
+                self.unwrap_parens(left)
+            };
+            self.expression_to_assignment_target(target)?
         } else {
             self.report(
                 left.span(self.ast),
@@ -11012,6 +11042,14 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         &mut self,
         expression: Expr,
     ) -> Option<SimpleAssignmentTarget> {
+        if self.should_preserve_estree_assignment_target(expression) {
+            // SAFETY: this parser mode is used only for immediate raw ESTree
+            // serialization. The raw format stores the node id and the JS
+            // decoder dispatches using the node's actual expression kind.
+            return Some(unsafe {
+                SimpleAssignmentTarget::from_node_id_unchecked(expression.node_id())
+            });
+        }
         if !self.is_simple_assignment_target(expression) {
             self.report(
                 expression.span(self.ast),
@@ -11087,7 +11125,27 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         }
     }
 
+    fn should_preserve_estree_assignment_target(&self, expression: Expr) -> bool {
+        if !self.lexer.config.preserve_estree_assignment_targets() {
+            return false;
+        }
+        match self.ast.expr_data(expression) {
+            ExprData::ParenthesizedExpression(parenthesized) => {
+                self.is_simple_assignment_target(parenthesized.expression(self.ast))
+            }
+            // Annex B permits these forms in sloppy scripts. Preserve the
+            // expression for ESTree and leave rejection to semantic analysis.
+            ExprData::CallExpression(_) => self.source_type != SourceType::Module,
+            _ => false,
+        }
+    }
+
     fn expression_to_assignment_target(&mut self, expression: Expr) -> Option<AssignmentTarget> {
+        if self.should_preserve_estree_assignment_target(expression) {
+            // SAFETY: see `expression_to_simple_assignment_target`; raw ESTree
+            // serialization preserves the concrete node kind behind this id.
+            return Some(unsafe { AssignmentTarget::from_node_id_unchecked(expression.node_id()) });
+        }
         match self.ast.expr_data(expression) {
             ExprData::ArrayExpression(_) | ExprData::ObjectExpression(_) => {
                 let pattern = self.expression_to_assignment_pattern(expression)?;
@@ -11930,5 +11988,36 @@ mod tests {
             .expect("expected JSX identifier token");
         assert_eq!(foo.tag, TokenTag::JsxIdentifier);
         assert!(foo.has_line_terminator_before());
+    }
+
+    #[test]
+    fn parses_long_escaped_identifier_value() {
+        let allocator = Allocator::new();
+        let source = format!("_{}", "\\u0816".repeat(100));
+        let expected = format!("_{}", "\u{0816}".repeat(100));
+        let mut ast = Ast::new(&source, &allocator);
+        let expression = Parser::init(&mut ast, Options::default(), NoTokenParserConfig)
+            .parse_expression()
+            .unwrap();
+
+        let ExprData::IdentifierReference(identifier) = ast.expr_data(expression) else {
+            panic!("expected identifier reference");
+        };
+        assert_eq!(ast.get_utf8(identifier.name(&ast)), expected);
+    }
+
+    #[test]
+    fn normalizes_template_raw_line_endings() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("`a\r\nb\rc`", &allocator);
+        let expression = Parser::init(&mut ast, Options::default(), NoTokenParserConfig)
+            .parse_expression()
+            .unwrap();
+
+        let ExprData::TemplateLiteral(template) = ast.expr_data(expression) else {
+            panic!("expected template literal");
+        };
+        let quasi = template.quasis(&ast).get_node(&ast, 0).unwrap();
+        assert_eq!(ast.get_utf8(quasi.raw(&ast)), "a\nb\nc");
     }
 }

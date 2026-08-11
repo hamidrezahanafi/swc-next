@@ -2,7 +2,9 @@
 
 const NULL = 0xffffffff;
 const HEADER_SIZE = 36;
-const textDecoder = new TextDecoder();
+// The raw AST string pool contains source text, where U+FEFF is data rather
+// than a transport byte-order marker.
+const textDecoder = new TextDecoder("utf-8", { ignoreBOM: true });
 
 const ENUMS = Object.freeze({
   SourceType: ["module", "script", "commonjs"],
