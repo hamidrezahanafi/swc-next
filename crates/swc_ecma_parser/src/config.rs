@@ -1,5 +1,11 @@
 pub trait ParserConfig {
     fn tokens(&self) -> bool;
+
+    /// Preserve syntactically invalid ESTree assignment targets so a later
+    /// semantic pass can diagnose them without losing the surrounding tree.
+    fn preserve_estree_assignment_targets(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Clone, Copy, Default)]

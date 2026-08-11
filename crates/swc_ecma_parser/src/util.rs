@@ -160,35 +160,35 @@ pub fn parse_unicode_escape(input: &[u8], start: usize) -> Option<ParsedCodePoin
     parse_hex4(input, start)
 }
 
-pub fn decode_identifier_escapes<'a>(raw: &'a str, buf: &'a mut [u8; 256]) -> &'a [u8] {
+pub fn decode_identifier_escapes<'a>(raw: &str, buf: &'a mut [u8]) -> Option<&'a [u8]> {
     let raw = raw.as_bytes();
     let mut out = 0usize;
     let mut i = 0usize;
     while i < raw.len() {
         if raw[i] == b'\\' && i + 1 < raw.len() && raw[i + 1] == b'u' {
             let Some(parsed) = parse_unicode_escape(raw, i + 2) else {
-                return raw;
+                return None;
             };
             let Some(value) = parsed.value.to_char() else {
-                return raw;
+                return None;
             };
             let len = value.len_utf8();
             if out + len > buf.len() {
-                return raw;
+                return None;
             }
             value.encode_utf8(&mut buf[out..out + len]);
             out += len;
             i = parsed.end;
         } else {
             if out >= buf.len() {
-                return raw;
+                return None;
             }
             buf[out] = raw[i];
             out += 1;
             i += 1;
         }
     }
-    &buf[..out]
+    Some(&buf[..out])
 }
 
 pub fn decode_string_escapes(raw_str: &str, out: &mut Wtf8Buf) {
@@ -309,5 +309,22 @@ fn hex_val(byte: u8) -> Option<u8> {
         b'a'..=b'f' => Some(byte - b'a' + 10),
         b'A'..=b'F' => Some(byte - b'A' + 10),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decode_identifier_escapes;
+
+    #[test]
+    fn decodes_identifiers_larger_than_the_stack_fast_path() {
+        let raw = "\\u0816".repeat(100);
+        let expected = "\u{0816}".repeat(100);
+        let mut small = [0; 256];
+        assert!(decode_identifier_escapes(&raw, &mut small).is_none());
+
+        let mut full = vec![0; raw.len()];
+        let decoded = decode_identifier_escapes(&raw, &mut full).unwrap();
+        assert_eq!(std::str::from_utf8(decoded).unwrap(), expected);
     }
 }

@@ -13,7 +13,10 @@ const ORACLE_TEST262 = path.resolve(ORACLE_DIR, "test262/test");
 const ORACLE_TS = path.resolve(ORACLE_DIR, "typescript/tests/cases");
 
 // ========================== Sources ==============================
-const SOURCE_TEST262 = path.resolve(FIXTURE_DIR, "test262/test");
+const SOURCE_TEST262 = path.resolve(
+  FIXTURE_DIR,
+  "estree-conformance/submodules/test262/test",
+);
 const SOURCE_TS = path.resolve(FIXTURE_DIR, "typescript/tests/cases");
 
 // ====================== Output Snapshots ==========================
