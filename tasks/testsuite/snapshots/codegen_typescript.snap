@@ -1,6 +1,6 @@
 codegen * typescript
 ========================
-Positive Passed: 11771/13156 (89.47%)
+Positive Passed: 11710/13156 (89.01%)
 Negative Passed: 0/0 (0.00%)
 Panicked: 0/13156 (0.00%)
 Failed: fixtures/typescript/tests/cases/compiler/APISample_jsdoc.ts - parser: Expected '=' in type alias declaration, but found 'Annotations' at 1532..1543
@@ -25,6 +25,7 @@ Failed: fixtures/typescript/tests/cases/compiler/arrayTypeInSignatureOfInterface
 Failed: fixtures/typescript/tests/cases/compiler/arrowExpressionBodyJSDoc.ts - mytest.js: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/arrowExpressionJs.ts - mytest.js: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/assertionFunctionWildcardImport1.ts - parser: Expected '=' in type alias declaration, but found 'function' at 20..28
+Failed: fixtures/typescript/tests/cases/compiler/assertionFunctionsCanNarrowByDiscriminant.ts - parser: 'const' is reserved and cannot be used as a type name at 302..307
 Failed: fixtures/typescript/tests/cases/compiler/assignToEnum.ts - assignToEnum.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/assignmentCompatForEnums.ts - assignmentCompatForEnums.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/assignmentCompatability1.ts - parser: Expected '=' in type alias declaration, but found 'interfaceWithPublicAndOptional' at 46..76
@@ -76,6 +77,7 @@ Failed: fixtures/typescript/tests/cases/compiler/augmentExportEquals5.ts - parse
 Failed: fixtures/typescript/tests/cases/compiler/augmentedTypesModules3b.ts - parser: Expected '=' in type alias declaration, but found 'I' at 352..353
 Failed: fixtures/typescript/tests/cases/compiler/augmentedTypesModules4.ts - parser: Expected '=' in type alias declaration, but found 'I' at 428..429
 Failed: fixtures/typescript/tests/cases/compiler/autonumberingInEnums.ts - autonumberingInEnums.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/compiler/awaitedType.ts - parser: 'const' is reserved and cannot be used as a type name at 5737..5742
 Failed: fixtures/typescript/tests/cases/compiler/badExternalModuleReference.ts - parser: Expected '=' in type alias declaration, but found 'var' at 52..55
 Failed: fixtures/typescript/tests/cases/compiler/blockScopedEnumVariablesUseBeforeDef.ts - blockScopedEnumVariablesUseBeforeDef.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/blockScopedEnumVariablesUseBeforeDef_isolatedModules.ts - blockScopedEnumVariablesUseBeforeDef_isolatedModules.ts: codegen output changed after reparse 
@@ -83,6 +85,7 @@ Failed: fixtures/typescript/tests/cases/compiler/blockScopedEnumVariablesUseBefo
 Failed: fixtures/typescript/tests/cases/compiler/blockScopedEnumVariablesUseBeforeDef_verbatimModuleSyntax.ts - blockScopedEnumVariablesUseBeforeDef_verbatimModuleSyntax.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/blockScopedVariablesUseBeforeDef.ts - blockScopedVariablesUseBeforeDef.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/bluebirdStaticThis.ts - parser: Expected '=' in type alias declaration, but found 'class' at 251..256
+Failed: fixtures/typescript/tests/cases/compiler/builtinIterator.ts - parser: 'const' is reserved and cannot be used as a type name at 637..642
 Failed: fixtures/typescript/tests/cases/compiler/cachedContextualTypes.ts - parser: Expected '=' in type alias declaration, but found 'IMenuWorkbenchToolBarOptions' at 201..229
 Failed: fixtures/typescript/tests/cases/compiler/cachedModuleResolution1.ts - parser: Expected '=' in type alias declaration, but found 'let' at 20..23
 Failed: fixtures/typescript/tests/cases/compiler/cachedModuleResolution2.ts - parser: Expected '=' in type alias declaration, but found 'let' at 20..23
@@ -142,7 +145,8 @@ Failed: fixtures/typescript/tests/cases/compiler/complexRecursiveCollections.ts 
 Failed: fixtures/typescript/tests/cases/compiler/complicatedIndexedAccessKeyofReliesOnKeyofNeverUpperBound.ts - parser: Expected '=' in type alias declaration, but found 'ChannelType' at 215..226
 Failed: fixtures/typescript/tests/cases/compiler/computedEnumMemberSyntacticallyString.ts - computedEnumMemberSyntacticallyString.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/computedEnumMemberSyntacticallyString2.ts - ./foo.ts: codegen output changed after reparse 
-Failed: fixtures/typescript/tests/cases/compiler/computedEnumTypeWidening.ts - computedEnumTypeWidening.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/compiler/computedEnumTypeWidening.ts - parser: 'const' is reserved and cannot be used as a type name at 1061..1066
+Failed: fixtures/typescript/tests/cases/compiler/computedPropertiesNarrowed.ts - parser: 'const' is reserved and cannot be used as a type name at 707..712
 Failed: fixtures/typescript/tests/cases/compiler/computedPropertiesWithSetterAssignment.ts - /a.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/computedPropertyBindingElementDeclarationNoCrash1.ts - parser: Expected '=' in type alias declaration, but found 'State' at 73..78
 Failed: fixtures/typescript/tests/cases/compiler/conditionalEqualityTestingNullability.ts - parser: Expected '=' in type alias declaration, but found 'Equals' at 17..23
@@ -174,13 +178,17 @@ Failed: fixtures/typescript/tests/cases/compiler/constraintWithIndexedAccess.ts 
 Failed: fixtures/typescript/tests/cases/compiler/constructorArgWithGenericCallSignature.ts - parser: Expected '=' in type alias declaration, but found 'MyFunc' at 41..47
 Failed: fixtures/typescript/tests/cases/compiler/contextualExpressionTypecheckingDoesntBlowStack.ts - parser: Expected '=' in type alias declaration, but found 'IValidationError' at 89..105
 Failed: fixtures/typescript/tests/cases/compiler/contextualSignatureConditionalTypeInstantiationUsingDefault.ts - parser: Expected '=' in type alias declaration, but found 'TypegenDisabled' at 38..53
+Failed: fixtures/typescript/tests/cases/compiler/contextualTupleTypeParameterReadonly.ts - parser: 'const' is reserved and cannot be used as a type name at 163..168
 Failed: fixtures/typescript/tests/cases/compiler/contextualTypeBasedOnIntersectionWithAnyInTheMix2.ts - parser: Expected '=' in type alias declaration, but found 'MDXProps' at 353..361
 Failed: fixtures/typescript/tests/cases/compiler/contextualTypeCaching.ts - parser: Expected '=' in type alias declaration, but found 'Event' at 43..48
+Failed: fixtures/typescript/tests/cases/compiler/contextualTypesNegatedTypeLikeConstraintInGenericMappedType1.ts - parser: 'const' is reserved and cannot be used as a type name at 207..212
+Failed: fixtures/typescript/tests/cases/compiler/contextualTypesNegatedTypeLikeConstraintInGenericMappedType3.ts - parser: 'const' is reserved and cannot be used as a type name at 293..298
 Failed: fixtures/typescript/tests/cases/compiler/contextualTypingOfOptionalMembers.tsx - parser: Expected '=' in type alias declaration, but found 'Element' at 1266..1273
 Failed: fixtures/typescript/tests/cases/compiler/contextuallyTypedByDiscriminableUnion2.ts - parser: Expected '=' in type alias declaration, but found 'EnableD' at 488..495
 Failed: fixtures/typescript/tests/cases/compiler/contextuallyTypedParametersWithInitializers3.ts - parser: Expected '=' in type alias declaration, but found 'function' at 142..150
 Failed: fixtures/typescript/tests/cases/compiler/controlFlowBreakContinueWithLabel.ts - controlFlowBreakContinueWithLabel.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/controlFlowManyConsecutiveConditionsNoTimeout.ts - controlFlowManyConsecutiveConditionsNoTimeout.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/compiler/correlatedUnions.ts - parser: 'const' is reserved and cannot be used as a type name at 5657..5662
 Failed: fixtures/typescript/tests/cases/compiler/crashInGetTextOfComputedPropertyName.ts - parser: Expected '=' in type alias declaration, but found 'A' at 78..79
 Failed: fixtures/typescript/tests/cases/compiler/declFileCallSignatures.ts - parser: Expected '=' in type alias declaration, but found 'ICallSignature' at 22..36
 Failed: fixtures/typescript/tests/cases/compiler/declFileConstructSignatures.ts - parser: Expected '=' in type alias declaration, but found 'IConstructSignature' at 22..41
@@ -212,6 +220,7 @@ Failed: fixtures/typescript/tests/cases/compiler/declarationEmitBundleWithAmbien
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitBundleWithAmbientReferences.ts - parser: Expected '=' in type alias declaration, but found 'T' at 54..55
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitBundlerConditions.ts - parser: Expected '=' in type alias declaration, but found 'class' at 20..25
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitClassMemberNameConflict2.ts - declarationEmitClassMemberNameConflict2.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/compiler/declarationEmitClassMemberWithComputedPropertyName.ts - parser: 'const' is reserved and cannot be used as a type name at 41..46
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitClassMixinLocalClassDeclaration.ts - parser: Expected '=' in type alias declaration, but found 'AnyFunction' at 17..28
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitCommonJsModuleReferencedType.ts - parser: Expected '=' in type alias declaration, but found 'NestedProps' at 22..33
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitCommonJsModuleReferencedType.ts - parser: Expected '=' in type alias declaration, but found 'OtherIndexProps' at 22..37
@@ -220,6 +229,7 @@ Failed: fixtures/typescript/tests/cases/compiler/declarationEmitCommonJsModuleRe
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitCommonJsModuleReferencedType.ts - parser: Expected '=' in type alias declaration, but found 'SomeProps' at 147..156
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitComputedNameCausesImportToBePainted.ts - parser: Expected '=' in type alias declaration, but found 'Context' at 51..58
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitComputedNameConstEnumAlias.ts - EnumExample.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/compiler/declarationEmitComputedNameWithQuestionToken.ts - parser: 'const' is reserved and cannot be used as a type name at 83..88
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitComputedPropertyName1.ts - parser: Expected '=' in type alias declaration, but found 'IData' at 300..305
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitComputedPropertyNameEnum1.ts - parser: Expected '=' in type alias declaration, but found 'Type' at 61..65
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitComputedPropertyNameEnum2.ts - parser: Expected '=' in type alias declaration, but found 'Type' at 17..21
@@ -256,7 +266,7 @@ Failed: fixtures/typescript/tests/cases/compiler/declarationEmitMappedPrivateTyp
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitMappedPrivateTypeTypeParameter.ts - parser: Expected '=' in type alias declaration, but found 'StringKeyOf' at 17..28
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitMappedTypePreservesTypeParameterConstraint.ts - parser: Expected '=' in type alias declaration, but found 'abstract' at 418..426
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitMappedTypeTemplateTypeofSymbol.ts - parser: Expected '=' in type alias declaration, but found 'const' at 20..25
-Failed: fixtures/typescript/tests/cases/compiler/declarationEmitMergedAliasWithConst.ts - parser: Expected '=' in type alias declaration, but found 'Color' at 93..98
+Failed: fixtures/typescript/tests/cases/compiler/declarationEmitMergedAliasWithConst.ts - parser: 'const' is reserved and cannot be used as a type name at 81..86
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitMonorepoBaseUrl.ts - parser: Expected '=' in type alias declaration, but found 'function' at 20..28
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitNameConflicts.ts - parser: Expected '=' in type alias declaration, but found 'I' at 217..218
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitNameConflicts2.ts - declarationEmitNameConflicts2.ts: codegen output changed after reparse 
@@ -284,6 +294,7 @@ Failed: fixtures/typescript/tests/cases/compiler/declarationEmitPrefersPathKindB
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitPrefersPathKindBasedOnBundling2.ts - parser: Expected '=' in type alias declaration, but found 'Scalar' at 22..28
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitPreserveReferencedImports.ts - parser: Expected '=' in type alias declaration, but found 'Evt' at 22..25
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitPrivatePromiseLikeInterface.ts - parser: Expected '=' in type alias declaration, but found 'HttpResponse' at 560..572
+Failed: fixtures/typescript/tests/cases/compiler/declarationEmitPropertyNumericStringKey.ts - parser: 'const' is reserved and cannot be used as a type name at 105..110
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitQualifiedAliasTypeArgument.ts - parser: Expected '=' in type alias declaration, but found 'G' at 17..18
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitQualifiedAliasTypeArgument.ts - parser: Expected '=' in type alias declaration, but found 'INode' at 22..27
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitReadonlyComputedProperty.ts - parser: Expected '=' in type alias declaration, but found 'Interface' at 54..63
@@ -294,6 +305,7 @@ Failed: fixtures/typescript/tests/cases/compiler/declarationEmitRedundantTripleS
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitReexportedSymlinkReference.ts - parser: Expected '=' in type alias declaration, but found 'type' at 20..24
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitReexportedSymlinkReference2.ts - parser: Expected '=' in type alias declaration, but found 'type' at 20..24
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitReexportedSymlinkReference3.ts - parser: Expected '=' in type alias declaration, but found 'type' at 20..24
+Failed: fixtures/typescript/tests/cases/compiler/declarationEmitResolveTypesIfNotReusable.ts - parser: 'const' is reserved and cannot be used as a type name at 125..130
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitRetainedAnnotationRetainsImportInOutput.ts - parser: Expected '=' in type alias declaration, but found 'Whatever' at 17..25
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitReusesLambdaParameterNodes.ts - parser: Expected '=' in type alias declaration, but found 'Whatever' at 17..25
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitScopeConsistency.ts - parser: Expected '=' in type alias declaration, but found 'A' at 22..23
@@ -310,7 +322,10 @@ Failed: fixtures/typescript/tests/cases/compiler/declarationEmitTypeAliasWithTyp
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitTypeAliasWithTypeParameters2.ts - parser: Expected '=' in type alias declaration, but found 'Bar' at 17..20
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitTypeAliasWithTypeParameters5.ts - parser: Expected '=' in type alias declaration, but found 'SubFoo' at 65..71
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitTypeParameterNameReusedInOverloads.ts - parser: Expected '=' in type alias declaration, but found 'Foo' at 164..167
+Failed: fixtures/typescript/tests/cases/compiler/declarationEmitTypeParameterNameShadowedInternally.ts - parser: 'const' is reserved and cannot be used as a type name at 74..79
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitUnsafeImportSymbolName.ts - parser: Expected '=' in type alias declaration, but found 'MySpecialType' at 22..35
+Failed: fixtures/typescript/tests/cases/compiler/declarationEmitUsingAlternativeContainingModules1.ts - parser: 'const' is reserved and cannot be used as a type name at 489..494
+Failed: fixtures/typescript/tests/cases/compiler/declarationEmitUsingAlternativeContainingModules2.ts - parser: 'const' is reserved and cannot be used as a type name at 489..494
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitUsingTypeAlias1.ts - parser: Expected '=' in type alias declaration, but found 'OtherType' at 17..26
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitUsingTypeAlias1.ts - parser: Expected '=' in type alias declaration, but found 'type' at 20..24
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitUsingTypeAlias2.ts - parser: Expected '=' in type alias declaration, but found 'const' at 149..154
@@ -335,8 +350,8 @@ Failed: fixtures/typescript/tests/cases/compiler/deeplyNestedMappedTypes.ts - pa
 Failed: fixtures/typescript/tests/cases/compiler/deeplyNestedTemplateLiteralIntersection.ts - parser: Expected '=' in type alias declaration, but found 'Props' at 180..185
 Failed: fixtures/typescript/tests/cases/compiler/defaultDeclarationEmitNamedCorrectly.ts - parser: Expected '=' in type alias declaration, but found 'Things' at 22..28
 Failed: fixtures/typescript/tests/cases/compiler/defaultDeclarationEmitShadowedNamedCorrectly.ts - parser: Expected '=' in type alias declaration, but found 'Things' at 52..58
-Failed: fixtures/typescript/tests/cases/compiler/defaultIsNotVisibleInLocalScope.ts - parser: Expected '=' in type alias declaration, but found 'X' at 45..46
-Failed: fixtures/typescript/tests/cases/compiler/defaultIsNotVisibleInLocalScope.ts - parser: Expected '=' in type alias declaration, but found 'X' at 62..63
+Failed: fixtures/typescript/tests/cases/compiler/defaultIsNotVisibleInLocalScope.ts - parser: 'default' is reserved and cannot be used as a type name at 50..57
+Failed: fixtures/typescript/tests/cases/compiler/defaultIsNotVisibleInLocalScope.ts - parser: 'default' is reserved and cannot be used as a type name at 71..78
 Failed: fixtures/typescript/tests/cases/compiler/deferredConditionalTypes2.ts - parser: Expected a type, but found '-' at 114..115
 Failed: fixtures/typescript/tests/cases/compiler/detachedCommentAtStartOfLambdaFunction1.ts - detachedCommentAtStartOfLambdaFunction1.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/detachedCommentAtStartOfLambdaFunction2.ts - detachedCommentAtStartOfLambdaFunction2.ts: codegen output changed after reparse 
@@ -344,7 +359,7 @@ Failed: fixtures/typescript/tests/cases/compiler/discriminantPropertyCheck.ts - 
 Failed: fixtures/typescript/tests/cases/compiler/discriminantsAndPrimitives.ts - discriminantsAndPrimitives.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/discriminateWithOptionalProperty4.ts - discriminateWithOptionalProperty4.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/discriminatedUnionJsxElement.tsx - discriminatedUnionJsxElement.tsx: codegen output changed after reparse 
-Failed: fixtures/typescript/tests/cases/compiler/discriminatedUnionWithIndexSignature.ts - parser: Expected '=' in type alias declaration, but found 'UnionAltA' at 22..31
+Failed: fixtures/typescript/tests/cases/compiler/discriminatedUnionWithIndexSignature.ts - parser: 'const' is reserved and cannot be used as a type name at 439..444
 Failed: fixtures/typescript/tests/cases/compiler/divideAndConquerIntersections.ts - parser: Expected '=' in type alias declaration, but found 'Update' at 382..388
 Failed: fixtures/typescript/tests/cases/compiler/doubleUnderscoreEnumEmit.ts - doubleUnderscoreEnumEmit.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/duplicateIdentifierRelatedSpans7.ts - parser: Expected '=' in type alias declaration, but found 'TopLevel' at 51..59
@@ -422,7 +437,9 @@ Failed: fixtures/typescript/tests/cases/compiler/es6ModuleEnumDeclaration.ts - e
 Failed: fixtures/typescript/tests/cases/compiler/exactSpellingSuggestion.ts - exactSpellingSuggestion.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/excessPropertyCheckWithMultipleDiscriminants.ts - parser: Expected '=' in type alias declaration, but found 'BaseAttribute' at 1865..1878
 Failed: fixtures/typescript/tests/cases/compiler/excessPropertyChecksWithNestedIntersections.ts - parser: Expected '=' in type alias declaration, but found 'MyType' at 633..639
+Failed: fixtures/typescript/tests/cases/compiler/excessivelyLargeTupleSpread.ts - parser: 'const' is reserved and cannot be used as a type name at 589..594
 Failed: fixtures/typescript/tests/cases/compiler/expandoFunctionContextualTypesJs.ts - input.js: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/compiler/expandoFunctionExpressionsWithDynamicNames2.ts - parser: 'const' is reserved and cannot be used as a type name at 191..196
 Failed: fixtures/typescript/tests/cases/compiler/expandoFunctionSymbolPropertyJs.ts - parser: Expected '=' in type alias declaration, but found 'TestSymb' at 52..60
 Failed: fixtures/typescript/tests/cases/compiler/exportAssignClassAndModule.ts - parser: Expected '=' in type alias declaration, but found 'Bar' at 68..71
 Failed: fixtures/typescript/tests/cases/compiler/exportAssignValueAndType.ts - parser: Expected '=' in type alias declaration, but found 'Server' at 49..55
@@ -480,9 +497,9 @@ Failed: fixtures/typescript/tests/cases/compiler/fakeInfinity1.ts - parser: Expe
 Failed: fixtures/typescript/tests/cases/compiler/fakeInfinity2.ts - fakeInfinity2.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/fakeInfinity3.ts - fakeInfinity3.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/fatArrowSelf.ts - parser: Expected '=' in type alias declaration, but found 'ListenerCallback' at 43..59
-Failed: fixtures/typescript/tests/cases/compiler/fileWithNextLine2.ts - parser: Invalid character at start of identifier at 110..110
 Failed: fixtures/typescript/tests/cases/compiler/fixCrashAliasLookupForDefauledImport.ts - parser: Expected '=' in type alias declaration, but found 'Foo' at 17..20
 Failed: fixtures/typescript/tests/cases/compiler/flowControlTypeGuardThenSwitch.ts - flowControlTypeGuardThenSwitch.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/compiler/forwardRefInTypeDeclaration.ts - parser: 'const' is reserved and cannot be used as a type name at 592..597
 Failed: fixtures/typescript/tests/cases/compiler/fuzzy.ts - parser: Expected '=' in type alias declaration, but found 'I' at 38..39
 Failed: fixtures/typescript/tests/cases/compiler/genericArgumentCallSigAssignmentCompat.ts - parser: Expected '=' in type alias declaration, but found 'Iterator' at 47..55
 Failed: fixtures/typescript/tests/cases/compiler/genericArrayExtenstions.ts - parser: Expected '=' in type alias declaration, but found 'class' at 20..25
@@ -498,7 +515,6 @@ Failed: fixtures/typescript/tests/cases/compiler/genericInterfaceFunctionTypePar
 Failed: fixtures/typescript/tests/cases/compiler/genericRecursiveImplicitConstructorErrors1.ts - parser: Expected '=' in type alias declaration, but found 'namespace' at 20..29
 Failed: fixtures/typescript/tests/cases/compiler/genericRecursiveImplicitConstructorErrors2.ts - parser: Expected '=' in type alias declaration, but found 'DeclKind' at 48..56
 Failed: fixtures/typescript/tests/cases/compiler/genericReturnTypeFromGetter1.ts - parser: Expected '=' in type alias declaration, but found 'A' at 22..23
-Failed: fixtures/typescript/tests/cases/compiler/genericTupleWithSimplifiableElements.ts - parser: Expected a type, but found '...' at 64..67
 Failed: fixtures/typescript/tests/cases/compiler/genericTypeArgumentInference1.ts - parser: Expected '=' in type alias declaration, but found 'Iterator' at 47..55
 Failed: fixtures/typescript/tests/cases/compiler/genericTypeAssertions3.ts - parser: Unexpected token '<<' at 8..10
 Failed: fixtures/typescript/tests/cases/compiler/genericTypeWithMultipleBases1.ts - parser: Expected '=' in type alias declaration, but found 'I1' at 22..24
@@ -543,8 +559,8 @@ Failed: fixtures/typescript/tests/cases/compiler/indirectDiscriminantAndExcessPr
 Failed: fixtures/typescript/tests/cases/compiler/inferConditionalConstraintMappedMember.ts - parser: Expected '=' in type alias declaration, but found 'RemoveIdxSgn' at 468..480
 Failed: fixtures/typescript/tests/cases/compiler/inferFromAnnotatedReturn1.ts - parser: Expected '=' in type alias declaration, but found 'function' at 165..173
 Failed: fixtures/typescript/tests/cases/compiler/inferFromGenericFunctionReturnTypes3.ts - parser: Expected '=' in type alias declaration, but found 'DiagnosticSeverity' at 1147..1165
+Failed: fixtures/typescript/tests/cases/compiler/inferFromNestedSameShapeTuple.ts - parser: 'const' is reserved and cannot be used as a type name at 382..387
 Failed: fixtures/typescript/tests/cases/compiler/inferTypeConstraintInstantiationCircularity.ts - parser: Expected '=' in type alias declaration, but found 'addQuestionMarks' at 788..804
-Failed: fixtures/typescript/tests/cases/compiler/inferTypesWithFixedTupleExtendsAtVariadicPosition.ts - parser: Expected a type, but found '...' at 359..362
 Failed: fixtures/typescript/tests/cases/compiler/inferenceAndHKTs.ts - parser: Expected '=' in type alias declaration, but found 'TypeLambda' at 43..53
 Failed: fixtures/typescript/tests/cases/compiler/inferenceDoesntCompareAgainstUninstantiatedTypeParameter.ts - parser: Expected '=' in type alias declaration, but found 'ValueInterface' at 155..169
 Failed: fixtures/typescript/tests/cases/compiler/inferenceLimit.ts - parser: Expected '=' in type alias declaration, but found 'MyModel' at 22..29
@@ -592,8 +608,16 @@ Failed: fixtures/typescript/tests/cases/compiler/intersectionTypeNormalization.t
 Failed: fixtures/typescript/tests/cases/compiler/ipromise2.ts - parser: Expected '=' in type alias declaration, but found 'IPromise' at 63..71
 Failed: fixtures/typescript/tests/cases/compiler/ipromise4.ts - parser: Expected '=' in type alias declaration, but found 'IPromise' at 63..71
 Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationErrorsClasses.ts - parser: Expected '=' in type alias declaration, but found 'I' at 1209..1210
+Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationErrorsClassesExpressions.ts - parser: 'const' is reserved and cannot be used as a type name at 241..246
+Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationErrorsDefault.ts - parser: 'const' is reserved and cannot be used as a type name at 35..40
+Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationErrorsDefault.ts - parser: 'const' is reserved and cannot be used as a type name at 35..40
 Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationErrorsEnums.ts - isolatedDeclarationErrorsEnums.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationErrorsExpressions.ts - parser: 'const' is reserved and cannot be used as a type name at 1306..1311
+Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationErrorsFunctionDeclarations.ts - parser: 'const' is reserved and cannot be used as a type name at 226..231
 Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationErrorsObjects.ts - isolatedDeclarationErrorsObjects.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationLazySymbols.ts - parser: 'const' is reserved and cannot be used as a type name at 108..113
+Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationsAddUndefined.ts - parser: 'const' is reserved and cannot be used as a type name at 52..57
+Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationsLiterals.ts - parser: 'const' is reserved and cannot be used as a type name at 535..540
 Failed: fixtures/typescript/tests/cases/compiler/isolatedModulesAmbientConstEnum.ts - file1.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/isolatedModulesConstEnum.ts - /foo.d.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/isolatedModulesDontElideReExportStar.ts - parser: Expected '=' in type alias declaration, but found 'T' at 17..18
@@ -635,9 +659,11 @@ Failed: fixtures/typescript/tests/cases/compiler/lambdaASIEmit.ts - lambdaASIEmi
 Failed: fixtures/typescript/tests/cases/compiler/lateBoundConstraintTypeChecksCorrectly.ts - parser: Expected '=' in type alias declaration, but found 'Foo' at 148..151
 Failed: fixtures/typescript/tests/cases/compiler/localImportNameVsGlobalName.ts - localImportNameVsGlobalName.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/localTypeParameterInferencePriority.ts - parser: Expected '=' in type alias declaration, but found 'UnrollOnHover' at 17..30
+Failed: fixtures/typescript/tests/cases/compiler/mapConstructorOnReadonlyTuple.ts - parser: 'const' is reserved and cannot be used as a type name at 36..41
 Failed: fixtures/typescript/tests/cases/compiler/mapOnTupleTypes02.ts - parser: Expected '=' in type alias declaration, but found 'Point' at 17..22
 Failed: fixtures/typescript/tests/cases/compiler/mappedToToIndexSignatureInference.ts - mappedToToIndexSignatureInference.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/mappedTypeGenericInstantiationPreservesHomomorphism.ts - parser: Expected '=' in type alias declaration, but found 'function' at 20..28
+Failed: fixtures/typescript/tests/cases/compiler/mappedTypeIndexedAccessConstraint.ts - parser: 'const' is reserved and cannot be used as a type name at 729..734
 Failed: fixtures/typescript/tests/cases/compiler/mappedTypeNotMistakenlyHomomorphic.ts - mappedTypeNotMistakenlyHomomorphic.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/mappedTypePartialNonHomomorphicBaseConstraint.ts - parser: Expected '=' in type alias declaration, but found 'Errors' at 17..23
 Failed: fixtures/typescript/tests/cases/compiler/mappedTypeUnionConstraintInferences.ts - parser: Expected '=' in type alias declaration, but found 'type' at 20..24
@@ -713,11 +739,14 @@ Failed: fixtures/typescript/tests/cases/compiler/namespaceDisambiguationInUnion.
 Failed: fixtures/typescript/tests/cases/compiler/namespaceMergedWithImportAliasNoCrash.ts - parser: Expected '=' in type alias declaration, but found 'Bar' at 46..49
 Failed: fixtures/typescript/tests/cases/compiler/namespaces1.ts - parser: Expected '=' in type alias declaration, but found 'Z' at 63..64
 Failed: fixtures/typescript/tests/cases/compiler/namespacesDeclaration1.ts - parser: Expected '=' in type alias declaration, but found 'I' at 91..92
+Failed: fixtures/typescript/tests/cases/compiler/namespacesWithTypeAliasOnlyExportsMerge.ts - parser: 'default' is reserved and cannot be used as a type name at 328..335
+Failed: fixtures/typescript/tests/cases/compiler/narrowBySwitchDiscriminantUndefinedCase1.ts - parser: 'const' is reserved and cannot be used as a type name at 380..385
+Failed: fixtures/typescript/tests/cases/compiler/narrowingNoInfer1.ts - parser: 'const' is reserved and cannot be used as a type name at 520..525
 Failed: fixtures/typescript/tests/cases/compiler/narrowingUnionWithBang.ts - parser: Expected '=' in type alias declaration, but found 'FixedType' at 1371..1380
 Failed: fixtures/typescript/tests/cases/compiler/nestedExcessPropertyChecking.ts - nestedExcessPropertyChecking.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/nestedGenericConditionalTypeWithGenericImportType.ts - parser: Expected '=' in type alias declaration, but found 'Name' at 17..21
 Failed: fixtures/typescript/tests/cases/compiler/neverAsDiscriminantType.ts - parser: Expected '=' in type alias declaration, but found 'GatewayPayloadStructure' at 348..371
-Failed: fixtures/typescript/tests/cases/compiler/noAsConstNameLookup.ts - parser: Expected '=' in type alias declaration, but found 'Cleaner' at 67..74
+Failed: fixtures/typescript/tests/cases/compiler/noAsConstNameLookup.ts - parser: 'const' is reserved and cannot be used as a type name at 367..372
 Failed: fixtures/typescript/tests/cases/compiler/noCrashUMDMergedWithGlobalValue.ts - parser: Expected '=' in type alias declaration, but found 'Action' at 52..58
 Failed: fixtures/typescript/tests/cases/compiler/noImplicitAnyDestructuringInPrivateMethod.ts - parser: Expected '=' in type alias declaration, but found 'class' at 124..129
 Failed: fixtures/typescript/tests/cases/compiler/noImplicitReturnsExclusions.ts - parser: Expected '=' in type alias declaration, but found 'function' at 1429..1437
@@ -743,7 +772,7 @@ Failed: fixtures/typescript/tests/cases/compiler/overloadResolutionOverNonCTObje
 Failed: fixtures/typescript/tests/cases/compiler/parenthesisDoesNotBlockAliasSymbolCreation.ts - parser: Expected '=' in type alias declaration, but found 'InvalidKeys' at 17..28
 Failed: fixtures/typescript/tests/cases/compiler/parseAssertEntriesError.ts - parser: Expected '=' in type alias declaration, but found 'ImportInterface' at 22..37
 Failed: fixtures/typescript/tests/cases/compiler/parseAssertEntriesError.ts - parser: Expected '=' in type alias declaration, but found 'RequireInterface' at 22..38
-Failed: fixtures/typescript/tests/cases/compiler/parseEntityNameWithReservedWord.ts - parseEntityNameWithReservedWord.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/compiler/parseEntityNameWithReservedWord.ts - parser: 'false' is reserved and cannot be used as a type name at 34..39
 Failed: fixtures/typescript/tests/cases/compiler/parseImportAttributesError.ts - parser: Expected '=' in type alias declaration, but found 'ImportInterface' at 22..37
 Failed: fixtures/typescript/tests/cases/compiler/parseImportAttributesError.ts - parser: Expected '=' in type alias declaration, but found 'RequireInterface' at 22..38
 Failed: fixtures/typescript/tests/cases/compiler/performanceComparisonOfStructurallyIdenticalInterfacesWithGenericSignatures.ts - parser: Expected '=' in type alias declaration, but found 'type' at 20..24
@@ -792,6 +821,7 @@ Failed: fixtures/typescript/tests/cases/compiler/reactImportDropped.ts - parser:
 Failed: fixtures/typescript/tests/cases/compiler/reactTransitiveImportHasValidDeclaration.ts - parser: Expected '=' in type alias declaration, but found 'DetailedHTMLProps' at 50..67
 Failed: fixtures/typescript/tests/cases/compiler/reactTransitiveImportHasValidDeclaration.ts - parser: Expected '=' in type alias declaration, but found 'StyledOtherComponentList' at 149..173
 Failed: fixtures/typescript/tests/cases/compiler/readonlyMembers.ts - readonlyMembers.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/compiler/readonlyTupleAndArrayElaboration.ts - parser: 'const' is reserved and cannot be used as a type name at 56..61
 Failed: fixtures/typescript/tests/cases/compiler/recursiveArrayNotCircular.ts - recursiveArrayNotCircular.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/recursiveClassReferenceTest.ts - parser: Expected '=' in type alias declaration, but found 'IWidget' at 198..205
 Failed: fixtures/typescript/tests/cases/compiler/recursiveConditionalCrash2.ts - parser: Expected '=' in type alias declaration, but found 'CanBeExpanded' at 38..51
@@ -810,12 +840,12 @@ Failed: fixtures/typescript/tests/cases/compiler/resolveNameWithNamspace.ts - pa
 Failed: fixtures/typescript/tests/cases/compiler/restInvalidArgumentType.ts - restInvalidArgumentType.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/reverseMappedPartiallyInferableTypes.ts - parser: Expected '=' in type alias declaration, but found 'Prop' at 38..42
 Failed: fixtures/typescript/tests/cases/compiler/reverseMappedTypeDeepDeclarationEmit.ts - parser: Expected '=' in type alias declaration, but found 'Validator' at 17..26
-Failed: fixtures/typescript/tests/cases/compiler/singletonLabeledTuple.ts - parser: Expected a type, but found '...' at 495..498
-Failed: fixtures/typescript/tests/cases/compiler/sourceMap-LineBreaks.ts - parser: Invalid character at start of identifier at 100..100
+Failed: fixtures/typescript/tests/cases/compiler/reverseMappedUnionInference.ts - parser: 'const' is reserved and cannot be used as a type name at 670..675
 Failed: fixtures/typescript/tests/cases/compiler/specedNoStackBlown.ts - parser: Expected '=' in type alias declaration, but found 'Spec' at 642..646
 Failed: fixtures/typescript/tests/cases/compiler/spellingSuggestionLeadingUnderscores01.ts - parser: Expected '=' in type alias declaration, but found 'let' at 40..43
 Failed: fixtures/typescript/tests/cases/compiler/spreadInvalidArgumentType.ts - spreadInvalidArgumentType.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/spreadTupleAccessedByTypeParameter.ts - spreadTupleAccessedByTypeParameter.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/compiler/spreadsAndContextualTupleTypes.ts - parser: 'const' is reserved and cannot be used as a type name at 176..181
 Failed: fixtures/typescript/tests/cases/compiler/spuriousCircularityOnTypeImport.ts - parser: Expected '=' in type alias declaration, but found 'SelectorMap' at 17..28
 Failed: fixtures/typescript/tests/cases/compiler/spuriousCircularityOnTypeImport.ts - parser: Expected '=' in type alias declaration, but found 'SelectorMap' at 17..28
 Failed: fixtures/typescript/tests/cases/compiler/stableTypeOrdering.ts - stableTypeOrdering.ts: codegen output changed after reparse 
@@ -852,6 +882,7 @@ Failed: fixtures/typescript/tests/cases/compiler/systemModuleDeclarationMerging.
 Failed: fixtures/typescript/tests/cases/compiler/systemModuleNonTopLevelModuleMembers.ts - systemModuleNonTopLevelModuleMembers.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/systemNamespaceAliasEmit.ts - systemNamespaceAliasEmit.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/templateExpressionAsPossiblyDiscriminantValue.ts - parser: Expected '=' in type alias declaration, but found 'ClickableDiscriminatedUnion' at 259..286
+Failed: fixtures/typescript/tests/cases/compiler/templateLiteralConstantEvaluation.ts - parser: 'const' is reserved and cannot be used as a type name at 181..186
 Failed: fixtures/typescript/tests/cases/compiler/thislessFunctionsNotContextSensitive1.ts - parser: Expected '=' in type alias declaration, but found 'StateFunction' at 896..909
 Failed: fixtures/typescript/tests/cases/compiler/trackedSymbolsNoCrash.ts - parser: Expected '=' in type alias declaration, but found 'Node0' at 1040..1045
 Failed: fixtures/typescript/tests/cases/compiler/trivialSubtypeReductionNoStructuralCheck.ts - parser: Expected '=' in type alias declaration, but found 'WizardStepProps' at 162..177
@@ -872,8 +903,10 @@ Failed: fixtures/typescript/tests/cases/compiler/typeAliasExport.ts - parser: Ex
 Failed: fixtures/typescript/tests/cases/compiler/typeAssertionToGenericFunctionType.ts - parser: Unexpected token '<<' at 13..15
 Failed: fixtures/typescript/tests/cases/compiler/typeGuardNarrowsIndexedAccessOfKnownProperty11.ts - typeGuardNarrowsIndexedAccessOfKnownProperty11.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/compiler/typeGuardNarrowsIndexedAccessOfKnownProperty12.ts - typeGuardNarrowsIndexedAccessOfKnownProperty12.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/compiler/typeGuardNarrowsIndexedAccessOfKnownProperty2.ts - parser: 'const' is reserved and cannot be used as a type name at 55..60
 Failed: fixtures/typescript/tests/cases/compiler/typeInferenceLiteralUnion.ts - parser: Expected '=' in type alias declaration, but found 'Primitive' at 100..109
 Failed: fixtures/typescript/tests/cases/compiler/typeParameterCompatibilityAccrossDeclarations.ts - parser: Expected '=' in type alias declaration, but found 'I' at 136..137
+Failed: fixtures/typescript/tests/cases/compiler/typePredicatesCanNarrowByDiscriminant.ts - parser: 'const' is reserved and cannot be used as a type name at 220..225
 Failed: fixtures/typescript/tests/cases/compiler/typeReferenceDirectives10.ts - parser: Expected '=' in type alias declaration, but found '$' at 22..23
 Failed: fixtures/typescript/tests/cases/compiler/typeReferenceDirectives10.ts - parser: Expected '=' in type alias declaration, but found 'A' at 78..79
 Failed: fixtures/typescript/tests/cases/compiler/typeReferenceDirectives13.ts - parser: Expected '=' in type alias declaration, but found '$' at 22..23
@@ -922,6 +955,12 @@ Failed: fixtures/typescript/tests/cases/conformance/ambient/ambientEnumDeclarati
 Failed: fixtures/typescript/tests/cases/conformance/ambient/ambientEnumDeclaration2.ts - ambientEnumDeclaration2.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/ambient/ambientInsideNonAmbient.ts - parser: Expected '=' in type alias declaration, but found 'var' at 36..39
 Failed: fixtures/typescript/tests/cases/conformance/ambient/ambientInsideNonAmbientExternalModule.ts - parser: Expected '=' in type alias declaration, but found 'var' at 20..23
+Failed: fixtures/typescript/tests/cases/conformance/async/es2017/asyncArrowFunction/asyncArrowFunction10_es2017.ts - parser: 'await' is reserved in an async/module context and cannot be used as a type name at 95..100
+Failed: fixtures/typescript/tests/cases/conformance/async/es2017/functionDeclarations/asyncFunctionDeclaration13_es2017.ts - parser: 'await' is reserved in an async/module context and cannot be used as a type name at 94..99
+Failed: fixtures/typescript/tests/cases/conformance/async/es5/asyncArrowFunction/asyncArrowFunction10_es5.ts - parser: 'await' is reserved in an async/module context and cannot be used as a type name at 95..100
+Failed: fixtures/typescript/tests/cases/conformance/async/es5/functionDeclarations/asyncFunctionDeclaration13_es5.ts - parser: 'await' is reserved in an async/module context and cannot be used as a type name at 94..99
+Failed: fixtures/typescript/tests/cases/conformance/async/es6/asyncArrowFunction/asyncArrowFunction10_es6.ts - parser: 'await' is reserved in an async/module context and cannot be used as a type name at 95..100
+Failed: fixtures/typescript/tests/cases/conformance/async/es6/functionDeclarations/asyncFunctionDeclaration13_es6.ts - parser: 'await' is reserved in an async/module context and cannot be used as a type name at 94..99
 Failed: fixtures/typescript/tests/cases/conformance/classes/classDeclarations/classAndInterfaceMerge.d.ts - parser: Expected '=' in type alias declaration, but found 'C2' at 236..238
 Failed: fixtures/typescript/tests/cases/conformance/classes/members/instanceAndStaticMembers/superInStaticMembers1.ts - constEnumInContainingScopeStaticBlock.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/classes/members/instanceAndStaticMembers/superInStaticMembers1.ts - constEnumInContainingScopeStaticField.ts: codegen output changed after reparse 
@@ -931,6 +970,7 @@ Failed: fixtures/typescript/tests/cases/conformance/classes/members/instanceAndS
 Failed: fixtures/typescript/tests/cases/conformance/classes/members/instanceAndStaticMembers/superInStaticMembers1.ts - parser: Expected '=' in type alias declaration, but found 'Foo' at 47..50
 Failed: fixtures/typescript/tests/cases/conformance/classes/members/privateNames/privateNameEmitHelpers.ts - parser: Expected '=' in type alias declaration, but found 'function' at 114..122
 Failed: fixtures/typescript/tests/cases/conformance/classes/members/privateNames/privateNameStaticEmitHelpers.ts - parser: Expected '=' in type alias declaration, but found 'function' at 114..122
+Failed: fixtures/typescript/tests/cases/conformance/classes/propertyMemberDeclarations/accessorsOverrideProperty8.ts - parser: 'const' is reserved and cannot be used as a type name at 539..544
 Failed: fixtures/typescript/tests/cases/conformance/classes/propertyMemberDeclarations/accessorsOverrideProperty9.ts - parser: Expected '=' in type alias declaration, but found 'Constructor' at 76..87
 Failed: fixtures/typescript/tests/cases/conformance/classes/propertyMemberDeclarations/staticAutoAccessorsWithDecorators.ts - staticAutoAccessorsWithDecorators.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/classes/propertyMemberDeclarations/staticPropertyNameConflictsInAmbientContext.ts - parser: Classes may not have a static property named 'prototype' at 438..447
@@ -941,7 +981,11 @@ Failed: fixtures/typescript/tests/cases/conformance/constEnums/constEnum4.ts - p
 Failed: fixtures/typescript/tests/cases/conformance/constEnums/constEnumPropertyAccess1.ts - constEnumPropertyAccess1.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/constEnums/constEnumPropertyAccess3.ts - constEnumPropertyAccess3.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/constEnums/importElisionConstEnumMerge1.ts - enum.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/conformance/controlFlow/controlFlowAssignmentPatternOrder.ts - parser: 'const' is reserved and cannot be used as a type name at 185..190
 Failed: fixtures/typescript/tests/cases/conformance/controlFlow/controlFlowBinaryOrExpression.ts - parser: Expected '=' in type alias declaration, but found 'NodeList' at 165..173
+Failed: fixtures/typescript/tests/cases/conformance/controlFlow/controlFlowBindingElement.ts - parser: 'const' is reserved and cannot be used as a type name at 1032..1037
+Failed: fixtures/typescript/tests/cases/conformance/controlFlow/controlFlowBindingPatternOrder.ts - parser: 'const' is reserved and cannot be used as a type name at 141..146
+Failed: fixtures/typescript/tests/cases/conformance/controlFlow/dependentDestructuredVariablesFromNestedPatterns.ts - parser: 'const' is reserved and cannot be used as a type name at 750..755
 Failed: fixtures/typescript/tests/cases/conformance/controlFlow/neverReturningFunctions1.ts - parser: Expected '=' in type alias declaration, but found 'function' at 818..826
 Failed: fixtures/typescript/tests/cases/conformance/controlFlow/typeGuardsAsAssertions.ts - parser: Expected '=' in type alias declaration, but found 'Optional' at 56..64
 Failed: fixtures/typescript/tests/cases/conformance/declarationEmit/leaveOptionalParameterAsWritten.ts - parser: Expected '=' in type alias declaration, but found 'Foo' at 22..25
@@ -962,6 +1006,7 @@ Failed: fixtures/typescript/tests/cases/conformance/declarationEmit/typesVersion
 Failed: fixtures/typescript/tests/cases/conformance/declarationEmit/typesVersionsDeclarationEmit.multiFileBackReferenceToUnmapped.ts - parser: Expected '=' in type alias declaration, but found 'A2' at 22..24
 Failed: fixtures/typescript/tests/cases/conformance/decorators/class/decoratorChecksFunctionBodies.ts - decoratorChecksFunctionBodies.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/decorators/legacyDecorators-contextualTypes.ts - legacyDecorators-contextualTypes.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/conformance/directives/ts-expect-error.ts - parser: 'const' is reserved and cannot be used as a type name at 838..843
 Failed: fixtures/typescript/tests/cases/conformance/enums/enumBasics.ts - enumBasics.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/enums/enumClassification.ts - enumClassification.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/enums/enumConstantMemberWithString.ts - enumConstantMemberWithString.ts: codegen output changed after reparse 
@@ -973,10 +1018,13 @@ Failed: fixtures/typescript/tests/cases/conformance/enums/enumExportMergingES6.t
 Failed: fixtures/typescript/tests/cases/conformance/enums/enumMerging.ts - enumMerging.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/enums/enumShadowedInfinityNaN.ts - enumShadowedInfinityNaN.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/es2017/useObjectValuesAndEntries1.ts - useObjectValuesAndEntries1.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/conformance/es2018/es2018IntlAPIs.ts - parser: 'const' is reserved and cannot be used as a type name at 234..239
+Failed: fixtures/typescript/tests/cases/conformance/es2020/es2020IntlAPIs.ts - parser: 'const' is reserved and cannot be used as a type name at 1463..1468
 Failed: fixtures/typescript/tests/cases/conformance/es2020/modules/exportAsNamespace5.ts - parser: Expected '=' in type alias declaration, but found 'Named' at 17..22
 Failed: fixtures/typescript/tests/cases/conformance/es2022/arbitraryModuleNamespaceIdentifiers/arbitraryModuleNamespaceIdentifiers_module.ts - parser: Expected '=' in type alias declaration, but found 'otherType' at 1368..1377
 Failed: fixtures/typescript/tests/cases/conformance/es2022/arbitraryModuleNamespaceIdentifiers/arbitraryModuleNamespaceIdentifiers_syntax.ts - parser: Expected '=' in type alias declaration, but found 'foo' at 17..20
 Failed: fixtures/typescript/tests/cases/conformance/es2022/arbitraryModuleNamespaceIdentifiers/arbitraryModuleNamespaceIdentifiers_syntax.ts - parser: Expected '=' in type alias declaration, but found 'foo' at 17..20
+Failed: fixtures/typescript/tests/cases/conformance/es2022/es2022IntlAPIs.ts - parser: 'const' is reserved and cannot be used as a type name at 241..246
 Failed: fixtures/typescript/tests/cases/conformance/es6/Symbols/symbolType19.ts - symbolType19.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/es6/arrowFunction/emitArrowFunctionES6.ts - emitArrowFunctionES6.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/es6/computedProperties/computedPropertyNames47_ES5.ts - computedPropertyNames47_ES5.ts: codegen output changed after reparse 
@@ -1038,19 +1086,22 @@ Failed: fixtures/typescript/tests/cases/conformance/expressions/binaryOperators/
 Failed: fixtures/typescript/tests/cases/conformance/expressions/binaryOperators/logicalOrOperator/logicalOrOperatorWithEveryType.ts - logicalOrOperatorWithEveryType.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/expressions/contextualTyping/functionExpressionContextualTyping1.ts - functionExpressionContextualTyping1.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/expressions/elementAccess/stringEnumInElementAccess01.ts - stringEnumInElementAccess01.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/conformance/expressions/functionCalls/callWithSpread4.ts - parser: 'const' is reserved and cannot be used as a type name at 673..678
 Failed: fixtures/typescript/tests/cases/conformance/expressions/functionCalls/typeArgumentInferenceWithObjectLiteral.ts - typeArgumentInferenceWithObjectLiteral.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/expressions/functions/arrowFunctionExpressions.ts - arrowFunctionExpressions.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/expressions/optionalChaining/optionalChainingInArrow.ts - optionalChainingInArrow.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeAssertions/constAssertionOnEnum.ts - enum.ts: codegen output changed after reparse 
-Failed: fixtures/typescript/tests/cases/conformance/expressions/typeAssertions/constAssertionOnEnum.ts - more.ts: codegen output changed after reparse 
-Failed: fixtures/typescript/tests/cases/conformance/expressions/typeAssertions/constAssertionOnEnum.ts - ns.ts: codegen output changed after reparse 
-Failed: fixtures/typescript/tests/cases/conformance/expressions/typeAssertions/constAssertionOnEnum.ts - test.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/conformance/expressions/typeAssertions/constAssertionOnEnum.ts - parser: 'const' is reserved and cannot be used as a type name at 33..38
+Failed: fixtures/typescript/tests/cases/conformance/expressions/typeAssertions/constAssertionOnEnum.ts - parser: 'const' is reserved and cannot be used as a type name at 57..62
+Failed: fixtures/typescript/tests/cases/conformance/expressions/typeAssertions/constAssertionOnEnum.ts - parser: 'const' is reserved and cannot be used as a type name at 75..80
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeGuards/TypeGuardWithEnumUnion.ts - TypeGuardWithEnumUnion.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeGuards/typeGuardEnums.ts - typeGuardEnums.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeGuards/typeGuardNarrowsPrimitiveIntersection.ts - typeGuardNarrowsPrimitiveIntersection.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeGuards/typeGuardsInConditionalExpression.ts - typeGuardsInConditionalExpression.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeGuards/typeGuardsInFunctionAndModuleBlock.ts - typeGuardsInFunctionAndModuleBlock.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeGuards/typeGuardsInRightOperandOfAndAndOperator.ts - typeGuardsInRightOperandOfAndAndOperator.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/conformance/expressions/typeSatisfaction/typeSatisfaction_asConstArrays.ts - parser: 'const' is reserved and cannot be used as a type name at 49..54
+Failed: fixtures/typescript/tests/cases/conformance/expressions/typeSatisfaction/typeSatisfaction_errorLocations1.ts - parser: 'const' is reserved and cannot be used as a type name at 429..434
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeSatisfaction/typeSatisfaction_propertyValueConformance3.ts - parser: Expected '=' in type alias declaration, but found 'Color' at 17..22
 Failed: fixtures/typescript/tests/cases/conformance/expressions/unaryOperators/bitwiseNotOperator/bitwiseNotOperatorWithEnumType.ts - bitwiseNotOperatorWithEnumType.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/expressions/unaryOperators/incrementOperator/incrementOperatorWithEnumType.ts - incrementOperatorWithEnumType.ts: codegen output changed after reparse 
@@ -1199,7 +1250,6 @@ Failed: fixtures/typescript/tests/cases/conformance/jsdoc/tsNoCheckForTypescript
 Failed: fixtures/typescript/tests/cases/conformance/jsdoc/tsNoCheckForTypescriptComments2.ts - parser: Expected '=' in type alias declaration, but found 'Aleph' at 215..220
 Failed: fixtures/typescript/tests/cases/conformance/jsx/checkJsxChildrenProperty16.tsx - parser: Expected '=' in type alias declaration, but found 'Props' at 115..120
 Failed: fixtures/typescript/tests/cases/conformance/jsx/jsxCheckJsxNoTypeArgumentsAllowed.tsx - parser: Expected '=' in type alias declaration, but found 'class' at 52..57
-Failed: fixtures/typescript/tests/cases/conformance/jsx/tsxOpeningClosingNames.tsx - parser: Expected closing tag for '<A.B.C.D>' but found '</A . B . C.D>' at 107..118
 Failed: fixtures/typescript/tests/cases/conformance/jsx/tsxSpreadInvalidType.tsx - parser: Expected '=' in type alias declaration, but found 'IntrinsicElements' at 40..57
 Failed: fixtures/typescript/tests/cases/conformance/jsx/tsxStatelessFunctionComponentOverload5.tsx - parser: Expected '=' in type alias declaration, but found 'ClickableProps' at 97..111
 Failed: fixtures/typescript/tests/cases/conformance/jsx/tsxStatelessFunctionComponentOverload6.tsx - parser: Expected '=' in type alias declaration, but found 'ClickableProps' at 141..155
@@ -1260,9 +1310,14 @@ Failed: fixtures/typescript/tests/cases/conformance/node/nodeModulesTripleSlashR
 Failed: fixtures/typescript/tests/cases/conformance/node/nodeModulesTripleSlashReferenceModeDeclarationEmit3.ts - parser: Expected '=' in type alias declaration, but found 'LocalInterface' at 94..108
 Failed: fixtures/typescript/tests/cases/conformance/node/nodeModulesTripleSlashReferenceModeDeclarationEmit4.ts - parser: Expected '=' in type alias declaration, but found 'LocalInterface' at 93..107
 Failed: fixtures/typescript/tests/cases/conformance/node/nodeModulesTripleSlashReferenceModeDeclarationEmit5.ts - parser: Expected '=' in type alias declaration, but found 'LocalInterface' at 165..179
+Failed: fixtures/typescript/tests/cases/conformance/node/nodeModulesTripleSlashReferenceModeDeclarationEmit7.ts - parser: 'const' is reserved and cannot be used as a type name at 160..165
 Failed: fixtures/typescript/tests/cases/conformance/nonjsExtensions/declarationFileForHtmlFileWithinDeclarationFile.ts - parser: 'const' declarations must be initialized at 384..392
 Failed: fixtures/typescript/tests/cases/conformance/nonjsExtensions/declarationFileForHtmlImport.ts - parser: 'const' declarations must be initialized at 384..392
 Failed: fixtures/typescript/tests/cases/conformance/override/overrideWithoutNoImplicitOverride1.ts - parser: Expected '=' in type alias declaration, but found 'class' at 20..25
+Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.classMethods.es2018.ts - parser: 'await' is reserved in an async/module context and cannot be used as a type name at 64..69
+Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.functionDeclarations.es2018.ts - parser: 'await' is reserved in an async/module context and cannot be used as a type name at 55..60
+Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.functionExpressions.es2018.ts - parser: 'await' is reserved in an async/module context and cannot be used as a type name at 64..69
+Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.objectLiteralMethods.es2018.ts - parser: 'await' is reserved in an async/module context and cannot be used as a type name at 66..71
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2021/numericSeparators/parser.numericSeparators.unicodeEscape.ts - 29.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2021/numericSeparators/parser.numericSeparators.unicodeEscape.ts - 30.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2021/numericSeparators/parser.numericSeparators.unicodeEscape.ts - 33.ts: codegen output changed after reparse 
@@ -1278,7 +1333,7 @@ Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/EnumDecla
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/EnumDeclarations/parserEnumDeclaration6.ts - parserEnumDeclaration6.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/EnumDeclarations/parserInterfaceKeywordInEnum.ts - parserInterfaceKeywordInEnum.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/EnumDeclarations/parserInterfaceKeywordInEnum1.ts - parserInterfaceKeywordInEnum1.ts: codegen output changed after reparse 
-Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/ErrorRecovery/ParameterLists/parserErrorRecovery_ParameterList6.ts - parser: Expected a type, but found 'break' at 34..39
+Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/ErrorRecovery/ParameterLists/parserErrorRecovery_ParameterList6.ts - parser: 'break' is reserved and cannot be used as a type name at 34..39
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/InterfaceDeclarations/parserInterfaceDeclaration7.ts - parser: Expected '=' in type alias declaration, but found 'I' at 22..23
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/ModuleDeclarations/parserModule1.ts - parser: Expected '=' in type alias declaration, but found 'IDiagnosticWriter' at 91..108
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/Statements/parserForStatement9.ts - parserForStatement9.ts: codegen output changed after reparse 
@@ -1286,6 +1341,7 @@ Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/parserRea
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/parserRealSource12.ts - parser: Expected '=' in type alias declaration, but found 'IAstWalker' at 256..266
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/parserRealSource2.ts - parserRealSource2.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/parserRealSource3.ts - parserRealSource3.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/parservoidInQualifiedName2.ts - parser: 'void' is reserved and cannot be used as a type name at 10..14
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript6/Iterators/parserForOfStatement24.ts - parser: 'for (async of ...)' is not allowed, it is ambiguous with 'for await' at 16..21
 Failed: fixtures/typescript/tests/cases/conformance/pedantic/noUncheckedIndexedAccess.ts - noUncheckedIndexedAccess.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/pedantic/noUncheckedIndexedAccessDestructuring.ts - noUncheckedIndexedAccessDestructuring.ts: codegen output changed after reparse 
@@ -1303,6 +1359,7 @@ Failed: fixtures/typescript/tests/cases/conformance/statements/forStatements/for
 Failed: fixtures/typescript/tests/cases/conformance/types/any/assignAnyToEveryType.ts - assignAnyToEveryType.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/types/any/assignEveryTypeToAny.ts - assignEveryTypeToAny.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/types/conditional/inferTypes2.ts - parser: Expected '=' in type alias declaration, but found 'function' at 42..50
+Failed: fixtures/typescript/tests/cases/conformance/types/conditional/variance.ts - parser: 'const' is reserved and cannot be used as a type name at 186..191
 Failed: fixtures/typescript/tests/cases/conformance/types/contextualTypes/asyncFunctions/contextuallyTypeAsyncFunctionReturnType.ts - parser: Expected '=' in type alias declaration, but found 'function' at 923..931
 Failed: fixtures/typescript/tests/cases/conformance/types/contextualTypes/jsxAttributes/contextuallyTypedStringLiteralsInJsxAttributes01.tsx - parser: Expected '=' in type alias declaration, but found 'IntrinsicElements' at 40..57
 Failed: fixtures/typescript/tests/cases/conformance/types/contextualTypes/jsxAttributes/contextuallyTypedStringLiteralsInJsxAttributes02.tsx - parser: Expected '=' in type alias declaration, but found 'ClickableProps' at 141..155
@@ -1325,9 +1382,12 @@ Failed: fixtures/typescript/tests/cases/conformance/types/literal/enumLiteralTyp
 Failed: fixtures/typescript/tests/cases/conformance/types/literal/enumLiteralTypes3.ts - enumLiteralTypes3.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/types/literal/literalTypeWidening.ts - parser: Expected '=' in type alias declaration, but found 'LangCode' at 3190..3198
 Failed: fixtures/typescript/tests/cases/conformance/types/literal/literalTypes2.ts - literalTypes2.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/conformance/types/literal/literalTypesAndDestructuring.ts - parser: 'const' is reserved and cannot be used as a type name at 126..131
 Failed: fixtures/typescript/tests/cases/conformance/types/literal/stringEnumLiteralTypes1.ts - stringEnumLiteralTypes1.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/types/literal/stringEnumLiteralTypes2.ts - stringEnumLiteralTypes2.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/types/literal/stringEnumLiteralTypes3.ts - stringEnumLiteralTypes3.ts: codegen output changed after reparse 
+Failed: fixtures/typescript/tests/cases/conformance/types/literal/templateLiteralTypes2.ts - parser: 'const' is reserved and cannot be used as a type name at 1664..1669
+Failed: fixtures/typescript/tests/cases/conformance/types/literal/templateLiteralTypes3.ts - parser: 'const' is reserved and cannot be used as a type name at 761..766
 Failed: fixtures/typescript/tests/cases/conformance/types/literal/templateLiteralTypes4.ts - templateLiteralTypes4.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/types/literal/templateLiteralTypes8.ts - templateLiteralTypes8.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/types/literal/templateLiteralTypesPatterns.ts - parser: Expected '=' in type alias declaration, but found 'Id' at 4453..4455
@@ -1348,10 +1408,11 @@ Failed: fixtures/typescript/tests/cases/conformance/types/primitives/undefined/i
 Failed: fixtures/typescript/tests/cases/conformance/types/primitives/undefined/invalidUndefinedValues.ts - invalidUndefinedValues.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/types/primitives/void/invalidVoidAssignments.ts - invalidVoidAssignments.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/types/primitives/void/invalidVoidValues.ts - invalidVoidValues.ts: codegen output changed after reparse 
-Failed: fixtures/typescript/tests/cases/conformance/types/rest/genericRestParameters3.ts - parser: Expected a type, but found '...' at 2066..2069
+Failed: fixtures/typescript/tests/cases/conformance/types/specifyingTypes/typeQueries/typeQueryWithReservedWords.ts - parser: 'delete' is reserved and cannot be used as a type name at 191..197
 Failed: fixtures/typescript/tests/cases/conformance/types/specifyingTypes/typeReferences/nonGenericTypeReferenceWithTypeArguments.ts - nonGenericTypeReferenceWithTypeArguments.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/types/tuple/castingTuple.ts - castingTuple.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/types/tuple/named/namedTupleMembers.ts - parser: Expected '=' in type alias declaration, but found 'Segment' at 17..24
+Failed: fixtures/typescript/tests/cases/conformance/types/tuple/variadicTuples1.ts - parser: 'const' is reserved and cannot be used as a type name at 629..634
 Failed: fixtures/typescript/tests/cases/conformance/types/typeAliases/typeAliases.ts - typeAliases.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/types/typeParameters/typeParameterLists/typeParameterConstModifiersReturnsAndYields.ts - typeParameterConstModifiersReturnsAndYields.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/types/typeRelationships/assignmentCompatibility/anyAssignabilityInInheritance.ts - anyAssignabilityInInheritance.ts: codegen output changed after reparse 

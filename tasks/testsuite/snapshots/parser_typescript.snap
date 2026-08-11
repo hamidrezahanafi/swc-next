@@ -1,7 +1,7 @@
 parser * typescript
 ========================
-Positive Passed: 13012/13156 (98.91%)
-Negative Passed: 1587/2981 (53.24%)
+Positive Passed: 12937/13156 (98.34%)
+Negative Passed: 1600/2981 (53.67%)
 Panicked: 0/16137 (0.00%)
 Failed: fixtures/typescript/tests/cases/compiler/ClassDeclaration10.ts - ClassDeclaration10.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/ClassDeclaration11.ts - ClassDeclaration11.ts: expected a parse or early error, but pipeline succeeded
@@ -47,9 +47,9 @@ Failed: fixtures/typescript/tests/cases/compiler/anyIdenticalToItself.ts - anyId
 Failed: fixtures/typescript/tests/cases/compiler/argumentsBindsToFunctionScopeArgumentList.ts - argumentsBindsToFunctionScopeArgumentList.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/argumentsReferenceInObjectLiteral_Js.ts - /a.js: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/arrayConcatMap.ts - arrayConcatMap.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/compiler/arrowFunctionErrorSpan.ts - arrowFunctionErrorSpan.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/asiAbstract.ts - asiAbstract.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/asiPublicPrivateProtected.ts - asiPublicPrivateProtected.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/assertionFunctionsCanNarrowByDiscriminant.ts - assertionFunctionsCanNarrowByDiscriminant.ts: parser: 'const' is reserved and cannot be used as a type name at 302..307
 Failed: fixtures/typescript/tests/cases/compiler/assignmentCompatFunctionsWithOptionalArgs.ts - assignmentCompatFunctionsWithOptionalArgs.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/assignmentToAnyArrayRestParameters.ts - assignmentToAnyArrayRestParameters.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/augmentedClassWithPrototypePropertyOnModule.ts - augmentedClassWithPrototypePropertyOnModule.ts: expected a parse or early error, but pipeline succeeded
@@ -59,15 +59,16 @@ Failed: fixtures/typescript/tests/cases/compiler/augmentedTypesModules3.ts - aug
 Failed: fixtures/typescript/tests/cases/compiler/autolift3.ts - autolift3.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/autolift4.ts - autolift4.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/awaitCallExpressionInSyncFunction.ts - awaitCallExpressionInSyncFunction.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/awaitedType.ts - awaitedType.ts: parser: 'const' is reserved and cannot be used as a type name at 5737..5742
 Failed: fixtures/typescript/tests/cases/compiler/baseCheck.ts - baseCheck.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/baseExpressionTypeParameters.ts - baseExpressionTypeParameters.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/bigintIndex.ts - a.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/compiler/bigintPropertyName.ts - a.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/binaryArithmatic1.ts - binaryArithmatic1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/binaryArithmatic2.ts - binaryArithmatic2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/binaryArithmatic3.ts - binaryArithmatic3.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/binaryArithmatic4.ts - binaryArithmatic4.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/bindingPatternCannotBeOnlyInferenceSource.ts - bindingPatternCannotBeOnlyInferenceSource.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/builtinIterator.ts - builtinIterator.ts: parser: 'const' is reserved and cannot be used as a type name at 637..642
 Failed: fixtures/typescript/tests/cases/compiler/callOverloads1.ts - callOverloads1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/callOverloads2.ts - callOverloads2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/callOverloads3.ts - callOverloads3.ts: expected a parse or early error, but pipeline succeeded
@@ -115,8 +116,10 @@ Failed: fixtures/typescript/tests/cases/compiler/collisionExportsRequireAndInter
 Failed: fixtures/typescript/tests/cases/compiler/collisionExportsRequireAndModule.ts - collisionExportsRequireAndModule_externalmodule.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/collisionExportsRequireAndVar.ts - collisionExportsRequireAndVar_externalmodule.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/complicatedGenericRecursiveBaseClassReference.ts - complicatedGenericRecursiveBaseClassReference.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/computedEnumTypeWidening.ts - computedEnumTypeWidening.ts: parser: 'const' is reserved and cannot be used as a type name at 1061..1066
 Failed: fixtures/typescript/tests/cases/compiler/computedPropertiesInDestructuring1.ts - computedPropertiesInDestructuring1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/computedPropertiesInDestructuring1_ES6.ts - computedPropertiesInDestructuring1_ES6.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/computedPropertiesNarrowed.ts - computedPropertiesNarrowed.ts: parser: 'const' is reserved and cannot be used as a type name at 707..712
 Failed: fixtures/typescript/tests/cases/compiler/conflictingDeclarationsImportFromNamespace1.ts - index.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/conflictingDeclarationsImportFromNamespace2.ts - index.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/conflictingTypeAnnotatedVar.ts - conflictingTypeAnnotatedVar.ts: expected a parse or early error, but pipeline succeeded
@@ -125,14 +128,16 @@ Failed: fixtures/typescript/tests/cases/compiler/constDeclarations-access2.ts - 
 Failed: fixtures/typescript/tests/cases/compiler/constDeclarations-ambient-errors.ts - constDeclarations-ambient-errors.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/constEnumBadPropertyNames.ts - constEnumBadPropertyNames.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/constWithNonNull.ts - constWithNonNull.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/compiler/constantEnumAssert.ts - constantEnumAssert.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/constructorArgsErrors3.ts - constructorArgsErrors3.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/constructorArgsErrors4.ts - constructorArgsErrors4.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/constructorOverloads3.ts - constructorOverloads3.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/constructorOverloads6.ts - constructorOverloads6.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/constructorOverloads7.ts - constructorOverloads7.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/constructorsWithSpecializedSignatures.ts - constructorsWithSpecializedSignatures.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/contextualTupleTypeParameterReadonly.ts - contextualTupleTypeParameterReadonly.ts: parser: 'const' is reserved and cannot be used as a type name at 163..168
 Failed: fixtures/typescript/tests/cases/compiler/contextualTypeForInitalizedVariablesFiltersUndefined.ts - contextualTypeForInitalizedVariablesFiltersUndefined.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/contextualTypesNegatedTypeLikeConstraintInGenericMappedType1.ts - contextualTypesNegatedTypeLikeConstraintInGenericMappedType1.ts: parser: 'const' is reserved and cannot be used as a type name at 207..212
+Failed: fixtures/typescript/tests/cases/compiler/contextualTypesNegatedTypeLikeConstraintInGenericMappedType3.ts - contextualTypesNegatedTypeLikeConstraintInGenericMappedType3.ts: parser: 'const' is reserved and cannot be used as a type name at 293..298
 Failed: fixtures/typescript/tests/cases/compiler/contextualTyping.ts - contextualTyping.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/contextualTypingOfLambdaReturnExpression.ts - contextualTypingOfLambdaReturnExpression.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/contextualTypingOfObjectLiterals2.ts - contextualTypingOfObjectLiterals2.ts: expected a parse or early error, but pipeline succeeded
@@ -146,6 +151,7 @@ Failed: fixtures/typescript/tests/cases/compiler/controlFlowFunctionLikeCircular
 Failed: fixtures/typescript/tests/cases/compiler/controlFlowFunctionLikeCircular1.ts - controlFlowFunctionLikeCircular_7.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/controlFlowFunctionLikeCircular1.ts - controlFlowFunctionLikeCircular_8.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/controlFlowFunctionLikeCircular1.ts - controlFlowFunctionLikeCircular_9.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/correlatedUnions.ts - correlatedUnions.ts: parser: 'const' is reserved and cannot be used as a type name at 5657..5662
 Failed: fixtures/typescript/tests/cases/compiler/crashDeclareGlobalTypeofExport.ts - bar.d.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/crashOnMethodSignatures.ts - crashOnMethodSignatures.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/crashRegressionTest.ts - crashRegressionTest.ts: expected a parse or early error, but pipeline succeeded
@@ -153,23 +159,33 @@ Failed: fixtures/typescript/tests/cases/compiler/ctsFileInEsnextHelpers.ts - not
 Failed: fixtures/typescript/tests/cases/compiler/declFileWithErrorsInInputDeclarationFile.ts - declFile.d.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/declFileWithErrorsInInputDeclarationFileWithOut.ts - declFile.d.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitBundlerConditions.ts - /node_modules/pkg/index.d.cts: semantic: Cannot use 'export' declaration outside a module at 0..10
+Failed: fixtures/typescript/tests/cases/compiler/declarationEmitClassMemberWithComputedPropertyName.ts - declarationEmitClassMemberWithComputedPropertyName.ts: parser: 'const' is reserved and cannot be used as a type name at 41..46
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitCommonJsModuleReferencedType.ts - r/entry.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/declarationEmitComputedNameWithQuestionToken.ts - declarationEmitComputedNameWithQuestionToken.ts: parser: 'const' is reserved and cannot be used as a type name at 83..88
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitComputedPropertyNameEnum3.ts - type.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitDestructuringParameterProperties.ts - declarationEmitDestructuringParameterProperties.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitDestructuringParameterProperties2.ts - declarationEmitDestructuringParameterProperties2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitDestructuringWithOptionalBindingParameters.ts - declarationEmitDestructuringWithOptionalBindingParameters.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitIndexTypeNotFound.ts - declarationEmitIndexTypeNotFound.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/declarationEmitMergedAliasWithConst.ts - declarationEmitMergedAliasWithConst.ts: parser: 'const' is reserved and cannot be used as a type name at 81..86
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitNestedBindingPattern.ts - declarationEmitNestedBindingPattern.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitObjectAssignedDefaultExport.ts - index.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/declarationEmitPropertyNumericStringKey.ts - declarationEmitPropertyNumericStringKey.ts: parser: 'const' is reserved and cannot be used as a type name at 105..110
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitReexportedSymlinkReference3.ts - monorepo/pkg3/src/keys.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitRelativeModuleError.ts - declarationEmitRelativeModuleError.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/declarationEmitResolveTypesIfNotReusable.ts - decl.ts: parser: 'const' is reserved and cannot be used as a type name at 125..130
+Failed: fixtures/typescript/tests/cases/compiler/declarationEmitTypeParameterNameShadowedInternally.ts - declarationEmitTypeParameterNameShadowedInternally.ts: parser: 'const' is reserved and cannot be used as a type name at 74..79
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitUnsafeImportSymbolName.ts - r/entry.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/declarationEmitUsingAlternativeContainingModules1.ts - src/index.mts: parser: 'const' is reserved and cannot be used as a type name at 489..494
+Failed: fixtures/typescript/tests/cases/compiler/declarationEmitUsingAlternativeContainingModules2.ts - src/index.mts: parser: 'const' is reserved and cannot be used as a type name at 489..494
 Failed: fixtures/typescript/tests/cases/compiler/declarationEmitUsingTypeAlias1.ts - src/index.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/declarationFileNoCrashOnExtraExportModifier.ts - input.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/declareModifierOnImport1.ts - declareModifierOnImport1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/decoratorsOnComputedProperties.ts - decoratorsOnComputedProperties.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/defaultArgsInOverloads.ts - defaultArgsInOverloads.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/defaultBestCommonTypesHaveDecls.ts - defaultBestCommonTypesHaveDecls.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/defaultIsNotVisibleInLocalScope.ts - a.ts: parser: 'default' is reserved and cannot be used as a type name at 71..78
+Failed: fixtures/typescript/tests/cases/compiler/defaultIsNotVisibleInLocalScope.ts - b.ts: parser: 'default' is reserved and cannot be used as a type name at 50..57
 Failed: fixtures/typescript/tests/cases/compiler/defaultValueInConstructorOverload1.ts - defaultValueInConstructorOverload1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/defaultValueInFunctionOverload1.ts - defaultValueInFunctionOverload1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/defaultValueInFunctionTypes.ts - defaultValueInFunctionTypes.ts: expected a parse or early error, but pipeline succeeded
@@ -185,6 +201,7 @@ Failed: fixtures/typescript/tests/cases/compiler/destructuringUnspreadableIntoRe
 Failed: fixtures/typescript/tests/cases/compiler/detachedCommentAtStartOfFunctionBody1.ts - detachedCommentAtStartOfFunctionBody1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/detachedCommentAtStartOfFunctionBody2.ts - detachedCommentAtStartOfFunctionBody2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/didYouMeanSuggestionErrors.ts - didYouMeanSuggestionErrors.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/discriminatedUnionWithIndexSignature.ts - discriminatedUnionWithIndexSignature.ts: parser: 'const' is reserved and cannot be used as a type name at 439..444
 Failed: fixtures/typescript/tests/cases/compiler/downlevelLetConst16.ts - downlevelLetConst16.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/downlevelLetConst6.ts - downlevelLetConst6.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/duplicateClassElements.ts - duplicateClassElements.ts: expected a parse or early error, but pipeline succeeded
@@ -257,6 +274,8 @@ Failed: fixtures/typescript/tests/cases/compiler/es6ModuleInternalNamedImports2.
 Failed: fixtures/typescript/tests/cases/compiler/escapedIdentifiers.ts - escapedIdentifiers.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/esmNoSynthesizedDefault.ts - /index.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/excessPropertyCheckIntersectionWithRecursiveType.ts - excessPropertyCheckIntersectionWithRecursiveType.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/excessivelyLargeTupleSpread.ts - excessivelyLargeTupleSpread.ts: parser: 'const' is reserved and cannot be used as a type name at 589..594
+Failed: fixtures/typescript/tests/cases/compiler/expandoFunctionExpressionsWithDynamicNames2.ts - expandoFunctionExpressionsWithDynamicNames2.ts: parser: 'const' is reserved and cannot be used as a type name at 191..196
 Failed: fixtures/typescript/tests/cases/compiler/expandoFunctionNestedAssigments.ts - expandoFunctionNestedAssigments.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/exportAsNamespace_augment.ts - /a.d.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/exportAsNamespace_augment.ts - /b.ts: expected a parse or early error, but pipeline succeeded
@@ -290,11 +309,11 @@ Failed: fixtures/typescript/tests/cases/compiler/externalModuleImmutableBindings
 Failed: fixtures/typescript/tests/cases/compiler/externalModuleRefernceResolutionOrderInImportDeclaration.ts - externalModuleRefernceResolutionOrderInImportDeclaration_file3.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/fatarrowfunctionsOptionalArgsErrors4.ts - fatarrowfunctionsOptionalArgsErrors4.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/fieldAndGetterWithSameName.ts - fieldAndGetterWithSameName.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/compiler/fileWithNextLine2.ts - fileWithNextLine2.ts: parser: Invalid character at start of identifier at 110..110
 Failed: fixtures/typescript/tests/cases/compiler/forIn.ts - forIn.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/forInStatement4.ts - forInStatement4.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/forInStatement7.ts - forInStatement7.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/forwardRefInEnum.ts - forwardRefInEnum.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/forwardRefInTypeDeclaration.ts - forwardRefInTypeDeclaration.ts: parser: 'const' is reserved and cannot be used as a type name at 592..597
 Failed: fixtures/typescript/tests/cases/compiler/funClodule.ts - funClodule.ts: semantic: Identifier 'foo3' has already been declared at 322..326
 Failed: fixtures/typescript/tests/cases/compiler/functionAndImportNameConflict.ts - f2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/functionAndInterfaceWithSeparateErrors.ts - functionAndInterfaceWithSeparateErrors.ts: expected a parse or early error, but pipeline succeeded
@@ -365,6 +384,7 @@ Failed: fixtures/typescript/tests/cases/compiler/indexedAccessWithFreshObjectLit
 Failed: fixtures/typescript/tests/cases/compiler/indexer2A.ts - indexer2A.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/inexistentPropertyInsideToStringType.ts - index.js: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/inferFromGenericFunctionReturnTypes1.ts - inferFromGenericFunctionReturnTypes1.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/inferFromNestedSameShapeTuple.ts - inferFromNestedSameShapeTuple.ts: parser: 'const' is reserved and cannot be used as a type name at 382..387
 Failed: fixtures/typescript/tests/cases/compiler/inferentiallyTypingAnEmptyArray.ts - inferentiallyTypingAnEmptyArray.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/innerAliases.ts - innerAliases.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/instanceofOnInstantiationExpression.ts - instanceofOnInstantiationExpression.ts: expected a parse or early error, but pipeline succeeded
@@ -388,6 +408,14 @@ Failed: fixtures/typescript/tests/cases/compiler/invalidStaticField.ts - invalid
 Failed: fixtures/typescript/tests/cases/compiler/invokingNonGenericMethodWithTypeArguments1.ts - invokingNonGenericMethodWithTypeArguments1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/isArray.ts - isArray.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/isLiteral1.ts - isLiteral1.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationErrorsClassesExpressions.ts - isolatedDeclarationErrorsClassesExpressions.ts: parser: 'const' is reserved and cannot be used as a type name at 241..246
+Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationErrorsDefault.ts - d.ts: parser: 'const' is reserved and cannot be used as a type name at 35..40
+Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationErrorsDefault.ts - e.ts: parser: 'const' is reserved and cannot be used as a type name at 35..40
+Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationErrorsExpressions.ts - isolatedDeclarationErrorsExpressions.ts: parser: 'const' is reserved and cannot be used as a type name at 1306..1311
+Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationErrorsFunctionDeclarations.ts - isolatedDeclarationErrorsFunctionDeclarations.ts: parser: 'const' is reserved and cannot be used as a type name at 226..231
+Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationLazySymbols.ts - isolatedDeclarationLazySymbols.ts: parser: 'const' is reserved and cannot be used as a type name at 108..113
+Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationsAddUndefined.ts - file1.ts: parser: 'const' is reserved and cannot be used as a type name at 52..57
+Failed: fixtures/typescript/tests/cases/compiler/isolatedDeclarationsLiterals.ts - file1.ts: parser: 'const' is reserved and cannot be used as a type name at 535..540
 Failed: fixtures/typescript/tests/cases/compiler/isolatedModulesExportDeclarationType.ts - /test2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/isolatedModulesShadowGlobalTypeNotValue.ts - ./bad.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/jsCheckObjectDefineThisNoCrash.ts - jsCheckObjectDefineThisNoCrash.js: expected a parse or early error, but pipeline succeeded
@@ -434,7 +462,9 @@ Failed: fixtures/typescript/tests/cases/compiler/letInVarDeclOfForOf_ES6.ts - le
 Failed: fixtures/typescript/tests/cases/compiler/longObjectInstantiationChain1.ts - longObjectInstantiationChain1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/longObjectInstantiationChain2.ts - longObjectInstantiationChain2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/longObjectInstantiationChain3.ts - longObjectInstantiationChain3.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/mapConstructorOnReadonlyTuple.ts - mapConstructorOnReadonlyTuple.ts: parser: 'const' is reserved and cannot be used as a type name at 36..41
 Failed: fixtures/typescript/tests/cases/compiler/mapUpsert.ts - mapUpsert.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/mappedTypeIndexedAccessConstraint.ts - mappedTypeIndexedAccessConstraint.ts: parser: 'const' is reserved and cannot be used as a type name at 729..734
 Failed: fixtures/typescript/tests/cases/compiler/maxNodeModuleJsDepthDefaultsToZero.ts - /index.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/memberOverride.ts - memberOverride.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/mergeSymbolReexportInterface.ts - ./a.d.ts: expected a parse or early error, but pipeline succeeded
@@ -493,8 +523,12 @@ Failed: fixtures/typescript/tests/cases/compiler/multipleExports.ts - multipleEx
 Failed: fixtures/typescript/tests/cases/compiler/multivar.ts - multivar.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/namespaceMergedWithImportAliasNoCrash.ts - file2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/namespaceNotMergedWithFunctionDefaultExport.ts - replace-in-file/types/index.d.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/namespacesWithTypeAliasOnlyExportsMerge.ts - constAndNS.ts: parser: 'default' is reserved and cannot be used as a type name at 328..335
 Failed: fixtures/typescript/tests/cases/compiler/narrowByClauseExpressionInSwitchTrue3.ts - narrowByClauseExpressionInSwitchTrue3.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/narrowByClauseExpressionInSwitchTrue6.ts - narrowByClauseExpressionInSwitchTrue6.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/narrowBySwitchDiscriminantUndefinedCase1.ts - narrowBySwitchDiscriminantUndefinedCase1.ts: parser: 'const' is reserved and cannot be used as a type name at 380..385
+Failed: fixtures/typescript/tests/cases/compiler/narrowingNoInfer1.ts - narrowingNoInfer1.ts: parser: 'const' is reserved and cannot be used as a type name at 520..525
+Failed: fixtures/typescript/tests/cases/compiler/noAsConstNameLookup.ts - noAsConstNameLookup.ts: parser: 'const' is reserved and cannot be used as a type name at 367..372
 Failed: fixtures/typescript/tests/cases/compiler/noImplicitAnyForIn.ts - noImplicitAnyForIn.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/noImplicitAnyIndexing.ts - noImplicitAnyIndexing.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/noImplicitAnyIndexingSuppressed.ts - noImplicitAnyIndexingSuppressed.ts: expected a parse or early error, but pipeline succeeded
@@ -541,6 +575,7 @@ Failed: fixtures/typescript/tests/cases/compiler/parameterInitializerBeforeDestr
 Failed: fixtures/typescript/tests/cases/compiler/parameterPropertyInConstructor1.ts - parameterPropertyInConstructor1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/parameterPropertyInConstructor2.ts - parameterPropertyInConstructor2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/parameterPropertyInConstructor3.ts - parameterPropertyInConstructor3.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/parseEntityNameWithReservedWord.ts - parseEntityNameWithReservedWord.ts: parser: 'false' is reserved and cannot be used as a type name at 34..39
 Failed: fixtures/typescript/tests/cases/compiler/parseInvalidNonNullableTypes.ts - parseInvalidNonNullableTypes.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/parseInvalidNullableTypes.ts - parseInvalidNullableTypes.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/pathMappingBasedModuleResolution_rootImport_aliasWithRoot_realRootFile.ts - /root/a.ts: expected a parse or early error, but pipeline succeeded
@@ -576,6 +611,7 @@ Failed: fixtures/typescript/tests/cases/compiler/reExportGlobalDeclaration3.ts -
 Failed: fixtures/typescript/tests/cases/compiler/reExportGlobalDeclaration4.ts - file2.ts: semantic: Export 'Cls1' is not defined at 8..12
 Failed: fixtures/typescript/tests/cases/compiler/reExportUndefined1.ts - a.ts: semantic: Export 'undefined' is not defined at 9..18
 Failed: fixtures/typescript/tests/cases/compiler/reactImportDropped.ts - src/modules/navigation/NavigationView.js: parser: Unexpected token '<' at 128..129
+Failed: fixtures/typescript/tests/cases/compiler/readonlyTupleAndArrayElaboration.ts - readonlyTupleAndArrayElaboration.ts: parser: 'const' is reserved and cannot be used as a type name at 56..61
 Failed: fixtures/typescript/tests/cases/compiler/reassignStaticProp.ts - reassignStaticProp.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/reboundIdentifierOnImportAlias.ts - reboundIdentifierOnImportAlias.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/recursiveBaseCheck3.ts - recursiveBaseCheck3.ts: expected a parse or early error, but pipeline succeeded
@@ -594,6 +630,7 @@ Failed: fixtures/typescript/tests/cases/compiler/reservedNameOnInterfaceImport.t
 Failed: fixtures/typescript/tests/cases/compiler/reservedNameOnModuleImportWithInterface.ts - reservedNameOnModuleImportWithInterface.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/restUnion.ts - restUnion.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/returnValueInSetter.ts - returnValueInSetter.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/reverseMappedUnionInference.ts - reverseMappedUnionInference.ts: parser: 'const' is reserved and cannot be used as a type name at 670..675
 Failed: fixtures/typescript/tests/cases/compiler/scopeCheckExtendedClassInsideStaticMethod1.ts - scopeCheckExtendedClassInsideStaticMethod1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/scopeCheckInsideStaticMethod1.ts - scopeCheckInsideStaticMethod1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/selfReferencesInFunctionParameters.ts - selfReferencesInFunctionParameters.ts: expected a parse or early error, but pipeline succeeded
@@ -601,11 +638,11 @@ Failed: fixtures/typescript/tests/cases/compiler/semicolonsInModuleDeclarations.
 Failed: fixtures/typescript/tests/cases/compiler/setterWithReturn.ts - setterWithReturn.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/shorthandPropertyUndefined.ts - shorthandPropertyUndefined.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/sideEffectImports1.ts - sideEffectImports1.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/compiler/sourceMap-LineBreaks.ts - sourceMap-LineBreaks.ts: parser: Invalid character at start of identifier at 100..100
 Failed: fixtures/typescript/tests/cases/compiler/sourceMapValidationDecorators.ts - sourceMapValidationDecorators.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/sourceMapValidationEnums.ts - sourceMapValidationEnums.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/sourceMapValidationLabeled.ts - sourceMapValidationLabeled.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/sourceMapValidationStatements.ts - sourceMapValidationStatements.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/spreadsAndContextualTupleTypes.ts - spreadsAndContextualTupleTypes.ts: parser: 'const' is reserved and cannot be used as a type name at 176..181
 Failed: fixtures/typescript/tests/cases/compiler/spyComparisonChecking.ts - spyComparisonChecking.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/stackDepthLimitCastingType.ts - node_modules/backbone/index.d.ts: semantic: Export 'Model' is not defined at 572..577
 Failed: fixtures/typescript/tests/cases/compiler/staticAnonymousTypeNotReferencingTypeParameter.ts - staticAnonymousTypeNotReferencingTypeParameter.ts: expected a parse or early error, but pipeline succeeded
@@ -617,7 +654,6 @@ Failed: fixtures/typescript/tests/cases/compiler/staticPropSuper.ts - staticProp
 Failed: fixtures/typescript/tests/cases/compiler/staticVisibility.ts - staticVisibility.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/statics.ts - statics.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/strictModeInConstructor.ts - strictModeInConstructor.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/compiler/strictOptionalProperties1.ts - strictOptionalProperties1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/super.ts - super.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/super1.ts - super1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/superCallInsideClassDeclaration.ts - superCallInsideClassDeclaration.ts: expected a parse or early error, but pipeline succeeded
@@ -629,8 +665,8 @@ Failed: fixtures/typescript/tests/cases/compiler/superPropertyAccessInSuperCall0
 Failed: fixtures/typescript/tests/cases/compiler/systemModule9.ts - systemModule9.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/targetTypeCastTest.ts - targetTypeCastTest.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/targetTypeTest1.ts - targetTypeTest1.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/templateLiteralConstantEvaluation.ts - templateLiteralConstantEvaluation.ts: parser: 'const' is reserved and cannot be used as a type name at 181..186
 Failed: fixtures/typescript/tests/cases/compiler/templateLiteralsInTypes.ts - templateLiteralsInTypes.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/compiler/temporal.ts - temporal.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/thisBinding.ts - thisBinding.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/thisInModule.ts - thisInModule.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/thisInOuterClassBody.ts - thisInOuterClassBody.ts: expected a parse or early error, but pipeline succeeded
@@ -646,6 +682,7 @@ Failed: fixtures/typescript/tests/cases/compiler/typeAliasDeclarationEmit3.ts - 
 Failed: fixtures/typescript/tests/cases/compiler/typeCheckingInsideFunctionExpressionInArray.ts - typeCheckingInsideFunctionExpressionInArray.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/typeGuardConstructorClassAndNumber.ts - typeGuardConstructorClassAndNumber.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/typeGuardConstructorDerivedClass.ts - typeGuardConstructorDerivedClass.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/typeGuardNarrowsIndexedAccessOfKnownProperty2.ts - typeGuardNarrowsIndexedAccessOfKnownProperty2.ts: parser: 'const' is reserved and cannot be used as a type name at 55..60
 Failed: fixtures/typescript/tests/cases/compiler/typeInterfaceDeclarationsInBlockStatements1.ts - typeInterfaceDeclarationsInBlockStatements1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/typeNamedUndefined1.ts - typeNamedUndefined1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/typeNamedUndefined2.ts - typeNamedUndefined2.ts: expected a parse or early error, but pipeline succeeded
@@ -653,6 +690,7 @@ Failed: fixtures/typescript/tests/cases/compiler/typeOfEnumAndVarRedeclarations.
 Failed: fixtures/typescript/tests/cases/compiler/typeParameterExplicitlyExtendsAny.ts - typeParameterExplicitlyExtendsAny.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/typeParameterWithInvalidConstraintType.ts - typeParameterWithInvalidConstraintType.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/typePredicateStructuralMatch.ts - typePredicateStructuralMatch.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/compiler/typePredicatesCanNarrowByDiscriminant.ts - typePredicatesCanNarrowByDiscriminant.ts: parser: 'const' is reserved and cannot be used as a type name at 220..225
 Failed: fixtures/typescript/tests/cases/compiler/typeValueConflict1.ts - typeValueConflict1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/typeValueConflict2.ts - typeValueConflict2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/compiler/typeofClass.ts - typeofClass.ts: expected a parse or early error, but pipeline succeeded
@@ -688,20 +726,26 @@ Failed: fixtures/typescript/tests/cases/compiler/withStatementNestedScope.ts - w
 Failed: fixtures/typescript/tests/cases/conformance/ambient/ambientDeclarationsPatterns_merging3.ts - test.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/ambient/ambientExternalModuleInsideNonAmbient.ts - ambientExternalModuleInsideNonAmbient.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/ambient/ambientExternalModuleInsideNonAmbientExternalModule.ts - ambientExternalModuleInsideNonAmbientExternalModule.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/async/es2017/asyncArrowFunction/asyncArrowFunction10_es2017.ts - asyncArrowFunction10_es2017.ts: parser: 'await' is reserved in an async/module context and cannot be used as a type name at 95..100
 Failed: fixtures/typescript/tests/cases/conformance/async/es2017/asyncArrowFunction/asyncArrowFunction3_es2017.ts - asyncArrowFunction3_es2017.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/async/es2017/await_unaryExpression_es2017_1.ts - await_unaryExpression_es2017_1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/async/es2017/await_unaryExpression_es2017_2.ts - await_unaryExpression_es2017_2.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/async/es2017/functionDeclarations/asyncFunctionDeclaration13_es2017.ts - asyncFunctionDeclaration13_es2017.ts: parser: 'await' is reserved in an async/module context and cannot be used as a type name at 94..99
 Failed: fixtures/typescript/tests/cases/conformance/async/es2017/functionDeclarations/asyncFunctionDeclaration3_es2017.ts - asyncFunctionDeclaration3_es2017.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/async/es5/asyncArrowFunction/asyncArrowFunction10_es5.ts - asyncArrowFunction10_es5.ts: parser: 'await' is reserved in an async/module context and cannot be used as a type name at 95..100
 Failed: fixtures/typescript/tests/cases/conformance/async/es5/asyncArrowFunction/asyncArrowFunction3_es5.ts - asyncArrowFunction3_es5.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/async/es5/asyncArrowFunction/asyncArrowFunctionCapturesArguments_es5.ts - asyncArrowFunctionCapturesArguments_es5.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/async/es5/asyncDeclare_es5.ts - asyncDeclare_es5.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/async/es5/functionDeclarations/asyncFunctionDeclaration13_es5.ts - asyncFunctionDeclaration13_es5.ts: parser: 'await' is reserved in an async/module context and cannot be used as a type name at 94..99
 Failed: fixtures/typescript/tests/cases/conformance/async/es5/functionDeclarations/asyncFunctionDeclaration3_es5.ts - asyncFunctionDeclaration3_es5.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/async/es5/functionDeclarations/asyncFunctionDeclarationCapturesArguments_es5.ts - asyncFunctionDeclarationCapturesArguments_es5.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/async/es6/asyncArrowFunction/asyncArrowFunction10_es6.ts - asyncArrowFunction10_es6.ts: parser: 'await' is reserved in an async/module context and cannot be used as a type name at 95..100
 Failed: fixtures/typescript/tests/cases/conformance/async/es6/asyncArrowFunction/asyncArrowFunction3_es6.ts - asyncArrowFunction3_es6.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/async/es6/asyncDeclare_es6.ts - asyncDeclare_es6.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/async/es6/asyncWithVarShadowing_es6.ts - asyncWithVarShadowing_es6.ts: semantic: Identifier 'x' has already been declared at 1479..1480
 Failed: fixtures/typescript/tests/cases/conformance/async/es6/await_unaryExpression_es6_1.ts - await_unaryExpression_es6_1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/async/es6/await_unaryExpression_es6_2.ts - await_unaryExpression_es6_2.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/async/es6/functionDeclarations/asyncFunctionDeclaration13_es6.ts - asyncFunctionDeclaration13_es6.ts: parser: 'await' is reserved in an async/module context and cannot be used as a type name at 94..99
 Failed: fixtures/typescript/tests/cases/conformance/async/es6/functionDeclarations/asyncFunctionDeclaration3_es6.ts - asyncFunctionDeclaration3_es6.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/classes/classDeclarations/classAbstractKeyword/classAbstractAccessor.ts - classAbstractAccessor.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/classes/classDeclarations/classAbstractKeyword/classAbstractConstructor.ts - classAbstractConstructor.ts: expected a parse or early error, but pipeline succeeded
@@ -763,6 +807,7 @@ Failed: fixtures/typescript/tests/cases/conformance/classes/members/privateNames
 Failed: fixtures/typescript/tests/cases/conformance/classes/mixinAccessModifiers.ts - mixinAccessModifiers.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/classes/propertyMemberDeclarations/abstractPropertyInitializer.ts - abstractPropertyInitializer.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/classes/propertyMemberDeclarations/accessorsOverrideProperty7.ts - accessorsOverrideProperty7.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/classes/propertyMemberDeclarations/accessorsOverrideProperty8.ts - accessorsOverrideProperty8.ts: parser: 'const' is reserved and cannot be used as a type name at 539..544
 Failed: fixtures/typescript/tests/cases/conformance/classes/propertyMemberDeclarations/autoAccessor11.ts - autoAccessor11.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/classes/propertyMemberDeclarations/autoAccessorExperimentalDecorators.ts - autoAccessorExperimentalDecorators.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/classes/propertyMemberDeclarations/derivedUninitializedPropertyDeclaration.ts - derivedUninitializedPropertyDeclaration.ts: expected a parse or early error, but pipeline succeeded
@@ -780,9 +825,13 @@ Failed: fixtures/typescript/tests/cases/conformance/constEnums/constEnumProperty
 Failed: fixtures/typescript/tests/cases/conformance/constEnums/importElisionConstEnumMerge1.ts - merge.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/controlFlow/assertionTypePredicates1.ts - assertionTypePredicates1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/controlFlow/controlFlowAliasing.ts - controlFlowAliasing.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/controlFlow/controlFlowAssignmentPatternOrder.ts - controlFlowAssignmentPatternOrder.ts: parser: 'const' is reserved and cannot be used as a type name at 185..190
+Failed: fixtures/typescript/tests/cases/conformance/controlFlow/controlFlowBindingElement.ts - controlFlowBindingElement.ts: parser: 'const' is reserved and cannot be used as a type name at 1032..1037
+Failed: fixtures/typescript/tests/cases/conformance/controlFlow/controlFlowBindingPatternOrder.ts - controlFlowBindingPatternOrder.ts: parser: 'const' is reserved and cannot be used as a type name at 141..146
 Failed: fixtures/typescript/tests/cases/conformance/controlFlow/controlFlowDeleteOperator.ts - controlFlowDeleteOperator.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/controlFlow/controlFlowGenericTypes.ts - controlFlowGenericTypes.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/controlFlow/definiteAssignmentAssertions.ts - definiteAssignmentAssertions.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/controlFlow/dependentDestructuredVariablesFromNestedPatterns.ts - dependentDestructuredVariablesFromNestedPatterns.ts: parser: 'const' is reserved and cannot be used as a type name at 750..755
 Failed: fixtures/typescript/tests/cases/conformance/controlFlow/exhaustiveSwitchStatements1.ts - exhaustiveSwitchStatements1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/decorators/class/accessor/decoratorOnClassAccessor7.ts - decoratorOnClassAccessor7.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/decorators/class/constructor/decoratorOnClassConstructor1.ts - decoratorOnClassConstructor1.ts: expected a parse or early error, but pipeline succeeded
@@ -794,11 +843,13 @@ Failed: fixtures/typescript/tests/cases/conformance/decorators/class/method/deco
 Failed: fixtures/typescript/tests/cases/conformance/decorators/class/method/decoratorOnClassMethodOverload1.ts - decoratorOnClassMethodOverload1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/decorators/class/method/parameter/decoratorOnClassMethodThisParameter.ts - decoratorOnClassMethodThisParameter.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/decorators/invalid/decoratorOnFunctionParameter.ts - decoratorOnFunctionParameter.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/directives/ts-expect-error.ts - ts-expect-error.ts: parser: 'const' is reserved and cannot be used as a type name at 838..843
 Failed: fixtures/typescript/tests/cases/conformance/dynamicImport/importCallExpressionInScriptContext1.ts - 1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/enums/awaitAndYield.ts - awaitAndYield.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/enums/enumConstantMembers.ts - enumConstantMembers.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/enums/enumMergingErrors.ts - enumMergingErrors.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es2017/useSharedArrayBuffer6.ts - useSharedArrayBuffer6.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/es2018/es2018IntlAPIs.ts - es2018IntlAPIs.ts: parser: 'const' is reserved and cannot be used as a type name at 234..239
 Failed: fixtures/typescript/tests/cases/conformance/es2019/globalThisAmbientModules.ts - globalThisAmbientModules.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es2019/globalThisBlockscopedProperties.ts - globalThisBlockscopedProperties.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es2019/globalThisCollision.ts - globalThisCollision.js: expected a parse or early error, but pipeline succeeded
@@ -810,6 +861,8 @@ Failed: fixtures/typescript/tests/cases/conformance/es2019/globalThisUnknownNoIm
 Failed: fixtures/typescript/tests/cases/conformance/es2019/globalThisVarDeclaration.ts - actual.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es2019/globalThisVarDeclaration.ts - b.js: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es2019/importMeta/importMetaNarrowing.ts - importMetaNarrowing.ts: semantic: 'import.meta' is only valid in module code at 65..76
+Failed: fixtures/typescript/tests/cases/conformance/es2020/es2020IntlAPIs.ts - es2020IntlAPIs.ts: parser: 'const' is reserved and cannot be used as a type name at 1463..1468
+Failed: fixtures/typescript/tests/cases/conformance/es2022/es2022IntlAPIs.ts - es2022IntlAPIs.ts: parser: 'const' is reserved and cannot be used as a type name at 241..246
 Failed: fixtures/typescript/tests/cases/conformance/es6/Symbols/symbolDeclarationEmit12.ts - symbolDeclarationEmit12.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es6/Symbols/symbolProperty3.ts - symbolProperty3.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es6/Symbols/symbolProperty36.ts - symbolProperty36.ts: expected a parse or early error, but pipeline succeeded
@@ -912,7 +965,6 @@ Failed: fixtures/typescript/tests/cases/conformance/es6/destructuring/restElemen
 Failed: fixtures/typescript/tests/cases/conformance/es6/destructuring/restElementWithBindingPattern2.ts - restElementWithBindingPattern2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es6/for-ofStatements/for-of56.ts - for-of56.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es6/functionDeclarations/FunctionDeclaration11_es6.ts - FunctionDeclaration11_es6.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/conformance/es6/functionDeclarations/FunctionDeclaration13_es6.ts - FunctionDeclaration13_es6.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es6/functionDeclarations/FunctionDeclaration2_es6.ts - FunctionDeclaration2_es6.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es6/functionDeclarations/FunctionDeclaration3_es6.ts - FunctionDeclaration3_es6.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es6/functionDeclarations/FunctionDeclaration4_es6.ts - FunctionDeclaration4_es6.ts: expected a parse or early error, but pipeline succeeded
@@ -936,7 +988,6 @@ Failed: fixtures/typescript/tests/cases/conformance/es6/yieldExpressions/generat
 Failed: fixtures/typescript/tests/cases/conformance/es6/yieldExpressions/generatorOverloads1.ts - generatorOverloads1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es6/yieldExpressions/generatorOverloads2.ts - generatorOverloads2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es6/yieldExpressions/generatorOverloads3.ts - generatorOverloads3.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/conformance/es6/yieldExpressions/generatorTypeCheck38.ts - generatorTypeCheck38.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es6/yieldExpressions/generatorTypeCheck9.ts - generatorTypeCheck9.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es7/exponentiationOperator/compoundExponentiationAssignmentLHSCanBeAssigned1.ts - compoundExponentiationAssignmentLHSCanBeAssigned1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/es7/exponentiationOperator/compoundExponentiationAssignmentLHSCannotBeAssigned.ts - compoundExponentiationAssignmentLHSCannotBeAssigned.ts: expected a parse or early error, but pipeline succeeded
@@ -952,8 +1003,10 @@ Failed: fixtures/typescript/tests/cases/conformance/esDecorators/classDeclaratio
 Failed: fixtures/typescript/tests/cases/conformance/esDecorators/classDeclaration/esDecorators-classDeclaration-exportModifier.2.ts - file11.ts: parser: Expected 'class' keyword, but found 'abstract' at 18..26
 Failed: fixtures/typescript/tests/cases/conformance/esDecorators/classDeclaration/esDecorators-classDeclaration-exportModifier.2.ts - file12.ts: parser: Expected 'class' keyword, but found 'abstract' at 26..34
 Failed: fixtures/typescript/tests/cases/conformance/esDecorators/classDeclaration/esDecorators-classDeclaration-exportModifier.2.ts - file2.ts: semantic: Cannot use 'export default' declaration outside a module at 11..37
+Failed: fixtures/typescript/tests/cases/conformance/esDecorators/classDeclaration/esDecorators-classDeclaration-exportModifier.2.ts - file3.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/esDecorators/classDeclaration/esDecorators-classDeclaration-exportModifier.2.ts - file8.ts: parser: Expected 'class' keyword, but found 'abstract' at 11..19
 Failed: fixtures/typescript/tests/cases/conformance/esDecorators/classDeclaration/esDecorators-classDeclaration-exportModifier.2.ts - file9.ts: parser: Expected 'class' keyword, but found 'abstract' at 18..26
+Failed: fixtures/typescript/tests/cases/conformance/esDecorators/classDeclaration/esDecorators-classDeclaration-exportModifier.ts - file3.js: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/esDecorators/classDeclaration/esDecorators-classDeclaration-parameterDecorators.ts - esDecorators-classDeclaration-parameterDecorators.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/esDecorators/classDeclaration/esDecorators-classDeclaration-setFunctionName.ts - b.ts: semantic: Cannot use 'export' declaration outside a module at 28..45
 Failed: fixtures/typescript/tests/cases/conformance/esDecorators/classDeclaration/esDecorators-classDeclaration-setFunctionName.ts - c.ts: semantic: Cannot use 'export default' declaration outside a module at 28..51
@@ -984,6 +1037,7 @@ Failed: fixtures/typescript/tests/cases/conformance/expressions/binaryOperators/
 Failed: fixtures/typescript/tests/cases/conformance/expressions/binaryOperators/comparisonOperator/comparisonOperatorWithOneOperandIsNull.ts - comparisonOperatorWithOneOperandIsNull.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/expressions/binaryOperators/inOperator/inOperatorWithInvalidOperands.ts - inOperatorWithInvalidOperands.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/expressions/elementAccess/letIdentifierInElementAccess01.ts - letIdentifierInElementAccess01.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/expressions/functionCalls/callWithSpread4.ts - callWithSpread4.ts: parser: 'const' is reserved and cannot be used as a type name at 673..678
 Failed: fixtures/typescript/tests/cases/conformance/expressions/functionCalls/overloadResolutionClassConstructors.ts - overloadResolutionClassConstructors.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/expressions/literals/literals.ts - literals.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/expressions/nullishCoalescingOperator/nullishCoalescingOperatorInParameterBindingPattern.2.ts - nullishCoalescingOperatorInParameterBindingPattern.2.ts: expected a parse or early error, but pipeline succeeded
@@ -998,7 +1052,9 @@ Failed: fixtures/typescript/tests/cases/conformance/expressions/superPropertyAcc
 Failed: fixtures/typescript/tests/cases/conformance/expressions/thisKeyword/thisInInvalidContexts.ts - thisInInvalidContexts.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/expressions/thisKeyword/thisInInvalidContextsExternalModule.ts - thisInInvalidContextsExternalModule.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/expressions/thisKeyword/thisInObjectLiterals.ts - thisInObjectLiterals.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/conformance/expressions/typeAssertions/constAssertions.ts - constAssertions.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/expressions/typeAssertions/constAssertionOnEnum.ts - more.ts: parser: 'const' is reserved and cannot be used as a type name at 33..38
+Failed: fixtures/typescript/tests/cases/conformance/expressions/typeAssertions/constAssertionOnEnum.ts - ns.ts: parser: 'const' is reserved and cannot be used as a type name at 57..62
+Failed: fixtures/typescript/tests/cases/conformance/expressions/typeAssertions/constAssertionOnEnum.ts - test.ts: parser: 'const' is reserved and cannot be used as a type name at 75..80
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeAssertions/duplicatePropertiesInTypeAssertions01.ts - duplicatePropertiesInTypeAssertions01.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeAssertions/duplicatePropertiesInTypeAssertions02.ts - duplicatePropertiesInTypeAssertions02.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeGuards/typeGuardFunctionOfFormThisErrors.ts - typeGuardFunctionOfFormThisErrors.ts: expected a parse or early error, but pipeline succeeded
@@ -1013,6 +1069,8 @@ Failed: fixtures/typescript/tests/cases/conformance/expressions/typeGuards/typeG
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeGuards/typeGuardsWithInstanceOfByConstructorSignature.ts - typeGuardsWithInstanceOfByConstructorSignature.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeGuards/typeGuardsWithInstanceOfBySymbolHasInstance.ts - typeGuardsWithInstanceOfBySymbolHasInstance.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeGuards/typePredicateOnVariableDeclaration01.ts - typePredicateOnVariableDeclaration01.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/expressions/typeSatisfaction/typeSatisfaction_asConstArrays.ts - typeSatisfaction_asConstArrays.ts: parser: 'const' is reserved and cannot be used as a type name at 49..54
+Failed: fixtures/typescript/tests/cases/conformance/expressions/typeSatisfaction/typeSatisfaction_errorLocations1.ts - typeSatisfaction_errorLocations1.ts: parser: 'const' is reserved and cannot be used as a type name at 429..434
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeSatisfaction/typeSatisfaction_optionalMemberConformance.ts - typeSatisfaction_optionalMemberConformance.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeSatisfaction/typeSatisfaction_propNameConstraining.ts - typeSatisfaction_propNameConstraining.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/expressions/typeSatisfaction/typeSatisfaction_propertyNameFulfillment.ts - typeSatisfaction_propertyNameFulfillment.ts: expected a parse or early error, but pipeline succeeded
@@ -1179,7 +1237,6 @@ Failed: fixtures/typescript/tests/cases/conformance/jsx/tsxDynamicTagName3.tsx -
 Failed: fixtures/typescript/tests/cases/conformance/jsx/tsxElementResolution1.tsx - file.tsx: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/jsx/tsxElementResolution6.tsx - file.tsx: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/jsx/tsxElementResolution7.tsx - file.tsx: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/conformance/jsx/tsxOpeningClosingNames.tsx - file.tsx: parser: Expected closing tag for '<A.B.C.D>' but found '</A . B . C.D>' at 107..118
 Failed: fixtures/typescript/tests/cases/conformance/jsx/tsxStatelessFunctionComponents2.tsx - file.tsx: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/moduleResolution/bundler/bundlerImportESM.ts - /not-actually-cjs.cts: semantic: Cannot use import statement outside a module at 0..32
 Failed: fixtures/typescript/tests/cases/conformance/moduleResolution/bundler/bundlerNodeModules1.ts - /main.cts: semantic: Cannot use import statement outside a module at 0..32
@@ -1275,6 +1332,7 @@ Failed: fixtures/typescript/tests/cases/conformance/node/nodeModulesPackagePatte
 Failed: fixtures/typescript/tests/cases/conformance/node/nodeModulesPackagePatternExportsTrailers.ts - node_modules/inner/test.d.cts: semantic: Cannot use import statement outside a module at 19..62
 Failed: fixtures/typescript/tests/cases/conformance/node/nodeModulesResolveJsonModule.ts - index.cts: semantic: Cannot use import statement outside a module at 0..33
 Failed: fixtures/typescript/tests/cases/conformance/node/nodeModulesTopLevelAwait.ts - subfolder/index.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/node/nodeModulesTripleSlashReferenceModeDeclarationEmit7.ts - /index.ts: parser: 'const' is reserved and cannot be used as a type name at 160..165
 Failed: fixtures/typescript/tests/cases/conformance/node/nodeModulesTypesVersionPackageExports.ts - index.cts: semantic: Cannot use import statement outside a module at 19..48
 Failed: fixtures/typescript/tests/cases/conformance/node/nodeModulesTypesVersionPackageExports.ts - node_modules/inner/index.d.cts: semantic: Cannot use 'export' declaration outside a module at 19..61
 Failed: fixtures/typescript/tests/cases/conformance/node/nodePackageSelfName.ts - index.cts: semantic: Cannot use import statement outside a module at 19..51
@@ -1285,18 +1343,18 @@ Failed: fixtures/typescript/tests/cases/conformance/override/override11.ts - ove
 Failed: fixtures/typescript/tests/cases/conformance/override/overrideDynamicName1.ts - overrideDynamicName1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/override/overrideKeywordOrder.ts - overrideKeywordOrder.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/override/overrideLateBindableIndexSignature1.ts - overrideLateBindableIndexSignature1.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.classMethods.es2018.ts - awaitAsTypeIsOk.ts: parser: 'await' is reserved in an async/module context and cannot be used as a type name at 64..69
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.classMethods.es2018.ts - nestedFunctionExpressionNamedAwaitIsError.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.classMethods.es2018.ts - yieldAsTypeIsStrictError.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.functionDeclarations.es2018.ts - awaitAsTypeIsOk.ts: parser: 'await' is reserved in an async/module context and cannot be used as a type name at 55..60
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.functionDeclarations.es2018.ts - nestedFunctionExpressionNamedAwaitIsError.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.functionDeclarations.es2018.ts - nestedFunctionExpressionNamedYieldIsError.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.functionDeclarations.es2018.ts - yieldAsTypeIsOk.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.functionDeclarations.es2018.ts - yieldNameIsOk.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.functionExpressions.es2018.ts - awaitAsTypeIsOk.ts: parser: 'await' is reserved in an async/module context and cannot be used as a type name at 64..69
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.functionExpressions.es2018.ts - nestedFunctionExpressionNamedAwaitIsError.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.functionExpressions.es2018.ts - nestedFunctionExpressionNamedYieldIsError.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.functionExpressions.es2018.ts - yieldAsTypeIsOk.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.objectLiteralMethods.es2018.ts - awaitAsTypeIsOk.ts: parser: 'await' is reserved in an async/module context and cannot be used as a type name at 66..71
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.objectLiteralMethods.es2018.ts - nestedFunctionExpressionNamedAwaitIsError.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.objectLiteralMethods.es2018.ts - nestedFunctionExpressionNamedYieldIsError.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript2018/asyncGenerators/parser.asyncGenerators.objectLiteralMethods.es2018.ts - yieldAsTypeIsOk.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript3/Accessors/parserES3Accessors1.ts - parserES3Accessors1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript3/Accessors/parserES3Accessors3.ts - parserES3Accessors3.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/Accessors/parserAccessors1.ts - parserAccessors1.ts: expected a parse or early error, but pipeline succeeded
@@ -1333,7 +1391,7 @@ Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/EnumDecla
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/ErrorRecovery/AccessibilityAfterStatic/parserAccessibilityAfterStatic1.ts - parserAccessibilityAfterStatic1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/ErrorRecovery/AccessibilityAfterStatic/parserAccessibilityAfterStatic10.ts - parserAccessibilityAfterStatic10.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/ErrorRecovery/AccessibilityAfterStatic/parserAccessibilityAfterStatic7.ts - parserAccessibilityAfterStatic7.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/ErrorRecovery/ParameterLists/parserErrorRecovery_ParameterList6.ts - parserErrorRecovery_ParameterList6.ts: parser: Expected a type, but found 'break' at 34..39
+Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/ErrorRecovery/ParameterLists/parserErrorRecovery_ParameterList6.ts - parserErrorRecovery_ParameterList6.ts: parser: 'break' is reserved and cannot be used as a type name at 34..39
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/ErrorRecovery/parserCommaInTypeMemberList2.ts - parserCommaInTypeMemberList2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/ErrorRecovery/parserModifierOnStatementInBlock2.ts - parserModifierOnStatementInBlock2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/ExportAssignments/parserExportAssignment5.ts - parserExportAssignment5.ts: expected a parse or early error, but pipeline succeeded
@@ -1418,15 +1476,18 @@ Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/parserRea
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/parserRealSource14.ts - parserRealSource14.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/parserRealSource6.ts - parserRealSource6.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/parserRealSource8.ts - parserRealSource8.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/parservoidInQualifiedName2.ts - parservoidInQualifiedName2.ts: parser: 'void' is reserved and cannot be used as a type name at 10..14
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript6/ComputedPropertyNames/parserComputedPropertyName16.ts - parserComputedPropertyName16.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript6/ComputedPropertyNames/parserComputedPropertyName26.ts - parserComputedPropertyName26.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript6/ComputedPropertyNames/parserComputedPropertyName34.ts - parserComputedPropertyName34.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript6/ComputedPropertyNames/parserComputedPropertyName35.ts - parserComputedPropertyName35.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript6/ComputedPropertyNames/parserComputedPropertyName37.ts - parserComputedPropertyName37.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript6/ComputedPropertyNames/parserComputedPropertyName4.ts - parserComputedPropertyName4.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript6/ComputedPropertyNames/parserComputedPropertyName41.ts - parserComputedPropertyName41.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript6/Iterators/parserForOfStatement1.d.ts - parserForOfStatement1.d.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript6/Iterators/parserForOfStatement5.ts - parserForOfStatement5.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/salsa/assignmentToVoidZero2.ts - assignmentToVoidZero2.js: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/salsa/constructorNameInGenerator.ts - constructorNameInGenerator.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/salsa/expandoOnAlias.ts - test.js: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/salsa/exportNestedNamespaces2.ts - first.js: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/salsa/exportNestedNamespaces2.ts - second.js: expected a parse or early error, but pipeline succeeded
@@ -1472,18 +1533,19 @@ Failed: fixtures/typescript/tests/cases/conformance/statements/withStatements/wi
 Failed: fixtures/typescript/tests/cases/conformance/types/any/narrowFromAnyWithTypePredicate.ts - narrowFromAnyWithTypePredicate.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/conditional/conditionalTypes1.ts - conditionalTypes1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/conditional/inferTypes1.ts - inferTypes1.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/types/conditional/variance.ts - variance.ts: parser: 'const' is reserved and cannot be used as a type name at 186..191
 Failed: fixtures/typescript/tests/cases/conformance/types/intersection/intersectionReduction.ts - intersectionReduction.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/intersection/intersectionReductionStrict.ts - intersectionReductionStrict.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/intersection/intersectionWithIndexSignatures.ts - intersectionWithIndexSignatures.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/conformance/types/keyof/keyofAndIndexedAccess2.ts - keyofAndIndexedAccess2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/keyof/keyofAndIndexedAccessErrors.ts - keyofAndIndexedAccessErrors.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/conformance/types/literal/templateLiteralTypes1.ts - templateLiteralTypes1.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/types/literal/literalTypesAndDestructuring.ts - literalTypesAndDestructuring.ts: parser: 'const' is reserved and cannot be used as a type name at 126..131
+Failed: fixtures/typescript/tests/cases/conformance/types/literal/templateLiteralTypes2.ts - templateLiteralTypes2.ts: parser: 'const' is reserved and cannot be used as a type name at 1664..1669
+Failed: fixtures/typescript/tests/cases/conformance/types/literal/templateLiteralTypes3.ts - templateLiteralTypes3.ts: parser: 'const' is reserved and cannot be used as a type name at 761..766
 Failed: fixtures/typescript/tests/cases/conformance/types/mapped/mappedTypeErrors.ts - mappedTypeErrors.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/mapped/mappedTypeWithAny.ts - mappedTypeWithAny.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/members/duplicateNumericIndexers.ts - duplicateNumericIndexers.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/members/duplicatePropertyNames.ts - duplicatePropertyNames.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/members/duplicateStringIndexers.ts - duplicateStringIndexers.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/conformance/types/members/indexSignatures1.ts - indexSignatures1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/members/objectTypeWithDuplicateNumericProperty.ts - objectTypeWithDuplicateNumericProperty.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/members/objectTypeWithStringNamedNumericProperty.ts - objectTypeWithStringNamedNumericProperty.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/nonPrimitive/nonPrimitiveAccessProperty.ts - nonPrimitiveAccessProperty.ts: expected a parse or early error, but pipeline succeeded
@@ -1499,9 +1561,9 @@ Failed: fixtures/typescript/tests/cases/conformance/types/objectTypeLiteral/inde
 Failed: fixtures/typescript/tests/cases/conformance/types/objectTypeLiteral/methodSignatures/methodSignaturesWithOverloads.ts - methodSignaturesWithOverloads.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/objectTypeLiteral/propertySignatures/numericStringNamedPropertyEquivalence.ts - numericStringNamedPropertyEquivalence.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/specifyingTypes/predefinedTypes/objectTypesWithPredefinedTypesAsName.ts - objectTypesWithPredefinedTypesAsName.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/types/specifyingTypes/typeQueries/typeQueryWithReservedWords.ts - typeQueryWithReservedWords.ts: parser: 'delete' is reserved and cannot be used as a type name at 191..197
 Failed: fixtures/typescript/tests/cases/conformance/types/specifyingTypes/typeQueries/typeofANonExportedType.ts - typeofANonExportedType.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/specifyingTypes/typeQueries/typeofAnExportedType.ts - typeofAnExportedType.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/conformance/types/specifyingTypes/typeQueries/typeofThis.ts - typeofThis.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/specifyingTypes/typeReferences/genericTypeReferenceWithoutTypeArgument.d.ts - genericTypeReferenceWithoutTypeArgument.d.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/specifyingTypes/typeReferences/genericTypeReferenceWithoutTypeArgument.ts - genericTypeReferenceWithoutTypeArgument.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/specifyingTypes/typeReferences/genericTypeReferenceWithoutTypeArgument2.ts - genericTypeReferenceWithoutTypeArgument2.ts: expected a parse or early error, but pipeline succeeded
@@ -1518,21 +1580,21 @@ Failed: fixtures/typescript/tests/cases/conformance/types/thisType/thisTypeInAcc
 Failed: fixtures/typescript/tests/cases/conformance/types/thisType/thisTypeInAccessorsNegative.ts - thisTypeInAccessorsNegative.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/thisType/thisTypeInFunctions.ts - thisTypeInFunctions.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/tuple/contextualTypeTupleEnd.ts - contextualTypeTupleEnd.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/types/tuple/named/namedTupleMembersErrors.ts - namedTupleMembersErrors.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/tuple/optionalTupleElements1.ts - optionalTupleElements1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/tuple/readonlyArraysAndTuples.ts - readonlyArraysAndTuples.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/tuple/restTupleElements1.ts - restTupleElements1.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/tuple/unionsOfTupleTypes1.ts - unionsOfTupleTypes1.ts: expected a parse or early error, but pipeline succeeded
+Failed: fixtures/typescript/tests/cases/conformance/types/tuple/variadicTuples1.ts - variadicTuples1.ts: parser: 'const' is reserved and cannot be used as a type name at 629..634
 Failed: fixtures/typescript/tests/cases/conformance/types/tuple/variadicTuples2.ts - variadicTuples2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/typeAliases/interfaceDoesNotDependOnBaseTypes.ts - interfaceDoesNotDependOnBaseTypes.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/typeAliases/intrinsicKeyword.ts - intrinsicKeyword.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/typeAliases/intrinsicTypes.ts - intrinsicTypes.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/typeParameters/typeParameterLists/propertyAccessOnTypeParameterWithConstraints4.ts - propertyAccessOnTypeParameterWithConstraints4.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/typeParameters/typeParameterLists/propertyAccessOnTypeParameterWithConstraints5.ts - propertyAccessOnTypeParameterWithConstraints5.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/conformance/types/typeParameters/typeParameterLists/typeParameterConstModifiers.ts - typeParameterConstModifiers.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/typeParameters/typeParameterLists/typesWithDuplicateTypeParameters.ts - typesWithDuplicateTypeParameters.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/typeRelationships/assignmentCompatibility/nullAssignedToUndefined.ts - nullAssignedToUndefined.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/typeRelationships/comparable/equalityStrictNulls.ts - equalityStrictNulls.ts: expected a parse or early error, but pipeline succeeded
-Failed: fixtures/typescript/tests/cases/conformance/types/typeRelationships/typeInference/intraExpressionInferences.ts - intraExpressionInferences.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/union/discriminatedUnionTypes2.ts - discriminatedUnionTypes2.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/union/unionTypeMembers.ts - unionTypeMembers.ts: expected a parse or early error, but pipeline succeeded
 Failed: fixtures/typescript/tests/cases/conformance/types/union/unionTypePropertyAccessibility.ts - unionTypePropertyAccessibility.ts: expected a parse or early error, but pipeline succeeded
