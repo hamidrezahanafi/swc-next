@@ -413,7 +413,7 @@ impl<'a> Printer<'a> {
             {
                 start += 1;
             }
-            if start != whitespace_start || value[start..].first() == Some(&b'*') {
+            if start == whitespace_start + 1 || value[start..].first() == Some(&b'*') {
                 self.print(" ");
             }
         }

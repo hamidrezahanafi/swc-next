@@ -530,6 +530,14 @@ fn test_comments_and_parentheses() {
 }
 
 #[test]
+fn test_multiline_comment_indentation() {
+    expect_printed(
+        "{\n  \"1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111\";/**\n              x\n  */\n}",
+        "{\n  \"1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111\";\n  /**\n  x\n  */\n}\n",
+    );
+}
+
+#[test]
 fn test_pure_comment() {
     expect_printed("(function() { foo() })", "(function() {\n  foo();\n});\n");
     expect_printed(
