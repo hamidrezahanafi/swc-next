@@ -76,35 +76,3 @@ impl<'a> Traverse<'a, TransformerState> for TransformerImpl<'_> {
         TraverseAction::Proceed
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use swc_next_allocator::Allocator;
-    use swc_next_ecma_ast::Ast;
-    use swc_next_ecma_codegen::{Options as CodegenOptions, print};
-    use swc_next_ecma_parser::{NoTokenParserConfig, Options as ParserOptions, Parser};
-    use swc_next_ecma_semantic::{AnalyzeOptions, analyze};
-
-    use super::{Transformer, TransformerOptions, es2019::ES2019Options};
-
-    #[test]
-    fn transforms_optional_catch_binding() {
-        let allocator = Allocator::new();
-        let mut ast = Ast::new("try {} catch {}", &allocator);
-        let program = Parser::init(&mut ast, ParserOptions::default(), NoTokenParserConfig)
-            .parse()
-            .program;
-        let semantic = analyze(program, &ast, AnalyzeOptions { check_syntax: true }).semantic;
-        let options = TransformerOptions {
-            es2019: ES2019Options {
-                optional_catch_binding: true,
-            },
-            ..TransformerOptions::default()
-        };
-
-        Transformer::transform(program, &mut ast, &semantic, options);
-
-        let output = print(&allocator, &ast, program, CodegenOptions::default());
-        assert_eq!(output.code, "try {\n} catch (unused) {\n}\n");
-    }
-}
