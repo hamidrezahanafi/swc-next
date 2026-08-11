@@ -166,12 +166,8 @@ pub fn decode_identifier_escapes<'a>(raw: &str, buf: &'a mut [u8]) -> Option<&'a
     let mut i = 0usize;
     while i < raw.len() {
         if raw[i] == b'\\' && i + 1 < raw.len() && raw[i + 1] == b'u' {
-            let Some(parsed) = parse_unicode_escape(raw, i + 2) else {
-                return None;
-            };
-            let Some(value) = parsed.value.to_char() else {
-                return None;
-            };
+            let parsed = parse_unicode_escape(raw, i + 2)?;
+            let value = parsed.value.to_char()?;
             let len = value.len_utf8();
             if out + len > buf.len() {
                 return None;
