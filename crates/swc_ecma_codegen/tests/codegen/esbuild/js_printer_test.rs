@@ -2,7 +2,7 @@
 use crate::{
     expect_printed, expect_printed_ascii, expect_printed_jsx, expect_printed_jsx_ascii,
     expect_printed_jsx_minify, expect_printed_minify, expect_printed_minify_ascii,
-    expect_printed_ts,
+    expect_printed_stable, expect_printed_ts,
 };
 
 #[test]
@@ -478,6 +478,22 @@ fn test_function() {
     expect_printed(
         "function foo([,,] = [,,]) {}",
         "function foo([, ,] = [, ,]) {\n}\n",
+    );
+}
+
+#[test]
+fn test_class_array_pattern_rest_after_elision_stability() {
+    expect_printed_stable(
+        "class C { method([,,...rest]) {} }",
+        "class C {\n  method([, , ...rest]) {\n  }\n}\n",
+    );
+    expect_printed_stable(
+        "const C = class { static async *#method([,,...rest] = value) {} };",
+        "const C = class {\n  static async *#method([, , ...rest] = value) {\n  }\n};\n",
+    );
+    expect_printed_stable(
+        "class C { method([,,]) {} }",
+        "class C {\n  method([, ,]) {\n  }\n}\n",
     );
 }
 

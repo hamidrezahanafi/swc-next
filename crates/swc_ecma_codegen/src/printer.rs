@@ -1370,6 +1370,7 @@ impl<'a> Printer<'a> {
         self.add_source_mapping(a.span(self.ast).start);
         self.print("[");
         let elements = a.elements(self.ast);
+        let rest = a.rest(self.ast);
         for (i, id) in elements.iter().enumerate() {
             if i != 0 {
                 self.print(",");
@@ -1377,11 +1378,11 @@ impl<'a> Printer<'a> {
             }
             if let Some(item) = self.ast.get_node_in_sub_range(id) {
                 self.print_binding(item);
-            } else if i + 1 == elements.len() {
+            } else if i + 1 == elements.len() && rest.is_none() {
                 self.print(",");
             }
         }
-        if let Some(rest) = a.rest(self.ast) {
+        if let Some(rest) = rest {
             if !elements.is_empty() {
                 self.print(",");
                 self.print_space();
