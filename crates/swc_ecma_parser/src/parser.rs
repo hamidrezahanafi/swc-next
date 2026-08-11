@@ -1250,23 +1250,84 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 decorators,
             )?)));
         }
-        self.parse_export_decorated(decorators_start, decorators)
+        let export_start = self.current_token.span.start;
+        self.advance()?;
+        self.parse_export_decorated(export_start, decorators)
     }
 
     fn parse_export_decorated(
         &mut self,
-        decorators_start: u32,
-        decorators: TypedSubRange<Decorator>,
+        export_start: u32,
+        outer_decorators: TypedSubRange<Decorator>,
     ) -> Option<Stmt> {
-        let export_start = self.current_token.span.start;
-        self.advance()?;
+        let mut decorators_before_default = TypedSubRange::empty();
+        let mut class_start = None;
+        if self.current_token.tag == TokenTag::At {
+            let (start, decorators) = self.parse_decorators()?;
+            decorators_before_default = decorators;
+            class_start = Some(start);
+        }
         let is_default = self.eat(TokenTag::Default)?;
+        if is_default {
+            // Decorators between `export` and `default` are retained, but the
+            // legacy TypeScript tree does not include them in the class span.
+            class_start = None;
+        }
+        let mut decorators_after_default = TypedSubRange::empty();
+        if self.current_token.tag == TokenTag::At {
+            let (start, decorators) = self.parse_decorators()?;
+            decorators_after_default = decorators;
+            class_start = Some(start);
+        }
+        let post_export_decorators = if decorators_before_default.is_empty() {
+            decorators_after_default
+        } else {
+            decorators_before_default
+        };
+        if !outer_decorators.is_empty() && !post_export_decorators.is_empty() {
+            let decorator_span = post_export_decorators
+                .get_node(&self.ast, 0)
+                .expect("non-empty decorator range contains its first node")
+                .span(&self.ast);
+            let outer_span = outer_decorators
+                .get_node(&self.ast, 0)
+                .expect("non-empty decorator range contains its first node")
+                .span(&self.ast);
+            self.report(
+                decorator_span,
+                "Decorators may not appear after 'export' or 'export default' if they also appear before 'export'.",
+                ReportOptions {
+                    labels: vec![self.label(outer_span, "Decorator used before 'export' here")],
+                    ..ReportOptions::default()
+                },
+            );
+        } else if is_default && !decorators_before_default.is_empty() {
+            let decorator_span = decorators_before_default
+                .get_node(&self.ast, 0)
+                .expect("non-empty decorator range contains its first node")
+                .span(&self.ast);
+            self.report(
+                decorator_span,
+                "Decorators are not valid here.",
+                ReportOptions::default(),
+            );
+        }
+        let decorators = self.merge_decorator_ranges(&[
+            outer_decorators,
+            decorators_before_default,
+            decorators_after_default,
+        ]);
+        if class_start.is_none()
+            && !matches!(self.current_token.tag, TokenTag::Class | TokenTag::Abstract)
+        {
+            class_start = Some(export_start);
+        }
         let class = self.parse_class_decorated(
             ParseClassOpts {
                 is_default_export: is_default,
                 ..ParseClassOpts::default()
             },
-            Some(decorators_start),
+            class_start,
             decorators,
         )?;
         let end = class.span(&self.ast).end;
@@ -2863,6 +2924,36 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
+    fn merge_decorator_ranges(
+        &mut self,
+        ranges: &[TypedSubRange<Decorator>],
+    ) -> TypedSubRange<Decorator> {
+        let mut merged = TypedSubRange::empty();
+        let mut count = 0;
+        for range in ranges {
+            if !range.is_empty() {
+                merged = *range;
+                count += 1;
+            }
+        }
+        if count < 2 {
+            return merged;
+        }
+
+        let checkpoint = self.scratch_decorators.begin();
+        for range in ranges {
+            for index in 0..range.len() {
+                let decorator = range
+                    .get_node(&self.ast, index)
+                    .expect("decorator sub-range index is in bounds");
+                self.scratch_decorators.append(decorator);
+            }
+        }
+        let decorators = self.add_extra_from_scratch_decorators(checkpoint);
+        self.scratch_decorators.reset(checkpoint);
+        decorators
+    }
+
     fn parse_decorator(&mut self) -> Option<Decorator> {
         let start = self.current_token.span.start;
         if !self.expect(TokenTag::At, "Expected '@' to start a decorator", None) {
@@ -3685,6 +3776,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         debug_assert_eq!(self.current_token.tag, TokenTag::Export);
         let start = self.current_token.span.start;
         self.advance()?;
+        if self.current_token.tag == TokenTag::At {
+            return self.parse_export_decorated(start, TypedSubRange::empty());
+        }
         if self.lang.is_typescript() {
             match self.current_token.tag {
                 TokenTag::Assign => return self.parse_ts_export_assignment(start),
