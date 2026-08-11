@@ -5163,8 +5163,13 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                 _ => {}
             }
         }
-        if (token.tag.is_identifier_like() && !token.tag.is_unconditionally_reserved())
-            || token.tag == TokenTag::Const
+        // TypeScript parses reserved words as entity names in type-reference
+        // recovery positions. This preserves the reference in the AST so name
+        // resolution can diagnose it instead of terminating the parse.
+        // `function` remains the JSDoc function-type introducer, while `void`
+        // remains a primitive type and cannot head a qualified type name.
+        if token.tag.is_identifier_like()
+            && !matches!(token.tag, TokenTag::Function | TokenTag::Void)
         {
             return self.parse_type_reference();
         }
@@ -11909,6 +11914,99 @@ mod tests {
             parser.diagnostics[0].message,
             "'if' is reserved and cannot be used as an identifier"
         );
+    }
+
+    #[test]
+    fn recovers_reserved_words_as_type_references() {
+        for keyword in ["break", "continue", "return", "class", "if"] {
+            let source = format!("type T = {keyword};");
+            let allocator = Allocator::new();
+            let mut ast = Ast::new(&source, &allocator);
+            let result = Parser::init(
+                &mut ast,
+                Options {
+                    source_type: SourceType::Script,
+                    lang: Lang::Ts,
+                    ..Options::default()
+                },
+                NoTokenParserConfig,
+            )
+            .parse();
+
+            assert!(
+                result.diagnostics.is_empty(),
+                "{keyword}: {:#?}",
+                result.diagnostics
+            );
+            let statement = result.program.body(&ast).get_node(&ast, 0).unwrap();
+            let declaration = statement.as_declaration(&ast).unwrap();
+            let alias = declaration.as_ts_type_alias_declaration(&ast).unwrap();
+            let TsTypeData::TsTypeReference(reference) =
+                ast.ts_type_data(alias.type_annotation(&ast))
+            else {
+                panic!("{keyword} did not parse as a type reference");
+            };
+            let TsTypeNameData::IdentifierReference(identifier) =
+                ast.ts_type_name_data(reference.type_name(&ast))
+            else {
+                panic!("{keyword} did not parse as an identifier reference");
+            };
+            assert_eq!(ast.get_utf8(identifier.name(&ast)), keyword);
+        }
+
+        let allocator = Allocator::new();
+        let source = "class Foo { public banana(x: break) {} }";
+        let mut ast = Ast::new(source, &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                source_type: SourceType::Script,
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+        assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+    }
+
+    #[test]
+    fn rejects_punctuation_as_a_type() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("type T = ;", &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                source_type: SourceType::Script,
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        assert_eq!(
+            result.diagnostics[0].message,
+            "Expected a type, but found ';'"
+        );
+    }
+
+    #[test]
+    fn rejects_qualified_void_type() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("var value: void.member;", &allocator);
+        let result = Parser::init(
+            &mut ast,
+            Options {
+                source_type: SourceType::Script,
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        assert!(!result.diagnostics.is_empty());
     }
 
     #[test]

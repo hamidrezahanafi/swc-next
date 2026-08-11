@@ -1,6 +1,6 @@
 codegen * typescript
 ========================
-Positive Passed: 12669/13156 (96.30%)
+Positive Passed: 12670/13156 (96.31%)
 Negative Passed: 0/0 (0.00%)
 Panicked: 0/13156 (0.00%)
 Failed: fixtures/typescript/tests/cases/compiler/ambientConstLiterals.ts - ambientConstLiterals.ts: codegen output changed after reparse 
@@ -413,7 +413,6 @@ Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/EnumDecla
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/EnumDeclarations/parserEnumDeclaration6.ts - parserEnumDeclaration6.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/EnumDeclarations/parserInterfaceKeywordInEnum.ts - parserInterfaceKeywordInEnum.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/EnumDeclarations/parserInterfaceKeywordInEnum1.ts - parserInterfaceKeywordInEnum1.ts: codegen output changed after reparse 
-Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/ErrorRecovery/ParameterLists/parserErrorRecovery_ParameterList6.ts - parser: Expected a type, but found 'break' at 34..39
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/Statements/parserForStatement9.ts - parserForStatement9.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/parserRealSource2.ts - parserRealSource2.ts: codegen output changed after reparse 
 Failed: fixtures/typescript/tests/cases/conformance/parser/ecmascript5/parserRealSource3.ts - parserRealSource3.ts: codegen output changed after reparse 
