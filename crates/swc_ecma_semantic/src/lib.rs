@@ -460,6 +460,35 @@ mod tests {
     }
 
     #[test]
+    fn validates_object_rest_element_arguments() {
+        let message = "Invalid object rest element argument";
+        for lang in [Lang::Js, Lang::Ts] {
+            for source in [
+                "var {...{ nested }} = value;",
+                "var {...[]} = value;",
+                "function f({...{ nested }}) {}",
+                "function f({...[]}) {}",
+                "({...{ nested }} = value);",
+                "({...[]} = value);",
+            ] {
+                assert_eq!(diagnostics(source, lang), [message], "{lang:?}: {source}");
+            }
+
+            for source in [
+                "var {...rest} = value;",
+                "function f({...rest}) {}",
+                "({...rest} = value);",
+                "({...target.rest} = value);",
+                "var [...{ nested }] = value;",
+                "[...{ nested }] = value;",
+                "function f(...{ nested }) {}",
+            ] {
+                assert!(diagnostics(source, lang).is_empty(), "{lang:?}: {source}");
+            }
+        }
+    }
+
+    #[test]
     fn declarations_are_grouped_by_symbol_in_source_order() {
         let allocator = Allocator::new();
         let mut ast = Ast::new("interface A {} interface B {} interface A {}", &allocator);

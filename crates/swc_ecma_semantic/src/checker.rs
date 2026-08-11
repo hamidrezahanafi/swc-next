@@ -8,15 +8,15 @@ use swc_next_allocator::{
 };
 use swc_next_ecma_ast::{
     ArrayPattern, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator,
-    AssignmentPattern, Ast, BinaryOperator, BindingIdentifier, BindingProperty, BindingRestElement,
-    BlockStatement, CatchClause, Class, ClassBody, Decorator, Diagnostic, Directive,
-    ExportAllDeclaration, ExportDefaultDeclaration, ExportNamedDeclaration, ExportSpecifier,
-    ForInStatement, ForOfStatement, ForStatement, FormalParameters, Function, FunctionBody,
-    FunctionType, IdentifierReference, ImportDeclaration, ImportOrExportKind, ImportSpecifier,
-    JsxClosingElement, JsxOpeningElement, Label, MemberExpression, NodeId, NodeKind, NodeKindData,
-    ObjectPattern, ParenthesizedExpression, Program, PropertyDefinition, PropertyKey, ScopeId,
-    Severity, Span, StaticBlock, SwitchCase, SwitchStatement, SymbolId, TsArrayType,
-    TsAsExpression, TsCallSignatureDeclaration, TsClassImplements, TsConditionalType,
+    AssignmentPattern, Ast, BinaryOperator, BindingIdentifier, BindingPatternData, BindingProperty,
+    BindingRestElement, BlockStatement, CatchClause, Class, ClassBody, Decorator, Diagnostic,
+    Directive, ExportAllDeclaration, ExportDefaultDeclaration, ExportNamedDeclaration,
+    ExportSpecifier, ForInStatement, ForOfStatement, ForStatement, FormalParameters, Function,
+    FunctionBody, FunctionType, IdentifierReference, ImportDeclaration, ImportOrExportKind,
+    ImportSpecifier, JsxClosingElement, JsxOpeningElement, Label, MemberExpression, NodeId,
+    NodeKind, NodeKindData, ObjectPattern, ParenthesizedExpression, Program, PropertyDefinition,
+    PropertyKey, ScopeId, Severity, Span, StaticBlock, SwitchCase, SwitchStatement, SymbolId,
+    TsArrayType, TsAsExpression, TsCallSignatureDeclaration, TsClassImplements, TsConditionalType,
     TsConstructSignatureDeclaration, TsConstructorType, TsEnumBody, TsEnumDeclaration,
     TsEnumMember, TsExportAssignment, TsFunction, TsFunctionType, TsGlobalDeclaration,
     TsImportEqualsDeclaration, TsImportType, TsIndexSignature, TsIndexedAccessType, TsInferType,
@@ -916,6 +916,21 @@ impl Checker<'_, '_> {
                         context,
                     );
                 }
+            }
+            NodeKindData::BindingRestElement(rest)
+                if context.parent().is_some_and(|parent| {
+                    context.ast.node_kind(parent) == NodeKind::ObjectPattern
+                }) && !matches!(
+                    context.ast.binding_pattern_data(rest.argument(context.ast)),
+                    BindingPatternData::BindingIdentifier(_)
+                        | BindingPatternData::SimpleAssignmentTarget(_)
+                ) =>
+            {
+                checks.report(
+                    context.ast.span(rest.argument(context.ast).node_id()),
+                    "Invalid object rest element argument",
+                    ReportOptions::default(),
+                );
             }
             NodeKindData::VariableDeclaration(declaration) => {
                 let kind = declaration.kind(context.ast);
