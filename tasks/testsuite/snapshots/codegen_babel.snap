@@ -106,4 +106,3 @@ Failed: fixtures/babel/packages/babel-parser/test/fixtures/typescript/scope/rede
 Failed: fixtures/babel/packages/babel-parser/test/fixtures/typescript/scope/redeclaration-enum-enum/input.ts - typescript/scope/redeclaration-enum-enum: codegen output changed after reparse 
 Failed: fixtures/babel/packages/babel-parser/test/fixtures/typescript/type-arguments/instantiation-expression-false-positive-5/input.ts - parser: Invalid assignment target at 3..13
 Failed: fixtures/babel/packages/babel-parser/test/fixtures/typescript/types/const-type-parameters/input.ts - parser: Type parameter modifiers must appear in the order 'const in out' at 346..351
-Failed: fixtures/babel/packages/babel-parser/test/fixtures/typescript/types/tuple-labeled-spread/input.ts - parser: Expected a type, but found '...' at 22..25
