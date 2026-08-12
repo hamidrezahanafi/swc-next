@@ -498,6 +498,15 @@ fn test_class_array_pattern_rest_after_elision_stability() {
 }
 
 #[test]
+fn test_array_pattern_rest_after_elision() {
+    expect_printed(
+        "function foo([,,...rest]) {}",
+        "function foo([, , ...rest]) {\n}\n",
+    );
+    expect_printed("([,,...rest] = value)", "[, , ...rest] = value;\n");
+}
+
+#[test]
 fn test_comments_and_parentheses() {
     expect_printed(
         "(/* foo */ { x() { foo() } }.x());",
