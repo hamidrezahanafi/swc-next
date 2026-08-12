@@ -391,6 +391,31 @@ impl<'a> Printer<'a> {
 
     fn print_indented_block_comment(&mut self, value: &[u8]) {
         // Re-indent multi-line comments to match the surrounding statement.
+        let comment_starts_line = self.js.last().is_none_or(|byte| *byte == b'\n');
+        let is_jsdoc = value.first() == Some(&b'*');
+        let max_indentation = self.indent * 2 + 1;
+        let line_count = 1 + value
+            .iter()
+            .enumerate()
+            .filter(|(index, byte)| {
+                **byte == b'\n'
+                    || (**byte == b'\r' && value.get(index + 1) != Some(&b'\n'))
+                    || (**byte == 0xe2
+                        && value.get(index + 1) == Some(&0x80)
+                        && matches!(value.get(index + 2), Some(0xa8 | 0xa9)))
+            })
+            .count();
+        let mut has_excessive_indentation = false;
+        for line in value.split(|byte| matches!(byte, b'\n' | b'\r')).skip(1) {
+            has_excessive_indentation |= line
+                .iter()
+                .take_while(|byte| byte.is_ascii_whitespace())
+                .count()
+                > max_indentation;
+        }
+        // Only a single plain continuation line preserves its alignment space.
+        // Longer or padded comments use the block indentation on every print.
+        let normalize_indentation = is_jsdoc || line_count > 2 || has_excessive_indentation;
         self.print("/*");
         let mut start = 0;
         while start < value.len() {
@@ -426,8 +451,14 @@ impl<'a> Printer<'a> {
             {
                 start += 1;
             }
-            if (!self.options.minify && start == whitespace_start)
-                || start == whitespace_start + 1
+            let whitespace_len = start - whitespace_start;
+            if (!self.options.minify
+                && ((self.indent == 0 && comment_starts_line)
+                    || (self.indent != 0 && whitespace_len == 0 && !normalize_indentation)))
+                || (whitespace_len == 1 && (self.options.minify || !normalize_indentation))
+                || (!self.options.minify
+                    && whitespace_len == max_indentation
+                    && !normalize_indentation)
                 || value[start..].first() == Some(&b'*')
             {
                 self.print(" ");

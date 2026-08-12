@@ -19,8 +19,10 @@ fn test_directive_string_value() {
 
 #[test]
 fn test_multiline_block_comment_is_stable() {
+    let expected = "while (true) {\n  continue;\n  /* Multiline\n   Comment */\n  there;\n}\n";
     expect_printed(
         "while (true) { continue /* Multiline\nComment */there; }",
-        "while (true) {\n  continue;\n  /* Multiline\n   Comment */\n  there;\n}\n",
+        expected,
     );
+    expect_printed(expected, expected);
 }
