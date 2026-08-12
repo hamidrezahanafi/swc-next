@@ -614,12 +614,6 @@ pub struct Parser<'parser, 'a, C: ParserConfig = NoTokenParserConfig> {
     lexer: Lexer<'a, C>,
     pub(super) diagnostics: Vec<Diagnostic<'static>>,
     current_token: Token,
-    /// End offset of the most recently consumed token.
-    ///
-    /// This is used for spans after a closing delimiter has been consumed,
-    /// where the parent node must end at that delimiter instead of at the next
-    /// token beyond whitespace or newlines.
-    prev_token_end: u32,
     scratch_statements: ScratchBuffer,
     scratch_cover: ScratchBuffer,
     scratch_decorators: ScratchBuffer,
@@ -652,10 +646,10 @@ struct Checkpoint {
     lexer_state: LexerState,
     lexer_mode: LexerMode,
     lexer_comments_len: usize,
+    lexer_processed_comments: usize,
     lexer_tokens_len: usize,
     // Parser token stream.
     current_token: Token,
-    prev_token_end: u32,
     // Append-only AST storage.
     nodes_len: usize,
     extra_len: usize,
@@ -673,6 +667,7 @@ struct Peek<'peek, 'a, C: ParserConfig = NoTokenParserConfig> {
     state: LexerState,
     cursor: u32,
     comments_len: usize,
+    processed_comments: usize,
     tokens_len: usize,
     active: bool,
 }
@@ -688,6 +683,7 @@ impl<C: ParserConfig> Peek<'_, '_, C> {
         self.lexer.state = self.state;
         self.lexer.cursor = self.cursor;
         self.lexer.comments.truncate(self.comments_len);
+        self.lexer.processed_comments = self.processed_comments;
         self.lexer.tokens.truncate(self.tokens_len);
         self.active = false;
     }
@@ -748,6 +744,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             options.comments == CommentMode::Attached,
             config,
         );
+        let initial_token = Token::eof(lexer.state.prev_token_end);
         Self {
             ast,
             source,
@@ -759,8 +756,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             allow_return_outside_function: options.allow_return_outside_function,
             lexer,
             diagnostics: Vec::new(),
-            current_token: Token::eof(0),
-            prev_token_end: 0,
+            current_token: initial_token,
             scratch_statements: ScratchBuffer::default(),
             scratch_cover: ScratchBuffer::default(),
             scratch_decorators: ScratchBuffer::default(),
@@ -807,14 +803,12 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             body,
             hashbang,
         );
-        if self.comment_mode == CommentMode::Attached {
-            self.ast.set_attached_comments(&self.lexer.comments);
-        } else {
-            self.ast.set_attached_comments(&[]);
+        if !self.preserve_parens {
+            strip_parenthesized_nodes(self.ast, &mut self.lexer.comments);
         }
 
-        if !self.preserve_parens {
-            strip_parenthesized_nodes(self.ast);
+        if self.comment_mode == CommentMode::Attached {
+            self.ast.set_attached_comments(self.lexer.comments);
         }
 
         let diagnostics = self.diagnostics;
@@ -844,14 +838,12 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         let expr = self.parse_expr(Precedence::Lowest, ParseExpressionOpts::default());
         match expr {
             Some(expr) if self.diagnostics.is_empty() => {
-                if self.comment_mode == CommentMode::Attached {
-                    self.ast.set_attached_comments(&self.lexer.comments);
-                } else {
-                    self.ast.set_attached_comments(&[]);
+                if !self.preserve_parens {
+                    strip_parenthesized_nodes(self.ast, &mut self.lexer.comments);
                 }
 
-                if !self.preserve_parens {
-                    strip_parenthesized_nodes(self.ast);
+                if self.comment_mode == CommentMode::Attached {
+                    self.ast.set_attached_comments(self.lexer.comments);
                 }
                 Ok(expr)
             }
@@ -1039,9 +1031,9 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             lexer_state: self.lexer.state,
             lexer_mode: self.lexer.mode,
             lexer_comments_len: self.lexer.comments.len(),
+            lexer_processed_comments: self.lexer.processed_comments,
             lexer_tokens_len: self.lexer.tokens.len(),
             current_token: self.current_token,
-            prev_token_end: self.prev_token_end,
             nodes_len: self.ast.node_count(),
             extra_len: self.ast.extra_data_count(),
             diagnostics_len: self.diagnostics.len(),
@@ -1059,9 +1051,9 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         self.lexer.state = checkpoint.lexer_state;
         self.lexer.mode = checkpoint.lexer_mode;
         self.lexer.comments.truncate(checkpoint.lexer_comments_len);
+        self.lexer.processed_comments = checkpoint.lexer_processed_comments;
         self.lexer.tokens.truncate(checkpoint.lexer_tokens_len);
         self.current_token = checkpoint.current_token;
-        self.prev_token_end = checkpoint.prev_token_end;
         self.ast
             .truncate(checkpoint.nodes_len, checkpoint.extra_len);
         self.diagnostics.truncate(checkpoint.diagnostics_len);
@@ -1077,6 +1069,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             state: self.lexer.state,
             cursor: self.lexer.cursor,
             comments_len: self.lexer.comments.len(),
+            processed_comments: self.lexer.processed_comments,
             tokens_len: self.lexer.tokens.len(),
             active: true,
             lexer: &mut self.lexer,
@@ -1528,7 +1521,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             return None;
         }
         self.eat(TokenTag::Semicolon)?;
-        let end = self.prev_token_end;
+        let end = self.lexer.state.prev_token_end;
         Some(
             self.ast
                 .stmt_do_while_statement(Span::new(start, end), body, test),
@@ -1541,7 +1534,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         self.advance()?;
         if !self.context.r#return {
             self.report(
-                Span::new(start, self.prev_token_end),
+                Span::new(start, self.lexer.state.prev_token_end),
                 "'return' statement is only valid inside a function",
                 ReportOptions {
                     help: Some(Cow::Borrowed(
@@ -1560,7 +1553,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         } else {
             Some(self.parse_expr(Precedence::Comma, ParseExpressionOpts::default())?)
         };
-        let end = self.eat_semicolon(self.prev_token_end)?;
+        let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
         Some(
             self.ast
                 .stmt_return_statement(Span::new(start, end), argument),
@@ -1583,7 +1576,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             };
         }
         let argument = self.parse_expr(Precedence::Comma, ParseExpressionOpts::default())?;
-        let end = self.eat_semicolon(self.prev_token_end)?;
+        let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
         Some(
             self.ast
                 .stmt_throw_statement(Span::new(start, end), argument),
@@ -1601,7 +1594,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         } else {
             Some(self.parse_label_identifier()?)
         };
-        let end = self.eat_semicolon(self.prev_token_end)?;
+        let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
         Some(self.ast.stmt_break_statement(Span::new(start, end), label))
     }
 
@@ -1616,7 +1609,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         } else {
             Some(self.parse_label_identifier()?)
         };
-        let end = self.eat_semicolon(self.prev_token_end)?;
+        let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
         Some(
             self.ast
                 .stmt_continue_statement(Span::new(start, end), label),
@@ -1627,7 +1620,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         debug_assert_eq!(self.current_token.tag, TokenTag::Debugger);
         let start = self.current_token.span.start;
         self.advance()?;
-        let end = self.eat_semicolon(self.prev_token_end)?;
+        let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
         Some(self.ast.stmt_debugger_statement(Span::new(start, end)))
     }
 
@@ -1675,7 +1668,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         start: u32,
         expression: Expr,
     ) -> Option<Stmt> {
-        let end = self.eat_semicolon(self.prev_token_end)?;
+        let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
         Some(
             self.ast
                 .stmt_expression_statement(Span::new(start, end), expression),
@@ -1808,7 +1801,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             && !self.current_token.has_line_terminator_before()
             && self.eat(TokenTag::LogicalNot)?;
         let mut end = if definite {
-            self.prev_token_end
+            self.lexer.state.prev_token_end
         } else {
             id_span.end
         };
@@ -2666,7 +2659,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                 let end = body.span(self.ast).end;
                 Some((params, type_parameters, return_type, Some(body), end))
             } else if self.lang.is_typescript() {
-                let end = self.eat_semicolon(self.prev_token_end)?;
+                let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
                 Some((params, type_parameters, return_type, None, end))
             } else {
                 self.report_expected(
@@ -2768,7 +2761,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             None
         };
 
-        let mut end = self.prev_token_end;
+        let mut end = self.lexer.state.prev_token_end;
         match self.current_token.tag {
             TokenTag::Semicolon => {
                 end = self.current_token.span.end;
@@ -3027,7 +3020,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         };
         let mut pattern = self.parse_binding_pattern()?;
         if self.lang.is_typescript() && self.eat(TokenTag::Question)? {
-            self.mark_pattern_optional(pattern, self.prev_token_end);
+            self.mark_pattern_optional(pattern, self.lexer.state.prev_token_end);
         }
         if self.lang.is_typescript() && self.current_token.tag == TokenTag::Colon {
             let annotation = self.parse_type_annotation()?;
@@ -3062,7 +3055,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         } else {
             None
         };
-        let end = type_annotation.map_or(self.prev_token_end, |annotation| {
+        let end = type_annotation.map_or(self.lexer.state.prev_token_end, |annotation| {
             annotation.span(self.ast).end
         });
         Some(
@@ -3238,7 +3231,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         self.advance()?;
         let source = self.parse_module_specifier()?;
         let attributes = self.parse_with_clause();
-        let end = self.eat_semicolon(self.prev_token_end)?;
+        let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
         Some(self.ast.stmt_import_declaration(
             Span::new(start, end),
             specifiers,
@@ -3274,7 +3267,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     fn parse_side_effect_import(&mut self, start: u32, phase: Option<ImportPhase>) -> Option<Stmt> {
         let source = self.parse_module_specifier()?;
         let attributes = self.parse_with_clause();
-        let end = self.eat_semicolon(self.prev_token_end)?;
+        let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
         let specifiers = TypedSubRange::empty();
         Some(self.ast.stmt_import_declaration(
             Span::new(start, end),
@@ -3551,7 +3544,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             return None;
         }
         let module_reference = self.parse_module_reference()?;
-        let end = self.eat_semicolon(self.prev_token_end)?;
+        let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
         Some(self.ast.stmt_decl_ts_import_equals_declaration(
             Span::new(start, end),
             id,
@@ -3673,7 +3666,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     fn parse_ts_export_assignment(&mut self, start: u32) -> Option<Stmt> {
         self.advance()?;
         let expression = self.parse_expr(Precedence::Assignment, ParseExpressionOpts::default())?;
-        let end = self.eat_semicolon(self.prev_token_end)?;
+        let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
         Some(
             self.ast
                 .stmt_ts_export_assignment(Span::new(start, end), expression),
@@ -3696,7 +3689,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
 
     fn parse_namespace_export_declaration(&mut self, start: u32) -> Option<Stmt> {
         let id = self.parse_identifier_name()?;
-        let end = self.eat_semicolon(self.prev_token_end)?;
+        let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
         Some(
             self.ast
                 .stmt_ts_namespace_export_declaration(Span::new(start, end), id),
@@ -3863,7 +3856,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         self.advance()?;
         let source = self.parse_module_specifier()?;
         let attributes = self.parse_with_clause();
-        let end = self.eat_semicolon(self.prev_token_end)?;
+        let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
         Some(self.ast.stmt_export_all_declaration(
             Span::new(start, end),
             exported,
@@ -4058,7 +4051,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             self.resolve_local_export_specifiers(&result)?;
             (None, TypedSubRange::empty())
         };
-        let end = self.eat_semicolon(self.prev_token_end)?;
+        let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
         Some(self.ast.stmt_export_named_declaration(
             Span::new(start, end),
             None,
@@ -4466,7 +4459,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             return None;
         }
         let type_annotation = self.parse_type_alias_body()?;
-        let end = self.eat_semicolon(self.prev_token_end)?;
+        let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
         let declaration = self.ast.ts_type_alias_declaration(
             Span::new(start, end),
             id,
@@ -4651,7 +4644,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         let end = initializer.map_or_else(
             || {
                 if computed {
-                    self.prev_token_end
+                    self.lexer.state.prev_token_end
                 } else {
                     id.span(self.ast).end
                 }
@@ -4731,7 +4724,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         let end = if let Some(body) = body {
             body.span(self.ast).end
         } else {
-            self.eat_semicolon(self.prev_token_end)?
+            self.eat_semicolon(self.lexer.state.prev_token_end)?
         };
         let declaration =
             self.ast
@@ -5595,7 +5588,11 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             None
         };
         let end = type_arguments.map_or_else(
-            || qualifier.map_or(self.prev_token_end, |name| name.span(self.ast).end),
+            || {
+                qualifier.map_or(self.lexer.state.prev_token_end, |name| {
+                    name.span(self.ast).end
+                })
+            },
             |args| args.span(self.ast).end,
         );
         Some(TsType::TsImportType(self.ast.ts_import_type(
@@ -6073,7 +6070,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         } else {
             None
         };
-        let end = return_type.map_or(self.prev_token_end, |ty| ty.span(self.ast).end);
+        let end = return_type.map_or(self.lexer.state.prev_token_end, |ty| ty.span(self.ast).end);
         Some(if is_construct {
             self.ast.ts_type_element_ts_construct_signature_declaration(
                 Span::new(start, end),
@@ -6262,7 +6259,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         } else {
             None
         };
-        let end = return_type.map_or(self.prev_token_end, |ty| ty.span(self.ast).end);
+        let end = return_type.map_or(self.lexer.state.prev_token_end, |ty| ty.span(self.ast).end);
         Some(self.ast.ts_type_element_ts_method_signature(
             Span::new(start, end),
             key,
@@ -7687,7 +7684,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                 && self.current_token.tag != TokenTag::Eof
             {
                 let element = if self.eat(TokenTag::Spread)? {
-                    let spread_start = self.prev_token_end - 3;
+                    let spread_start = self.lexer.state.prev_token_end - 3;
                     let argument = self.parse_expr(
                         Precedence::Assignment,
                         ParseExpressionOpts {
@@ -8969,7 +8966,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                         continue;
                     }
                     let argument = if self.eat(TokenTag::Spread)? {
-                        let spread_start = self.prev_token_end - 3;
+                        let spread_start = self.lexer.state.prev_token_end - 3;
                         let expression = self.parse_assignment_expression_in_cover()?;
                         let span = Span::new(spread_start, expression.span(self.ast).end);
                         Argument::SpreadElement(self.ast.spread_element(span, expression))
@@ -9037,7 +9034,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                 && self.current_token.tag != TokenTag::Eof
             {
                 let property = if self.eat(TokenTag::Spread)? {
-                    let spread_start = self.prev_token_end - 3;
+                    let spread_start = self.lexer.state.prev_token_end - 3;
                     let expression = self.parse_expr(
                         Precedence::Assignment,
                         ParseExpressionOpts {
@@ -9797,7 +9794,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                 && self.current_token.tag != TokenTag::Eof
             {
                 let argument = if self.eat(TokenTag::Spread)? {
-                    let start = self.prev_token_end - 3;
+                    let start = self.lexer.state.prev_token_end - 3;
                     let expression =
                         self.parse_expr(Precedence::Assignment, ParseExpressionOpts::default())?;
                     Argument::SpreadElement(self.ast.spread_element(
@@ -9899,7 +9896,11 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         } else {
             TypedSubRange::empty()
         };
-        let end = self.prev_token_end.max(callee.span(self.ast).end);
+        let end = self
+            .lexer
+            .state
+            .prev_token_end
+            .max(callee.span(self.ast).end);
         Some(
             self.ast
                 .expr_new_expression(Span::new(start, end), callee, arguments, type_arguments),
@@ -10766,7 +10767,9 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             );
             return None;
         }
-        let end = argument.map_or(self.prev_token_end, |expr| expr.span(self.ast).end);
+        let end = argument.map_or(self.lexer.state.prev_token_end, |expr| {
+            expr.span(self.ast).end
+        });
         Some(
             self.ast
                 .expr_yield_expression(Span::new(start, end), argument, delegate),
@@ -10843,7 +10846,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         let end = if prefix {
             argument.span(self.ast).end
         } else {
-            self.prev_token_end
+            self.lexer.state.prev_token_end
         };
         Some(
             self.ast
@@ -11236,7 +11239,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     #[inline(always)]
     fn advance(&mut self) -> Option<()> {
         self.check_escaped_keyword();
-        self.prev_token_end = self.current_token.span.end;
+        self.lexer.state.prev_token_end = self.current_token.span.end;
         self.next_token()
     }
 
@@ -11252,7 +11255,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     /// Advances without checking whether the current token is an escaped
     /// keyword.
     fn advance_without_escape_check(&mut self) -> Option<()> {
-        self.prev_token_end = self.current_token.span.end;
+        self.lexer.state.prev_token_end = self.current_token.span.end;
         self.next_token()
     }
 
@@ -11772,7 +11775,8 @@ fn assignment_operator(tag: TokenTag) -> AssignmentOperator {
     }
 }
 
-fn strip_parenthesized_nodes(ast: &mut Ast<'_>) {
+fn strip_parenthesized_nodes(ast: &mut Ast<'_>, comments: &mut [Comment]) {
+    let mut trailing_comment_index = 0;
     for index in 0..ast.node_count() {
         let node = NodeId::from_raw_unchecked(index as u32);
         let replacement = match ast.kind_data(node) {
@@ -11794,6 +11798,30 @@ fn strip_parenthesized_nodes(ast: &mut Ast<'_>) {
             }
             _ => continue,
         };
+        let parenthesized_span = ast.span(node);
+        let replacement_span = ast.span(replacement);
+
+        let leading_from = parenthesized_span.start;
+        let leading_comment_index =
+            comments.partition_point(|comment| comment.attached_to <= leading_from);
+        for comment in comments[..leading_comment_index].iter_mut().rev() {
+            if comment.position != CommentPosition::Leading || comment.attached_to != leading_from {
+                break;
+            }
+            comment.attached_to = replacement_span.start;
+        }
+
+        let trailing_from = parenthesized_span.end;
+        trailing_comment_index += comments[trailing_comment_index..]
+            .partition_point(|comment| comment.attached_to < trailing_from);
+        for comment in &mut comments[trailing_comment_index..] {
+            if comment.position != CommentPosition::Trailing || comment.attached_to != trailing_from
+            {
+                break;
+            }
+            comment.attached_to = replacement_span.end;
+        }
+
         // SAFETY: parsing has not exposed any concrete handles yet. This pass
         // retires the parenthesized node, and all expression or type edges that
         // refer to it accept the corresponding replacement kind.
@@ -11804,8 +11832,6 @@ fn strip_parenthesized_nodes(ast: &mut Ast<'_>) {
 #[cfg(test)]
 mod tests {
     use swc_next_allocator::Allocator;
-
-    use crate::TokenParserConfig;
 
     use super::*;
 
@@ -11822,23 +11848,23 @@ mod tests {
         ));
     }
 
-    fn assert_unambiguous_source_type(source: &str, expected: SourceType) {
-        let allocator = Allocator::new();
-        let mut ast = Ast::new(source, &allocator);
-        let options = Options {
-            source_type: SourceType::Unambiguous,
-            lang: Lang::Ts,
-            ..Options::default()
-        };
-        let result = Parser::init(&mut ast, options, NoTokenParserConfig).parse();
-
-        assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
-        assert_eq!(result.program.source_type(&ast), expected, "{source}");
-        assert_eq!(ast.source_type(), expected, "{source}");
-    }
-
     #[test]
-    fn resolves_unambiguous_program_source_type() {
+    fn unambiguous() {
+        fn assert_unambiguous_source_type(source: &str, expected: SourceType) {
+            let allocator = Allocator::new();
+            let mut ast = Ast::new(source, &allocator);
+            let options = Options {
+                source_type: SourceType::Unambiguous,
+                lang: Lang::Ts,
+                ..Options::default()
+            };
+            let result = Parser::init(&mut ast, options, NoTokenParserConfig).parse();
+
+            assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+            assert_eq!(result.program.source_type(&ast), expected, "{source}");
+            assert_eq!(ast.source_type(), expected, "{source}");
+        }
+
         assert_unambiguous_source_type("const value = 1;", SourceType::Script);
         assert_unambiguous_source_type("import value from 'value';", SourceType::Module);
         assert_unambiguous_source_type("export const value = 1;", SourceType::Module);
@@ -11850,7 +11876,7 @@ mod tests {
     }
 
     #[test]
-    fn allows_return_outside_function_when_enabled() {
+    fn allows_return_outside_function() {
         let allocator = Allocator::new();
         let mut ast = Ast::new("return;", &allocator);
         let options = Options {
@@ -11865,70 +11891,455 @@ mod tests {
     }
 
     #[test]
-    fn bounds_small_capacity_estimates() {
+    fn estimate_capacity() {
         let (nodes, extra) = estimate_ast_capacity(0);
         assert_eq!(nodes, 384);
         assert!(extra <= nodes);
-    }
 
-    #[test]
-    fn leaves_extra_data_growth_headroom() {
         let (nodes, extra) = estimate_ast_capacity(8_000_000);
         assert_eq!(nodes, 1_500_000);
         assert_eq!(extra, 666_666);
     }
 
     #[test]
-    fn validates_identifier_fast_and_diagnostic_paths() {
-        let allocator = Allocator::new();
-        let mut ast = Ast::new("name", &allocator);
-        let mut parser = Parser::init(&mut ast, Options::default(), NoTokenParserConfig);
-        parser.validate_identifier(
-            Token {
-                span: Span::new(0, 4),
-                tag: TokenTag::Identifier,
-                flags: 0,
-            },
-            "an identifier",
-        );
-        assert!(parser.diagnostics.is_empty());
+    fn comments() {
+        macro_rules! check {
+            ($comment:expr, $start:literal, $end:literal, $position:ident, $attached_to:literal) => {
+                assert_eq!(
+                    ($comment.span, $comment.position, $comment.attached_to),
+                    (
+                        Span::new($start, $end),
+                        CommentPosition::$position,
+                        $attached_to
+                    )
+                );
+            };
+        }
 
-        let allocator = Allocator::new();
-        let mut ast = Ast::new("if", &allocator);
-        let mut parser = Parser::init(&mut ast, Options::default(), NoTokenParserConfig);
-        parser.validate_identifier(
-            Token {
-                span: Span::new(0, 2),
-                tag: TokenTag::If,
-                flags: 0,
-            },
-            "an identifier",
-        );
-        assert_eq!(parser.diagnostics.len(), 1);
-        assert_eq!(
-            parser.diagnostics[0].message,
-            "'if' is reserved and cannot be used as an identifier"
-        );
-    }
+        fn parse_comments_with_source_type(
+            source: &str,
+            lang: Lang,
+            source_type: SourceType,
+            allow_return_outside_function: bool,
+            preserve_parens: bool,
+        ) -> Vec<Comment> {
+            let allocator = Allocator::new();
+            let mut ast = Ast::new(source, &allocator);
+            let options = Options {
+                lang,
+                source_type,
+                allow_return_outside_function,
+                preserve_parens,
+                ..Options::default()
+            };
+            let result = Parser::init(&mut ast, options, NoTokenParserConfig).parse();
 
-    #[test]
-    fn preserves_line_terminator_when_rescanning_jsx_identifier() {
-        let allocator = Allocator::new();
-        let source = "<Comp<T>\nfoo />";
-        let mut ast = Ast::new(source, &allocator);
-        let options = Options {
-            lang: Lang::Tsx,
-            ..Options::default()
-        };
-        let result = Parser::init(&mut ast, options, TokenParserConfig).parse();
+            assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+            ast.comments().to_vec()
+        }
 
-        assert!(result.diagnostics.is_empty());
-        let foo = result
-            .tokens
-            .iter()
-            .find(|token| token.span == Span::new(9, 12))
-            .expect("expected JSX identifier token");
-        assert_eq!(foo.tag, TokenTag::JsxIdentifier);
-        assert!(foo.has_line_terminator_before());
+        fn parse_comments(source: &str, lang: Lang) -> Vec<Comment> {
+            parse_comments_with_source_type(source, lang, SourceType::Module, false, true)
+        }
+
+        fn parse_return_comments(source: &str, lang: Lang) -> Vec<Comment> {
+            parse_comments_with_source_type(source, lang, SourceType::Module, true, true)
+        }
+
+        fn parse_script_comments(source: &str, lang: Lang) -> Vec<Comment> {
+            parse_comments_with_source_type(source, lang, SourceType::Script, true, true)
+        }
+
+        // The expected values are generated by swc_core. Its spans and comment map keys are 1-based,
+        // so those values are converted to 0-based offsets here.
+        let comments = parse_comments(
+            "/* Leading 1 */\n// Leading 2\n/* Leading 3 */ token /* Trailing 1 */ // Trailing 2\n// Leading of EOF token",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 6);
+        check!(comments[0], 0, 15, Leading, 45);
+        check!(comments[1], 16, 28, Leading, 45);
+        check!(comments[2], 29, 44, Leading, 45);
+        check!(comments[3], 51, 67, Trailing, 50);
+        check!(comments[4], 68, 81, Trailing, 50);
+        check!(comments[5], 82, 105, Trailing, 50);
+
+        let comments = parse_comments(
+            "#!/usr/bin/env node\n/* Leading 1 */\ntoken /* Trailing 1 */",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 2);
+        check!(comments[0], 20, 35, Leading, 36);
+        check!(comments[1], 42, 58, Trailing, 41);
+
+        let comments = parse_comments("/*\n * A\n **/\n/*\n * B\n **/\ntoken", Lang::Js);
+        assert_eq!(comments.len(), 2);
+        check!(comments[0], 0, 12, Leading, 26);
+        check!(comments[1], 13, 25, Leading, 26);
+
+        let comments = parse_comments(
+            "foo();/**\n * @license MIT\n **/\nfunction bar() {}",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 6, 30, Trailing, 6);
+
+        let comments = parse_comments("foo();//! @license MIT\nfunction bar() {}", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 6, 22, Trailing, 6);
+
+        let comments = parse_comments(
+            "function foo() {}/* #__NO_SIDE_EFFECTS__ */\nfunction bar() {}",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 17, 43, Trailing, 17);
+
+        let comments = parse_comments("foo();// @__NO_SIDE_EFFECTS__\nfunction bar() {}", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 6, 29, Trailing, 6);
+
+        let comments = parse_comments("foo();/* @__PURE__ */new Bar()", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 6, 21, Trailing, 6);
+
+        let comments = parse_comments(
+            "const v1 = // Leading comment 1\nfoo();\nfunction foo(param =// Leading comment 2\nnew Foo()\n) {}",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 2);
+        check!(comments[0], 11, 31, Trailing, 10);
+        check!(comments[1], 59, 79, Trailing, 59);
+
+        let comments = parse_comments(
+            "call(// Leading comment 1\narguments)\n(// Leading comment 2\narguments)",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 2);
+        check!(comments[0], 5, 25, Trailing, 5);
+        check!(comments[1], 38, 58, Trailing, 38);
+
+        let comments = parse_comments("v = cond ? a : // Leading comment\nb;", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 15, 33, Trailing, 14);
+
+        let comments = parse_comments("// test", Lang::Ts);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 0, 7, Leading, 0);
+
+        let comments = parse_comments("#!/foo/bar\n// test", Lang::Ts);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 11, 18, Trailing, 10);
+
+        for lang in [Lang::Tsx, Lang::Jsx] {
+            let comments = parse_comments("const t = <Switch>\n// 1\n/* 2 */\n</Switch>", lang);
+            assert!(comments.is_empty());
+        }
+
+        let comments = parse_comments(
+            "/** block comment */\nimport h from 'h';\n<div></div>",
+            Lang::Tsx,
+        );
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 0, 20, Leading, 21);
+
+        let comments = parse_comments(
+            "const foo = <h1>/* no */{/* 1 */ bar /* 2 */}/* no */</h1>;",
+            Lang::Tsx,
+        );
+        assert_eq!(comments.len(), 2);
+        check!(comments[0], 25, 32, Trailing, 25);
+        check!(comments[1], 37, 44, Trailing, 36);
+
+        let comments = parse_comments("const t = <T,>() => {\n// 1\n/* 2 */\ntest;\n};", Lang::Tsx);
+        assert_eq!(comments.len(), 2);
+        check!(comments[0], 22, 26, Leading, 35);
+        check!(comments[1], 27, 34, Leading, 35);
+
+        let comments = parse_comments("re = // ...\n/w+/", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 5, 11, Trailing, 4);
+
+        let comments = parse_comments("re = /* ... *//w+/", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 5, 14, Leading, 14);
+
+        let comments = parse_comments("re =\n/*\n ...\n */\n/w+/", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 5, 16, Leading, 17);
+
+        // From js_parser_test.rs.
+
+        let comments = parse_return_comments("return //\n x", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 7, 9, Trailing, 6);
+
+        let comments = parse_return_comments("return /**/\n x", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 7, 11, Leading, 13);
+
+        let comments = parse_script_comments("return <!--\n x", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 7, 11, Trailing, 6);
+
+        let comments = parse_script_comments("-->\nx", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 0, 3, Leading, 4);
+
+        let comments = parse_script_comments("x\n-->\ny", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 2, 5, Leading, 6);
+
+        let comments = parse_script_comments("x\n/**/ /**/-->\ny", Lang::Js);
+        assert_eq!(comments.len(), 3);
+        check!(comments[0], 2, 6, Leading, 15);
+        check!(comments[1], 7, 11, Leading, 15);
+        check!(comments[2], 11, 14, Leading, 15);
+
+        let comments = parse_comments(
+            "function f() { //! @legal comment\n 'use strict' }",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 15, 33, Trailing, 14);
+
+        let comments = parse_comments("foo() //! test", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 6, 14, Trailing, 5);
+
+        let comments = parse_comments("//! test\nfoo()", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 0, 8, Leading, 9);
+
+        let comments = parse_comments("if (1) {//! test\nfoo()}", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 8, 16, Trailing, 8);
+
+        let comments = parse_comments("if (1) {foo() //! test\n}", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 14, 22, Trailing, 13);
+
+        let comments = parse_comments("    /*!\r\n     * Re-indent test\r\n     */", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 4, 39, Leading, 0);
+
+        let comments = parse_comments(
+            "x\u{2028}    /*!\u{2028}     * Re-indent test\u{2028}     */",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 8, 45, Trailing, 1);
+
+        let comments = parse_comments("//�\n123", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 0, 5, Leading, 6);
+
+        let comments = parse_comments("/*�*/123", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 0, 7, Leading, 7);
+
+        let comments = parse_comments("< /**/ a/>", Lang::Jsx);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 2, 6, Leading, 7);
+
+        let comments = parse_comments("<a /**/ />", Lang::Jsx);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 3, 7, Trailing, 2);
+
+        let comments = parse_comments("<a/ /**/ >", Lang::Jsx);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 4, 8, Leading, 9);
+
+        let comments = parse_comments("<a>b</ /**/ a>", Lang::Jsx);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 7, 11, Leading, 12);
+
+        let comments = parse_comments("<a>b</ //\n a>", Lang::Jsx);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 7, 9, Trailing, 6);
+
+        let comments = parse_comments("<a>b</a /**/ >", Lang::Jsx);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 8, 12, Trailing, 7);
+
+        let comments = parse_comments("// @jsx h\n<a/>", Lang::Jsx);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 0, 9, Leading, 10);
+
+        let comments = parse_comments("<a/>\n// @jsx h", Lang::Jsx);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 5, 14, Trailing, 4);
+
+        // From js_printer_test.rs.
+
+        let comments = parse_comments(
+            "new Worker(// webpackFoo: 1\n // webpackBar: 2\n 'path');",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 2);
+        check!(comments[0], 11, 27, Trailing, 11);
+        check!(comments[1], 29, 45, Leading, 47);
+
+        let comments = parse_comments(
+            "new Worker(/* webpackFoo: 1 */ /* webpackBar: 2 */ 'path');",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 2);
+        check!(comments[0], 11, 30, Leading, 51);
+        check!(comments[1], 31, 50, Leading, 51);
+
+        let comments = parse_comments(
+            "new Worker(\n    /* multi\n     * line\n     * webpackBar: */ 'path');",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 16, 58, Leading, 59);
+
+        let comments = parse_comments(
+            "new Worker(/* webpackFoo: 1 */ 'path' /* webpackBar:2 */);",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 2);
+        check!(comments[0], 11, 30, Leading, 31);
+        check!(comments[1], 38, 56, Trailing, 37);
+
+        let comments = parse_comments(
+            "new Worker(/* webpackFoo: 1 */ 'path', /* webpackBar:2 */ );",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 2);
+        check!(comments[0], 11, 30, Leading, 31);
+        check!(comments[1], 39, 57, Leading, 58);
+
+        let comments = parse_comments(
+            "new Worker(new URL('path', /* webpackFoo: these can go anywhere */ import.meta.url))",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 27, 66, Leading, 67);
+
+        let comments = parse_comments(
+            "switch (x) { /* 1 */ case 1: /* 2 */ case 2: /* default */ default: break }",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 3);
+        check!(comments[0], 13, 20, Trailing, 12);
+        check!(comments[1], 29, 36, Leading, 37);
+        check!(comments[2], 45, 58, Leading, 59);
+
+        let comments = parse_comments("(/* foo */ { x() { foo() } }.x());", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 1, 10, Leading, 11);
+
+        let comments = parse_comments("(/* @__PURE__ */ (() => foo())());", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 1, 16, Leading, 17);
+
+        let comments = parse_comments("export default (/* foo */ function f() {});", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 16, 25, Leading, 26);
+
+        let comments = parse_comments("x = () => (/* foo */ {});", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 11, 20, Leading, 21);
+
+        let comments = parse_comments("function *x() { yield (/* foo */ y) }", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 23, 32, Leading, 33);
+
+        let comments = parse_comments("/*@__PURE__*/(function() { foo() })()", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 0, 13, Leading, 13);
+
+        let comments = parse_comments(
+            "export default /*@__PURE__*/(function() { foo() })()",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 15, 28, Leading, 28);
+
+        let comments = parse_comments(
+            "import(// webpackFoo: 1\n // webpackBar: 2\n 'path');",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 2);
+        check!(comments[0], 7, 23, Trailing, 7);
+        check!(comments[1], 25, 41, Leading, 43);
+
+        let comments = parse_comments(
+            "import(/* webpackFoo: 1 */ /* webpackBar: 2 */ 'path');",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 2);
+        check!(comments[0], 7, 26, Leading, 47);
+        check!(comments[1], 27, 46, Leading, 47);
+
+        let comments = parse_comments(
+            "import(\n    /* multi\n     * line\n     * webpackBar: */ 'path');",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 12, 54, Leading, 55);
+
+        let comments = parse_comments(
+            "import(/* webpackFoo: 1 */ 'path' /* webpackBar:2 */);",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 2);
+        check!(comments[0], 7, 26, Leading, 27);
+        check!(comments[1], 34, 52, Trailing, 33);
+
+        let comments = parse_comments(
+            "import(/* webpackFoo: 1 */ 'path', /* webpackBar:2 */ );",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 2);
+        check!(comments[0], 7, 26, Leading, 27);
+        check!(comments[1], 35, 53, Leading, 54);
+
+        let comments = parse_comments(
+            "import(/* webpackFoo: 1 */ 'path', { type: 'module' } /* webpackBar:2 */ );",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 2);
+        check!(comments[0], 7, 26, Leading, 27);
+        check!(comments[1], 54, 72, Trailing, 53);
+
+        let comments = parse_comments(
+            "import(new URL('path', /* webpackFoo: these can go anywhere */ import.meta.url))",
+            Lang::Js,
+        );
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 23, 62, Leading, 63);
+
+        let comments = parse_comments("//!single\nthrow 1 + 2", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 0, 9, Leading, 10);
+
+        let comments = parse_comments("/*!multi-\nline*/\nthrow 1 + 2", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 0, 16, Leading, 17);
+
+        let comments = parse_comments("//! </script\n//! >/script\n//! /script", Lang::Js);
+        assert_eq!(comments.len(), 3);
+        check!(comments[0], 0, 12, Leading, 0);
+        check!(comments[1], 13, 25, Leading, 0);
+        check!(comments[2], 26, 37, Leading, 0);
+
+        let comments = parse_comments("/*! </script \n </script */", Lang::Js);
+        assert_eq!(comments.len(), 1);
+        check!(comments[0], 0, 26, Leading, 0);
+
+        let comments = parse_comments_with_source_type(
+            "/*a*/((//c\nx))//b",
+            Lang::Js,
+            SourceType::Module,
+            false,
+            false,
+        );
+        assert_eq!(comments.len(), 3);
+        check!(comments[0], 0, 5, Leading, 11);
+        check!(comments[1], 7, 10, Trailing, 7);
+        check!(comments[2], 14, 17, Trailing, 12);
     }
 }
