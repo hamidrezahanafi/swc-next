@@ -21,7 +21,7 @@ mod generated {
 
 use oxc_index::Idx;
 use std::marker::PhantomData;
-use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
+use swc_next_allocator::{Allocator, hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec};
 
 pub use ast::*;
 pub use comment::*;
@@ -233,10 +233,22 @@ impl<'a> Ast<'a> {
         self.lang = lang;
     }
 
-    /// Replaces the attached-comment table used by source consumers.
-    pub fn set_attached_comments(&mut self, comments: &[Comment]) {
-        self.attached_comments.clear();
-        self.attached_comments.extend_from_slice_copy(comments);
+    /// Replaces attached comments while preserving source order.
+    pub fn set_attached_comments(&mut self, comments: ArenaVec<'a, Comment>) {
+        self.attached_comments = comments;
+    }
+
+    /// Creates a map grouping attached comments by attachment offset.
+    pub fn create_comments_map(&self) -> ArenaHashMap<'a, u32, ArenaVec<'a, Comment>> {
+        let mut attached_comments =
+            ArenaHashMap::with_capacity_in(self.attached_comments.len(), self.allocator);
+        let allocator = self.allocator;
+        for &comment in &self.attached_comments {
+            let comments = attached_comments.entry(comment.attached_to);
+            let comments = comments.or_insert_with(|| ArenaVec::new_in(allocator));
+            comments.push(comment);
+        }
+        attached_comments
     }
 
     /// Returns attached comments in source order.

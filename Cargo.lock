@@ -2787,14 +2787,13 @@ dependencies = [
 
 [[package]]
 name = "swc_next_core_napi"
-version = "0.1.0"
+version = "0.11.0"
 dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
- "swc_next_allocator",
  "swc_next_ecma_ast",
- "swc_next_ecma_parser",
+ "swc_next_napi",
 ]
 
 [[package]]
@@ -2820,6 +2819,7 @@ dependencies = [
 name = "swc_next_ecma_parser"
 version = "0.11.0"
 dependencies = [
+ "bitflags",
  "memchr",
  "pico-args",
  "rustc-hash",
@@ -2836,6 +2836,7 @@ dependencies = [
  "swc_next_allocator",
  "swc_next_ecma_ast",
  "swc_next_ecma_parser",
+ "swc_next_regular_expression",
 ]
 
 [[package]]
@@ -2845,6 +2846,40 @@ dependencies = [
  "serde",
  "swc_next_ecma_ast",
  "swc_next_ecma_semantic",
+]
+
+[[package]]
+name = "swc_next_napi"
+version = "0.11.0"
+dependencies = [
+ "napi",
+ "napi-build",
+ "napi-derive",
+ "swc_next_allocator",
+ "swc_next_ecma_ast",
+ "swc_next_ecma_parser",
+]
+
+[[package]]
+name = "swc_next_parser_napi"
+version = "0.11.0"
+dependencies = [
+ "napi",
+ "napi-build",
+ "napi-derive",
+ "swc_next_ecma_ast",
+ "swc_next_napi",
+]
+
+[[package]]
+name = "swc_next_regular_expression"
+version = "0.11.0"
+dependencies = [
+ "bitflags",
+ "phf 0.14.0",
+ "rustc-hash",
+ "swc_next_allocator",
+ "unicode-id-start",
 ]
 
 [[package]]

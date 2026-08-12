@@ -6,7 +6,7 @@ keywords.workspace    = true
 license.workspace     = true
 name                  = "swc_next_core_napi"
 repository.workspace  = true
-version               = "0.1.0"
+version               = "0.11.0"
 
 [lib]
 crate-type = ["cdylib"]
@@ -14,9 +14,8 @@ crate-type = ["cdylib"]
 [dependencies]
 napi                 = { workspace = true }
 napi-derive          = { workspace = true }
-swc_next_allocator   = { workspace = true }
 swc_next_ecma_ast    = { workspace = true }
-swc_next_ecma_parser = { workspace = true }
+swc_next_napi        = { workspace = true }
 
 [build-dependencies]
 napi-build = { workspace = true }

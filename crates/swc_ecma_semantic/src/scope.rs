@@ -28,6 +28,8 @@ pub struct Scope {
     pub flags: ScopeFlags,
 }
 
+const _: () = assert!(std::mem::size_of::<Scope>() == 16);
+
 /// What kind of JavaScript construct created a scope.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ScopeKind {
@@ -41,6 +43,10 @@ pub enum ScopeKind {
     Function,
     /// Section 14.2.2 Block runtime semantics, 14.2.3 BlockDeclarationInstantiation.
     Block,
+    /// Section 14.11 WithStatement evaluation. This object environment has
+    /// no static bindings, but can intercept value-name resolution before
+    /// the lexical scopes outside it are reached.
+    With,
     /// Section 15.7.14 ClassDefinitionEvaluation.
     Class,
     /// Section 15.7.11 ClassStaticBlockDefinitionEvaluation.
@@ -92,7 +98,19 @@ impl ScopeKind {
 pub struct ScopeFlags {
     /// Whether this scope is in strict mode.
     pub strict: bool,
+    /// Whether this scope or one of its descendants contains a call that can
+    /// invoke the intrinsic eval function directly.
+    pub direct_eval: bool,
 }
+
+impl ScopeFlags {
+    /// True when direct eval can observe bindings owned by this scope.
+    pub fn contains_direct_eval(self) -> bool {
+        self.direct_eval
+    }
+}
+
+const _: () = assert!(std::mem::size_of::<ScopeFlags>() == 2);
 
 /// All scopes of a tree, indexed by [`ScopeId`].
 #[derive(Debug)]
@@ -114,6 +132,21 @@ impl<'a> ScopeTree<'a> {
         AncestorIterator {
             list: &self.list,
             current: start,
+        }
+    }
+
+    /// Marks `start` and every lexical ancestor as observable by direct eval.
+    pub(crate) fn mark_direct_eval(&mut self, start: ScopeId) {
+        let mut current = Some(start);
+        // Each scope is marked at most once. Later calls stop at the first
+        // marked ancestor, so all calls together are O(scopes + eval calls).
+        while let Some(id) = current {
+            let scope = &mut self.list[id.index()];
+            if scope.flags.direct_eval {
+                break;
+            }
+            scope.flags.direct_eval = true;
+            current = scope.parent;
         }
     }
 }
@@ -141,6 +174,12 @@ pub(crate) struct ScopeTracker<'a> {
     pub(crate) scopes: ArenaVec<'a, Scope>,
     // active scope. follow the parent chain to walk the path.
     pub(crate) current: ScopeId,
+    // Whether finalization needs to account for a with object environment.
+    // This is transient builder state, not part of the finalized scope tree.
+    has_with_statement: bool,
+    // Active `with` scopes, used only while walking their statement bodies.
+    // The heap allocation is therefore paid only by files containing `with`.
+    active_with_scopes: std::vec::Vec<ScopeId>,
     // scopes saved while a decorator subtree retargets `current`,
     // one entry per nested decorator. see `enter` on `Decorator`.
     decorator_saved: ArenaVec<'a, ScopeId>,
@@ -156,6 +195,8 @@ impl<'a> ScopeTracker<'a> {
             allocator,
             scopes: ArenaVec::with_capacity_in(estimated_scopes, allocator),
             current: ScopeId::ROOT,
+            has_with_statement: false,
+            active_with_scopes: std::vec::Vec::new(),
             decorator_saved: ArenaVec::new_in(allocator),
         };
         tracker.push_root(root.node_id(), tree.source_type());
@@ -175,7 +216,14 @@ impl<'a> ScopeTracker<'a> {
 
         match source_type {
             SourceType::Module => {
-                self.push_scope(ScopeKind::Module, root_node, ScopeFlags { strict: true });
+                self.push_scope(
+                    ScopeKind::Module,
+                    root_node,
+                    ScopeFlags {
+                        strict: true,
+                        ..ScopeFlags::default()
+                    },
+                );
             }
             SourceType::CommonJs => {
                 self.push_scope(ScopeKind::Function, root_node, ScopeFlags::default());
@@ -224,7 +272,10 @@ impl<'a> ScopeTracker<'a> {
 
     pub fn enter_function(&mut self, tree: &Ast, function: Function, annex_b_if_body: bool) {
         let flags = if self.has_retroactive_use_strict(tree, function.body(tree)) {
-            ScopeFlags { strict: true }
+            ScopeFlags {
+                strict: true,
+                ..ScopeFlags::default()
+            }
         } else {
             self.inherit_strict_flag()
         };
@@ -251,7 +302,10 @@ impl<'a> ScopeTracker<'a> {
         let body = arrow.body(tree).node_id();
         let flags = match tree.kind_data(body) {
             NodeKindData::FunctionBody(body) if self.has_retroactive_use_strict(tree, body) => {
-                ScopeFlags { strict: true }
+                ScopeFlags {
+                    strict: true,
+                    ..ScopeFlags::default()
+                }
             }
             _ => self.inherit_strict_flag(),
         };
@@ -322,13 +376,30 @@ impl<'a> ScopeTracker<'a> {
         self.push_scope(ScopeKind::Block, node, self.inherit_strict_flag());
     }
 
+    pub fn enter_with_scope(&mut self, node: NodeId) {
+        self.has_with_statement = true;
+        self.push_scope(ScopeKind::With, node, self.inherit_strict_flag());
+        self.active_with_scopes.push(self.current);
+    }
+
+    pub fn exit_with_scope(&mut self, node: NodeId) {
+        let scope = self.current_scope();
+        assert_eq!(scope.node, node);
+        assert_eq!(scope.kind, ScopeKind::With);
+        assert_eq!(self.active_with_scopes.pop(), Some(self.current));
+        self.pop_scope();
+    }
+
     pub fn enter_ts_module_block(&mut self, node: NodeId) {
         self.push_scope(ScopeKind::TsModule, node, self.inherit_strict_flag());
     }
 
     pub fn enter_class(&mut self, tree: &Ast, class: Class) {
         // Classes are always strict mode (section 15.7.14).
-        let flags = ScopeFlags { strict: true };
+        let flags = ScopeFlags {
+            strict: true,
+            ..ScopeFlags::default()
+        };
         if is_named_class_expression(tree, class) {
             self.push_scope(ScopeKind::ExpressionName, class.node_id(), flags);
         }
@@ -382,6 +453,7 @@ impl<'a> ScopeTracker<'a> {
     fn inherit_strict_flag(&self) -> ScopeFlags {
         ScopeFlags {
             strict: self.current_scope().flags.strict,
+            ..ScopeFlags::default()
         }
     }
 
@@ -433,6 +505,24 @@ impl<'a> ScopeTracker<'a> {
         self.current_scope().flags.strict
     }
 
+    /// Whether resolving a `var` initializer from the current scope crosses
+    /// the nearest active `with` object environment before reaching its
+    /// hoist target.
+    #[inline]
+    pub fn var_write_crosses_with(&self) -> bool {
+        let Some(&with_scope) = self.active_with_scopes.last() else {
+            return false;
+        };
+        let hoist_target = self.hoist_target();
+        // Both ids are on the active ancestor chain. Scopes are allocated on
+        // entry, so an outer hoist target precedes the intervening with scope.
+        debug_assert!(
+            self.ancestors(Some(self.current))
+                .any(|scope| scope == with_scope)
+        );
+        hoist_target.index() < with_scope.index()
+    }
+
     /// Walks from `start` up to the root, yielding `start` first.
     pub fn ancestors(&self, start: Option<ScopeId>) -> AncestorIterator<'_> {
         assert!(start.is_none_or(|id| id.index() < self.scopes.len()));
@@ -443,8 +533,9 @@ impl<'a> ScopeTracker<'a> {
     }
 
     /// Finalizes into an immutable [`ScopeTree`].
-    pub fn into_scope_tree(self) -> ScopeTree<'a> {
-        ScopeTree { list: self.scopes }
+    pub fn into_scope_tree(self) -> (ScopeTree<'a>, bool) {
+        assert!(self.active_with_scopes.is_empty());
+        (ScopeTree { list: self.scopes }, self.has_with_statement)
     }
 }
 

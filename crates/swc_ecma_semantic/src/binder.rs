@@ -3,17 +3,18 @@ use std::hash::BuildHasher;
 use oxc_index::Idx;
 use swc_next_allocator::{Allocator, CloneIn, vec::Vec as ArenaVec};
 use swc_next_ecma_ast::{
-    Ast, AstUtf8, AstWtf8, BindingIdentifier, Class, ClassType, ExportNamedDeclaration, Function,
-    FunctionType, IdentifierReference, ImportDeclaration, ImportOrExportKind, ImportSpecifier,
-    JsxClosingElement, JsxElementName, JsxElementNameData, JsxIdentifier,
-    JsxMemberExpressionObjectData, JsxOpeningElement, NodeId, NodeKind, NodeKindData, ReferenceId,
-    ScopeId, SourceType, SymbolId, TsEnumDeclaration, TsEnumMember, TsInterfaceDeclaration,
-    TsModuleDeclaration, TsTypeAliasDeclaration, TsTypePredicate, VariableDeclaration,
-    VariableKind,
+    Ast, AstUtf8, AstWtf8, BindingIdentifier, Class, ClassType, ExportNamedDeclaration,
+    ExportSpecifier, Function, FunctionType, IdentifierReference, ImportDeclaration,
+    ImportOrExportKind, ImportSpecifier, JsxClosingElement, JsxElementName, JsxElementNameData,
+    JsxIdentifier, JsxMemberExpressionObjectData, JsxOpeningElement, NodeId, NodeKind,
+    NodeKindData, ReferenceId, ScopeId, SourceType, SymbolId, TsEnumDeclaration, TsEnumMember,
+    TsInterfaceDeclaration, TsModuleDeclaration, TsTypeAliasDeclaration, TsTypePredicate,
+    VariableDeclaration, VariableKind,
 };
 
 use crate::{
-    ScopeMap, Semantic,
+    DeclarationId, ScopeMap, Semantic,
+    module_record::ModuleRecordBuilder,
     scope::{self, ScopeKind, ScopeTracker, ScopeTree},
 };
 
@@ -36,11 +37,12 @@ pub struct Range {
 ///
 /// Declarations that legally share a name merge into one symbol,
 /// such as `var` redeclarations, TS function overloads, and `class`
-/// with `interface` merging. [`Semantic::decls`] lists every declaration
+/// with `interface` merging. [`Semantic::declarations`] lists every declaration
 /// site.
 ///
-/// `flags` describes the declaration kinds, the modifiers, and the spaces
-/// the symbol occupies.
+/// `flags` is the aggregate of every compatible declaration's kinds,
+/// modifiers, and spaces. Inspect [`Semantic::declarations`] when the
+/// contribution of an individual declaration matters.
 #[derive(Debug, Clone, Copy)]
 pub struct Symbol {
     pub name: AstWtf8,
@@ -49,9 +51,24 @@ pub struct Symbol {
     /// this is the hoist target it lands in, not the block it is
     /// written in.
     pub scope: ScopeId,
-    // window into `Semantic.decl_nodes`, expanded by `Semantic.decls`
-    pub decls: Range,
+    // window into `Semantic.declarations`
+    pub declarations: Range,
 }
+
+/// One declaration contributing to a [`Symbol`].
+///
+/// Unlike the aggregate flags on a symbol, `flags` describes only this
+/// declaration. This preserves the distinct type, value, and namespace
+/// meanings of declarations that merge into one symbol.
+#[derive(Debug, Clone, Copy)]
+pub struct Declaration {
+    pub node: NodeId,
+    pub symbol: SymbolId,
+    pub flags: SymbolFlags,
+}
+
+const _: () = assert!(std::mem::size_of::<Declaration>() == 12);
+const _: () = assert!(std::mem::size_of::<Option<DeclarationId>>() == 4);
 
 bitflags::bitflags! {
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -176,16 +193,17 @@ impl SymbolFlags {
     /// }
     /// ```
     ///
-    /// Import bindings alias symbols of unknowable space and are
-    /// visible in every space.
+    /// Value imports alias symbols of unknowable space and are visible in
+    /// every space. Type-only imports are not visible to runtime value uses,
+    /// but remain valid in type, namespace, and `typeof` positions.
     pub fn visible_in(self, space: ReferenceSpace) -> bool {
-        if self.intersects(Self::ANY_IMPORT) {
-            return true;
-        }
         match space {
-            ReferenceSpace::Value | ReferenceSpace::Typeof => self.in_value_space(),
-            ReferenceSpace::Type => self.in_type_space(),
-            ReferenceSpace::Namespace => self.in_namespace_space(),
+            ReferenceSpace::Value => self.contains(Self::IMPORT) || self.in_value_space(),
+            ReferenceSpace::Typeof => self.intersects(Self::ANY_IMPORT) || self.in_value_space(),
+            ReferenceSpace::Type => self.intersects(Self::ANY_IMPORT) || self.in_type_space(),
+            ReferenceSpace::Namespace => {
+                self.intersects(Self::ANY_IMPORT) || self.in_namespace_space()
+            }
             ReferenceSpace::Any => true,
         }
     }
@@ -319,15 +337,18 @@ impl Excludes {
 }
 
 /// A use of a name. One is recorded for every `identifier_reference`
-/// in the source, for JSX component tag names (`<Foo>`), and for TS
-/// type-predicate parameters (`x is T`). Declaration sites live on
-/// the symbol itself.
+/// in the source, for a `var` binding whose runtime write crosses a `with`
+/// object environment, for the local name in an `export { name }` specifier,
+/// for JSX component tag names (`<Foo>`), and for TS type-predicate parameters
+/// (`x is T`). Re-export names in `export { name } from "module"` are external
+/// names, not references. A dynamic `var` write is both a declaration and a
+/// reference at the same node.
 ///
 /// ## Example
 /// ```ts
 /// let a = b; a = 2;
 /// //      ^ a read of `b`
-/// //         ^ a write of `a`, flags.write
+/// //         ^ a write of `a`, flags.is_write()
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct Reference {
@@ -336,20 +357,35 @@ pub struct Reference {
     pub scope: ScopeId,
     /// The referencing node.
     pub node: NodeId,
-    /// The declaring symbol this reference resolves to. `None` for
+    /// The lexical fallback symbol this reference resolves to. `None` for
     /// names with no binding visible in the reference's space.
+    ///
+    /// When [`ReferenceFlags::is_dynamic`] is true, a `with` object may
+    /// intercept the reference at runtime before this fallback is reached.
     pub symbol: Option<SymbolId>,
     pub flags: ReferenceFlags,
 }
 
-#[derive(Debug, Clone, Copy)]
+bitflags::bitflags! {
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+    struct ReferenceProperties: u8 {
+        const READ = 1 << 0;
+        const WRITE = 1 << 1;
+        const DYNAMIC = 1 << 2;
+    }
+}
+
+/// Whether evaluating a reference reads its previous value, writes a new
+/// value, or both. Type-only references do neither.
+///
+/// Syntactic forms such as assignments, updates, destructuring targets, and
+/// for-in/of targets are normalized to these access operations rather than
+/// being exposed as separate reference kinds. Alias positions retain a read
+/// only when their resolved symbol can contribute a runtime value; unresolved
+/// aliases conservatively retain it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReferenceFlags {
-    /// True when this reference (re)assigns its binding: the target of
-    /// an assignment, the operand of `++`/`--`, the iteration variable
-    /// of for-in/for-of, or a destructuring assignment leaf.
-    /// Initializers in declarations are not references, so an initialized
-    /// but never reassigned binding has no write.
-    pub write: bool,
+    properties: ReferenceProperties,
     /// The declaration space this position resolves in.
     pub space: ReferenceSpace,
 }
@@ -357,11 +393,79 @@ pub struct ReferenceFlags {
 impl Default for ReferenceFlags {
     fn default() -> Self {
         Self {
-            write: false,
+            properties: ReferenceProperties::READ,
             space: ReferenceSpace::Value,
         }
     }
 }
+
+impl ReferenceFlags {
+    /// True when evaluation reads the binding's value.
+    pub fn is_read(self) -> bool {
+        self.properties.contains(ReferenceProperties::READ)
+    }
+
+    /// True when evaluation assigns to the binding.
+    pub fn is_write(self) -> bool {
+        self.properties.contains(ReferenceProperties::WRITE)
+    }
+
+    /// True when the same reference both reads and writes the binding,
+    /// as in `value += 1` or `value++`.
+    pub fn is_read_write(self) -> bool {
+        self.properties
+            .contains(ReferenceProperties::READ | ReferenceProperties::WRITE)
+    }
+
+    /// True when evaluation only reads the binding.
+    pub fn is_read_only(self) -> bool {
+        self.is_read() && !self.is_write()
+    }
+
+    /// True when evaluation only writes the binding.
+    pub fn is_write_only(self) -> bool {
+        self.is_write() && !self.is_read()
+    }
+
+    /// True when a `with` object environment can intercept this value
+    /// reference before its lexical fallback binding is reached.
+    ///
+    /// [`Reference::symbol`] remains the lexical fallback when one exists;
+    /// a dynamic reference with no fallback is not definitely global.
+    pub fn is_dynamic(self) -> bool {
+        self.properties.contains(ReferenceProperties::DYNAMIC)
+    }
+
+    pub(crate) fn with_space(mut self, space: ReferenceSpace) -> Self {
+        self.space = space;
+        if space.in_type_position() {
+            self.properties = ReferenceProperties::empty();
+        }
+        self
+    }
+
+    pub(crate) fn write_only(mut self) -> Self {
+        self.properties = ReferenceProperties::WRITE;
+        self
+    }
+
+    pub(crate) fn read_write(mut self) -> Self {
+        self.properties = ReferenceProperties::READ | ReferenceProperties::WRITE;
+        self
+    }
+
+    pub(crate) fn no_access(mut self) -> Self {
+        self.properties = ReferenceProperties::empty();
+        self
+    }
+
+    fn with_dynamic(mut self) -> Self {
+        self.properties.insert(ReferenceProperties::DYNAMIC);
+        self
+    }
+}
+
+const _: () = assert!(std::mem::size_of::<ReferenceFlags>() == 2);
 
 /// The declaration space a syntactic position resolves in,
 /// matching TypeScript name resolution. A binding outside a reference's
@@ -379,6 +483,7 @@ impl Default for ReferenceFlags {
 /// export { T };
 /// //       ^ any
 /// ```
+#[repr(u8)]
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
 pub enum ReferenceSpace {
     /// a runtime use
@@ -391,8 +496,8 @@ pub enum ReferenceSpace {
     /// a value use inside a type, the entity of a `typeof` query or a
     /// type-predicate parameter
     Typeof,
-    /// an alias position that accepts every space: `export { x }`,
-    /// `export default x`, `export = x`, and `import a = x`
+    /// an alias position that accepts every space: `export { x }`, a direct
+    /// identifier in `export default` or `export =`, and `import a = x`
     Any,
 }
 
@@ -409,7 +514,7 @@ pub(crate) struct SymbolTracker<'a> {
     allocator: &'a Allocator,
     symbols: ArenaVec<'a, Symbol>,
     references: ArenaVec<'a, Reference>,
-    decl_pairs: ArenaVec<'a, DeclPair>,
+    declarations: ArenaVec<'a, Declaration>,
     // first declarator of each symbol, parallel to `symbols`
     first_decls: ArenaVec<'a, NodeId>,
     scope_maps: ArenaVec<'a, ScopeMap<'a>>,
@@ -434,8 +539,27 @@ pub(crate) struct SymbolTracker<'a> {
 pub(crate) enum ExportState {
     #[default]
     None,
-    Named,
+    Named {
+        statement: NodeId,
+    },
     Default,
+}
+
+impl ExportState {
+    fn is_exported(self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    fn is_default(self) -> bool {
+        matches!(self, Self::Default)
+    }
+
+    pub(crate) fn named(self) -> Option<NodeId> {
+        match self {
+            Self::Named { statement } => Some(statement),
+            Self::None | Self::Default => None,
+        }
+    }
 }
 
 /// The declaration context for the next `binding_identifier`.
@@ -465,12 +589,6 @@ impl Default for PendingBinding {
 }
 
 #[derive(Clone, Copy)]
-struct DeclPair {
-    symbol_id: SymbolId,
-    node: NodeId,
-}
-
-#[derive(Clone, Copy)]
 struct SavedContext {
     pending: PendingBinding,
     export_state: ExportState,
@@ -486,7 +604,7 @@ impl<'a> SymbolTracker<'a> {
             allocator,
             symbols: ArenaVec::with_capacity_in(16usize.max(nodes / 12), allocator),
             references: ArenaVec::with_capacity_in(16usize.max(nodes / 4), allocator),
-            decl_pairs: ArenaVec::with_capacity_in(16usize.max(nodes / 12), allocator),
+            declarations: ArenaVec::with_capacity_in(16usize.max(nodes / 12), allocator),
             first_decls: ArenaVec::with_capacity_in(16usize.max(nodes / 12), allocator),
             scope_maps: ArenaVec::with_capacity_in(8usize.max(nodes / 16), allocator),
             hoisting_variables: ArenaVec::with_capacity_in(8usize.max(nodes / 16), allocator),
@@ -496,6 +614,11 @@ impl<'a> SymbolTracker<'a> {
             ambient: tree.lang() == swc_next_ecma_ast::Lang::Dts,
             saved_stack: ArenaVec::with_capacity_in(32, allocator),
         }
+    }
+
+    #[inline]
+    pub fn in_ambient_context(&self) -> bool {
+        self.ambient || self.pending.flags.contains(SymbolFlags::AMBIENT)
     }
 
     pub fn enter_export_named_declaration(
@@ -509,7 +632,9 @@ impl<'a> SymbolTracker<'a> {
         if declaration.declaration(tree).is_some()
             || declaration.export_kind(tree) != ImportOrExportKind::Type
         {
-            self.export_state = ExportState::Named;
+            self.export_state = ExportState::Named {
+                statement: declaration.node_id(),
+            };
         }
     }
 
@@ -522,9 +647,10 @@ impl<'a> SymbolTracker<'a> {
         tree: &Ast,
         declaration: VariableDeclaration,
         scope: &ScopeTracker<'a>,
-    ) {
+    ) -> bool {
         self.push_saved_context();
-        self.pending = match declaration.kind(tree) {
+        let kind = declaration.kind(tree);
+        self.pending = match kind {
             VariableKind::Var => {
                 let target = scope.hoist_target();
                 let mut excludes = Excludes::FUNCTION_SCOPED_VAR;
@@ -561,6 +687,7 @@ impl<'a> SymbolTracker<'a> {
                 scope: scope.current,
             },
         };
+        kind == VariableKind::Var && scope.var_write_crosses_with()
     }
 
     pub fn enter_function(&mut self, tree: &Ast, function: Function, scope: &ScopeTracker<'a>) {
@@ -665,6 +792,15 @@ impl<'a> SymbolTracker<'a> {
             scope: scope.current,
         };
         self.export_state = ExportState::None;
+    }
+
+    pub fn enter_arrow_function_expression(&mut self) -> ExportState {
+        std::mem::take(&mut self.export_state)
+    }
+
+    pub fn exit_arrow_function_expression(&mut self, saved: ExportState) {
+        debug_assert_eq!(self.export_state, ExportState::None);
+        self.export_state = saved;
     }
 
     // Members are not the exported binding.
@@ -943,13 +1079,13 @@ impl<'a> SymbolTracker<'a> {
         identifier: BindingIdentifier,
         scope: &ScopeTracker<'a>,
         space: ReferenceSpace,
-    ) {
+    ) -> Option<SymbolId> {
         self.sync_scope_maps_from(scope);
         let node = identifier.node_id();
         // Type-position identifiers are parameter labels. Only type
         // parameters are real declarations there.
         if space.in_type_position() && !self.pending.flags.contains(SymbolFlags::TYPE_PARAMETER) {
-            return;
+            return None;
         }
         let name = identifier.name(tree);
         let symbol_id = self.declare(tree, name.into(), node);
@@ -967,6 +1103,7 @@ impl<'a> SymbolTracker<'a> {
                     .or_insert(symbol_id);
             }
         }
+        Some(symbol_id)
     }
 
     pub fn add_identifier_reference(
@@ -982,6 +1119,44 @@ impl<'a> SymbolTracker<'a> {
             identifier.name(tree),
             scope.current,
             identifier.node_id(),
+            flags,
+        );
+    }
+
+    pub fn add_var_write_reference(
+        &mut self,
+        tree: &Ast,
+        identifier: BindingIdentifier,
+        scope: &ScopeTracker<'a>,
+        flags: ReferenceFlags,
+    ) {
+        debug_assert!(flags.is_write_only());
+        debug_assert!(scope.var_write_crosses_with());
+        self.add_reference(
+            tree,
+            identifier.name(tree),
+            scope.current,
+            identifier.node_id(),
+            flags,
+        );
+    }
+
+    pub fn add_local_export_reference(
+        &mut self,
+        tree: &Ast,
+        specifier: ExportSpecifier,
+        scope: &ScopeTracker<'a>,
+        flags: ReferenceFlags,
+    ) {
+        let Some(local) = specifier.local(tree).as_identifier_name(tree) else {
+            return;
+        };
+        self.sync_scope_maps_from(scope);
+        self.add_reference(
+            tree,
+            local.name(tree),
+            scope.current,
+            local.node_id(),
             flags,
         );
     }
@@ -1020,10 +1195,7 @@ impl<'a> SymbolTracker<'a> {
             name,
             scope.current,
             parameter_node,
-            ReferenceFlags {
-                space: ReferenceSpace::Typeof,
-                ..ReferenceFlags::default()
-            },
+            ReferenceFlags::default().with_space(ReferenceSpace::Typeof),
         );
     }
 
@@ -1109,19 +1281,17 @@ impl<'a> SymbolTracker<'a> {
         assert!(target.index() < self.scope_maps.len());
         assert!(node.index() < tree.node_count());
 
+        let mut declaration_flags = self.pending.flags;
+        declaration_flags.set(SymbolFlags::EXPORTED, self.export_state.is_exported());
+        declaration_flags.set(SymbolFlags::IS_DEFAULT, self.export_state.is_default());
+
         let name_text = tree.get_wtf8(name).as_bytes();
         let id = if let Some(existing) = self.binding(target, name_text) {
             let symbol = &mut self.symbols[existing.index()];
             if !symbol.flags.intersects(self.pending.excludes)
                 || self.pending.allows_annex_b_function_duplicate(symbol.flags)
             {
-                let mut merged = symbol.flags.merge(self.pending.flags);
-                if self.export_state != ExportState::None {
-                    merged.insert(SymbolFlags::EXPORTED);
-                }
-                if self.export_state == ExportState::Default {
-                    merged.insert(SymbolFlags::IS_DEFAULT);
-                }
+                let mut merged = symbol.flags.merge(declaration_flags);
                 // An overload implementation emits at runtime, so the merged
                 // symbol is non-ambient.
                 merged.set(
@@ -1135,20 +1305,11 @@ impl<'a> SymbolTracker<'a> {
         } else {
             assert!(self.symbols.len() < u32::MAX as usize);
             let new_id = symbol_id(self.symbols.len());
-            let mut flags = self.pending.flags;
-            flags.set(
-                SymbolFlags::EXPORTED,
-                self.export_state != ExportState::None,
-            );
-            flags.set(
-                SymbolFlags::IS_DEFAULT,
-                self.export_state == ExportState::Default,
-            );
             self.symbols.push(Symbol {
                 name,
-                flags,
+                flags: declaration_flags,
                 scope: target,
-                decls: Range::default(),
+                declarations: Range::default(),
             });
             self.first_decls.push(node);
             let key = tree.get_wtf8(name).as_bytes().clone_in(self.allocator);
@@ -1156,9 +1317,10 @@ impl<'a> SymbolTracker<'a> {
             new_id
         };
 
-        self.decl_pairs.push(DeclPair {
-            symbol_id: id,
+        self.declarations.push(Declaration {
+            symbol: id,
             node,
+            flags: declaration_flags,
         });
         id
     }
@@ -1174,6 +1336,15 @@ impl<'a> SymbolTracker<'a> {
     ) -> ReferenceId {
         assert!(node.index() < tree.node_count());
         assert!(self.references.len() < u32::MAX as usize);
+        // Ambient syntax still resolves through the same declaration space,
+        // but its erased expressions do not access the binding at runtime.
+        // Normalize only actual references instead of checking ambient state
+        // while entering every AST node.
+        let flags = if self.in_ambient_context() {
+            flags.no_access()
+        } else {
+            flags
+        };
         let id = reference_id(self.references.len());
         self.references.push(Reference {
             name,
@@ -1242,49 +1413,68 @@ impl<'a> SymbolTracker<'a> {
     pub fn finalize(
         mut self,
         tree: &Ast,
-        scopes: ScopeTree<'a>,
+        mut scopes: ScopeTree<'a>,
+        has_with_statement: bool,
         node_scopes: ArenaVec<'a, ScopeId>,
         node_parents: ArenaVec<'a, Option<NodeId>>,
+        module_record: ModuleRecordBuilder<'a>,
     ) -> Semantic<'a> {
         // The walk must have ended balanced.
         assert!(self.saved_stack.is_empty());
         assert_eq!(self.export_state, ExportState::None);
         self.sync_scope_maps(scopes.list.len());
 
-        // Declaration index: count, prefix-sum, fill. `decls.len`
-        // doubles as the write cursor during the fill.
+        // Declaration index: count, prefix-sum, assign destinations, then
+        // permute in place. For D declarations and S symbols, these phases are
+        // O(D + S). `Symbol.declarations.len` doubles as the destination cursor
+        // while preserving source order within each symbol.
         let symbol_count = self.symbols.len();
-        let mut decl_nodes = ArenaVec::with_capacity_in(self.decl_pairs.len(), self.allocator);
-        decl_nodes.resize(self.decl_pairs.len(), NodeId::from_usize_unchecked(0));
         for symbol in &mut self.symbols {
-            symbol.decls = Range::default();
+            symbol.declarations = Range::default();
         }
-        for pair in &self.decl_pairs {
-            self.symbols[pair.symbol_id.index()].decls.len += 1;
+        for declaration in &self.declarations {
+            self.symbols[declaration.symbol.index()].declarations.len += 1;
         }
         let mut declaration_offset = 0u32;
         for symbol in &mut self.symbols {
-            let count = symbol.decls.len;
-            symbol.decls.start = declaration_offset;
-            symbol.decls.len = 0;
+            let count = symbol.declarations.len;
+            symbol.declarations.start = declaration_offset;
+            symbol.declarations.len = 0;
             declaration_offset += count;
         }
-        assert_eq!(declaration_offset as usize, self.decl_pairs.len());
-        for pair in &self.decl_pairs {
-            let symbol = &mut self.symbols[pair.symbol_id.index()];
-            let index = (symbol.decls.start + symbol.decls.len) as usize;
-            decl_nodes[index] = pair.node;
-            symbol.decls.len += 1;
-        }
+        assert_eq!(declaration_offset as usize, self.declarations.len());
 
         let node_count = tree.node_count();
-        let mut node_symbols = ArenaVec::with_capacity_in(node_count, self.allocator);
-        let mut node_references = ArenaVec::with_capacity_in(node_count, self.allocator);
-        node_symbols.resize(node_count, None);
-        node_references.resize(node_count, None);
-        for pair in &self.decl_pairs {
-            node_symbols[pair.node.index()] = Some(pair.symbol_id);
+        let mut node_declarations = ArenaVec::with_capacity_in(node_count, self.allocator);
+        node_declarations.resize(node_count, None);
+        for declaration in &self.declarations {
+            let symbol = &mut self.symbols[declaration.symbol.index()];
+            let index = (symbol.declarations.start + symbol.declarations.len) as usize;
+            let declaration_id = DeclarationId::from_usize(index);
+            let node_declaration = &mut node_declarations[declaration.node.index()];
+            assert!(node_declaration.replace(declaration_id).is_none());
+            symbol.declarations.len += 1;
         }
+
+        // The node index already holds each declaration's unique final
+        // position. Every swap fixes one declaration, so all cycles perform
+        // fewer than D swaps in total.
+        for index in 0..self.declarations.len() {
+            loop {
+                let declaration = self.declarations[index];
+                let destination = node_declarations[declaration.node.index()]
+                    .expect("every declaration has a destination")
+                    .index();
+                if destination == index {
+                    break;
+                }
+                self.declarations.swap(index, destination);
+            }
+        }
+        let declarations = self.declarations;
+
+        let mut node_references = ArenaVec::with_capacity_in(node_count, self.allocator);
+        node_references.resize(node_count, None);
         for (index, reference) in self.references.iter().enumerate() {
             node_references[reference.node.index()] = Some(reference_id(index));
         }
@@ -1292,6 +1482,12 @@ impl<'a> SymbolTracker<'a> {
         for reference_index in 0..self.references.len() {
             let reference = self.references[reference_index];
             let name = tree.get_utf8(reference.name).as_bytes();
+            if name == b"eval"
+                && reference.flags.is_read()
+                && is_direct_eval_reference(tree, &node_parents, reference.node)
+            {
+                scopes.mark_direct_eval(reference.scope);
+            }
             let hash = self.scope_maps[ScopeId::ROOT.index()]
                 .hasher()
                 .hash_one(name);
@@ -1329,6 +1525,39 @@ impl<'a> SymbolTracker<'a> {
                 }
             }
             self.references[reference_index].symbol = resolved;
+            if reference.flags.space == ReferenceSpace::Any
+                && resolved.is_some_and(|symbol| {
+                    let flags = self.symbols[symbol.index()].flags;
+                    !flags.contains(SymbolFlags::IMPORT) && !flags.in_value_space()
+                })
+            {
+                self.references[reference_index].flags = reference.flags.no_access();
+            }
+        }
+
+        if has_with_statement {
+            let with_ancestry = with_ancestry(tree, &scopes);
+            for reference_index in 0..self.references.len() {
+                let reference = self.references[reference_index];
+                if reference.flags.space != ReferenceSpace::Value {
+                    continue;
+                }
+                let reference_ancestors = with_ancestry[reference.scope.index()];
+                let Some(reference_with) = reference_ancestors.lexical else {
+                    continue;
+                };
+                let target_with = if let Some(symbol) = reference.symbol {
+                    let scope = self.symbols[symbol.index()].scope;
+                    with_ancestry[scope.index()].lexical
+                } else if tree.get_utf8(reference.name).as_bytes() == b"arguments" {
+                    reference_ancestors.arguments
+                } else {
+                    None
+                };
+                if target_with != Some(reference_with) {
+                    self.references[reference_index].flags = reference.flags.with_dynamic();
+                }
+            }
         }
 
         // Use index: count, prefix-sum, fill. `len` doubles as the write
@@ -1357,21 +1586,60 @@ impl<'a> SymbolTracker<'a> {
             range.len += 1;
         }
 
+        let module_record = module_record.finalize(
+            &declarations,
+            &node_declarations,
+            &self.references,
+            &node_references,
+        );
+
         Semantic {
             scopes,
             symbols: self.symbols,
             references: self.references,
-            decl_nodes,
+            declarations,
+            module_record,
             use_ids,
             use_ranges,
             scope_maps: self.scope_maps,
             hoisting_variables: self.hoisting_variables,
             node_scopes,
             node_parents,
-            node_symbols,
+            node_declarations,
             node_references,
         }
     }
+}
+
+#[derive(Clone, Copy, Default)]
+struct WithAncestry {
+    lexical: Option<ScopeId>,
+    arguments: Option<ScopeId>,
+}
+
+fn with_ancestry(tree: &Ast<'_>, scopes: &ScopeTree<'_>) -> Vec<WithAncestry> {
+    // Scope ids are allocated parent-first, so both nearest-with chains are
+    // computed in one linear pass and stored in one temporary allocation.
+    let mut ancestry: Vec<WithAncestry> = Vec::with_capacity(scopes.list.len());
+    for (index, scope) in scopes.list.iter().enumerate() {
+        let id = ScopeId::from_usize(index);
+        let parent = match scope.parent {
+            Some(parent) => ancestry[parent.index()],
+            None => WithAncestry::default(),
+        };
+        let lexical = if scope.kind == ScopeKind::With {
+            Some(id)
+        } else {
+            parent.lexical
+        };
+        let arguments = if is_arguments_barrier(tree, *scope) {
+            lexical
+        } else {
+            parent.arguments
+        };
+        ancestry.push(WithAncestry { lexical, arguments });
+    }
+    ancestry
 }
 
 fn import_pending(kind: ImportOrExportKind, scope: ScopeId) -> PendingBinding {
@@ -1383,6 +1651,42 @@ fn import_pending(kind: ImportOrExportKind, scope: ScopeId) -> PendingBinding {
         },
         excludes: Excludes::IMPORT_BINDING,
         scope,
+    }
+}
+
+fn is_direct_eval_reference(
+    tree: &Ast<'_>,
+    node_parents: &[Option<NodeId>],
+    reference_node: NodeId,
+) -> bool {
+    if !matches!(
+        tree.kind_data(reference_node),
+        NodeKindData::IdentifierReference(_)
+    ) {
+        return false;
+    }
+
+    let mut expression = reference_node;
+    loop {
+        let Some(parent) = node_parents[expression.index()] else {
+            return false;
+        };
+        let inner = match tree.kind_data(parent) {
+            NodeKindData::ParenthesizedExpression(wrapper) => wrapper.expression(tree).node_id(),
+            NodeKindData::TsAsExpression(wrapper) => wrapper.expression(tree).node_id(),
+            NodeKindData::TsSatisfiesExpression(wrapper) => wrapper.expression(tree).node_id(),
+            NodeKindData::TsTypeAssertion(wrapper) => wrapper.expression(tree).node_id(),
+            NodeKindData::TsNonNullExpression(wrapper) => wrapper.expression(tree).node_id(),
+            NodeKindData::TsInstantiationExpression(wrapper) => wrapper.expression(tree).node_id(),
+            NodeKindData::CallExpression(call) => {
+                return !call.optional(tree) && call.callee(tree).node_id() == expression;
+            }
+            _ => return false,
+        };
+        if inner != expression {
+            return false;
+        }
+        expression = parent;
     }
 }
 

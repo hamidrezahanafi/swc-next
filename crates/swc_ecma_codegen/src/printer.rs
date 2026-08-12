@@ -721,7 +721,8 @@ impl<'a> Printer<'a> {
                 self.print_indent();
                 self.add_source_mapping(stmt.span(self.ast).start);
                 self.print("for");
-                if s.r#await(self.ast) {
+                let is_await = s.r#await(self.ast);
+                if is_await {
                     self.print(" await");
                 }
                 self.print_space();
@@ -739,7 +740,7 @@ impl<'a> Printer<'a> {
                     self.print_comments_before(comment_end, true, true);
                     self.print_indent();
                     self.for_of_init_start = self.js.len();
-                    self.print_for_left(left);
+                    self.print_for_of_left(left, is_await);
                     self.print(" of ");
                     self.print_expr(s.right(self.ast), Precedence::Assignment);
                     self.print_newline();
@@ -747,7 +748,7 @@ impl<'a> Printer<'a> {
                     self.print_indent();
                 } else {
                     self.for_of_init_start = self.js.len();
-                    self.print_for_left(left);
+                    self.print_for_of_left(left, is_await);
                     self.print(" of ");
                     self.print_expr(s.right(self.ast), Precedence::Assignment);
                 }
@@ -1160,6 +1161,29 @@ impl<'a> Printer<'a> {
         }
     }
 
+    fn print_for_of_left(&mut self, left: ForStatementLeft, is_await: bool) {
+        if is_await {
+            self.print_for_left(left);
+            return;
+        }
+        let Some(identifier) = left
+            .as_assignment_target(self.ast)
+            .and_then(|target| target.as_simple_assignment_target(self.ast))
+            .and_then(|target| target.as_identifier_reference(self.ast))
+        else {
+            self.print_for_left(left);
+            return;
+        };
+        let wrap = self.ast.get_utf8(identifier.name(self.ast)) == "async";
+        if wrap {
+            self.print("(");
+        }
+        self.print_for_left(left);
+        if wrap {
+            self.print(")");
+        }
+    }
+
     fn print_decl(&mut self, decl: Decl) {
         match self.ast.decl_data(decl) {
             DeclData::VariableDeclaration(v) => self.print_variable_decl(v, true),
@@ -1370,6 +1394,7 @@ impl<'a> Printer<'a> {
         self.add_source_mapping(a.span(self.ast).start);
         self.print("[");
         let elements = a.elements(self.ast);
+        let rest = a.rest(self.ast);
         for (i, id) in elements.iter().enumerate() {
             if i != 0 {
                 self.print(",");
@@ -1377,11 +1402,11 @@ impl<'a> Printer<'a> {
             }
             if let Some(item) = self.ast.get_node_in_sub_range(id) {
                 self.print_binding(item);
-            } else if i + 1 == elements.len() {
+            } else if i + 1 == elements.len() && rest.is_none() {
                 self.print(",");
             }
         }
-        if let Some(rest) = a.rest(self.ast) {
+        if let Some(rest) = rest {
             if !elements.is_empty() {
                 self.print(",");
                 self.print_space();
@@ -3120,23 +3145,24 @@ impl<'a> Printer<'a> {
     fn print_export_named(&mut self, d: ExportNamedDeclaration) {
         self.print_indent();
         self.add_source_mapping(d.span(self.ast).start);
+        let declaration = d.declaration(self.ast);
         self.print("export");
-        if d.export_kind(self.ast) == ImportOrExportKind::Type {
-            self.print(" type ");
-        } else if d.declaration(self.ast).is_some() {
+        if let Some(decl) = declaration {
             let decorated_class = matches!(
-                d.declaration(self.ast).map(|d| self.ast.decl_data(d)),
-                Some(DeclData::Class(class)) if !class.decorators(self.ast).is_empty()
+                self.ast.decl_data(decl),
+                DeclData::Class(class) if !class.decorators(self.ast).is_empty()
             );
             if decorated_class {
                 self.print_space();
             } else {
                 self.print(" ");
             }
+        } else if d.export_kind(self.ast) == ImportOrExportKind::Type {
+            self.print(" type ");
         } else {
             self.print_space();
         }
-        if let Some(decl) = d.declaration(self.ast) {
+        if let Some(decl) = declaration {
             let block = matches!(
                 self.ast.decl_data(decl),
                 DeclData::Function(_)
@@ -3611,6 +3637,11 @@ impl<'a> Printer<'a> {
         match self.ast.ts_tuple_element_data(e) {
             TsTupleElementData::TsType(t) => self.print_ts_type(t, Precedence::Lowest),
             TsTupleElementData::TsNamedTupleMember(n) => {
+                let mut element_type = n.element_type(self.ast);
+                if let TsTypeData::TsRestType(rest) = self.ast.ts_type_data(element_type) {
+                    self.print("...");
+                    element_type = rest.type_annotation(self.ast);
+                }
                 let label = n.label(self.ast);
                 let name = self.ast.get_utf8(label.name(self.ast));
                 self.add_source_mapping_for_name(label.span(self.ast).start, name);
@@ -3620,7 +3651,7 @@ impl<'a> Printer<'a> {
                 }
                 self.print(":");
                 self.print_space();
-                self.print_ts_type(n.element_type(self.ast), Precedence::Lowest);
+                self.print_ts_type(element_type, Precedence::Lowest);
             }
         }
     }
