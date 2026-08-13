@@ -4,12 +4,14 @@ use swc_next_ecma_semantic::Semantic;
 use crate::state::TransformerCtx;
 
 pub mod arrow;
+mod generator;
 pub mod shorthand;
 pub mod sticky_regex;
 pub(crate) mod util;
 
 pub struct ES2015 {
     arrow: Option<arrow::ArrowFunctions>,
+    generator: bool,
     shorthand_properties: bool,
     sticky_regex: bool,
 }
@@ -17,6 +19,7 @@ pub struct ES2015 {
 #[derive(Default)]
 pub struct ES2015Options {
     pub arrow_functions: Option<arrow::ArrowFunctionsOptions>,
+    pub generator: bool,
     pub shorthand_properties: bool,
     pub sticky_regex: bool,
 }
@@ -25,6 +28,7 @@ impl ES2015 {
     pub fn new(options: ES2015Options) -> Self {
         Self {
             arrow: options.arrow_functions.map(arrow::ArrowFunctions::new),
+            generator: options.generator,
             shorthand_properties: options.shorthand_properties,
             sticky_regex: options.sticky_regex,
         }
@@ -38,8 +42,18 @@ impl ES2015 {
         semantic: &Semantic,
         ctx: &mut TransformerCtx<'_, 'a>,
     ) {
+        // Semantic-dependent generator facts must be collected from the
+        // original tree. Lowering waits until after arrow conversion so
+        // lexical `this`/`arguments` inside generator-local arrows keep the
+        // same environment as SWC's established ES2015 pass order.
+        let generator_analysis = self
+            .generator
+            .then(|| generator::Generator::analyze(node, ctx.ast, semantic));
         if let Some(arrow) = &mut self.arrow {
             arrow.transform(node, ctx.ast, semantic);
+        }
+        if let Some(generator_analysis) = generator_analysis {
+            generator::Generator.transform(generator_analysis, ctx.ast, semantic);
         }
     }
 

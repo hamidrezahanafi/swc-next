@@ -6,6 +6,20 @@ use crate::{
     UnaryOperator, UpdateOperator, VariableKind, Visit, VisitMut, VisitMutWith, VisitWith,
 };
 
+/// Runs an immutable visitor from an arbitrary AST handle.
+///
+/// This is intentionally independent from [`TraverseCtx`]. Analysis passes can
+/// inspect a complete program or a single subtree before a mutating transform,
+/// and the same visitor can be run again with another root.
+#[inline]
+pub fn run_visit<'a, N, V>(root: N, visitor: &mut V)
+where
+    N: VisitWith<'a, V>,
+    V: ?Sized + Visit<'a>,
+{
+    root.visit_with(visitor);
+}
+
 /// Controls how traversal continues after an enter hook.
 #[must_use]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -147,3 +161,73 @@ dummy_visit_mut_impl!(TsTypeOperatorKind);
 dummy_visit_mut_impl!(TsMethodSignatureKind);
 dummy_visit_mut_impl!(TsModuleDeclarationKind);
 dummy_visit_mut_impl!(TsMappedTypeModifier);
+
+#[cfg(test)]
+mod tests {
+    use swc_next_allocator::Allocator;
+
+    use super::run_visit;
+    use crate::{
+        Ast, DUMMY_SP, Expr, NodeId, SourceType, TypedSubRange, Visit, VisitWith, YieldExpression,
+    };
+
+    struct Recorder<'ast> {
+        ast: &'ast Ast<'ast>,
+        events: Vec<(bool, NodeId)>,
+        yields: usize,
+    }
+
+    impl<'ast> Visit<'ast> for Recorder<'ast> {
+        fn ast(&self) -> &Ast<'ast> {
+            self.ast
+        }
+
+        fn enter_node(&mut self, node: NodeId) {
+            self.events.push((true, node));
+        }
+
+        fn leave_node(&mut self, node: NodeId) {
+            self.events.push((false, node));
+        }
+
+        fn visit_yield_expression(&mut self, node: YieldExpression) {
+            self.yields += 1;
+            self.enter_node(node.node_id());
+            node.visit_children_with(self);
+            self.leave_node(node.node_id());
+        }
+    }
+
+    #[test]
+    fn immutable_visitor_runs_independently_from_any_root() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("", &allocator);
+        let yield_expression = ast.yield_expression(DUMMY_SP, None, false);
+        let statement =
+            ast.stmt_expression_statement(DUMMY_SP, Expr::YieldExpression(yield_expression));
+        let body = ast.add_typed_sub_range([statement]);
+        let program = ast.program(
+            DUMMY_SP,
+            SourceType::Script,
+            TypedSubRange::empty(),
+            body,
+            None,
+        );
+
+        let mut recorder = Recorder {
+            ast: &ast,
+            events: Vec::new(),
+            yields: 0,
+        };
+        run_visit(program, &mut recorder);
+        assert_eq!(recorder.yields, 1);
+        assert_eq!(recorder.events.first(), Some(&(true, program.node_id())));
+        assert_eq!(recorder.events.last(), Some(&(false, program.node_id())));
+
+        recorder.events.clear();
+        run_visit(statement, &mut recorder);
+        assert_eq!(recorder.yields, 2);
+        assert_eq!(recorder.events.first(), Some(&(true, statement.node_id())));
+        assert_eq!(recorder.events.last(), Some(&(false, statement.node_id())));
+    }
+}
