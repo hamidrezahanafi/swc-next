@@ -5,15 +5,15 @@ use criterion::{Bencher, Criterion, criterion_group, criterion_main};
 use swc_next_allocator::Allocator;
 use swc_next_ecma_ast::{
     Ast, BindingIdentifier, IdentifierName, IdentifierReference, LabelIdentifier, Lang,
-    PrivateIdentifier, Program, Traverse, TraverseAction, TraverseCtx, TraverseWith, Visit,
-    VisitMut, VisitMutWith, VisitWith,
+    PrivateIdentifier, Traverse, TraverseAction, TraverseCtx, TraverseWith, Visit, VisitMut,
+    VisitMutWith, VisitWith,
 };
 use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
 
-fn parse_program<'a>(src: &'a str, allocator: &'a Allocator, lang: Lang) -> (Ast<'a>, Program) {
-    let mut ast = Ast::new(src, allocator);
+fn parse_program<'a>(src: &'a str, allocator: &'a Allocator, lang: Lang) -> Ast<'a> {
     let result = Parser::init(
-        &mut ast,
+        allocator,
+        src,
         Options {
             lang,
             ..Options::default()
@@ -22,12 +22,13 @@ fn parse_program<'a>(src: &'a str, allocator: &'a Allocator, lang: Lang) -> (Ast
     )
     .parse();
     assert!(result.diagnostics.is_empty());
-    (ast, result.program)
+    result.ast
 }
 
 fn bench_visit(b: &mut Bencher, src: &'static str, lang: Lang) {
     let allocator = Allocator::new();
-    let (ast, program) = parse_program(src, &allocator, lang);
+    let ast = parse_program(src, &allocator, lang);
+    let program = ast.root_program();
 
     struct Counter<'a> {
         ast: &'a Ast<'a>,
@@ -120,7 +121,8 @@ fn bench_visit_mut(b: &mut Bencher, src: &'static str, lang: Lang) {
     }
 
     let allocator = Allocator::new();
-    let (mut ast, program) = parse_program(src, &allocator, lang);
+    let mut ast = parse_program(src, &allocator, lang);
+    let program = ast.root_program();
 
     b.iter(|| {
         let mut counter = Counter {
@@ -185,7 +187,8 @@ fn bench_traverse(b: &mut Bencher, src: &'static str, lang: Lang) {
     }
 
     let allocator = Allocator::new();
-    let (mut ast, program) = parse_program(src, &allocator, lang);
+    let mut ast = parse_program(src, &allocator, lang);
+    let program = ast.root_program();
 
     b.iter(|| {
         let mut counter = Counter { count: 0 };

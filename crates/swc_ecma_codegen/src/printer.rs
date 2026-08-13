@@ -81,12 +81,25 @@ struct Printer<'a> {
     int_to_bytes_buffer: [u8; 64],
 }
 
-pub fn print<'a>(
-    allocator: &'a Allocator,
-    tree: &'a Ast<'a>,
-    root: Program,
-    options: Options,
-) -> PrintResult<'a> {
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum TsTypePrecedence {
+    Lowest,
+    Function,
+    Conditional,
+    Union,
+    Intersection,
+    TypeOperator,
+    Postfix,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TsTypeParameterConstraintContext {
+    Declaration,
+    Infer,
+}
+
+pub fn print<'a>(allocator: &'a Allocator, tree: &'a Ast<'a>, options: Options) -> PrintResult<'a> {
+    let root = tree.root_program();
     let wants_map = options.source_map_path.is_some();
     let comments = tree.comments();
     let line_offset_tables = if wants_map {
@@ -291,20 +304,33 @@ impl<'a> Printer<'a> {
         for id in program.directives(self.ast).iter() {
             let directive = self.ast.get_node_in_sub_range(id);
             self.print_indent();
-            self.print_quoted(
-                Wtf8::from_str(self.ast.get_utf8(directive.value(self.ast))),
-                false,
-            );
+            self.print_directive(directive);
             self.print(";");
             self.print_newline();
             self.print_semicolon_if_needed();
         }
-        for id in program.body(self.ast).iter() {
+        for (index, id) in program.body(self.ast).iter().enumerate() {
             let statement = self.ast.get_node_in_sub_range(id);
-            self.print_stmt(statement);
+            self.print_stmt_with_context(statement, index == 0);
             self.print_semicolon_if_needed();
         }
         self.print_comments_before(self.ast.source().len() as u32, true, false);
+    }
+
+    fn print_directive(&mut self, directive: Directive) {
+        let expression = directive.expression(self.ast);
+        let value = self.ast.get_wtf8(expression.value(self.ast));
+        let raw = self.ast.get_utf8(expression.raw(self.ast));
+        let raw_is_safe = !raw.is_empty() && !raw.contains("script");
+        if value == "use strict" && raw.as_bytes().contains(&b'\\') && raw_is_safe {
+            self.print_bytes(raw);
+            return;
+        }
+        if !self.options.minify && raw_is_safe && (!self.options.ascii_only || raw.is_ascii()) {
+            self.print_bytes(raw);
+            return;
+        }
+        self.print_quoted(value, false);
     }
 
     fn print_comments_before(&mut self, offset: u32, statement: bool, preserve_all: bool) {
@@ -413,7 +439,10 @@ impl<'a> Printer<'a> {
             {
                 start += 1;
             }
-            if start != whitespace_start || value[start..].first() == Some(&b'*') {
+            if !self.options.minify
+                || start != whitespace_start
+                || value[start..].first() == Some(&b'*')
+            {
                 self.print(" ");
             }
         }
@@ -610,6 +639,10 @@ impl<'a> Printer<'a> {
     }
 
     fn print_stmt(&mut self, stmt: Stmt) {
+        self.print_stmt_with_context(stmt, false);
+    }
+
+    fn print_stmt_with_context(&mut self, stmt: Stmt, prevent_directive: bool) {
         self.print_comments_before(stmt.span(self.ast).start, true, true);
         self.add_source_mapping(stmt.span(self.ast).start);
         self.stmt_start = self.js.len();
@@ -682,7 +715,16 @@ impl<'a> Printer<'a> {
             StmtData::ExpressionStatement(s) => {
                 self.print_indent();
                 self.stmt_start = self.js.len();
-                self.print_expr(s.expression(self.ast), Precedence::Lowest);
+                let expression = s.expression(self.ast);
+                let wrap = prevent_directive
+                    && matches!(self.ast.expr_data(expression), ExprData::StringLiteral(_));
+                if wrap {
+                    self.print("(");
+                }
+                self.print_expr(expression, Precedence::Lowest);
+                if wrap {
+                    self.print(")");
+                }
                 self.print_semicolon_after_statement();
             }
             StmtData::ForInStatement(s) => {
@@ -721,7 +763,8 @@ impl<'a> Printer<'a> {
                 self.print_indent();
                 self.add_source_mapping(stmt.span(self.ast).start);
                 self.print("for");
-                if s.r#await(self.ast) {
+                let is_await = s.r#await(self.ast);
+                if is_await {
                     self.print(" await");
                 }
                 self.print_space();
@@ -739,7 +782,7 @@ impl<'a> Printer<'a> {
                     self.print_comments_before(comment_end, true, true);
                     self.print_indent();
                     self.for_of_init_start = self.js.len();
-                    self.print_for_left(left);
+                    self.print_for_of_left(left, is_await);
                     self.print(" of ");
                     self.print_expr(s.right(self.ast), Precedence::Assignment);
                     self.print_newline();
@@ -747,7 +790,7 @@ impl<'a> Printer<'a> {
                     self.print_indent();
                 } else {
                     self.for_of_init_start = self.js.len();
-                    self.print_for_left(left);
+                    self.print_for_of_left(left, is_await);
                     self.print(" of ");
                     self.print_expr(s.right(self.ast), Precedence::Assignment);
                 }
@@ -812,7 +855,7 @@ impl<'a> Printer<'a> {
                     if !can_omit_space {
                         self.print(" ");
                     }
-                    self.print_expr(value, Precedence::Lowest);
+                    self.print_expr_without_leading_line_terminator(value, Precedence::Lowest);
                 }
                 self.print_semicolon_after_statement();
             }
@@ -822,7 +865,10 @@ impl<'a> Printer<'a> {
                 self.add_source_mapping(stmt.span(self.ast).start);
                 self.print("throw");
                 self.print_space();
-                self.print_expr(s.argument(self.ast), Precedence::Lowest);
+                self.print_expr_without_leading_line_terminator(
+                    s.argument(self.ast),
+                    Precedence::Lowest,
+                );
                 self.print_semicolon_after_statement();
             }
             StmtData::TryStatement(s) => self.print_try(s),
@@ -857,6 +903,7 @@ impl<'a> Printer<'a> {
                     DeclData::Function(_)
                         | DeclData::Class(_)
                         | DeclData::TsInterfaceDeclaration(_)
+                        | DeclData::TsEnumDeclaration(_)
                         | DeclData::TsModuleDeclaration(_)
                         | DeclData::TsGlobalDeclaration(_)
                 );
@@ -1007,16 +1054,13 @@ impl<'a> Printer<'a> {
             self.print_semicolon_if_needed();
             let directive = self.ast.get_node_in_sub_range(id);
             self.print_indent();
-            self.print_quoted(
-                Wtf8::from_str(self.ast.get_utf8(directive.value(self.ast))),
-                false,
-            );
+            self.print_directive(directive);
             self.print_semicolon_after_statement();
         }
-        for id in statements.iter() {
+        for (index, id) in statements.iter().enumerate() {
             self.print_semicolon_if_needed();
             let statement = self.ast.get_node_in_sub_range(id);
-            self.print_stmt(statement);
+            self.print_stmt_with_context(statement, index == 0);
         }
         self.needs_semicolon = false;
         self.print_comments_before(body.span(self.ast).end.saturating_sub(1), true, true);
@@ -1157,6 +1201,29 @@ impl<'a> Printer<'a> {
         match self.ast.for_statement_left_data(left) {
             ForStatementLeftData::VariableDeclaration(v) => self.print_variable_decl(v, false),
             ForStatementLeftData::AssignmentTarget(t) => self.print_assignment_target(t),
+        }
+    }
+
+    fn print_for_of_left(&mut self, left: ForStatementLeft, is_await: bool) {
+        if is_await {
+            self.print_for_left(left);
+            return;
+        }
+        let Some(identifier) = left
+            .as_assignment_target(self.ast)
+            .and_then(|target| target.as_simple_assignment_target(self.ast))
+            .and_then(|target| target.as_identifier_reference(self.ast))
+        else {
+            self.print_for_left(left);
+            return;
+        };
+        let wrap = self.ast.get_utf8(identifier.name(self.ast)) == "async";
+        if wrap {
+            self.print("(");
+        }
+        self.print_for_left(left);
+        if wrap {
+            self.print(")");
         }
     }
 
@@ -1335,6 +1402,8 @@ impl<'a> Printer<'a> {
             BindingPatternData::BindingIdentifier(id) => self.print_binding_identifier(id, true),
             BindingPatternData::SimpleAssignmentTarget(t) => self.print_simple_assignment_target(t),
             BindingPatternData::AssignmentPattern(p) => {
+                let old_forbid_in = self.forbid_in;
+                self.forbid_in = false;
                 self.print_decorators(p.decorators(self.ast));
                 self.print_binding(p.left(self.ast));
                 if p.optional(self.ast) {
@@ -1347,6 +1416,7 @@ impl<'a> Printer<'a> {
                 self.print("=");
                 self.print_space();
                 self.print_expr(p.right(self.ast), Precedence::Assignment);
+                self.forbid_in = old_forbid_in;
             }
             BindingPatternData::BindingRestElement(r) => {
                 self.print_decorators(r.decorators(self.ast));
@@ -1370,6 +1440,7 @@ impl<'a> Printer<'a> {
         self.add_source_mapping(a.span(self.ast).start);
         self.print("[");
         let elements = a.elements(self.ast);
+        let rest = a.rest(self.ast);
         for (i, id) in elements.iter().enumerate() {
             if i != 0 {
                 self.print(",");
@@ -1377,11 +1448,11 @@ impl<'a> Printer<'a> {
             }
             if let Some(item) = self.ast.get_node_in_sub_range(id) {
                 self.print_binding(item);
-            } else if i + 1 == elements.len() {
+            } else if i + 1 == elements.len() && rest.is_none() {
                 self.print(",");
             }
         }
-        if let Some(rest) = a.rest(self.ast) {
+        if let Some(rest) = rest {
             if !elements.is_empty() {
                 self.print(",");
                 self.print_space();
@@ -1482,18 +1553,18 @@ impl<'a> Printer<'a> {
             }
             SimpleAssignmentTargetData::MemberExpression(m) => self.print_member(m),
             SimpleAssignmentTargetData::TsAsExpression(e) => {
-                self.print_expr(e.expression(self.ast), Precedence::Assignment);
+                self.print_expr(e.expression(self.ast), Precedence::Compare);
                 self.print(" as ");
-                self.print_ts_type(e.type_annotation(self.ast), Precedence::Lowest);
+                self.print_ts_type(e.type_annotation(self.ast), TsTypePrecedence::Lowest);
             }
             SimpleAssignmentTargetData::TsSatisfiesExpression(e) => {
-                self.print_expr(e.expression(self.ast), Precedence::Assignment);
+                self.print_expr(e.expression(self.ast), Precedence::Compare);
                 self.print(" satisfies ");
-                self.print_ts_type(e.type_annotation(self.ast), Precedence::Lowest);
+                self.print_ts_type(e.type_annotation(self.ast), TsTypePrecedence::Lowest);
             }
             SimpleAssignmentTargetData::TsTypeAssertion(e) => {
                 self.print("<");
-                self.print_ts_type(e.type_annotation(self.ast), Precedence::Lowest);
+                self.print_ts_type(e.type_annotation(self.ast), TsTypePrecedence::Lowest);
                 self.print(">");
                 self.print_expr(e.expression(self.ast), Precedence::Prefix);
             }
@@ -1504,25 +1575,127 @@ impl<'a> Printer<'a> {
         }
     }
 
+    fn comment_has_line_terminator(&self, comment: Comment) -> bool {
+        if comment.kind == CommentKind::Line {
+            return true;
+        }
+        self.ast
+            .get_utf8(comment.value(self.ast.source().as_bytes()))
+            .chars()
+            .any(|c| matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}'))
+    }
+
+    fn has_leading_line_terminator_before(&self, offset: u32) -> bool {
+        self.options.comments
+            && self.comments[self.next_comment..]
+                .iter()
+                .take_while(|comment| comment.span.end <= offset)
+                .any(|comment| self.comment_has_line_terminator(*comment))
+    }
+
+    fn assignment_target_first_token_offset(&self, target: AssignmentTarget) -> u32 {
+        match self.ast.assignment_target_data(target) {
+            AssignmentTargetData::SimpleAssignmentTarget(target) => {
+                self.simple_assignment_target_first_token_offset(target)
+            }
+            AssignmentTargetData::ArrayAssignmentTarget(_)
+            | AssignmentTargetData::ObjectAssignmentTarget(_) => target.span(self.ast).start,
+        }
+    }
+
+    fn simple_assignment_target_first_token_offset(&self, target: SimpleAssignmentTarget) -> u32 {
+        let expression = match self.ast.simple_assignment_target_data(target) {
+            SimpleAssignmentTargetData::MemberExpression(member) => member.object(self.ast),
+            SimpleAssignmentTargetData::TsAsExpression(expression) => {
+                expression.expression(self.ast)
+            }
+            SimpleAssignmentTargetData::TsSatisfiesExpression(expression) => {
+                expression.expression(self.ast)
+            }
+            SimpleAssignmentTargetData::TsNonNullExpression(expression) => {
+                expression.expression(self.ast)
+            }
+            SimpleAssignmentTargetData::IdentifierReference(_)
+            | SimpleAssignmentTargetData::TsTypeAssertion(_) => {
+                return target.span(self.ast).start;
+            }
+        };
+        self.expr_first_token_offset(expression)
+    }
+
+    fn expr_first_token_offset(&self, mut expr: Expr) -> u32 {
+        loop {
+            let offset = expr.span(self.ast).start;
+            expr = match self.ast.expr_data(expr) {
+                ExprData::MemberExpression(expression) => expression.object(self.ast),
+                ExprData::CallExpression(expression) => expression.callee(self.ast),
+                ExprData::ChainExpression(expression) => expression.expression(self.ast),
+                ExprData::TaggedTemplateExpression(expression) => expression.tag(self.ast),
+                ExprData::BinaryExpression(expression) => expression.left(self.ast),
+                ExprData::LogicalExpression(expression) => expression.left(self.ast),
+                ExprData::ConditionalExpression(expression) => expression.test(self.ast),
+                ExprData::SequenceExpression(expression) => {
+                    let Some(first) = expression.expressions(self.ast).get_node(self.ast, 0) else {
+                        return offset;
+                    };
+                    first
+                }
+                ExprData::AssignmentExpression(expression) => {
+                    return self.assignment_target_first_token_offset(expression.left(self.ast));
+                }
+                ExprData::UpdateExpression(expression) if !expression.prefix(self.ast) => {
+                    return self.simple_assignment_target_first_token_offset(
+                        expression.argument(self.ast),
+                    );
+                }
+                ExprData::TsAsExpression(expression) => expression.expression(self.ast),
+                ExprData::TsSatisfiesExpression(expression) => expression.expression(self.ast),
+                ExprData::TsNonNullExpression(expression) => expression.expression(self.ast),
+                ExprData::TsInstantiationExpression(expression) => expression.expression(self.ast),
+                _ => return offset,
+            };
+        }
+    }
+
+    fn expr_has_leading_line_terminator(&self, expr: Expr) -> bool {
+        // Locate the first token before scanning comments. Scanning at every
+        // node on the left spine would make deep expressions quadratic.
+        let offset = self.expr_first_token_offset(expr);
+        self.has_leading_line_terminator_before(offset)
+    }
+
     fn will_print_expr_comments(&self, expr: Expr) -> bool {
         !self.options.minify
+            && self.options.comments
             && self.comments[self.next_comment..]
                 .first()
                 .is_some_and(|comment| comment.span.end <= expr.span(self.ast).start)
     }
 
-    fn print_expr_without_leading_newline(&mut self, expr: Expr, level: Precedence) {
-        if self.will_print_expr_comments(expr) {
-            self.print("(");
-            self.print_newline();
-            self.indent += 1;
-            self.print_comments_before(expr.span(self.ast).start, true, true);
-            self.print_indent();
+    fn print_expr_with_leading_comments_in_parens(&mut self, expr: Expr, level: Precedence) {
+        self.print("(");
+        self.print_newline();
+        self.indent += 1;
+        self.print_comments_before(expr.span(self.ast).start, true, true);
+        self.print_indent();
+        self.print_expr(expr, level);
+        self.print_newline();
+        self.indent -= 1;
+        self.print_indent();
+        self.print(")");
+    }
+
+    fn print_expr_without_leading_line_terminator(&mut self, expr: Expr, level: Precedence) {
+        if self.expr_has_leading_line_terminator(expr) {
+            self.print_expr_with_leading_comments_in_parens(expr, level);
+        } else {
             self.print_expr(expr, level);
-            self.print_newline();
-            self.indent -= 1;
-            self.print_indent();
-            self.print(")");
+        }
+    }
+
+    fn print_expr_without_leading_newline(&mut self, expr: Expr, level: Precedence) {
+        if self.will_print_expr_comments(expr) || self.expr_has_leading_line_terminator(expr) {
+            self.print_expr_with_leading_comments_in_parens(expr, level);
             return;
         }
         self.print_expr(expr, level);
@@ -1621,13 +1794,15 @@ impl<'a> Printer<'a> {
             ExprData::UnaryExpression(e) => self.print_unary(e, level),
             ExprData::UpdateExpression(e) => self.print_update(e, level),
             ExprData::AssignmentExpression(e) => {
-                let destructuring_at_stmt = (self.js.len() == self.stmt_start
-                    || self.js.len() == self.arrow_expr_start)
-                    && matches!(
-                        self.ast.assignment_target_data(e.left(self.ast)),
-                        AssignmentTargetData::ObjectAssignmentTarget(_)
-                    );
-                let wrap = level > Precedence::Assignment || destructuring_at_stmt;
+                let at_stmt_start = self.js.len() == self.stmt_start;
+                let at_arrow_start = self.js.len() == self.arrow_expr_start;
+                let destructuring_at_start = (at_stmt_start || at_arrow_start)
+                    && match self.ast.assignment_target_data(e.left(self.ast)) {
+                        AssignmentTargetData::ObjectAssignmentTarget(_) => true,
+                        AssignmentTargetData::ArrayAssignmentTarget(_) => at_arrow_start,
+                        AssignmentTargetData::SimpleAssignmentTarget(_) => false,
+                    };
+                let wrap = level > Precedence::Assignment || destructuring_at_start;
                 if wrap {
                     self.print("(");
                 }
@@ -1694,14 +1869,17 @@ impl<'a> Printer<'a> {
             ExprData::NewExpression(e) => self.print_new(e, level),
             ExprData::TaggedTemplateExpression(e) => {
                 let tag = e.tag(self.ast);
+                let type_arguments = e.type_arguments(self.ast);
                 if matches!(self.ast.expr_data(tag), ExprData::ChainExpression(_)) {
                     self.print("(");
                     self.print_expr(tag, Precedence::Lowest);
                     self.print(")");
+                } else if type_arguments.is_some() {
+                    self.print_expr_before_type_arguments(tag, Precedence::Call);
                 } else {
                     self.print_expr(tag, Precedence::Postfix);
                 }
-                if let Some(args) = e.type_arguments(self.ast) {
+                if let Some(args) = type_arguments {
                     self.print_ts_type_args(args);
                 }
                 self.print_template(e.quasi(self.ast), true);
@@ -1804,25 +1982,25 @@ impl<'a> Printer<'a> {
                 self.print_identifier(name);
             }
             ExprData::TsAsExpression(e) => {
-                let wrap = level > Precedence::Assignment;
+                let wrap = level >= Precedence::Compare;
                 if wrap {
                     self.print("(");
                 }
-                self.print_expr(e.expression(self.ast), Precedence::Assignment);
+                self.print_expr(e.expression(self.ast), Precedence::Compare);
                 self.print(" as ");
-                self.print_ts_type(e.type_annotation(self.ast), Precedence::Lowest);
+                self.print_ts_type(e.type_annotation(self.ast), TsTypePrecedence::Lowest);
                 if wrap {
                     self.print(")");
                 }
             }
             ExprData::TsSatisfiesExpression(e) => {
-                let wrap = level > Precedence::Assignment;
+                let wrap = level >= Precedence::Compare;
                 if wrap {
                     self.print("(");
                 }
-                self.print_expr(e.expression(self.ast), Precedence::Assignment);
+                self.print_expr(e.expression(self.ast), Precedence::Compare);
                 self.print(" satisfies ");
-                self.print_ts_type(e.type_annotation(self.ast), Precedence::Lowest);
+                self.print_ts_type(e.type_annotation(self.ast), TsTypePrecedence::Lowest);
                 if wrap {
                     self.print(")");
                 }
@@ -1834,7 +2012,7 @@ impl<'a> Printer<'a> {
                 }
                 self.add_source_mapping(expr.span(self.ast).start);
                 self.print("<");
-                self.print_ts_type(e.type_annotation(self.ast), Precedence::Lowest);
+                self.print_ts_type(e.type_annotation(self.ast), TsTypePrecedence::Lowest);
                 self.print(">");
                 self.print_expr(e.expression(self.ast), Precedence::Prefix);
                 if wrap {
@@ -1842,11 +2020,18 @@ impl<'a> Printer<'a> {
                 }
             }
             ExprData::TsNonNullExpression(e) => {
-                self.print_expr(e.expression(self.ast), Precedence::Postfix);
+                let expression = e.expression(self.ast);
+                if self.expr_ends_with_type_arguments(expression) {
+                    self.print("(");
+                    self.print_expr(expression, Precedence::Lowest);
+                    self.print(")");
+                } else {
+                    self.print_expr(expression, Precedence::Postfix);
+                }
                 self.print("!");
             }
             ExprData::TsInstantiationExpression(e) => {
-                self.print_expr(e.expression(self.ast), Precedence::Call);
+                self.print_expr_before_type_arguments(e.expression(self.ast), Precedence::Call);
                 self.print_ts_type_args(e.type_arguments(self.ast));
             }
             ExprData::JsxElement(e) => self.print_jsx_element(e),
@@ -2040,24 +2225,49 @@ impl<'a> Printer<'a> {
         }
     }
 
+    fn expr_ends_with_type_arguments(&self, mut expr: Expr) -> bool {
+        loop {
+            match self.ast.expr_data(expr) {
+                ExprData::TsInstantiationExpression(_) => return true,
+                ExprData::TsNonNullExpression(expression) => {
+                    expr = expression.expression(self.ast);
+                }
+                _ => return false,
+            }
+        }
+    }
+
+    fn print_expr_before_type_arguments(&mut self, expr: Expr, level: Precedence) {
+        if self.expr_ends_with_type_arguments(expr) {
+            self.print("(");
+            self.print_expr(expr, Precedence::Lowest);
+            self.print(")");
+        } else {
+            self.print_expr(expr, level);
+        }
+    }
+
     fn print_call(&mut self, e: CallExpression, level: Precedence) {
         let wrap = level > Precedence::Call;
         if wrap {
             self.print("(");
         }
         let callee = e.callee(self.ast);
-        self.print_expr(
-            callee,
-            if matches!(self.ast.expr_data(callee), ExprData::NewExpression(_)) {
-                Precedence::New
-            } else {
-                Precedence::Call
-            },
-        );
+        let callee_level = if matches!(self.ast.expr_data(callee), ExprData::NewExpression(_)) {
+            Precedence::New
+        } else {
+            Precedence::Call
+        };
+        let type_arguments = e.type_arguments(self.ast);
+        if type_arguments.is_some() {
+            self.print_expr_before_type_arguments(callee, callee_level);
+        } else {
+            self.print_expr(callee, callee_level);
+        }
         if e.optional(self.ast) {
             self.print("?.");
         }
-        if let Some(args) = e.type_arguments(self.ast) {
+        if let Some(args) = type_arguments {
             self.print_ts_type_args(args);
         }
         self.print_arguments(
@@ -2078,6 +2288,7 @@ impl<'a> Printer<'a> {
         self.print("new");
         self.print_space();
         let callee = e.callee(self.ast);
+        let type_arguments = e.type_arguments(self.ast);
         match self.ast.expr_data(callee) {
             ExprData::CallExpression(_)
             | ExprData::ImportExpression(_)
@@ -2131,9 +2342,15 @@ impl<'a> Printer<'a> {
                     self.print_property_key_plain(member.property(self.ast));
                 }
             }
-            _ => self.print_expr(callee, Precedence::New),
+            _ => {
+                if type_arguments.is_some() {
+                    self.print_expr_before_type_arguments(callee, Precedence::New);
+                } else {
+                    self.print_expr(callee, Precedence::New);
+                }
+            }
         }
-        if let Some(args) = e.type_arguments(self.ast) {
+        if let Some(args) = type_arguments {
             self.print_ts_type_args(args);
         }
         let arguments = e.arguments(self.ast);
@@ -2262,12 +2479,13 @@ impl<'a> Printer<'a> {
     }
 
     fn print_object_property(&mut self, p: ObjectProperty) {
-        match p.kind(self.ast) {
+        let kind = p.kind(self.ast);
+        match kind {
             PropertyKind::Get => self.print("get "),
             PropertyKind::Set => self.print("set "),
             PropertyKind::Init => {}
         }
-        if (p.method(self.ast) || p.kind(self.ast) != PropertyKind::Init)
+        if (p.method(self.ast) || kind != PropertyKind::Init)
             && let ExprData::Function(f) = self.ast.expr_data(p.value(self.ast))
         {
             if f.r#async(self.ast) {
@@ -2285,7 +2503,27 @@ impl<'a> Printer<'a> {
                 self.print_ts_annotation(t);
             }
             self.print_space();
-            self.print_function_body(f.body(self.ast));
+            let body = f.body(self.ast);
+            self.print_function_body(body);
+            if matches!(kind, PropertyKind::Get | PropertyKind::Set) {
+                let body_end = body.span(self.ast).end;
+                let mut trim_trailing_space = false;
+                while body_end != 0
+                    && let Some(comment) = self.comments.get(self.next_comment).copied()
+                {
+                    if comment.position != CommentPosition::Trailing
+                        || comment.attached_to != body_end
+                    {
+                        break;
+                    }
+                    self.print_comments_before(comment.span.end, false, true);
+                    trim_trailing_space = comment.kind == CommentKind::Block
+                        && !self.comment_has_line_terminator(comment);
+                }
+                if trim_trailing_space && self.js.last() == Some(&b' ') {
+                    self.js.pop();
+                }
+            }
             return;
         }
         self.print_property_key(p.key(self.ast), p.computed(self.ast));
@@ -2430,11 +2668,31 @@ impl<'a> Printer<'a> {
         self.print_space();
         self.print("=>");
         self.print_space();
-        self.arrow_expr_start = self.js.len();
         match self.ast.arrow_function_body_data(e.body(self.ast)) {
             ArrowFunctionBodyData::FunctionBody(body) => self.print_function_body(body),
             ArrowFunctionBodyData::Expr(value) => {
-                self.print_expr_without_leading_newline(value, Precedence::Assignment);
+                if self.options.comments {
+                    let span = value.span(self.ast);
+                    if self
+                        .comments
+                        .get(self.next_comment)
+                        .is_some_and(|comment| comment.span.end <= span.start)
+                    {
+                        self.print_comments_before(span.start, false, true);
+                    }
+                    if self
+                        .comments
+                        .get(self.next_comment)
+                        .is_some_and(|comment| comment.span.end <= span.end)
+                    {
+                        let first_token_offset = self.expr_first_token_offset(value);
+                        self.print_comments_before(first_token_offset, false, true);
+                    }
+                }
+                let old_arrow_expr_start = self.arrow_expr_start;
+                self.arrow_expr_start = self.js.len();
+                self.print_expr(value, Precedence::Assignment);
+                self.arrow_expr_start = old_arrow_expr_start;
             }
         }
         if wrap {
@@ -2473,8 +2731,13 @@ impl<'a> Printer<'a> {
         }
         if let Some(s) = c.super_class(self.ast) {
             self.print(" extends ");
-            self.print_expr(s, Precedence::Compare);
-            if let Some(t) = c.super_type_arguments(self.ast) {
+            let type_arguments = c.super_type_arguments(self.ast);
+            if type_arguments.is_some() {
+                self.print_expr_before_type_arguments(s, Precedence::Call);
+            } else {
+                self.print_expr(s, Precedence::Compare);
+            }
+            if let Some(t) = type_arguments {
                 self.print_ts_type_args(t);
             }
         }
@@ -3143,6 +3406,7 @@ impl<'a> Printer<'a> {
                 DeclData::Function(_)
                     | DeclData::Class(_)
                     | DeclData::TsInterfaceDeclaration(_)
+                    | DeclData::TsEnumDeclaration(_)
                     | DeclData::TsModuleDeclaration(_)
             );
             if let DeclData::Class(class) = self.ast.decl_data(decl) {
@@ -3252,7 +3516,28 @@ impl<'a> Printer<'a> {
     fn print_ts_annotation(&mut self, a: TsTypeAnnotation) {
         self.print(":");
         self.print_space();
-        self.print_ts_type(a.type_annotation(self.ast), Precedence::Lowest);
+        self.print_ts_type(a.type_annotation(self.ast), TsTypePrecedence::Lowest);
+    }
+
+    fn print_ts_type_parameter_constraint(
+        &mut self,
+        constraint: TsType,
+        context: TsTypeParameterConstraintContext,
+    ) {
+        let wrap = match self.ast.ts_type_data(constraint) {
+            TsTypeData::TsConditionalType(_) => true,
+            TsTypeData::TsFunctionType(_) | TsTypeData::TsConstructorType(_) => {
+                context == TsTypeParameterConstraintContext::Infer
+            }
+            _ => false,
+        };
+        if wrap {
+            self.print("(");
+        }
+        self.print_ts_type(constraint, TsTypePrecedence::Lowest);
+        if wrap {
+            self.print(")");
+        }
     }
 
     fn print_ts_type_params(&mut self, d: TsTypeParameterDeclaration) {
@@ -3275,13 +3560,16 @@ impl<'a> Printer<'a> {
             self.print_binding_identifier(p.name(self.ast), false);
             if let Some(t) = p.constraint(self.ast) {
                 self.print(" extends ");
-                self.print_ts_type(t, Precedence::Lowest);
+                self.print_ts_type_parameter_constraint(
+                    t,
+                    TsTypeParameterConstraintContext::Declaration,
+                );
             }
             if let Some(t) = p.default(self.ast) {
                 self.print_space();
                 self.print("=");
                 self.print_space();
-                self.print_ts_type(t, Precedence::Lowest);
+                self.print_ts_type(t, TsTypePrecedence::Lowest);
             }
         }
         self.print(">");
@@ -3294,12 +3582,12 @@ impl<'a> Printer<'a> {
                 self.print(",");
                 self.print_space();
             }
-            self.print_ts_type(self.ast.get_node_in_sub_range(id), Precedence::Lowest);
+            self.print_ts_type(self.ast.get_node_in_sub_range(id), TsTypePrecedence::Lowest);
         }
         self.print(">");
     }
 
-    fn print_ts_type(&mut self, ty: TsType, level: Precedence) {
+    fn print_ts_type(&mut self, ty: TsType, level: TsTypePrecedence) {
         self.add_source_mapping(ty.span(self.ast).start);
         match self.ast.ts_type_data(ty) {
             TsTypeData::TsAnyKeyword(_) => self.print("any"),
@@ -3361,7 +3649,7 @@ impl<'a> Printer<'a> {
                         self.print("${");
                         self.print_ts_type(
                             types.get_node(self.ast, i).unwrap(),
-                            Precedence::Lowest,
+                            TsTypePrecedence::Lowest,
                         );
                         self.print("}");
                     }
@@ -3369,21 +3657,28 @@ impl<'a> Printer<'a> {
                 self.print("`");
             }
             TsTypeData::TsArrayType(t) => {
-                let wrap = level > Precedence::Postfix;
+                let wrap = level > TsTypePrecedence::Postfix;
                 if wrap {
                     self.print("(");
                 }
-                self.print_ts_type(t.element_type(self.ast), Precedence::Postfix);
+                self.print_ts_type(t.element_type(self.ast), TsTypePrecedence::Postfix);
+                self.print("[]");
                 if wrap {
                     self.print(")");
                 }
-                self.print("[]");
             }
             TsTypeData::TsIndexedAccessType(t) => {
-                self.print_ts_type(t.object_type(self.ast), Precedence::Postfix);
+                let wrap = level > TsTypePrecedence::Postfix;
+                if wrap {
+                    self.print("(");
+                }
+                self.print_ts_type(t.object_type(self.ast), TsTypePrecedence::Postfix);
                 self.print("[");
-                self.print_ts_type(t.index_type(self.ast), Precedence::Lowest);
+                self.print_ts_type(t.index_type(self.ast), TsTypePrecedence::Lowest);
                 self.print("]");
+                if wrap {
+                    self.print(")");
+                }
             }
             TsTypeData::TsTupleType(t) => {
                 self.print("[");
@@ -3397,18 +3692,25 @@ impl<'a> Printer<'a> {
                 self.print("]");
             }
             TsTypeData::TsOptionalType(t) => {
-                self.print_ts_type(t.type_annotation(self.ast), Precedence::Postfix);
+                let wrap = level > TsTypePrecedence::Postfix;
+                if wrap {
+                    self.print("(");
+                }
+                self.print_ts_type(t.type_annotation(self.ast), TsTypePrecedence::Postfix);
                 self.print("?");
+                if wrap {
+                    self.print(")");
+                }
             }
             TsTypeData::TsRestType(t) => {
                 self.print("...");
-                self.print_ts_type(t.type_annotation(self.ast), Precedence::Prefix);
+                self.print_ts_type(t.type_annotation(self.ast), TsTypePrecedence::Lowest);
             }
             TsTypeData::TsJsDocNullableType(t) => {
                 if !t.postfix(self.ast) {
                     self.print("?");
                 }
-                self.print_ts_type(t.type_annotation(self.ast), Precedence::Prefix);
+                self.print_ts_type(t.type_annotation(self.ast), TsTypePrecedence::TypeOperator);
                 if t.postfix(self.ast) {
                     self.print("?");
                 }
@@ -3417,54 +3719,83 @@ impl<'a> Printer<'a> {
                 if !t.postfix(self.ast) {
                     self.print("!");
                 }
-                self.print_ts_type(t.type_annotation(self.ast), Precedence::Prefix);
+                self.print_ts_type(t.type_annotation(self.ast), TsTypePrecedence::TypeOperator);
                 if t.postfix(self.ast) {
                     self.print("!");
                 }
             }
             TsTypeData::TsJsDocUnknownType(_) => self.print("?"),
             TsTypeData::TsUnionType(t) => {
-                self.print_ts_type_list(t.types(self.ast), " | ", Precedence::BitwiseOr, level)
+                self.print_ts_type_list(t.types(self.ast), " | ", TsTypePrecedence::Union, level)
             }
-            TsTypeData::TsIntersectionType(t) => {
-                self.print_ts_type_list(t.types(self.ast), " & ", Precedence::BitwiseAnd, level)
-            }
+            TsTypeData::TsIntersectionType(t) => self.print_ts_type_list(
+                t.types(self.ast),
+                " & ",
+                TsTypePrecedence::Intersection,
+                level,
+            ),
             TsTypeData::TsConditionalType(t) => {
-                let wrap = level > Precedence::Conditional;
+                let wrap = level > TsTypePrecedence::Conditional;
                 if wrap {
                     self.print("(");
                 }
-                self.print_ts_type(t.check_type(self.ast), Precedence::Compare);
+                self.print_ts_type(t.check_type(self.ast), TsTypePrecedence::Union);
                 self.print(" extends ");
-                self.print_ts_type(t.extends_type(self.ast), Precedence::Compare);
+                self.print_ts_type(t.extends_type(self.ast), TsTypePrecedence::Union);
                 self.print(" ? ");
-                self.print_ts_type(t.true_type(self.ast), Precedence::Lowest);
+                self.print_ts_type(t.true_type(self.ast), TsTypePrecedence::Lowest);
                 self.print(" : ");
-                self.print_ts_type(t.false_type(self.ast), Precedence::Lowest);
+                self.print_ts_type(t.false_type(self.ast), TsTypePrecedence::Lowest);
                 if wrap {
                     self.print(")");
                 }
             }
             TsTypeData::TsInferType(t) => {
-                self.print("infer ");
                 let p = t.type_parameter(self.ast);
+                let precedence = if p.constraint(self.ast).is_some() {
+                    TsTypePrecedence::Conditional
+                } else {
+                    TsTypePrecedence::TypeOperator
+                };
+                let wrap = level > precedence;
+                if wrap {
+                    self.print("(");
+                }
+                self.print("infer ");
                 self.print_binding_identifier(p.name(self.ast), false);
                 if let Some(c) = p.constraint(self.ast) {
                     self.print(" extends ");
-                    self.print_ts_type(c, Precedence::Lowest);
+                    self.print_ts_type_parameter_constraint(
+                        c,
+                        TsTypeParameterConstraintContext::Infer,
+                    );
+                }
+                if wrap {
+                    self.print(")");
                 }
             }
             TsTypeData::TsTypeOperator(t) => {
+                let wrap = level > TsTypePrecedence::TypeOperator;
+                if wrap {
+                    self.print("(");
+                }
                 self.print(t.operator(self.ast).as_str());
                 self.print(" ");
-                self.print_ts_type(t.type_annotation(self.ast), Precedence::Prefix);
+                self.print_ts_type(t.type_annotation(self.ast), TsTypePrecedence::TypeOperator);
+                if wrap {
+                    self.print(")");
+                }
             }
             TsTypeData::TsParenthesizedType(t) => {
                 self.print("(");
-                self.print_ts_type(t.type_annotation(self.ast), Precedence::Lowest);
+                self.print_ts_type(t.type_annotation(self.ast), TsTypePrecedence::Lowest);
                 self.print(")");
             }
             TsTypeData::TsFunctionType(t) => {
+                let wrap = level > TsTypePrecedence::Function;
+                if wrap {
+                    self.print("(");
+                }
                 if let Some(p) = t.type_parameters(self.ast) {
                     self.print_ts_type_params(p);
                 }
@@ -3472,10 +3803,17 @@ impl<'a> Printer<'a> {
                 self.print(" => ");
                 self.print_ts_type(
                     t.return_type(self.ast).type_annotation(self.ast),
-                    Precedence::Assignment,
+                    TsTypePrecedence::Function,
                 );
+                if wrap {
+                    self.print(")");
+                }
             }
             TsTypeData::TsConstructorType(t) => {
+                let wrap = level > TsTypePrecedence::Function;
+                if wrap {
+                    self.print("(");
+                }
                 if t.r#abstract(self.ast) {
                     self.print("abstract ");
                 }
@@ -3487,8 +3825,11 @@ impl<'a> Printer<'a> {
                 self.print(" => ");
                 self.print_ts_type(
                     t.return_type(self.ast).type_annotation(self.ast),
-                    Precedence::Assignment,
+                    TsTypePrecedence::Function,
                 );
+                if wrap {
+                    self.print(")");
+                }
             }
             TsTypeData::TsTypePredicate(t) => {
                 if t.asserts(self.ast) {
@@ -3505,7 +3846,7 @@ impl<'a> Printer<'a> {
                 };
                 if let Some(a) = t.type_annotation(self.ast) {
                     self.print(" is ");
-                    self.print_ts_type(a.type_annotation(self.ast), Precedence::Lowest);
+                    self.print_ts_type(a.type_annotation(self.ast), TsTypePrecedence::Lowest);
                 }
             }
             TsTypeData::TsTypeLiteral(t) => self.print_ts_type_members(t.members(self.ast)),
@@ -3517,10 +3858,10 @@ impl<'a> Printer<'a> {
         &mut self,
         types: TypedSubRange<TsType>,
         sep: &str,
-        prec: Precedence,
-        level: Precedence,
+        precedence: TsTypePrecedence,
+        level: TsTypePrecedence,
     ) {
-        let wrap = level > prec;
+        let wrap = level > precedence;
         if wrap {
             self.print("(");
         }
@@ -3528,7 +3869,7 @@ impl<'a> Printer<'a> {
             if i != 0 {
                 self.print(sep);
             }
-            self.print_ts_type(self.ast.get_node_in_sub_range(id), prec.next());
+            self.print_ts_type(self.ast.get_node_in_sub_range(id), precedence);
         }
         if wrap {
             self.print(")");
@@ -3610,8 +3951,13 @@ impl<'a> Printer<'a> {
     }
     fn print_ts_tuple_element(&mut self, e: TsTupleElement) {
         match self.ast.ts_tuple_element_data(e) {
-            TsTupleElementData::TsType(t) => self.print_ts_type(t, Precedence::Lowest),
+            TsTupleElementData::TsType(t) => self.print_ts_type(t, TsTypePrecedence::Lowest),
             TsTupleElementData::TsNamedTupleMember(n) => {
+                let mut element_type = n.element_type(self.ast);
+                if let TsTypeData::TsRestType(rest) = self.ast.ts_type_data(element_type) {
+                    self.print("...");
+                    element_type = rest.type_annotation(self.ast);
+                }
                 let label = n.label(self.ast);
                 let name = self.ast.get_utf8(label.name(self.ast));
                 self.add_source_mapping_for_name(label.span(self.ast).start, name);
@@ -3621,7 +3967,7 @@ impl<'a> Printer<'a> {
                 }
                 self.print(":");
                 self.print_space();
-                self.print_ts_type(n.element_type(self.ast), Precedence::Lowest);
+                self.print_ts_type(element_type, TsTypePrecedence::Lowest);
             }
         }
     }
@@ -3726,10 +4072,10 @@ impl<'a> Printer<'a> {
         self.print("[");
         self.print_binding_identifier(t.key(self.ast), false);
         self.print(" in ");
-        self.print_ts_type(t.constraint(self.ast), Precedence::Lowest);
+        self.print_ts_type(t.constraint(self.ast), TsTypePrecedence::Lowest);
         if let Some(n) = t.name_type(self.ast) {
             self.print(" as ");
-            self.print_ts_type(n, Precedence::Lowest);
+            self.print_ts_type(n, TsTypePrecedence::Lowest);
         }
         self.print("]");
         match t.optional(self.ast) {
@@ -3741,7 +4087,7 @@ impl<'a> Printer<'a> {
         if let Some(a) = t.type_annotation(self.ast) {
             self.print(":");
             self.print_space();
-            self.print_ts_type(a, Precedence::Lowest);
+            self.print_ts_type(a, TsTypePrecedence::Lowest);
         }
         self.print(";");
         self.print_newline();
@@ -3762,7 +4108,7 @@ impl<'a> Printer<'a> {
         self.print_space();
         self.print("=");
         self.print_space();
-        self.print_ts_type(d.type_annotation(self.ast), Precedence::Lowest);
+        self.print_ts_type(d.type_annotation(self.ast), TsTypePrecedence::Lowest);
     }
     fn print_ts_interface(&mut self, d: TsInterfaceDeclaration) {
         self.add_source_mapping(d.span(self.ast).start);
@@ -3890,16 +4236,13 @@ impl<'a> Printer<'a> {
                     self.print_semicolon_if_needed();
                     let directive = self.ast.get_node_in_sub_range(id);
                     self.print_indent();
-                    self.print_quoted(
-                        Wtf8::from_str(self.ast.get_utf8(directive.value(self.ast))),
-                        false,
-                    );
+                    self.print_directive(directive);
                     self.print_semicolon_after_statement();
                 }
-                for id in statements.iter() {
+                for (index, id) in statements.iter().enumerate() {
                     self.print_semicolon_if_needed();
                     let statement = self.ast.get_node_in_sub_range(id);
-                    self.print_stmt(statement);
+                    self.print_stmt_with_context(statement, index == 0);
                 }
                 self.needs_semicolon = false;
                 self.indent -= 1;
@@ -3934,10 +4277,10 @@ impl<'a> Printer<'a> {
         for _ in directives.iter() {
             self.print_semicolon_if_needed();
         }
-        for id in statements.iter() {
+        for (index, id) in statements.iter().enumerate() {
             self.print_semicolon_if_needed();
             let statement = self.ast.get_node_in_sub_range(id);
-            self.print_stmt(statement);
+            self.print_stmt_with_context(statement, index == 0);
         }
         self.needs_semicolon = false;
         self.indent -= 1;

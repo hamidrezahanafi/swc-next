@@ -1,7 +1,7 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use swc_next_allocator::Allocator;
-use swc_next_ecma_ast::{Ast, Program, Severity};
+use swc_next_ecma_ast::{Ast, Severity};
 use swc_next_ecma_codegen::{Options as CodegenOptions, print};
 use swc_next_ecma_parser::{NoTokenParserConfig, Options as ParserOptions, Parser};
 use swc_next_ecma_semantic::{AnalyzeOptions, analyze};
@@ -62,9 +62,8 @@ fn run_case(case: &BabelTransformCase) -> Result<(), String> {
 fn transform_input(case: &BabelTransformCase) -> Result<String, String> {
     let source = case.input.as_str();
     let allocator = Allocator::new();
-    let mut ast = Ast::new(source, &allocator);
-    let program = parse_program(&mut ast, case)?;
-    let semantic_ret = analyze(program, &ast, AnalyzeOptions { check_syntax: true });
+    let mut ast = parse_program(source, &allocator, case)?;
+    let semantic_ret = analyze(&ast, AnalyzeOptions { check_syntax: true });
     if let Some(diagnostic) = semantic_ret
         .diagnostics
         .iter()
@@ -77,8 +76,8 @@ fn transform_input(case: &BabelTransformCase) -> Result<String, String> {
     }
 
     let options: TransformerOptions = case.options.clone().into();
-    Transformer::transform(program, &mut ast, &semantic_ret.semantic, options);
-    Ok(print(&allocator, &ast, program, CodegenOptions::default())
+    Transformer::transform(&mut ast, &semantic_ret.semantic, options);
+    Ok(print(&allocator, &ast, CodegenOptions::default())
         .code
         .to_owned())
 }
@@ -86,21 +85,24 @@ fn transform_input(case: &BabelTransformCase) -> Result<String, String> {
 fn normalize_expected_output(case: &BabelTransformCase) -> Result<String, String> {
     let source = case.output.as_str();
     let allocator = Allocator::new();
-    let mut ast = Ast::new(source, &allocator);
-    let program = parse_program(&mut ast, case)?;
-    Ok(print(&allocator, &ast, program, CodegenOptions::default())
+    let ast = parse_program(source, &allocator, case)?;
+    Ok(print(&allocator, &ast, CodegenOptions::default())
         .code
         .to_owned())
 }
 
-fn parse_program(ast: &mut Ast<'_>, case: &BabelTransformCase) -> Result<Program, String> {
+fn parse_program<'a>(
+    source: &'a str,
+    allocator: &'a Allocator,
+    case: &BabelTransformCase,
+) -> Result<Ast<'a>, String> {
     let options = ParserOptions {
         source_type: case.source_type(),
         lang: case.lang(),
         ..ParserOptions::default()
     };
-    let (program, error) = {
-        let result = Parser::init(ast, options, NoTokenParserConfig).parse();
+    let (ast, error) = {
+        let result = Parser::init(allocator, source, options, NoTokenParserConfig).parse();
         let error = result
             .diagnostics
             .iter()
@@ -111,11 +113,11 @@ fn parse_program(ast: &mut Ast<'_>, case: &BabelTransformCase) -> Result<Program
                     diagnostic.message, diagnostic.span.start, diagnostic.span.end
                 )
             });
-        (result.program, error)
+        (result.ast, error)
     };
 
     if let Some(error) = error {
         return Err(error);
     }
-    Ok(program)
+    Ok(ast)
 }

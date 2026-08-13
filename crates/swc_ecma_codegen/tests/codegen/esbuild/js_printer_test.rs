@@ -482,6 +482,15 @@ fn test_function() {
 }
 
 #[test]
+fn test_array_pattern_rest_after_elision() {
+    expect_printed(
+        "function foo([,,...rest]) {}",
+        "function foo([, , ...rest]) {\n}\n",
+    );
+    expect_printed("([,,...rest] = value)", "[, , ...rest] = value;\n");
+}
+
+#[test]
 fn test_comments_and_parentheses() {
     expect_printed(
         "(/* foo */ { x() { foo() } }.x());",
@@ -511,10 +520,7 @@ fn test_comments_and_parentheses() {
         // "export default (\n  /* foo */\n  class x {\n  }\n);\n",
         "export default /* foo */ (class x {\n});\n",
     );
-    expect_printed(
-        "x = () => (/* foo */ {});",
-        "x = () => (\n  /* foo */\n  {}\n);\n",
-    );
+    expect_printed("x = () => (/* foo */ {});", "x = () => /* foo */ ({});\n");
     expect_printed(
         "for ((/* foo */ let).x of y) ;",
         "for (\n  /* foo */\n  (let).x of y\n) ;\n",

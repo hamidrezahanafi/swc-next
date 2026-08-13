@@ -1,10 +1,7 @@
 mod options;
 
 use swc_next_allocator::Allocator;
-use swc_next_ecma_ast::{
-    Ast,
-    ffi::ast::{buffer_size, serialize_into},
-};
+use swc_next_ecma_ast::ffi::ast::{buffer_size, serialize_into};
 use swc_next_ecma_parser::{Parser, ParserConfig};
 
 pub use self::options::{CommentMode, Lang, ParserOptions, SourceType};
@@ -24,17 +21,16 @@ impl ParserConfig for EstreeParserConfig {
 
 pub fn parse_to_buffer(source: &str, options: Option<ParserOptions>) -> Vec<u8> {
     let allocator = Allocator::default();
-    let mut ast = Ast::new(source, &allocator);
-    let program = Parser::init(
-        &mut ast,
+    let result = Parser::init(
+        &allocator,
+        source,
         options.unwrap_or_default().into(),
         EstreeParserConfig,
     )
-    .parse()
-    .program;
+    .parse();
 
-    let buffer_size = buffer_size(&ast);
+    let buffer_size = buffer_size(&result.ast);
     let mut buffer = vec![0; buffer_size];
-    serialize_into(program, &ast, &mut buffer);
+    serialize_into(&result.ast, &mut buffer);
     buffer
 }
