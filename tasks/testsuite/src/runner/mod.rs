@@ -1,5 +1,5 @@
 use swc_next_allocator::Allocator;
-use swc_next_ecma_ast::{Ast, Lang, Program, SourceType};
+use swc_next_ecma_ast::{Ast, Lang, SourceType};
 use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
 
 use crate::{cases::Case, suite::TestResult};
@@ -18,10 +18,7 @@ pub trait Runner<C: Case> {
     fn run(case: &C) -> TestResult;
 }
 
-fn parse_case<'a, C: Case>(
-    allocator: &'a Allocator,
-    case: &'a C,
-) -> Result<(Program, Ast<'a>), String> {
+fn parse_case<'a, C: Case>(allocator: &'a Allocator, case: &'a C) -> Result<Ast<'a>, String> {
     let source = case.code();
     let source_type = case.source_type();
     let lang = case.lang();
@@ -33,10 +30,10 @@ fn parse<'a>(
     source: &'a str,
     source_type: SourceType,
     lang: Lang,
-) -> Result<(Program, Ast<'a>), String> {
-    let mut ast = Ast::new(source, allocator);
+) -> Result<Ast<'a>, String> {
     let result = Parser::init(
-        &mut ast,
+        allocator,
+        source,
         Options {
             source_type,
             lang,
@@ -52,5 +49,5 @@ fn parse<'a>(
         ));
     }
 
-    Ok((result.program, ast))
+    Ok(result.ast)
 }

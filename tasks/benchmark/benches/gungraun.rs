@@ -8,9 +8,10 @@ use gungraun::{Callgrind, EventKind};
 use swc_next_allocator::Allocator;
 use swc_next_ecma_ast::{
     Ast, BindingIdentifier, IdentifierName, IdentifierReference, LabelIdentifier, Lang,
-    PrivateIdentifier, Program, Traverse, TraverseAction, TraverseCtx, TraverseWith, Visit,
-    VisitMut, VisitMutWith, VisitWith,
+    PrivateIdentifier, Traverse, TraverseAction, TraverseCtx, TraverseWith, Visit, VisitMut,
+    VisitMutWith, VisitWith,
 };
+use swc_next_ecma_codegen::{Options as CodegenOptions, print};
 use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
 use swc_next_ecma_semantic::{AnalyzeOptions, analyze};
 
@@ -39,10 +40,10 @@ const CAL_COM_TSX: &str = include_str!("../files/cal.com.tsx");
 fn bench_parser(source: &str, lang: Lang) {
     let source = black_box(source);
     let allocator = Allocator::new();
-    let mut ast = Ast::new(source, &allocator);
     black_box(
         Parser::init(
-            &mut ast,
+            &allocator,
+            source,
             Options {
                 lang,
                 ..Options::default()
@@ -53,16 +54,11 @@ fn bench_parser(source: &str, lang: Lang) {
     );
 }
 
-struct ParsedProgram {
-    ast: Ast<'static>,
-    program: Program,
-}
-
-fn setup_program(source: &'static str, lang: Lang) -> ParsedProgram {
+fn setup_program(source: &'static str, lang: Lang) -> Ast<'static> {
     let allocator = Box::leak(Box::new(Allocator::new()));
-    let mut ast = Ast::new(source, allocator);
     let result = Parser::init(
-        &mut ast,
+        allocator,
+        source,
         Options {
             lang,
             ..Options::default()
@@ -71,30 +67,28 @@ fn setup_program(source: &'static str, lang: Lang) -> ParsedProgram {
     )
     .parse();
     assert!(result.diagnostics.is_empty());
-    let program = result.program;
-    ParsedProgram { ast, program }
+    result.ast
 }
 
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
-fn bench_semantic(parsed: ParsedProgram) {
-    black_box(analyze(
-        parsed.program,
-        &parsed.ast,
-        AnalyzeOptions::default(),
-    ));
+fn bench_semantic(ast: Ast<'static>) {
+    black_box(analyze(&ast, AnalyzeOptions::default()));
 }
 
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
-fn bench_semantic_with_syntax_check(parsed: ParsedProgram) {
-    black_box(analyze(
-        parsed.program,
-        &parsed.ast,
-        AnalyzeOptions { check_syntax: true },
-    ));
+fn bench_semantic_with_syntax_check(ast: Ast<'static>) {
+    black_box(analyze(&ast, AnalyzeOptions { check_syntax: true }));
+}
+
+#[library_benchmark]
+#[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
+#[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
+fn bench_codegen(ast: Ast<'static>) {
+    black_box(print(ast.allocator(), &ast, CodegenOptions::default()));
 }
 
 struct VisitCounter<'visit, 'ast> {
@@ -227,35 +221,36 @@ impl<'ast> Traverse<'ast> for TraverseCounter {
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
-fn bench_visit(parsed: ParsedProgram) {
+fn bench_visit(ast: Ast<'static>) {
+    let program = ast.root_program();
     let mut counter = VisitCounter {
-        ast: &parsed.ast,
+        ast: &ast,
         count: 0,
     };
-    parsed.program.visit_with(&mut counter);
+    program.visit_with(&mut counter);
     black_box(counter.count);
 }
 
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
-fn bench_visit_mut(mut parsed: ParsedProgram) {
+fn bench_visit_mut(mut ast: Ast<'static>) {
+    let program = ast.root_program();
     let mut counter = VisitMutCounter {
-        ast: &mut parsed.ast,
+        ast: &mut ast,
         count: 0,
     };
-    parsed.program.visit_mut_with(&mut counter);
+    program.visit_mut_with(&mut counter);
     black_box(counter.count);
 }
 
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
-fn bench_traverse(mut parsed: ParsedProgram) {
+fn bench_traverse(mut ast: Ast<'static>) {
+    let program = ast.root_program();
     let mut counter = TraverseCounter { count: 0 };
-    let _ = parsed
-        .program
-        .traverse_with(&mut counter, &mut TraverseCtx::new(&mut parsed.ast, ()));
+    let _ = program.traverse_with(&mut counter, &mut TraverseCtx::new(&mut ast, ()));
     black_box(counter.count);
 }
 
@@ -265,6 +260,8 @@ library_benchmark_group!(
     name = semantic,
     benchmarks = [bench_semantic, bench_semantic_with_syntax_check]
 );
+
+library_benchmark_group!(name = codegen, benchmarks = bench_codegen);
 
 library_benchmark_group!(
     name = visit,
@@ -276,5 +273,5 @@ main!(
         LibraryBenchmarkConfig::default().tool(
             Callgrind::with_args(["--branch-sim=no", "--cache-sim=no",]).format([EventKind::Ir]),
         ),
-    library_benchmark_groups = [parser, semantic, visit]
+    library_benchmark_groups = [parser, semantic, codegen, visit]
 );

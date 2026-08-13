@@ -1,3 +1,5 @@
+use std::hint::cold_path;
+
 use memchr::{memchr, memchr3};
 use swc_next_allocator::Allocator;
 use swc_next_allocator::vec::Vec as ArenaVec;
@@ -60,18 +62,19 @@ pub enum HandleTokenMode {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LexerState {
     pub token_flags: u8,
-    processed_comments: usize,
-    saw_newline: bool,
+    had_line_break: bool,
     previous_token_tag: Option<TokenTag>,
+    /// End offset of the most recently consumed token.
+    pub(super) prev_token_end: u32,
 }
 
 impl Default for LexerState {
     fn default() -> Self {
         Self {
             token_flags: 0,
-            processed_comments: 0,
-            saw_newline: true,
+            had_line_break: true,
             previous_token_tag: None,
+            prev_token_end: 0,
         }
     }
 }
@@ -114,6 +117,7 @@ pub struct Lexer<'a, C: ParserConfig = NoTokenParserConfig> {
     pub(crate) config: C,
     pub(crate) tokens: ArenaVec<'a, Token>,
     pub(crate) comments: ArenaVec<'a, Comment>,
+    pub(crate) processed_comments: usize,
 
     pub(crate) cursor: u32,
     pub(crate) state: LexerState,
@@ -149,6 +153,7 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
         let mut lexer = Self {
             config,
             comments: ArenaVec::with_capacity_in(comment_capacity, allocator),
+            processed_comments: 0,
             tokens,
             collect_comments,
             source: source.as_bytes(),
@@ -159,6 +164,9 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
             mode: LexerMode::Normal,
         };
         lexer.skip_hashbang();
+        if lexer.hashbang.is_some() {
+            lexer.state.prev_token_end = lexer.cursor;
+        }
         lexer
     }
 
@@ -250,12 +258,11 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
             }
         }
 
-        let len = self.comments.len();
-        if self.state.processed_comments < len {
-            self.attach_pending_leading_comments(token.span.start, len);
+        if self.processed_comments < self.comments.len() {
+            self.attach_pending_comments(token);
         }
         self.state.previous_token_tag = Some(token.tag);
-        self.state.saw_newline = false;
+        self.state.had_line_break = false;
     }
 
     /// Restores a compound token removed by a failed speculative rescan.
@@ -269,15 +276,6 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
                 debug_assert!(!self.config.tokens());
             }
         }
-    }
-
-    #[cold]
-    fn attach_pending_leading_comments(&mut self, attached_to: u32, len: usize) {
-        for comment in &mut self.comments[self.state.processed_comments..len] {
-            comment.position = CommentPosition::Leading;
-            comment.attached_to = attached_to;
-        }
-        self.state.processed_comments = len;
     }
 
     fn scan_simple_punctuation(&mut self) -> Token {
@@ -1152,7 +1150,7 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
                     b' ' | b'\t' | 0x0B | 0x0C => pos += 1,
                     b'\n' | b'\r' => {
                         self.set_token_flag(TokenFlag::LineTerminatorBefore);
-                        self.handle_newline();
+                        self.state.had_line_break = true;
                         pos += 1;
                     }
                     _ => break,
@@ -1213,7 +1211,7 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
                 let separator_len = unicode_separator_len(src, pos) as usize;
                 if separator_len > 0 {
                     self.set_token_flag(TokenFlag::LineTerminatorBefore);
-                    self.handle_newline();
+                    self.state.had_line_break = true;
                     self.cursor += separator_len as u32;
                     return Ok(true);
                 }
@@ -1230,51 +1228,68 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
         Ok(true)
     }
 
-    fn handle_newline(&mut self) {
-        let len = self.comments.len();
-        if self.state.processed_comments < len && !self.state.saw_newline {
-            self.mark_pending_comments_as_trailing(len);
-        }
-        self.state.saw_newline = true;
+    #[inline]
+    fn can_have_trailing_line_comment(&self) -> bool {
+        !self.state.had_line_break
+            && self.state.previous_token_tag.is_some_and(|tag| {
+                (self.mode == LexerMode::JsxTag && tag == TokenTag::Slash)
+                    || tag.can_have_trailing_line_comment()
+            })
     }
 
-    fn should_be_treated_as_trailing_comment(&self) -> bool {
-        !self.state.saw_newline
-            && !matches!(
-                self.state.previous_token_tag,
-                Some(TokenTag::Assign | TokenTag::LeftParen | TokenTag::Colon)
-            )
+    #[inline]
+    fn can_have_trailing_block_comment(&self, had_line_break: bool, next: u32) -> bool {
+        !had_line_break
+            && (self.source.get(next as usize) == Some(&b';')
+                || self
+                    .state
+                    .previous_token_tag
+                    .is_some_and(TokenTag::can_have_trailing_comment))
     }
 
-    #[cold]
-    fn mark_pending_comments_as_trailing(&mut self, len: usize) {
-        for comment in &mut self.comments[self.state.processed_comments..len] {
-            comment.position = swc_next_ecma_ast::CommentPosition::Trailing;
-            comment.attached_to = 0;
-        }
-        self.state.processed_comments = len;
-    }
-
+    #[inline]
     fn record_comment(
         &mut self,
         kind: CommentKind,
         start: u32,
         end: u32,
+        trailing: bool,
     ) -> Result<(), LexicalError> {
         debug_assert!(start < end);
         debug_assert!((end as usize) <= self.source.len());
         if !self.collect_comments {
             return Ok(());
         }
-        self.comments
-            .push(Comment::new(Span::new(start, end), kind));
-        if kind == CommentKind::Line {
-            if self.should_be_treated_as_trailing_comment() {
-                self.mark_pending_comments_as_trailing(self.comments.len());
+        let mut comment = Comment::new(Span::new(start, end), kind);
+        if trailing {
+            comment.position = CommentPosition::Trailing;
+            comment.attached_to = self.state.prev_token_end;
+            for comment in &mut self.comments[self.processed_comments..] {
+                comment.attached_to = self.state.prev_token_end;
             }
-            self.state.saw_newline = true;
+            self.processed_comments = self.comments.len() + 1;
         }
+        self.comments.push(comment);
         Ok(())
+    }
+
+    fn attach_pending_comments(&mut self, token: Token) {
+        let (position, attached_to) = if token.tag == TokenTag::Eof {
+            cold_path();
+            if self.state.prev_token_end == 0 {
+                (CommentPosition::Leading, 0)
+            } else {
+                (CommentPosition::Trailing, self.state.prev_token_end)
+            }
+        } else {
+            (CommentPosition::Leading, token.span.start)
+        };
+
+        for comment in &mut self.comments[self.processed_comments..] {
+            comment.position = position;
+            comment.attached_to = attached_to;
+        }
+        self.processed_comments = self.comments.len();
     }
 
     fn scan_line_comment(&mut self) -> Result<(), LexicalError> {
@@ -1297,7 +1312,10 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
             pos += 1;
         }
         self.cursor = pos as u32;
-        self.record_comment(CommentKind::Line, start, pos as u32)
+        let trailing = self.can_have_trailing_line_comment();
+        self.record_comment(CommentKind::Line, start, pos as u32, trailing)?;
+        self.state.had_line_break = true;
+        Ok(())
     }
 
     fn scan_block_comment(&mut self) -> Result<(), LexicalError> {
@@ -1305,6 +1323,7 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
         debug_assert_eq!(self.source[self.cursor as usize], b'/');
         debug_assert_eq!(self.source[self.cursor as usize + 1], b'*');
         let start = self.cursor;
+        let had_line_break = self.state.had_line_break;
         let src = self.source;
         let mut pos = start as usize + 2;
         while pos < src.len() {
@@ -1320,17 +1339,20 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
                 b'*' if pos + 1 < src.len() && src[pos + 1] == b'/' => {
                     pos += 2;
                     self.cursor = pos as u32;
-                    return self.record_comment(CommentKind::Block, start, pos as u32);
+                    let trailing = self.can_have_trailing_block_comment(had_line_break, pos as u32);
+                    return self.record_comment(CommentKind::Block, start, pos as u32, trailing);
                 }
                 b'*' => pos += 1,
                 b'\n' | b'\r' => {
                     self.set_token_flag(TokenFlag::LineTerminatorBefore);
+                    self.state.had_line_break = true;
                     pos += 1;
                 }
                 0x80..=0xFF => {
                     let lt_len = unicode_separator_len(src, pos) as usize;
                     if lt_len > 0 {
                         self.set_token_flag(TokenFlag::LineTerminatorBefore);
+                        self.state.had_line_break = true;
                         pos += lt_len;
                     } else {
                         pos += 1;
@@ -1349,19 +1371,24 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
         debug_assert_eq!(self.source[self.cursor as usize], b'<');
         debug_assert_eq!(self.source[self.cursor as usize + 1], b'!');
         let start = self.cursor;
+        let trailing = self.can_have_trailing_line_comment();
         self.cursor += 4;
         while (self.cursor as usize) < self.source.len() {
             let c = self.source[self.cursor as usize];
             if c == b'-' && self.peek(1) == b'-' && self.peek(2) == b'>' {
                 self.cursor += 3;
-                return self.record_comment(CommentKind::Line, start, self.cursor);
+                self.record_comment(CommentKind::Line, start, self.cursor, trailing)?;
+                self.state.had_line_break = true;
+                return Ok(());
             }
             if self.is_line_terminator(c) {
                 break;
             }
             self.cursor += 1;
         }
-        self.record_comment(CommentKind::Line, start, self.cursor)
+        self.record_comment(CommentKind::Line, start, self.cursor, trailing)?;
+        self.state.had_line_break = true;
+        Ok(())
     }
 
     fn scan_html_close_comment(&mut self) -> Result<(), LexicalError> {
@@ -1371,6 +1398,7 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
         debug_assert_eq!(self.source[self.cursor as usize + 1], b'-');
         debug_assert_eq!(self.source[self.cursor as usize + 2], b'>');
         let start = self.cursor;
+        let trailing = self.can_have_trailing_line_comment();
         self.cursor += 3;
         while (self.cursor as usize) < self.source.len() {
             if self.is_line_terminator(self.source[self.cursor as usize]) {
@@ -1378,7 +1406,9 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
             }
             self.cursor += 1;
         }
-        self.record_comment(CommentKind::Line, start, self.cursor)
+        self.record_comment(CommentKind::Line, start, self.cursor, trailing)?;
+        self.state.had_line_break = true;
+        Ok(())
     }
 
     pub fn create_token(&mut self, tag: TokenTag, start: u32, end: u32) -> Token {

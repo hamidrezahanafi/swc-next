@@ -6,11 +6,13 @@ use swc_next_ecma_semantic::Semantic;
 
 use crate::{
     assumptions::Assumptions,
+    normalize::Normalizer,
     state::{TransformerCtx, TransformerState},
 };
 
 pub mod assumptions;
 pub mod es2015;
+pub mod normalize;
 mod state;
 
 pub struct Transformer {}
@@ -27,12 +29,10 @@ pub struct TransformerImpl<'a> {
 }
 
 impl Transformer {
-    pub fn transform<'a>(
-        program: Program,
-        ast: &mut Ast<'a>,
-        semantic: &Semantic,
-        options: TransformerOptions,
-    ) {
+    pub fn transform<'a>(ast: &mut Ast<'a>, semantic: &Semantic, options: TransformerOptions) {
+        let program = ast.root_program();
+
+        Normalizer::normalize(program, ast);
         let mut transformer = TransformerImpl {
             semantic,
             x0_es2015: es2015::ES2015::new(options.es2015),
