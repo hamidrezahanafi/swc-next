@@ -15,6 +15,8 @@ use crate::{
 
 pub struct BabelTransformRunner;
 
+const MAX_SNAPSHOT_OUTPUT_CHARS: usize = 4_000;
+
 impl Runner<BabelTransformCase> for BabelTransformRunner {
     const NAME: &'static str = "babel_transform";
 
@@ -53,10 +55,35 @@ fn run_case(case: &BabelTransformCase) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "{}: transformed output differs from output.js",
-            case.name
+            "{}: transformed output differs from output.js\n\
+             --- expected (Babel output.js)\n{}\n\
+             --- actual (SWC Next)\n{}",
+            case.name,
+            snapshot_output(&expected),
+            snapshot_output(&actual),
         ))
     }
+}
+
+fn snapshot_output(output: &str) -> String {
+    let char_count = output.chars().count();
+    if char_count <= MAX_SNAPSHOT_OUTPUT_CHARS {
+        return output.to_owned();
+    }
+
+    let head_count = MAX_SNAPSHOT_OUTPUT_CHARS / 2;
+    let tail_count = MAX_SNAPSHOT_OUTPUT_CHARS - head_count;
+    let head = output.chars().take(head_count).collect::<String>();
+    let tail = output
+        .chars()
+        .rev()
+        .take(tail_count)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>();
+    let omitted = char_count - MAX_SNAPSHOT_OUTPUT_CHARS;
+    format!("{head}\n... {omitted} characters omitted ...\n{tail}")
 }
 
 fn transform_input(case: &BabelTransformCase) -> Result<String, String> {

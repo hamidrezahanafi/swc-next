@@ -29,57 +29,1600 @@ Panicked: 0/560 (0.00%)
 Skipped: 92/560 (16.43%)
 Messages:
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/await-using-declarations/for-using-init/input.js - babel-generator/test/fixtures/await-using-declarations/for-using-init: transformed output differs from output.js
+--- expected (Babel output.js)
+async function f() {
+  /*0*/
+  for (await using b = /*1*/ /*8*/ /*9*/ /*2*/ /*3*/ /*4*/ /*5*/ /*6*/ x; ; ) ;
+}
+
+--- actual (SWC Next)
+async function f() {
+  /*0*/
+  for (await using b = /*1*/ /*2*/ /*3*/ /*4*/ /*5*/ /*6*/ x; ; ) ;
+}
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/comments/async-class-method-computed-key-comment/input.js - babel-generator/test/fixtures/comments/async-class-method-computed-key-comment: transformed output differs from output.js
+--- expected (Babel output.js)
+class C {
+  async [ /* 1 */ /* 4 */ /* 5 */ /* 2 */ foo]() {
+    /* 3 */
+  }
+}
+
+--- actual (SWC Next)
+class C {
+  async [ /* 1 */ /* 2 */ foo]() {
+    /* 3 */
+    /* 4 */
+    /* 5 */
+  }
+}
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/comments/async-generator-class-method-comment/input.js - babel-generator/test/fixtures/comments/async-generator-class-method-comment: transformed output differs from output.js
+--- expected (Babel output.js)
+class C {
+  async *foo() {
+    /* 1 */
+    /* 4 */
+    /* 2 */
+    /* 3 */
+    /* 5 */
+  }
+}
+
+--- actual (SWC Next)
+class C {
+  async *foo() {
+    /* 1 */
+    /* 2 */
+    /* 3 */
+    /* 4 */
+    /* 5 */
+  }
+}
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/comments/async-generator-class-method-computed-key-comment/input.js - babel-generator/test/fixtures/comments/async-generator-class-method-computed-key-comment: transformed output differs from output.js
+--- expected (Babel output.js)
+class C {
+  async *[ /* 1 */ /* 2 */ /* 5 */ /* 6 */ /* 3 */ foo]() {
+    /* 4 */
+  }
+}
+
+--- actual (SWC Next)
+class C {
+  async *[ /* 1 */ /* 2 */ /* 3 */ foo]() {
+    /* 4 */
+    /* 5 */
+    /* 6 */
+  }
+}
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/comments/concise-block-comment-indent-2/input.js - babel-generator/test/fixtures/comments/concise-block-comment-indent-2: transformed output differs from output.js
+--- expected (Babel output.js)
+{
+  "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111";
+  /**
+  x
+  */
+}
+
+--- actual (SWC Next)
+{
+  "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111";
+  /**
+   x
+   */
+}
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/comments/return-no-argument/input.js - babel-generator/test/fixtures/comments/return-no-argument: transformed output differs from output.js
+--- expected (Babel output.js)
+(function() {
+  return;
+  // comment
+})();
+
+--- actual (SWC Next)
+(function() {
+  return;
+  // comment
+}());
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/compact/binary-expressions/input.js - babel-generator/test/fixtures/compact/binary-expressions: transformed output differs from output.js
+--- expected (Babel output.js)
+1 * 1;
+1 && 1;
+1 + +1;
+x + ++y;
+a + +b * 2;
+a + +b * 2 * 2 * 2;
+a - -b;
+1 + -b;
+1 - --b;
+a - -b * 2;
+1 - --t * t;
+
+--- actual (SWC Next)
+1 * 1;
+1 && 1;
+1 + +1;
+x + ++y;
+(a + (+b) * 2);
+a + +b * 2 * 2 * 2;
+a - -b;
+1 + -b;
+1 - --b;
+a - -b * 2;
+1 - (--t) * t;
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/edgecase/bitwise-precedence/input.js - babel-generator/test/fixtures/edgecase/bitwise-precedence: transformed output differs from output.js
+--- expected (Babel output.js)
+x | y ^ z;
+x | y ^ z;
+(x | y) ^ z;
+
+--- actual (SWC Next)
+x | y ^ z;
+x | (y ^ z);
+(x | y) ^ z;
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/edgecase/floating-point/input.js - babel-generator/test/fixtures/edgecase/floating-point: transformed output differs from output.js
+--- expected (Babel output.js)
+1.1.valueOf();
+1e300.valueOf();
+
+--- actual (SWC Next)
+1.1.valueOf();
+(1e300).valueOf();
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/edgecase/for-in-no-in/input.js - babel-generator/test/fixtures/edgecase/for-in-no-in: transformed output differs from output.js
+--- expected (Babel output.js)
+//for (var i = (1 in []) in []);
+//for (var i = 1 in [] in []);
+//for (var i = (10 * 10 in []) in []);
+//for (var i = (10 + 10 in []) in []);
+//for (var i = 10 + (10 in []) in []);
+//for (var i = 10 + 10 in [] in []);
+for (var i = ((1 in [])); ; ) ;
+for (((1 in [])); ; ) ;
+for (1 * ((1 in [])); ; ) ;
+for (1 * ((1 + 1 in [])); ; ) ;
+for (1 * ((1 + 1 in [])); ; ) ;
+for (1 * (1 + ((1 in []))); ; ) ;
+
+--- actual (SWC Next)
+//for (var i = (1 in []) in []);
+//for (var i = 1 in [] in []);
+//for (var i = (10 * 10 in []) in []);
+//for (var i = (10 + 10 in []) in []);
+//for (var i = 10 + (10 in []) in []);
+//for (var i = 10 + 10 in [] in []);
+for (var i = ((1 in [])); ; ) ;
+for (((1 in [])); ; ) ;
+for (1 * ((1 in [])); ; ) ;
+for (1 * ((1 + 1 in [])); ; ) ;
+for (1 * (((1 + 1) in [])); ; ) ;
+for (1 * (1 + ((1 in []))); ; ) ;
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/edgecase/large-file-concise/input.js - babel-generator/test/fixtures/edgecase/large-file-concise: transformed output differs from output.js
+--- expected (Babel output.js)
+"undefined" === typeof Aura && (Aura = {});
+Aura.bootstrap || (Aura.bootstrap = {});
+Aura.frameworkJsReady || (Aura.ApplicationDefs = { cmpExporter: {}, libExporter: {} }, $A = { componentService: { addComponent: function(a, b) {
+  Aura.ApplicationDefs.cmpExporter[a] = b;
+}, addLibraryExporter: function(a, b) {
+  Aura.ApplicationDefs.libExporter[a] = b;
+}, initEventDefs: function(a) {
+  Aura.ApplicationDefs.eventDefs = a;
+}, initLibraryDefs: function(a) {
+  Aura.ApplicationDefs.libraryDefs = a;
+}, initControllerDefs: function(a) {
+  Aura.ApplicationDefs.controllerDefs = a;
+}, initModuleDefs: function(a) {
+  Aura.ApplicationDefs.moduleDefs = a;
+} } });
+$A.componentService.addLibraryExporter("js://one.centerStageLibrary.Context", function() {
+  /*$A.componentService.addLibraryInclude("js://one.centerStageLibrary.Context",[],function(){return{isSalesforceNativeDesktop:function(a){return a.get("m.isSalesforceNativeDesktop")},isNativeContainer:function(){return"sfNativeBridge"in window},isMasterDetailPanelSupported:function(a){return a.get("m.isMasterDetailEnabled")}}});*/
+});
+$A.componentService.addLibraryExporter("js://one.centerStageLibrary.DefType", function() {
+  /*$A.componentService.addLibraryInclude("js://one.centerStageLibrary.DefType",[],function(){return{getDefType:function(a){return!a?null:0===a.indexOf("e.")?"event":0===a.indexOf("/")?"route":"component"},isEventDef:function(a){return"event"===this.getDefType(a)},isRouteDef:function(a){return"route"===this.getDefType(a)}}});*/
+});
+$A.componentService.addLibraryExporter("js://one.centerStageLibrary.URL", function() {
+  /*$A.componentService.addLibraryInclude("js://one.centerStageLibrary.URL",[],function(){return{getSiteUrlPrefix:function(a){return a.get("m.siteUrlPrefix")},_getPathNameWithoutPrefix:function(a){var b=window.location.pathname;return $A.util.isUndefinedOrNull(b)?"":$A.util.isUndefinedOrNull(a)?b:0===b.indexOf(a)?b.substring(a.length):b},_getUrlWithSitePrefix:function(a,b){return $A.util.isUndefi
+... 3376812 characters omitted ...
+ldElement","getFieldElements","getFieldValue","toggleShowAllFieldsForMobile","getIsViewButtonVisible","focusFirstEditableField","focusRecordLayoutItemInput","deactivateEdit","getRows","save","saveAndNew","resetErrors","setErrors","setRecordLayoutItemInlineEditLoadingIndicatorOn","setRecordLayoutItemInlineEditLoadingIndicatorOff","focusRecordLayoutItemInlineEditTrigger","toggleRecordLayoutSectionCollapsedById","updateFields"],track:{state:1,showTemplate:1},fields:["showAllFieldsForMobile","_conditionalInlineEditabilityAllowed","_groupInlineEditabilityAllowed","forceReloadRecordForInlineEdit","recordLayoutRenderedFired","complexityUpdated","isSaving","recordDraft","recordRepresentationDraft","aggregatedChangedFields","isSpinnerVisible","waitingForSaveAfterReload","firstCreateRecordUpdate","objectInfo","wireRecordIdsForRecordAvatars","objectApiNameForPicklistWire","recordTypeIdForPicklistWire","picklistValuesByRecordType","instrumentation","refreshID"]});var J=t.registerComponent(X,{tmpl:U,sel:"records-record-layout2",apiVersion:59});e.default=J;Object.defineProperty(e,"__esModule",{value:true})});
+}`, "ce": "records-record-layout2", "descriptor": "markup://records:recordLayout2", "n": "records/recordLayout2", "ad": [["mode", null, "G", false], ["layoutType", null, "G", false], ["recordId", null, "G", false], ["recordTypeId", null, "G", false], ["objectApiName", null, "G", false], ["dynamicComponentType", null, "G", false], ["numVisibleActions", null, "G", false], ["collapsed", null, "G", false], ["hideChatterActions", null, "G", false], ["hideDependencyLinks", null, "G", false, false], ["actionNames", null, "G", false], ["layoutFieldMetadata", null, "G", false, {}], ["enableActionsConfiguration", null, "G", false], ["truncateFields", null, "G", false], ["width", null, "G", false], ["standaloneMode", null, "G", false], ["defaultFieldValues", null, "G", false]] }]);
+(Aura.appJsReady = Aura.appJsReady || new Array(4))[2] = true;
+Aura.appDefsReady && Aura.appDefsReady();
+
+--- actual (SWC Next)
+"undefined" === typeof Aura && (Aura = {});
+Aura.bootstrap || (Aura.bootstrap = {});
+Aura.frameworkJsReady || (Aura.ApplicationDefs = { cmpExporter: {}, libExporter: {} }, $A = { componentService: { addComponent: function(a, b) {
+  Aura.ApplicationDefs.cmpExporter[a] = b;
+}, addLibraryExporter: function(a, b) {
+  Aura.ApplicationDefs.libExporter[a] = b;
+}, initEventDefs: function(a) {
+  Aura.ApplicationDefs.eventDefs = a;
+}, initLibraryDefs: function(a) {
+  Aura.ApplicationDefs.libraryDefs = a;
+}, initControllerDefs: function(a) {
+  Aura.ApplicationDefs.controllerDefs = a;
+}, initModuleDefs: function(a) {
+  Aura.ApplicationDefs.moduleDefs = a;
+} } });
+$A.componentService.addLibraryExporter("js://one.centerStageLibrary.Context", function() {
+  /*$A.componentService.addLibraryInclude("js://one.centerStageLibrary.Context",[],function(){return{isSalesforceNativeDesktop:function(a){return a.get("m.isSalesforceNativeDesktop")},isNativeContainer:function(){return"sfNativeBridge"in window},isMasterDetailPanelSupported:function(a){return a.get("m.isMasterDetailEnabled")}}});*/
+});
+$A.componentService.addLibraryExporter("js://one.centerStageLibrary.DefType", function() {
+  /*$A.componentService.addLibraryInclude("js://one.centerStageLibrary.DefType",[],function(){return{getDefType:function(a){return!a?null:0===a.indexOf("e.")?"event":0===a.indexOf("/")?"route":"component"},isEventDef:function(a){return"event"===this.getDefType(a)},isRouteDef:function(a){return"route"===this.getDefType(a)}}});*/
+});
+$A.componentService.addLibraryExporter("js://one.centerStageLibrary.URL", function() {
+  /*$A.componentService.addLibraryInclude("js://one.centerStageLibrary.URL",[],function(){return{getSiteUrlPrefix:function(a){return a.get("m.siteUrlPrefix")},_getPathNameWithoutPrefix:function(a){var b=window.location.pathname;return $A.util.isUndefinedOrNull(b)?"":$A.util.isUndefinedOrNull(a)?b:0===b.indexOf(a)?b.substring(a.length):b},_getUrlWithSitePrefix:function(a,b){return $A.util.isUndefi
+... 3376904 characters omitted ...
+ldElement","getFieldElements","getFieldValue","toggleShowAllFieldsForMobile","getIsViewButtonVisible","focusFirstEditableField","focusRecordLayoutItemInput","deactivateEdit","getRows","save","saveAndNew","resetErrors","setErrors","setRecordLayoutItemInlineEditLoadingIndicatorOn","setRecordLayoutItemInlineEditLoadingIndicatorOff","focusRecordLayoutItemInlineEditTrigger","toggleRecordLayoutSectionCollapsedById","updateFields"],track:{state:1,showTemplate:1},fields:["showAllFieldsForMobile","_conditionalInlineEditabilityAllowed","_groupInlineEditabilityAllowed","forceReloadRecordForInlineEdit","recordLayoutRenderedFired","complexityUpdated","isSaving","recordDraft","recordRepresentationDraft","aggregatedChangedFields","isSpinnerVisible","waitingForSaveAfterReload","firstCreateRecordUpdate","objectInfo","wireRecordIdsForRecordAvatars","objectApiNameForPicklistWire","recordTypeIdForPicklistWire","picklistValuesByRecordType","instrumentation","refreshID"]});var J=t.registerComponent(X,{tmpl:U,sel:"records-record-layout2",apiVersion:59});e.default=J;Object.defineProperty(e,"__esModule",{value:true})});
+}`, "ce": "records-record-layout2", "descriptor": "markup://records:recordLayout2", "n": "records/recordLayout2", "ad": [["mode", null, "G", false], ["layoutType", null, "G", false], ["recordId", null, "G", false], ["recordTypeId", null, "G", false], ["objectApiName", null, "G", false], ["dynamicComponentType", null, "G", false], ["numVisibleActions", null, "G", false], ["collapsed", null, "G", false], ["hideChatterActions", null, "G", false], ["hideDependencyLinks", null, "G", false, false], ["actionNames", null, "G", false], ["layoutFieldMetadata", null, "G", false, {}], ["enableActionsConfiguration", null, "G", false], ["truncateFields", null, "G", false], ["width", null, "G", false], ["standaloneMode", null, "G", false], ["defaultFieldValues", null, "G", false]] }]);
+(Aura.appJsReady = Aura.appJsReady || new Array(4))[2] = true;
+Aura.appDefsReady && Aura.appDefsReady();
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/edgecase/new-precedence/input.js - babel-generator/test/fixtures/edgecase/new-precedence: transformed output differs from output.js
+--- expected (Babel output.js)
+new (a().b)();
+new a().b();
+new (a().b)();
+new (a())();
+new new a(a)();
+new new a()(a);
+new a().test;
+new a().test;
+new (a().test)();
+new (a().b.c)();
+new a().b.c();
+new (a.b().c.d)();
+
+--- actual (SWC Next)
+new (a().b)();
+new a().b();
+new (a()).b();
+new (a())();
+new new a(a)();
+new (new a())(a);
+(new a()).test;
+(new a().test);
+(new (a().test)());
+new (a().b.c)();
+new a().b.c();
+new (a.b().c.d)();
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/edgecase/return-with-retainlines-and-compact-option/input.js - babel-generator/test/fixtures/edgecase/return-with-retainlines-and-compact-option: transformed output differs from output.js
+--- expected (Babel output.js)
+function foo(l) {
+  return (l);
+}
+
+--- actual (SWC Next)
+function foo(l) {
+  return ( // hi
+  l);
+}
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/edgecase/unary-op/input.js - semantic: Deleting a variable in strict mode is not allowed at 7..15
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/edgecase/yield-star-with-retainlines-option/input.js - babel-generator/test/fixtures/edgecase/yield-star-with-retainlines-option: transformed output differs from output.js
+--- expected (Babel output.js)
+function* foo(l) {
+  yield* l();
+}
+function* foo2() {
+  yield* l() && m() || n();
+}
+
+--- actual (SWC Next)
+function* foo(l) {
+  yield* (l());
+}
+function* foo2() {
+  yield* (l() && m()) || n();
+}
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/arrow-function-ternary/input.js - babel-generator/test/fixtures/parentheses/arrow-function-ternary: transformed output differs from output.js
+--- expected (Babel output.js)
+(() => {
+}) ? a : b;
+a ? () => {
+} : b;
+a ? b : () => {
+};
+
+--- actual (SWC Next)
+(() => {
+}) ? a : b;
+a ? (() => {
+}) : b;
+a ? b : (() => {
+});
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/await-expression/input.js - babel-generator/test/fixtures/parentheses/await-expression: transformed output differs from output.js
+--- expected (Babel output.js)
+async function foo() {
+  (await 1) || (await 2);
+  (await b)();
+  (await b)?.();
+  new (await b)();
+  true ? await 1 : await 2;
+  await (1 ? 2 : 3);
+  await await 1;
+  await (a || b);
+}
+async function a(b) {
+  (await xhr({ url: "views/test.html" })).data;
+  (await replay())?.data;
+}
+
+--- actual (SWC Next)
+async function foo() {
+  (await 1) || (await 2);
+  (await b)();
+  (await b)?.();
+  new (await b)();
+  true ? (await 1) : (await 2);
+  await (1 ? 2 : 3);
+  await (await 1);
+  await (a || b);
+}
+async function a(b) {
+  (await xhr({ url: "views/test.html" })).data;
+  (await replay())?.data;
+}
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/class-extends/input.js - babel-generator/test/fixtures/parentheses/class-extends: transformed output differs from output.js
+--- expected (Babel output.js)
+class A1 extends (() => {
+}) {
+}
+class A2 extends (B = C) {
+}
+class A3 extends (B || C) {
+}
+class A4 extends (B + C) {
+}
+class A5 extends B() {
+}
+class A6 extends class {
+} {
+}
+class A7 extends (B ? C : D) {
+}
+class A8 extends new B() {
+}
+class A9 extends (B, C) {
+}
+class A10 extends {} {
+}
+class A11 extends B.C {
+}
+class A12 extends function() {
+} {
+}
+class A13 extends (void B) {
+}
+class A14 extends (++B) {
+}
+async function f1() {
+  class A15 extends (await C) {
+  }
+}
+function* f2() {
+  class A16 extends (yield 1) {
+  }
+}
+
+--- actual (SWC Next)
+class A1 extends (() => {
+}) {
+}
+class A2 extends (B = C) {
+}
+class A3 extends (B || C) {
+}
+class A4 extends (B + C) {
+}
+class A5 extends B() {
+}
+class A6 extends class {
+} {
+}
+class A7 extends (B ? C : D) {
+}
+class A8 extends (new B()) {
+}
+class A9 extends (B, C) {
+}
+class A10 extends ({}) {
+}
+class A11 extends B.C {
+}
+class A12 extends function() {
+} {
+}
+class A13 extends (void B) {
+}
+class A14 extends (++B) {
+}
+async function f1() {
+  class A15 extends (await C) {
+  }
+}
+function* f2() {
+  class A16 extends (yield 1) {
+  }
+}
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/expression/input.js - babel-generator/test/fixtures/parentheses/expression: transformed output differs from output.js
+--- expected (Babel output.js)
+a && a.b && a.b.c() && function() {
+}() && { a: 1 }.a;
+!function() {
+}();
+
+--- actual (SWC Next)
+a && (a.b && a.b.c()) && function() {
+}() && { a: 1 }.a;
+!function() {
+}();
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/in-inside-for/input.js - parse: Expected ';' after for-loop init, but found ')' at 62..63
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/new-callee/input.js - semantic: 'super()' is only valid in a constructor of a derived class at 275..282
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/nullish-coalescing/input.js - babel-generator/test/fixtures/parentheses/nullish-coalescing: transformed output differs from output.js
+--- expected (Babel output.js)
+const foo = "test";
+console.log((foo ?? "") == "");
+a ?? b ?? c;
+a ?? b ?? c;
+a ?? (b || c);
+a || (b ?? c);
+(a ?? b) || c;
+(a || b) ?? c;
+a ?? (b && c);
+a && (b ?? c);
+(a ?? b) && c;
+(a && b) ?? c;
+
+--- actual (SWC Next)
+const foo = "test";
+console.log((foo ?? "") == "");
+a ?? (b ?? c);
+(a ?? b) ?? c;
+a ?? (b || c);
+a || (b ?? c);
+(a ?? b) || c;
+(a || b) ?? c;
+a ?? (b && c);
+a && (b ?? c);
+(a ?? b) && c;
+(a && b) ?? c;
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/sequence-expressions/input.js - babel-generator/test/fixtures/parentheses/sequence-expressions: transformed output differs from output.js
+--- expected (Babel output.js)
+function foo() {
+  return a, b;
+}
+if (a, b, c) d();
+throw a, b, c;
+switch (a, b, c) {}
+for (a in b, c) ;
+for (a of (b = c, d)) ;
+while (a, b, c) ;
+!function() {
+}(), a();
+a, b, c;
+a, b, c;
+a`${1, 2}`;
+(a, b)`${1, 2}`;
+`${1, 2}`;
+export default (c, d);
+
+--- actual (SWC Next)
+function foo() {
+  return a, b;
+}
+if (a, b, c) d();
+throw a, b, c;
+switch (a, b, c) {}
+for (a in b, c) ;
+for (a of (b = c, d)) ;
+while (a, b, c) ;
+!(function() {
+})(), a();
+(a, b), c;
+a, (b, c);
+a`${(1, 2)}`;
+(a, b)`${(1, 2)}`;
+`${(1, 2)}`;
+export default (c, d);
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/tagged-template-expression/input.js - babel-generator/test/fixtures/parentheses/tagged-template-expression: transformed output differs from output.js
+--- expected (Babel output.js)
+(() => {
+})``;
+(function() {
+})``;
+(a ? b : c)``;
+function* fn() {
+  (yield)`foo`;
+  (yield f)`foo`;
+}
+
+--- actual (SWC Next)
+(() => {
+})``;
+(function() {
+}``);
+(a ? b : c)``;
+function* fn() {
+  (yield)`foo`;
+  (yield f)`foo`;
+}
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/ts-conditional-type/input.ts - babel-generator/test/fixtures/parentheses/ts-conditional-type: transformed output differs from output.js
+--- expected (Babel output.js)
+// These parentheses should be kept
+type t0<T> = (T extends string[] ? T : never)[];
+type t1<T> = (T extends string[] ? T : never)[0];
+type t2<T> = [(T extends string[] ? T : never)?];
+type t3<T> = (T extends string[] ? T : never) | boolean;
+type t4<T> = (T extends string[] ? T : never) & boolean;
+type t5<T> = keyof (T extends string[] ? T : never);
+type t6<T> = T extends Array<infer K extends (T extends string ? string : never)> ? K : never;
+type t7<T> = (T extends string[] ? T : never) extends string[] ? T : never;
+type t8<T> = T extends (T extends string[] ? T : never) ? string[] : never;
+type t9<T> = Promise<T> | (T extends any ? Promise<T> : never);
+// These parentheses should be stripped
+type s0<T> = [...(T extends string[] ? T : never)];
+type s1<T> = ""[T extends string[] ? "toString" : "valueOf"];
+type s2<T> = T extends string[] ? T extends string[] ? T : never : never;
+type s3<T> = T extends string[] ? never : T extends string[] ? T : never;
+
+--- actual (SWC Next)
+// These parentheses should be kept
+type t0<T> = (T extends string[] ? T : never)[];
+type t1<T> = (T extends string[] ? T : never)[0];
+type t2<T> = [(T extends string[] ? T : never)?];
+type t3<T> = (T extends string[] ? T : never) | boolean;
+type t4<T> = (T extends string[] ? T : never) & boolean;
+type t5<T> = keyof (T extends string[] ? T : never);
+type t6<T> = T extends Array<infer K extends (T extends string ? string : never)> ? K : never;
+type t7<T> = (T extends string[] ? T : never) extends string[] ? T : never;
+type t8<T> = T extends (T extends string[] ? T : never) ? string[] : never;
+type t9<T> = Promise<T> | (T extends any ? Promise<T> : never);
+// These parentheses should be stripped
+type s0<T> = [...(T extends string[] ? T : never)];
+type s1<T> = ""[(T extends string[] ? "toString" : "valueOf")];
+type s2<T> = T extends string[] ? (T extends string[] ? T : never) : never;
+type s3<T> = T extends string[] ? never : (T extends string[] ? T : never);
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/ts-infer-type/input.ts - babel-generator/test/fixtures/parentheses/ts-infer-type: transformed output differs from output.js
+--- expected (Babel output.js)
+// These parentheses should be kept
+type t0<T> = T extends Array<(infer K)[]> ? K : never;
+type t1<T> = T extends Array<(infer K)["valueOf"]> ? K : never;
+type t2<T> = T extends Array<[(infer K)?]> ? K : never;
+type t3<T> = T extends Array<(infer K extends string) | boolean> ? K : never;
+type t4<T> = T extends Array<(infer K extends string) & boolean> ? K : never;
+type t5<T> = T extends Array<T extends "N" ? T : never | (infer K extends string)> ? K : never;
+type t6<T> = T extends Array<T extends "N" ? T : never & (infer K extends string)> ? K : never;
+// The outer parentheses should be stripped
+type s0<T> = T extends Array<infer K | boolean> ? K : never;
+type s1<T> = T extends Array<infer K & boolean> ? K : never;
+type s2<T> = T extends Array<T extends "N" ? T : never | (infer K extends string)> ? K : never;
+type s3<T> = T extends Array<T extends "N" ? T : never & (infer K extends string)> ? K : never;
+type s4<T> = T extends Array<infer K extends infer L extends string> ? K : never;
+type s5<T> = T extends infer Q ? Q : never;
+type s6<T> = T extends Array<T extends string[] ? infer Q : never> ? Q : never;
+type s7<T> = T extends Array<T extends string[] ? never : infer Q> ? Q : never;
+type s8<T> = T extends Array<infer K extends string extends string ? string : never> ? K : never;
+type s9<T> = T extends Array<string extends infer K extends string ? K : never> ? string : never;
+type s10<T> = T extends Array<string extends string ? infer K extends string : string> ? K : never;
+type s11<T> = T extends Array<string extends string ? string : infer K extends string> ? K : never;
+type s12<T> = T extends Array<keyof infer K> ? K : never;
+
+--- actual (SWC Next)
+// These parentheses should be kept
+type t0<T> = T extends Array<(infer K)[]> ? K : never;
+type t1<T> = T extends Array<(infer K)["valueOf"]> ? K : never;
+type t2<T> = T extends Array<[(infer K)?]> ? K : never;
+type t3<T> = T extends Array<(infer K extends string) | boolean> ? K : never;
+type t4<T> = T extends Array<(infer K extends string) & boolean> ? K : never;
+type t5<T> = T extends Array<T extends "N" ? T : never | (infer K extends string)> ? K : never;
+type t6<T> = T extends Array<T extends "N" ? T : never & (infer K extends string)> ? K : never;
+// The outer parentheses should be stripped
+type s0<T> = T extends Array<(infer K) | boolean> ? K : never;
+type s1<T> = T extends Array<(infer K) & boolean> ? K : never;
+type s2<T> = T extends Array<T extends "N" ? T : (never | (infer K extends string))> ? K : never;
+type s3<T> = T extends Array<T extends "N" ? T : (never & (infer K extends string))> ? K : never;
+type s4<T> = T extends Array<infer K extends (infer L extends string)> ? K : never;
+type s5<T> = T extends (infer Q) ? Q : never;
+type s6<T> = T extends Array<T extends string[] ? (infer Q) : never> ? Q : never;
+type s7<T> = T extends Array<T extends string[] ? never : (infer Q)> ? Q : never;
+type s8<T> = T extends Array<(infer K extends string) extends string ? string : never> ? K : never;
+type s9<T> = T extends Array<string extends (infer K extends string) ? K : never> ? string : never;
+type s10<T> = T extends Array<string extends string ? (infer K extends string) : string> ? K : never;
+type s11<T> = T extends Array<string extends string ? string : (infer K extends string)> ? K : never;
+type s12<T> = T extends Array<keyof (infer K)> ? K : never;
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/ts-intersection-type/input.ts - babel-generator/test/fixtures/parentheses/ts-intersection-type: transformed output differs from output.js
+--- expected (Babel output.js)
+// These parentheses should be kept
+type t0 = (string & string)[];
+type t1 = (string & string)["valueOf"];
+type t2 = [(string & string)?];
+type t3 = keyof (t0 & t1);
+// These parentheses should be stripped
+type s0 = number | string & string;
+type s1 = Object["valueOf" & "valueOf"];
+type s2 = [...(s0[] & s1[])];
+
+--- actual (SWC Next)
+// These parentheses should be kept
+type t0 = (string & string)[];
+type t1 = (string & string)["valueOf"];
+type t2 = [(string & string)?];
+type t3 = keyof (t0 & t1);
+// These parentheses should be stripped
+type s0 = number | (string & string);
+type s1 = Object[("valueOf" & "valueOf")];
+type s2 = [...(s0[] & s1[])];
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/ts-new-callee/input.js - semantic: 'super()' is only valid in a constructor of a derived class at 287..294
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/ts-type-operator/input.ts - babel-generator/test/fixtures/parentheses/ts-type-operator: transformed output differs from output.js
+--- expected (Babel output.js)
+// These parentheses should be kept
+type t0<T> = (keyof T)[];
+type t1<T> = (keyof T)["valueOf"];
+type t2<T> = [(keyof T)?];
+// These parentheses should be stripped
+type s0<T> = [...keyof T];
+type s1<T> = keyof T & string;
+type s2<T> = keyof T | string;
+
+--- actual (SWC Next)
+// These parentheses should be kept
+type t0<T> = (keyof T)[];
+type t1<T> = (keyof T)["valueOf"];
+type t2<T> = [(keyof T)?];
+// These parentheses should be stripped
+type s0<T> = [...(keyof T)];
+type s1<T> = (keyof T) & string;
+type s2<T> = (keyof T) | string;
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/ts-union-type/input.ts - babel-generator/test/fixtures/parentheses/ts-union-type: transformed output differs from output.js
+--- expected (Babel output.js)
+// These parentheses should be kept
+type t0 = (string | boolean)[];
+type t1 = (string | boolean)["valueOf"];
+type t2 = [(string | boolean)?];
+type t3 = string & (boolean | boolean);
+type t4 = keyof (t0 | t1);
+// These parentheses should be stripped
+type s0 = number | string | boolean;
+type s1 = Object["valueOf" | "toString"];
+type s2 = [...(s0[] | s1[])];
+
+--- actual (SWC Next)
+// These parentheses should be kept
+type t0 = (string | boolean)[];
+type t1 = (string | boolean)["valueOf"];
+type t2 = [(string | boolean)?];
+type t3 = (string & (boolean | boolean));
+type t4 = keyof (t0 | t1);
+// These parentheses should be stripped
+type s0 = number | (string | boolean);
+type s1 = Object[("valueOf" | "toString")];
+type s2 = [...(s0[] | s1[])];
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/unary-postfix/input.js - babel-generator/test/fixtures/parentheses/unary-postfix: transformed output differs from output.js
+--- expected (Babel output.js)
+(function() {
+  return { x: 24 };
+})().x++;
+
+--- actual (SWC Next)
+(function() {
+  return { x: 24 };
+}()).x++;
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/parentheses/yield-expression/input.js - babel-generator/test/fixtures/parentheses/yield-expression: transformed output differs from output.js
+--- expected (Babel output.js)
+function* foo() {
+  (yield 1) || (yield 2);
+  (yield b)();
+  (yield b)?.();
+  new (yield b)();
+  (yield 1) ? yield 2 : yield 3;
+  yield 1 ? 2 : 3;
+  yield yield 1;
+}
+function* a(b) {
+  (yield xhr({ url: "views/test.html" })).data;
+  (yield replay())?.data;
+}
+(async function* () {
+  await (yield 1);
+});
+
+--- actual (SWC Next)
+function* foo() {
+  (yield 1) || (yield 2);
+  (yield b)();
+  (yield b)?.();
+  new (yield b)();
+  (yield 1) ? (yield 2) : (yield 3);
+  yield (1 ? 2 : 3);
+  yield (yield 1);
+}
+function* a(b) {
+  (yield xhr({ url: "views/test.html" })).data;
+  (yield replay())?.data;
+}
+(async function* () {
+  await (yield 1);
+});
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/regression/15161/input.js - babel-generator/test/fixtures/regression/15161: transformed output differs from output.js
+--- expected (Babel output.js)
+var test = () => {
+};
+
+--- actual (SWC Next)
+var test = () => {
+  /* placeholder */
+  /* Unused */
+};
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/regression/comment-before-parentheses-return-arg/input.js - babel-generator/test/fixtures/regression/comment-before-parentheses-return-arg: transformed output differs from output.js
+--- expected (Babel output.js)
+function assertElement(assertFn, shouldBeElement, opt_message) {
+  return /** @type {!Ele	ment} */ assertType_(assertFn, shouldBeElement, isElement(shouldBeElement), "Element expected", opt_message);
+}
+const slot = /** @type {!HTMLSlotElement} */ e.target;
+assertElement(
+  /** @type {Element} */
+  el
+);
+
+--- actual (SWC Next)
+function assertElement(assertFn, shouldBeElement, opt_message) {
+  return /** @type {!Ele	ment} */ (assertType_(assertFn, shouldBeElement, isElement(shouldBeElement), "Element expected", opt_message));
+}
+const slot = /** @type {!HTMLSlotElement} */ (e.target);
+assertElement(
+  /** @type {Element} */
+  (el)
+);
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/retainFunctionParens/nested/input.js - babel-generator/test/fixtures/retainFunctionParens/nested: transformed output differs from output.js
+--- expected (Babel output.js)
+var x = (function() {
+});
+
+--- actual (SWC Next)
+var x = (((function() {
+})));
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/sourcemaps/arrow-function-compact/input.js - babel-generator/test/fixtures/sourcemaps/arrow-function-compact: transformed output differs from output.js
+--- expected (Babel output.js)
+() => {
+  return 42;
+};
+
+--- actual (SWC Next)
+(() => {
+  return 42;
+});
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/sourcemaps/arrow-function/input.js - babel-generator/test/fixtures/sourcemaps/arrow-function: transformed output differs from output.js
+--- expected (Babel output.js)
+() => {
+  return 42;
+};
+
+--- actual (SWC Next)
+(() => {
+  return 42;
+});
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/sourcemaps/comment-before-parentheses-return-arg/input.js - babel-generator/test/fixtures/sourcemaps/comment-before-parentheses-return-arg: transformed output differs from output.js
+--- expected (Babel output.js)
+function assertElement(assertFn, shouldBeElement, opt_message) {
+  return ( /** @type {!Ele	ment} */ assertType_(assertFn, shouldBeElement, isElement(shouldBeElement), "Element expected", opt_message));
+}
+const slot = /** @type {!HTMLSlotElement} */ e.target;
+assertElement(
+  /** @type {Element} */
+  el
+);
+
+--- actual (SWC Next)
+function assertElement(assertFn, shouldBeElement, opt_message) {
+  return /** @type {!Ele	ment} */ (assertType_(assertFn, shouldBeElement, isElement(shouldBeElement), "Element expected", opt_message));
+}
+const slot = /** @type {!HTMLSlotElement} */ (e.target);
+assertElement(
+  /** @type {Element} */
+  (el)
+);
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/sourcemaps/real-world-babel-file1/input.ts - babel-generator/test/fixtures/sourcemaps/real-world-babel-file1: transformed output differs from output.js
+--- expected (Babel output.js)
+// From packages\babel-cli\src\babel\watcher.ts
+import { createRequire } from "module";
+import path from "path";
+import type { WatchOptions, FSWatcher } from "chokidar";
+const fileToDeps = new Map<string, Set<string>>();
+const depToFiles = new Map<string, Set<string>>();
+let isWatchMode = false;
+let watcher: FSWatcher;
+const watchQueue = new Set<string>();
+let hasStarted = false;
+export function enable({ enableGlobbing }: {
+  enableGlobbing: boolean;
+}) {
+  isWatchMode = true;
+  const { FSWatcher } = requireChokidar();
+  const options: WatchOptions = { disableGlobbing: !enableGlobbing, persistent: true, ignoreInitial: true, awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 10 } };
+  watcher = new FSWatcher(options);
+  watcher.on("unlink", unwatchFile);
+}
+export function startWatcher() {
+  hasStarted = true;
+  for (const dep of watchQueue) {
+    watcher.add(dep);
+  }
+  watchQueue.clear();
+  watcher.on("ready", () => {
+    console.log("The watcher is ready.");
+  });
+}
+export function watch(filename: string): void {
+  if (!isWatchMode) {
+    throw new Error("Internal Babel error: .watch called when not in watch mode.");
+  }
+  if (!hasStarted) {
+    watchQueue.add(path.resolve(filename));
+  } else {
+    watcher.add(path.resolve(filename));
+  }
+}
+/**
+ * Call @param callback whenever a dependency (source file)/
+ * external dependency (non-source file) changes.
+ *
+ * Handles mapping external dependencies to their corresponding
+ * dependencies.
+ */
+export function onFilesChange(callback: (filenames: string[], event: string, cause: string) => void): void {
+  if (!isWatchMode) {
+    throw new Error("Internal Babel error: .onFilesChange called when not in watch mode.");
+  }
+  watcher.on("all", (event, filename) => {
+    if (event !== "change" && event !== "add") return;
+    const absoluteFile = path.resolve(filename);
+    callback([absoluteFile, ...(depToFiles.get(absoluteFile) ?? [])], event, absoluteFile);
+  });
+}
+export function updateExternalDependencies(filename: string, dependencies: Set<string>) {
+  if (!isWatchMode) return;
+  // Use absolute paths
+  const absFilename = path.resolve(filename);
+  const absDependencies = new Set(Array.from(dependencies, (dep) => path.resolve(dep)));
+  const deps = fileToDeps.get(absFilename);
+  if (deps) {
+    for (const dep of deps) {
+      if (!absDependencies.has(dep)) {
+        removeFileDependency(absFilename, dep);
+      }
+    }
+  }
+  for (const dep of absDependencies) {
+    let deps = depToFiles.get(dep);
+    if (!deps) {
+      depToFiles.set(dep, deps = new Set());
+      if (!hasStarted) {
+        watchQueue.add(dep);
+      } else {
+        watcher.add(dep);
+      }
+    }
+    deps.add(absFilename);
+  }
+  fileToDeps.set(absFilename, absDependencies);
+}
+function removeFileDependency(filename: string, dep: string) {
+  const deps = depToFiles.get(dep) as Set<string>;
+  deps.delete(filename);
+  if (deps.size === 0) {
+    depToFiles.delete(dep);
+    if (!hasStarted) {
+      watchQueue.delete(dep);
+    } else {
+      watcher.unwatch(dep);
+    }
+  }
+}
+function unwatchFile(filename: string) {
+  const deps = fileToDeps.get(filename);
+  if (!deps) return;
+  for (const dep of deps) {
+    removeFileDependency(filename, dep);
+  }
+  fileToDeps.delete(filename);
+}
+function requireChokidar(): any {
+  const require = createRequire(import.meta.url);
+  try {
+    return process.env.BABEL_8_BREAKING ? require("chokidar") : parseInt(process.versions.node) >= 8 ? require("chokidar") : require("@nicolo-ribaudo/chokidar-2");
+  } catch (err) {
+    console.error("The optional dependency chokidar failed to install and is required for " + "--watch. Chokidar is likely not supported on your platform.");
+    throw err;
+  }
+}
+
+--- actual (SWC Next)
+// From packages\babel-cli\src\babel\watcher.ts
+import { createRequire } from "module";
+import path from "path";
+import type { WatchOptions, FSWatcher } from "chokidar";
+const fileToDeps = new Map<string, Set<string>>();
+const depToFiles = new Map<string, Set<string>>();
+let isWatchMode = false;
+let watcher: FSWatcher;
+const watchQueue = new Set<string>();
+let hasStarted = false;
+export function enable({ enableGlobbing }: {
+  enableGlobbing: boolean;
+}) {
+  isWatchMode = true;
+  const { FSWatcher } = requireChokidar();
+  const options: WatchOptions = { disableGlobbing: !enableGlobbing, persistent: true, ignoreInitial: true, awaitWriteFinish: { stabilityThreshold: 50, pollInterval: 10 } };
+  watcher = new FSWatcher(options);
+  watcher.on("unlink", unwatchFile);
+}
+export function startWatcher() {
+  hasStarted = true;
+  for (const dep of watchQueue) {
+    watcher.add(dep);
+  }
+  watchQueue.clear();
+  watcher.on("ready", () => {
+    console.log("The watcher is ready.");
+  });
+}
+export function watch(filename: string): void {
+  if (!isWatchMode) {
+    throw new Error("Internal Babel error: .watch called when not in watch mode.");
+  }
+  if (!hasStarted) {
+    watchQueue.add(path.resolve(filename));
+  } else {
+    watcher.add(path.resolve(filename));
+  }
+}
+/**
+ * Call @param callback whenever a dependency (source file)/
+ * external dependency (non-source file) changes.
+ *
+ * Handles mapping external dependencies to their corresponding
+ * dependencies.
+ */
+export function onFilesChange(callback: (filenames: string[], event: string, cause: string) => void): void {
+  if (!isWatchMode) {
+    throw new Error("Internal Babel error: .onFilesChange called when not in watch mode.");
+  }
+  watcher.on("all", (event, filename) => {
+    if (event !== "change" && event !== "add") return;
+    const absoluteFile = path.resolve(filename);
+    callback([absoluteFile, ...(depToFiles.get(absoluteFile) ?? [])], event, absoluteFile);
+  });
+}
+export function updateExternalDependencies(filename: string, dependencies: Set<string>) {
+  if (!isWatchMode) return;
+  // Use absolute paths
+  const absFilename = path.resolve(filename);
+  const absDependencies = new Set(Array.from(dependencies, (dep) => path.resolve(dep)));
+  const deps = fileToDeps.get(absFilename);
+  if (deps) {
+    for (const dep of deps) {
+      if (!absDependencies.has(dep)) {
+        removeFileDependency(absFilename, dep);
+      }
+    }
+  }
+  for (const dep of absDependencies) {
+    let deps = depToFiles.get(dep);
+    if (!deps) {
+      depToFiles.set(dep, (deps = new Set()));
+      if (!hasStarted) {
+        watchQueue.add(dep);
+      } else {
+        watcher.add(dep);
+      }
+    }
+    deps.add(absFilename);
+  }
+  fileToDeps.set(absFilename, absDependencies);
+}
+function removeFileDependency(filename: string, dep: string) {
+  const deps = depToFiles.get(dep) as Set<string>;
+  deps.delete(filename);
+  if (deps.size === 0) {
+    depToFiles.delete(dep);
+    if (!hasStarted) {
+      watchQueue.delete(dep);
+    } else {
+      watcher.unwatch(dep);
+    }
+  }
+}
+function unwatchFile(filename: string) {
+  const deps = fileToDeps.get(filename);
+  if (!deps) return;
+  for (const dep of deps) {
+    removeFileDependency(filename, dep);
+  }
+  fileToDeps.delete(filename);
+}
+function requireChokidar(): any {
+  const require = createRequire(import.meta.url);
+  try {
+    return process.env.BABEL_8_BREAKING ? require("chokidar") : parseInt(process.versions.node) >= 8 ? require("chokidar") : require("@nicolo-ribaudo/chokidar-2");
+  } catch (err) {
+    console.error("The optional dependency chokidar failed to install and is required for " + "--watch. Chokidar is likely not supported on your platform.");
+    throw err;
+  }
+}
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/sourcemaps/real-world-babel-file2/input.ts - babel-generator/test/fixtures/sourcemaps/real-world-babel-file2: transformed output differs from output.js
+--- expected (Babel output.js)
+// From packages\babel-generator\src\printer.ts
+import Buffer from "./buffer";
+import type { Loc } from "./buffer";
+import * as n from "./node";
+import type * as t from "@babel/types";
+import type { RecordAndTuplePluginOptions, PipelineOperatorPluginOptions } from "@babel/parser";
+import type { Opts as jsescOptions } from "jsesc";
+import * as generatorFunctions from "./generators";
+import type SourceMap from "./source-map";
+import * as charCodes from "charcodes";
+const SCIENTIFIC_NOTATION = /e/i;
+const ZERO_DECIMAL_INTEGER = /\.0+$/;
+const NON_DECIMAL_LITERAL = /^0[box]/;
+const PURE_ANNOTATION_RE = /^\s*[@#]__PURE__\s*$/;
+const { needsParens, needsWhitespaceAfter, needsWhitespaceBefore } = n;
+export type Format = {
+  shouldPrintComment: (comment: string) => boolean;
+  retainLines: boolean;
+  retainFunctionParens: boolean;
+  comments: boolean;
+  auxiliaryCommentBefore: string;
+  auxiliaryCommentAfter: string;
+  compact: boolean | "auto";
+  minified: boolean;
+  concise: boolean;
+  indent: {
+    adjustMultilineComment: boolean;
+    style: string;
+  };
+  recordAndTupleSyntaxType: RecordAndTuplePluginOptions["syntaxType"];
+  jsescOption: jsescOptions;
+  jsonCompatibleStrings?: boolean;
+  topicToken?: PipelineOperatorPluginOptions["topicToken"];
+  decoratorsBeforeExport?: boolean;
+};
+/**
+ * For use with the Hack-style pipe operator.
+ * Changes what token is used for pipe bodies’ topic references.
+ */
+/**
+ * @deprecated Removed in Babel 8
+ */
+interface AddNewlinesOptions {
+  addNewlines(leading: boolean, node: t.Node): number;
+}
+interface PrintSequenceOptions extends Partial<AddNewlinesOptions> {
+  statement?: boolean;
+  indent?: boolean;
+}
+interface PrintListOptions {
+  separator?: (this: Printer) => void;
+  statement?: boolean;
+  indent?: boolean;
+}
+type PrintJoinOptions = PrintListOptions & PrintSequenceOptions & {
+  iterator?: (node: t.Node, index: number) => void;
+};
+class Printer {
+  constructor(format: Format, map: SourceMap) {
+    this.format = format;
+    this._bu
+... 18312 characters omitted ...
+ewlineRegex, "\n");
+        }
+        const indentSize = Math.max(this._getIndent(), this.format.retainLines ? 0 : this._buf.getCurrentColumn());
+        val = val.replace(/\n(?!$)/g, `
+${" ".repeat(indentSize)}`);
+        maybeNewline = true;
+      }
+    } else if (!this._noLineTerminator) {
+  val = `//${comment.value}
+`;
+  maybeNewline = true;
+} else {
+  val = `/*${comment.value}*/`;
+}
+    // Avoid creating //* comments
+    if (this.endsWith(charCodes.slash)) this._space();
+    this.withSource("start", comment.loc, this._append.bind(this, val, maybeNewline));
+    if (printNewLines) this.newline(1);
+  }
+  _printComments(comments?: readonly t.Comment[], inlinePureAnnotation?: boolean) {
+    if (!comments?.length) return;
+    if (inlinePureAnnotation && comments.length === 1 && PURE_ANNOTATION_RE.test(comments[0].value)) {
+      this._printComment(
+        comments[0],
+        // Keep newlines if the comment marks a standalone call
+        this._buf.hasContent() && !this.endsWith(charCodes.lineFeed)
+      );
+    } else {
+      for (const comment of comments) {
+        this._printComment(comment);
+      }
+    }
+  }
+  printAssertions(node: Extract<t.Node, {
+    assertions?: t.ImportAttribute[];
+  }>) {
+    // todo(flow->ts): was Node
+    if (node.assertions?.length) {
+      this.space();
+      this.word("assert");
+      this.space();
+      this.token("{");
+      this.space();
+      this.printList(node.assertions, node);
+      this.space();
+      this.token("}");
+    }
+  }
+}
+// Expose the node type functions and helpers on the prototype for easy usage.
+Object.assign(Printer.prototype, generatorFunctions);
+if (!process.env.BABEL_8_BREAKING) {
+  // @ts-ignore(Babel 7 vs Babel 8) Babel 7 has Noop print method
+  Printer.prototype.Noop = function Noop(this: Printer) {
+  };
+}
+type GeneratorFunctions = typeof generatorFunctions;
+interface Printer extends GeneratorFunctions {}
+export default Printer;
+function commaSeparator(this: Printer) {
+  this.token(",");
+  this.space();
+}
+
+--- actual (SWC Next)
+// From packages\babel-generator\src\printer.ts
+import Buffer from "./buffer";
+import type { Loc } from "./buffer";
+import * as n from "./node";
+import type * as t from "@babel/types";
+import type { RecordAndTuplePluginOptions, PipelineOperatorPluginOptions } from "@babel/parser";
+import type { Opts as jsescOptions } from "jsesc";
+import * as generatorFunctions from "./generators";
+import type SourceMap from "./source-map";
+import * as charCodes from "charcodes";
+const SCIENTIFIC_NOTATION = /e/i;
+const ZERO_DECIMAL_INTEGER = /\.0+$/;
+const NON_DECIMAL_LITERAL = /^0[box]/;
+const PURE_ANNOTATION_RE = /^\s*[@#]__PURE__\s*$/;
+const { needsParens, needsWhitespaceAfter, needsWhitespaceBefore } = n;
+export type Format = {
+  shouldPrintComment: (comment: string) => boolean;
+  retainLines: boolean;
+  retainFunctionParens: boolean;
+  comments: boolean;
+  auxiliaryCommentBefore: string;
+  auxiliaryCommentAfter: string;
+  compact: boolean | "auto";
+  minified: boolean;
+  concise: boolean;
+  indent: {
+    adjustMultilineComment: boolean;
+    style: string;
+  };
+  recordAndTupleSyntaxType: RecordAndTuplePluginOptions["syntaxType"];
+  jsescOption: jsescOptions;
+  jsonCompatibleStrings?: boolean;
+  topicToken?: PipelineOperatorPluginOptions["topicToken"];
+  decoratorsBeforeExport?: boolean;
+};
+/**
+ * For use with the Hack-style pipe operator.
+ * Changes what token is used for pipe bodies’ topic references.
+ */
+/**
+ * @deprecated Removed in Babel 8
+ */
+interface AddNewlinesOptions {
+  addNewlines(leading: boolean, node: t.Node): number;
+}
+interface PrintSequenceOptions extends Partial<AddNewlinesOptions> {
+  statement?: boolean;
+  indent?: boolean;
+}
+interface PrintListOptions {
+  separator?: (this: Printer) => void;
+  statement?: boolean;
+  indent?: boolean;
+}
+type PrintJoinOptions = PrintListOptions & PrintSequenceOptions & {
+  iterator?: (node: t.Node, index: number) => void;
+};
+class Printer {
+  constructor(format: Format, map: SourceMap) {
+    this.format = format;
+    this._bu
+... 18332 characters omitted ...
+ewlineRegex, "\n");
+        }
+        const indentSize = Math.max(this._getIndent(), this.format.retainLines ? 0 : this._buf.getCurrentColumn());
+        val = val.replace(/\n(?!$)/g, `
+${" ".repeat(indentSize)}`);
+        maybeNewline = true;
+      }
+    } else if (!this._noLineTerminator) {
+  val = `//${comment.value}
+`;
+  maybeNewline = true;
+} else {
+  val = `/*${comment.value}*/`;
+}
+    // Avoid creating //* comments
+    if (this.endsWith(charCodes.slash)) this._space();
+    this.withSource("start", comment.loc, this._append.bind(this, val, maybeNewline));
+    if (printNewLines) this.newline(1);
+  }
+  _printComments(comments?: readonly t.Comment[], inlinePureAnnotation?: boolean) {
+    if (!comments?.length) return;
+    if (inlinePureAnnotation && comments.length === 1 && PURE_ANNOTATION_RE.test(comments[0].value)) {
+      this._printComment(
+        comments[0],
+        // Keep newlines if the comment marks a standalone call
+        this._buf.hasContent() && !this.endsWith(charCodes.lineFeed)
+      );
+    } else {
+      for (const comment of comments) {
+        this._printComment(comment);
+      }
+    }
+  }
+  printAssertions(node: Extract<t.Node, {
+    assertions?: t.ImportAttribute[];
+  }>) {
+    // todo(flow->ts): was Node
+    if (node.assertions?.length) {
+      this.space();
+      this.word("assert");
+      this.space();
+      this.token("{");
+      this.space();
+      this.printList(node.assertions, node);
+      this.space();
+      this.token("}");
+    }
+  }
+}
+// Expose the node type functions and helpers on the prototype for easy usage.
+Object.assign(Printer.prototype, generatorFunctions);
+if (!process.env.BABEL_8_BREAKING) {
+  // @ts-ignore(Babel 7 vs Babel 8) Babel 7 has Noop print method
+  Printer.prototype.Noop = function Noop(this: Printer) {
+  };
+}
+type GeneratorFunctions = typeof generatorFunctions;
+interface Printer extends GeneratorFunctions {}
+export default Printer;
+function commaSeparator(this: Printer) {
+  this.token(",");
+  this.space();
+}
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/types/ClassBody-ClassProperty/input.js - parse: Expected '(' for method definition, but found '}' at 629..630
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/types/LogicalExpression/input.js - babel-generator/test/fixtures/types/LogicalExpression: transformed output differs from output.js
+--- expected (Babel output.js)
+foo || bar;
+((x) => x) || bar;
+(function a(x) {
+  return x;
+}) || 2;
+0 || function() {
+  return alpha;
+};
+a && b && c;
+a && b && c;
+a || b || c;
+a || b || c;
+a || b && c;
+a && (b || c);
+(a || b) && c;
+a && b || c;
+
+--- actual (SWC Next)
+foo || bar;
+((x) => x) || bar;
+(function a(x) {
+  return x;
+}) || 2;
+0 || (function() {
+  return alpha;
+});
+a && (b && c);
+(a && b) && c;
+a || (b || c);
+(a || b) || c;
+a || (b && c);
+a && (b || c);
+(a || b) && c;
+(a && b) || c;
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/types/UnaryExpression/input.js - semantic: Deleting a variable in strict mode is not allowed at 7..15
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/types/WithStatement/input.js - semantic: 'with' statements are not allowed in strict mode at 0..13
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/typescript/arrow-function-return-object-as/input.js - babel-generator/test/fixtures/typescript/arrow-function-return-object-as: transformed output differs from output.js
+--- expected (Babel output.js)
+() => ({}) as x;
+() => ({}) satisfies x;
+
+--- actual (SWC Next)
+() => ({} as x);
+() => ({} satisfies x);
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/typescript/cast-need-parentheses/input.js - babel-generator/test/fixtures/typescript/cast-need-parentheses: transformed output differs from output.js
+--- expected (Babel output.js)
+(<T>x).y;
+(x as T).y;
+x!.y;
+point1 ?? (point2 as Point);
+(point1 ?? point2) as Point;
+a in b as c;
+a in b as c;
+a in (b as c);
+(a as b) in c;
+(a as b) in c;
+a | (b as c);
+(a | b) as c;
+a | (b as c);
+a as b | c;
+(a as b) | c;
+a as b | c;
+(a as b) || c;
+(a as b) || c;
+a as b[0];
+a as b[0];
+(a as b)[0];
+a as b = c;
+[a as b] = c;
+[a as b = c] = d;
+
+--- actual (SWC Next)
+(<T>x).y;
+(x as T).y;
+x!.y;
+(point1 ?? (point2 as Point));
+(point1 ?? point2) as Point;
+a in b as c;
+(a in b) as c;
+a in (b as c);
+(a as b) in c;
+(a as b) in c;
+a | (b as c);
+(a | b) as c;
+a | (b as c);
+a as b | c;
+(a as b) | c;
+a as (b | c);
+(a as b) || c;
+(a as b) || c;
+a as b[0];
+a as (b[0]);
+(a as b)[0];
+a as b = c;
+[a as b] = c;
+[a as b = c] = d;
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/typescript/class-abstract/input.js - semantic: Duplicate export of 'default' at 157..193
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/typescript/export-default-function-as/input.js - babel-generator/test/fixtures/typescript/export-default-function-as: transformed output differs from output.js
+--- expected (Babel output.js)
+export default (function f() {
+}) as x;
+
+--- actual (SWC Next)
+export default (function f() {
+} as x);
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/typescript/non-null-parentheses/input.js - babel-generator/test/fixtures/typescript/non-null-parentheses: transformed output differs from output.js
+--- expected (Babel output.js)
+(a ? b : c)!;
+(a ? b : c)!.d;
+a ? b : c!;
+(a ? b : c!).d;
+foo!();
+foo()!;
+async function* f() {
+  (yield x)!;
+  yield x!;
+  (yield)!;
+  (await x)!;
+  await x!;
+}
+
+--- actual (SWC Next)
+(a ? b : c)!;
+(a ? b : c)!.d;
+(a ? b : c!);
+(a ? b : c!).d;
+foo!();
+foo()!;
+async function* f() {
+  (yield x)!;
+  yield x!;
+  (yield)!;
+  (await x)!;
+  (await x!);
+}
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/typescript/satisfies-parentheses/input.ts - babel-generator/test/fixtures/typescript/satisfies-parentheses: transformed output differs from output.js
+--- expected (Babel output.js)
+// These do not normally need parens
+{
+  (a + b) satisfies x;
+  // c
+  a + b satisfies x;
+}
+{
+  b ** (c ** d) satisfies x;
+  // c
+  b ** c ** d satisfies x;
+}
+{
+  a + (b ** c) satisfies x;
+  // c
+  a + b ** c satisfies x;
+}
+// These need parens anyway
+{
+  a + (b + c) satisfies x;
+  // c
+  a + (b + c) satisfies x;
+}
+{
+  a ** (b + c) satisfies x;
+  // c
+  a ** (b + c) satisfies x;
+}
+{
+  (() => a) satisfies x;
+  // c
+  (() => a) satisfies x;
+}
+// These do not need parens even with the comment
+{
+  a + // c
+  b satisfies x;
+  a + b satisfies x;
+}
+{
+  fn(
+    a
+    // c
+  ) satisfies x;
+  fn(a) satisfies x;
+}
+{
+  [a] satisfies x;
+  // c
+  [a] satisfies x;
+}
+
+--- actual (SWC Next)
+// These do not normally need parens
+{
+  (a + b) satisfies x;
+  // c
+  (a + b) satisfies x;
+}
+{
+  (b ** (c ** d)) satisfies x;
+  // c
+  (b ** (c ** d)) satisfies x;
+}
+{
+  (a + (b ** c)) satisfies x;
+  // c
+  (a + (b ** c)) satisfies x;
+}
+// These need parens anyway
+{
+  (a + (b + c)) satisfies x;
+  // c
+  (a + (b + c)) satisfies x;
+}
+{
+  (a ** (b + c)) satisfies x;
+  // c
+  (a ** (b + c)) satisfies x;
+}
+{
+  (() => (a)) satisfies x;
+  // c
+  (() => (a)) satisfies x;
+}
+// These do not need parens even with the comment
+{
+  (a + // c
+  b) satisfies x;
+  (a + b) satisfies x;
+}
+{
+  fn(
+    a
+    // c
+  ) satisfies x;
+  fn(a) satisfies x;
+}
+{
+  [a] satisfies x;
+  // c
+  [a] satisfies x;
+}
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/typescript/satisfies/input.js - babel-generator/test/fixtures/typescript/satisfies: transformed output differs from output.js
+--- expected (Babel output.js)
+x satisfies T;
+x < y satisfies boolean;
+// (x < y) satisfies boolean;
+x === (1 satisfies number);
+// x === (1 satisfies number);
+x satisfies any satisfies T;
+( // a
+x) satisfies T;
+/* b
+newline */
+( // a
+x) satisfies T;
+// b
+x satisfies T;
+
+--- actual (SWC Next)
+x satisfies T;
+x < y satisfies boolean;
+// (x < y) satisfies boolean;
+x === (1 satisfies number);
+// x === (1 satisfies number);
+x satisfies any satisfies T;
+( // a
+x) satisfies T;
+/* b
+ newline */
+( // a
+x) satisfies T;
+// b
+x satisfies T;
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/typescript/types-parenthesized/input.js - babel-generator/test/fixtures/typescript/types-parenthesized: transformed output differs from output.js
+--- expected (Babel output.js)
+type T = {};
+
+--- actual (SWC Next)
+type T = ({});
+
 Failed: fixtures/babel/packages/babel-generator/test/fixtures/typescript/variance-annotations-with-jsx/input.tsx - parse: Expected a semicolon or an implicit semicolon after a statement, but found '<' at 27..28
 
 babel-helper-create-class-features-plugin
@@ -291,12 +1834,210 @@ Panicked: 0/24 (0.00%)
 Skipped: 16/24 (66.67%)
 Messages:
 Failed: fixtures/babel/packages/babel-plugin-transform-arrow-functions/test/fixtures/arrow-functions/implicit-var-arguments/input.js - babel-plugin-transform-arrow-functions/test/fixtures/arrow-functions/implicit-var-arguments: transformed output differs from output.js
+--- expected (Babel output.js)
+var _arguments = [1, 2, 3];
+var arr = function(n) {
+  return _arguments[0];
+};
+arr(4);
+// 1
+function foo(n) {
+  var _arguments2 = arguments;
+  var f = function() {
+    return _arguments2[0] + n;
+  };
+  // foo's implicit arguments binding. arguments[0] is n
+  return f();
+}
+
+--- actual (SWC Next)
+var arguments = [1, 2, 3];
+var arr = function(n) {
+  return arguments[0];
+};
+arr(4);
+// 1
+function foo(n) {
+  var _arguments = arguments;
+  var f = function() {
+    return _arguments[0] + n;
+  };
+  // foo's implicit arguments binding. arguments[0] is n
+  return f();
+}
+
 Failed: fixtures/babel/packages/babel-plugin-transform-arrow-functions/test/fixtures/arrow-functions/spec/input.js - babel-plugin-transform-arrow-functions/test/fixtures/arrow-functions/spec: transformed output differs from output.js
+--- expected (Babel output.js)
+function foo() {
+  var _this = this;
+  arr.map(function(x) {
+    babelHelpers.newArrowCheck(this, _this);
+    return x * x;
+  }.bind(this));
+  var f = function f(x, y) {
+    babelHelpers.newArrowCheck(this, _this);
+    return x * y;
+  }.bind(this);
+  (function() {
+    var _this2 = this;
+    return function() {
+      babelHelpers.newArrowCheck(this, _this2);
+      return this;
+    }.bind(this);
+  })();
+  return { g: function g() {
+    babelHelpers.newArrowCheck(this, _this);
+    return this;
+  }.bind(this) };
+}
+
+--- actual (SWC Next)
+function foo() {
+  var _this2 = this;
+  arr.map(function(x) {
+    return x * x;
+  });
+  var f = function(x, y) {
+    return x * y;
+  };
+  (function() {
+    var _this = this;
+    return function() {
+      return _this;
+    };
+  })();
+  return { g: function() {
+    return _this2;
+  } };
+}
+
 Failed: fixtures/babel/packages/babel-plugin-transform-arrow-functions/test/fixtures/assumption-newableArrowFunctions-false/basic/input.js - babel-plugin-transform-arrow-functions/test/fixtures/assumption-newableArrowFunctions-false/basic: transformed output differs from output.js
+--- expected (Babel output.js)
+function foo() {
+  var _this = this;
+  arr.map(function(x) {
+    babelHelpers.newArrowCheck(this, _this);
+    return x * x;
+  }.bind(this));
+  var f = function f(x, y) {
+    babelHelpers.newArrowCheck(this, _this);
+    return x * y;
+  }.bind(this);
+  (function() {
+    var _this2 = this;
+    return function() {
+      babelHelpers.newArrowCheck(this, _this2);
+      return this;
+    }.bind(this);
+  })();
+  return { g: function g() {
+    babelHelpers.newArrowCheck(this, _this);
+    return this;
+  }.bind(this) };
+}
+
+--- actual (SWC Next)
+function foo() {
+  var _this2 = this;
+  arr.map(function(x) {
+    return x * x;
+  });
+  var f = function(x, y) {
+    return x * y;
+  };
+  (function() {
+    var _this = this;
+    return function() {
+      return _this;
+    };
+  })();
+  return { g: function() {
+    return _this2;
+  } };
+}
+
 Failed: fixtures/babel/packages/babel-plugin-transform-arrow-functions/test/fixtures/assumption-newableArrowFunctions-false/naming/input.js - babel-plugin-transform-arrow-functions/test/fixtures/assumption-newableArrowFunctions-false/naming: transformed output differs from output.js
+--- expected (Babel output.js)
+var _this = this;
+[].map(function(x) {
+  babelHelpers.newArrowCheck(this, _this);
+  return x;
+}.bind(this));
+const f = function f(x) {
+  babelHelpers.newArrowCheck(this, _this);
+  return x;
+}.bind(this);
+const o = { k: function k(x) {
+  babelHelpers.newArrowCheck(this, _this);
+  return x;
+}.bind(this) };
+
+--- actual (SWC Next)
+[].map(function(x) {
+  return x;
+});
+const f = function(x) {
+  return x;
+};
+const o = { k: function(x) {
+  return x;
+} };
+
 Failed: fixtures/babel/packages/babel-plugin-transform-arrow-functions/test/fixtures/assumption-newableArrowFunctions-false/self-referential/input.js - babel-plugin-transform-arrow-functions/test/fixtures/assumption-newableArrowFunctions-false/self-referential: transformed output differs from output.js
+--- expected (Babel output.js)
+var _this = this;
+var fooCalls = [];
+var _jumpTable = function jumpTable(name, arg) {
+  babelHelpers.newArrowCheck(this, _this);
+  if (_jumpTable[name]) {
+    _jumpTable[name](arg);
+  }
+}.bind(this);
+Object.assign(_jumpTable, { foo(arg) {
+  fooCalls.push(arg);
+} });
+_jumpTable("foo", "bar");
+expect(fooCalls[0]).toBe("bar");
+
+--- actual (SWC Next)
+var fooCalls = [];
+var jumpTable = function(name, arg) {
+  if (jumpTable[name]) {
+    jumpTable[name](arg);
+  }
+};
+Object.assign(jumpTable, { foo(arg) {
+  fooCalls.push(arg);
+} });
+jumpTable("foo", "bar");
+expect(fooCalls[0]).toBe("bar");
+
 Failed: fixtures/babel/packages/babel-plugin-transform-arrow-functions/test/fixtures/spec/newableArrowFunction-default/input.js - babel-plugin-transform-arrow-functions/test/fixtures/spec/newableArrowFunction-default: transformed output differs from output.js
+--- expected (Babel output.js)
+var _this = this;
+let a = function a() {
+  babelHelpers.newArrowCheck(this, _this);
+  return 1;
+}.bind(this);
+
+--- actual (SWC Next)
+let a = function() {
+  return 1;
+};
+
 Failed: fixtures/babel/packages/babel-plugin-transform-arrow-functions/test/fixtures/spec/newableArrowFunction-vs-spec-false/input.js - babel-plugin-transform-arrow-functions/test/fixtures/spec/newableArrowFunction-vs-spec-false: transformed output differs from output.js
+--- expected (Babel output.js)
+var _this = this;
+let a = function a() {
+  babelHelpers.newArrowCheck(this, _this);
+  return 1;
+}.bind(this);
+
+--- actual (SWC Next)
+let a = function() {
+  return 1;
+};
+
 
 babel-plugin-transform-async-generator-functions
 ------------------------------------------------
@@ -699,18 +2440,554 @@ Panicked: 0/32 (0.00%)
 Skipped: 19/32 (59.38%)
 Messages:
 Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/arrow-inside-generator/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/arrow-inside-generator: transformed output differs from output.js
+--- expected (Babel output.js)
+var _marked = /* #__PURE__ */ babelHelpers.regenerator().m(gen);
+function gen() {
+  var a;
+  return babelHelpers.regenerator().w(function(_context) {
+    while (1) switch (_context.n) {
+      case 0:
+        a = () => {
+          return 1;
+        };
+      case 1:
+        return _context.a(2);
+    }
+  }, _marked);
+}
+
+--- actual (SWC Next)
+function gen() {
+  var a;
+  return _ts_generator(this, function(_state) {
+    a = () => {
+      return 1;
+    };
+    return [2];
+  });
+}
+
 Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/await-yield/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/await-yield: transformed output differs from output.js
+--- expected (Babel output.js)
+var _marked = /* #__PURE__ */ babelHelpers.regenerator().m(f);
+function f() {
+  var res;
+  return babelHelpers.regeneratorAsyncGen(function(_context) {
+    while (1) switch (_context.n) {
+      case 0:
+        _context.n = 1;
+        return 1;
+      case 1:
+        _context.n = 2;
+        return babelHelpers.awaitAsyncGenerator(_context.v);
+      case 2:
+        res = _context.v;
+      case 3:
+        return _context.a(2);
+    }
+  }, _marked, null, null, Promise);
+}
+
+--- actual (SWC Next)
+async function f() {
+  var res;
+  return _ts_generator(this, function(_state) {
+    switch (_state.label) {
+      case 0:
+        return [4, 1];
+      case 1:
+        res = await (_state.sent());
+        return [2];
+    }
+  });
+}
+
 Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/class-computed-key-child-yield/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/class-computed-key-child-yield: transformed output differs from output.js
+--- expected (Babel output.js)
+var _marked = /* #__PURE__ */ babelHelpers.regenerator().m(gen);
+function gen() {
+  var _t;
+  return babelHelpers.regenerator().w(function(_context) {
+    while (1) switch (_context.n) {
+      case 0:
+        1;
+        _context.n = 1;
+        return;
+      case 1:
+        _t = _context.v;
+        1;
+        _context.n = 2;
+        return;
+      case 2:
+        return _context.a(2, class {
+          [_t]() {
+            return 1;
+          }
+          [_context.v]() {
+            return 2;
+          }
+        });
+    }
+  }, _marked);
+}
+const it = gen();
+it.next();
+it.next("one");
+const res = it.next("two").value;
+expect(new res().one()).toBe(1);
+expect(new res().two()).toBe(2);
+
+--- actual (SWC Next)
+function gen() {
+  return _ts_generator(this, function(_state) {
+    switch (_state.label) {
+      case 0:
+        1;
+        return [4];
+      case 1:
+        1;
+        return [4];
+      case 2:
+        return [2, class {
+          [(_state.sent())]() {
+            return 1;
+          }
+          [(_state.sent())]() {
+            return 2;
+          }
+        }];
+    }
+  });
+}
+const it = gen();
+it.next();
+it.next("one");
+const res = it.next("two").value;
+expect(new res().one()).toBe(1);
+expect(new res().two()).toBe(2);
+
 Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/class-inside-generator/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/class-inside-generator: transformed output differs from output.js
+--- expected (Babel output.js)
+var _marked = /* #__PURE__ */ babelHelpers.regenerator().m(f);
+function f() {
+  return babelHelpers.regenerator().w(function(_context) {
+    while (1) switch (_context.n) {
+      case 0:
+        class A {
+          foo() {
+            return 1;
+          }
+        }
+        ;
+      case 1:
+        return _context.a(2);
+    }
+  }, _marked);
+}
+
+--- actual (SWC Next)
+function f() {
+  return _ts_generator(this, function(_state) {
+    class A {
+      foo() {
+        return 1;
+      }
+    }
+    ;
+    return [2];
+  });
+}
+
 Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/computed-properties/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/computed-properties: transformed output differs from output.js
+--- expected (Babel output.js)
+var o = { foo() {
+  return /* #__PURE__ */ babelHelpers.regenerator().m(function _callee() {
+    return babelHelpers.regenerator().w(function(_context) {
+      while (1) switch (_context.n) {
+        case 0:
+          return _context.a(2, "foo");
+      }
+    }, _callee);
+  })();
+} };
+
+--- actual (SWC Next)
+var o = { foo() {
+  return _ts_generator(this, function(_state) {
+    return [2, "foo"];
+  });
+} };
+
 Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/existing-regeneratorRuntime-usage/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/existing-regeneratorRuntime-usage: transformed output differs from output.js
+--- expected (Babel output.js)
+var _marked = /* #__PURE__ */ babelHelpers.regenerator().m(fn);
+function fn() {
+  return babelHelpers.regenerator().w(function(_context) {
+    while (1) switch (_context.n) {
+      case 0:
+        return _context.a(2);
+    }
+  }, _marked);
+}
+regeneratorRuntime.isGeneratorFunction(fn);
+
+--- actual (SWC Next)
+function fn() {
+  return _ts_generator(this, function(_state) {
+    return [2];
+  });
+}
+regeneratorRuntime.isGeneratorFunction(fn);
+
 Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/for-in/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/for-in: transformed output differs from output.js
+--- expected (Babel output.js)
+var _marked = /* #__PURE__ */ babelHelpers.regenerator().m(fn);
+function fn() {
+  var _t, _t2;
+  return babelHelpers.regenerator().w(function(_context) {
+    while (1) switch (_context.n) {
+      case 0:
+        _t = babelHelpers.regeneratorKeys(y);
+      case 1:
+        if ((_t2 = _t()).done) {
+          _context.n = 3;
+          break;
+        }
+        x = _t2.value;
+        _context.n = 2;
+        return x;
+      case 2:
+        _context.n = 1;
+        break;
+      case 3:
+        return _context.a(2);
+    }
+  }, _marked);
+}
+
+--- actual (SWC Next)
+function fn() {
+  var _tmp, _tmp1, _tmp2;
+  return _ts_generator(this, function(_state) {
+    switch (_state.label) {
+      case 0:
+        _tmp = [];
+        for (_tmp1 in y) _tmp.push(_tmp1);
+        _tmp2 = 0;
+        return [3, 1];
+      case 1:
+        if (!(_tmp2 < _tmp.length)) return [3, 4];
+      case 2:
+        x = _tmp[_tmp2];
+        return [4, x];
+      case 3:
+        _tmp2 = _tmp2 + 1;
+        return [3, 1];
+      case 4:
+        return [2];
+      case 5:
+        _state.sent();
+        return [3, 3];
+    }
+  });
+}
+
 Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/multiple-yield-in-call/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/multiple-yield-in-call: transformed output differs from output.js
+--- expected (Babel output.js)
+var _marked = /* #__PURE__ */ babelHelpers.regenerator().m(fn);
+function fn() {
+  var _t, _t2, _t3, _t4, _t5, _t6;
+  return babelHelpers.regenerator().w(function(_context) {
+    while (1) switch (_context.n) {
+      case 0:
+        _t = foo;
+        _t2 = a;
+        _t3 = b;
+        _context.n = 1;
+        return c;
+      case 1:
+        _t4 = _context.v;
+        _t5 = d;
+        _t6 = e;
+        _context.n = 2;
+        return f;
+      case 2:
+        _t(_t2, _t3, _t4, _t5, _t6, _context.v, g, h);
+      case 3:
+        return _context.a(2);
+    }
+  }, _marked);
+}
+
+--- actual (SWC Next)
+function fn() {
+  var _tmp, _tmp1, _tmp2, _tmp3, _tmp4, _tmp5;
+  return _ts_generator(this, function(_state) {
+    switch (_state.label) {
+      case 0:
+        _tmp = foo;
+        _tmp1 = a;
+        _tmp2 = b;
+        return [4, c];
+      case 1:
+        _tmp3 = _state.sent();
+        _tmp4 = d;
+        _tmp5 = e;
+        return [4, f];
+      case 2:
+        _tmp(_tmp1, _tmp2, _tmp3, _tmp4, _tmp5, _state.sent(), g, h);
+        return [2];
+    }
+  });
+}
+
 Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/no-external-helpers/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/no-external-helpers: transformed output differs from output.js
+--- expected (Babel output.js)
+function _regenerator() {
+  /*! regenerator-runtime -- Copyright (c) 2014-present, Facebook, Inc. -- license (MIT): https://github.com/babel/babel/blob/main/packages/babel-helpers/LICENSE */
+  var e, t, r = "function" == typeof Symbol ? Symbol : {}, n = r.iterator || "@@iterator", o = r.toStringTag || "@@toStringTag";
+  function i(r, n, o, i) {
+    var c = n && n.prototype instanceof Generator ? n : Generator, u = Object.create(c.prototype);
+    return _regeneratorDefine(u, "_invoke", function(r, n, o) {
+      var i, c, u, f = 0, p = o || [], y = !1, G = { p: 0, n: 0, v: e, a: d, f: d.bind(e, 4), d: function(t, r) {
+        return i = t, c = 0, u = e, G.n = r, a;
+      } };
+      function d(r, n) {
+        for (c = r, u = n, t = 0; !y && f && !o && t < p.length; t++) {
+          var o, i = p[t], d = G.p, l = i[2];
+          r > 3 ? (o = l === n) && (u = i[(c = i[4]) ? 5 : (c = 3, 3)], i[4] = i[5] = e) : i[0] <= d && ((o = r < 2 && d < i[1]) ? (c = 0, G.v = n, G.n = i[1]) : d < l && (o = r < 3 || i[0] > n || n > l) && (i[4] = r, i[5] = n, G.n = l, c = 0));
+        }
+        if (o || r > 1) return a;
+        throw y = !0, n;
+      }
+      return function(o, p, l) {
+        if (f > 1) throw TypeError("Generator is already running");
+        for (y && 1 === p && d(p, l), c = p, u = l; (t = c < 2 ? e : u) || !y; ) {
+          i || (c ? c < 3 ? (c > 1 && (G.n = -1), d(c, u)) : G.n = u : G.v = u);
+          try {
+            if (f = 2, i) {
+              if (c || (o = "next"), t = i[o]) {
+                if (!(t = t.call(i, u))) throw TypeError("iterator result is not an object");
+                if (!t.done) return t;
+                u = t.value, c < 2 && (c = 0);
+              } else 1 === c && (t = i.return) && t.call(i), c < 2 && (u = TypeError("The iterator does not provide a '" + o + "' method"), c = 1);
+              i = e;
+            } else if ((t = (y = G.n < 0) ? u : r.call(n, G)) !== a) break;
+          } catch (t) {
+            i = e, c = 1, u = t;
+          }
+... 21 characters omitted ...
+  f = 1;
+          }
+        }
+        return { value: t, done: y };
+      };
+    }(r, o, i), !0), u;
+  }
+  var a = {};
+  function Generator() {
+  }
+  function GeneratorFunction() {
+  }
+  function GeneratorFunctionPrototype() {
+  }
+  t = Object.getPrototypeOf;
+  var c = [][n] ? t(t([][n]())) : (_regeneratorDefine(t = {}, n, function() {
+    return this;
+  }), t), u = GeneratorFunctionPrototype.prototype = Generator.prototype = Object.create(c);
+  function f(e) {
+    return Object.setPrototypeOf ? Object.setPrototypeOf(e, GeneratorFunctionPrototype) : (e.__proto__ = GeneratorFunctionPrototype, _regeneratorDefine(e, o, "GeneratorFunction")), e.prototype = Object.create(u), e;
+  }
+  return GeneratorFunction.prototype = GeneratorFunctionPrototype, _regeneratorDefine(u, "constructor", GeneratorFunctionPrototype), _regeneratorDefine(GeneratorFunctionPrototype, "constructor", GeneratorFunction), GeneratorFunction.displayName = "GeneratorFunction", _regeneratorDefine(GeneratorFunctionPrototype, o, "GeneratorFunction"), _regeneratorDefine(u), _regeneratorDefine(u, o, "Generator"), _regeneratorDefine(u, n, function() {
+    return this;
+  }), _regeneratorDefine(u, "toString", function() {
+    return "[object Generator]";
+  }), (_regenerator = function() {
+    return { w: i, m: f };
+  })();
+}
+function _regeneratorDefine(e, r, n, t) {
+  var i = Object.defineProperty;
+  try {
+    i({}, "", {});
+  } catch (e) {
+    i = 0;
+  }
+  _regeneratorDefine = function(e, r, n, t) {
+    function o(r, n) {
+      _regeneratorDefine(e, r, function(e) {
+        return this._invoke(r, n, e);
+      });
+    }
+    r ? i ? i(e, r, { value: n, enumerable: !t, configurable: !t, writable: !t }) : e[r] = n : (o("next", 0), o("throw", 1), o("return", 2));
+  }, _regeneratorDefine(e, r, n, t);
+}
+var _marked = /* #__PURE__ */ _regenerator().m(f);
+function f() {
+  return _regenerator().w(function(_context) {
+    while (1) switch (_context.n) {
+      case 0:
+        return _context.a(2);
+    }
+  }, _marked);
+}
+
+--- actual (SWC Next)
+function f() {
+  return _ts_generator(this, function(_state) {
+    return [2];
+  });
+}
+
 Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/yield-sparse-array/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/yield-sparse-array: transformed output differs from output.js
+--- expected (Babel output.js)
+// #15142
+() => {
+  var _t;
+  return babelHelpers.regeneratorAsync(function(_context) {
+    while (1) switch (_context.n) {
+      case 0:
+        _context.n = 1;
+        return babelHelpers.awaitAsyncGenerator(0);
+      case 1:
+        _t = _context.v;
+        return _context.a(2, [_t, ,]);
+    }
+  }, null, null, null, Promise);
+};
+
+--- actual (SWC Next)
+// #15142
+async () => [await 0, ,];
+
 Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/yield/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/yield: transformed output differs from output.js
+--- expected (Babel output.js)
+var _marked = /* #__PURE__ */ babelHelpers.regenerator().m(foo), _marked2 = /* #__PURE__ */ babelHelpers.regenerator().m(bar);
+function foo() {
+  var _t, _t2;
+  return babelHelpers.regenerator().w(function(_context) {
+    while (1) switch (_context.n) {
+      case 0:
+        return _context.d(babelHelpers.regeneratorValues(bar()), 1);
+      case 1:
+        _t = _context.v;
+        return _context.d(babelHelpers.regeneratorValues(bar()), 2);
+      case 2:
+        _t2 = _context.v;
+        return _context.a(2, _t + _t2);
+    }
+  }, _marked);
+}
+function bar() {
+  var _t3, _t4;
+  return babelHelpers.regenerator().w(function(_context2) {
+    while (1) switch (_context2.n) {
+      case 0:
+        _context2.n = 1;
+        return 2;
+      case 1:
+        _t3 = _context2.v;
+        _context2.n = 2;
+        return 3;
+      case 2:
+        _t4 = _context2.v;
+        return _context2.a(2, _t3 + _t4);
+    }
+  }, _marked2);
+}
+
+--- actual (SWC Next)
+function foo() {
+  var _tmp;
+  return _ts_generator(this, function(_state) {
+    switch (_state.label) {
+      case 0:
+        return [5, bar()];
+      case 1:
+        _tmp = (_state.sent());
+        return [5, bar()];
+      case 2:
+        return [2, _tmp + (_state.sent())];
+    }
+  });
+}
+function bar() {
+  var _tmp;
+  return _ts_generator(this, function(_state) {
+    switch (_state.label) {
+      case 0:
+        return [4, 2];
+      case 1:
+        _tmp = (_state.sent());
+        return [4, 3];
+      case 2:
+        return [2, _tmp + (_state.sent())];
+    }
+  });
+}
+
 Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/scope/6923/input.js - babel-plugin-transform-regenerator/test/fixtures/scope/6923: transformed output differs from output.js
+--- expected (Babel output.js)
+function foo() {
+  return babelHelpers.regeneratorAsync(function(_context2) {
+    while (1) switch (_context2.n) {
+      case 0:
+        (function _callee(number) {
+          var tmp;
+          return babelHelpers.regeneratorAsync(function(_context) {
+            while (1) switch (_context.n) {
+              case 0:
+                tmp = number;
+              case 1:
+                return _context.a(2);
+            }
+          }, null, null, null, Promise);
+        });
+      case 1:
+        return _context2.a(2);
+    }
+  }, null, null, null, Promise);
+}
+
+--- actual (SWC Next)
+async function foo() {
+  (async function(number) {
+    const tmp = number;
+  });
+}
+
 Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/variable-renaming/retain-lines/input.js - babel-plugin-transform-regenerator/test/fixtures/variable-renaming/retain-lines: transformed output differs from output.js
+--- expected (Babel output.js)
+var func = /* #__PURE__ */ babelHelpers.regenerator().m(function _callee() {
+  var actual;
+  return babelHelpers.regenerator().w(function(_context) {
+    while (1) switch (_context.n) {
+      case 0:
+        _context.n = 1;
+        return obj.method().method2();
+      case 1:
+        actual = true;
+      case 2:
+        return _context.a(2);
+    }
+  }, _callee);
+});
+
+--- actual (SWC Next)
+var func = function() {
+  var actual;
+  return _ts_generator(this, function(_state) {
+    switch (_state.label) {
+      case 0:
+        return [4, obj.method().method2()];
+      case 1:
+        _state.sent();
+        actual = true;
+        return [2];
+    }
+  });
+};
+
 
 babel-plugin-transform-regexp-modifiers
 ---------------------------------------
