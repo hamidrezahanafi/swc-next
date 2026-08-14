@@ -27,6 +27,7 @@ pub struct BabelPlugins {
 
     // ES2015
     pub arrow_function: Option<ArrowFunctionsOptions>,
+    pub generator: bool,
     pub shorthand_properties: bool,
     pub sticky_regex: bool,
 }
@@ -60,6 +61,7 @@ impl TryFrom<PluginPresetEntries> for BabelPlugins {
                         .map_err(|error| plugins.errors.push(error))
                         .ok();
                 }
+                "transform-regenerator" => plugins.generator = true,
                 "transform-shorthand-properties" => plugins.shorthand_properties = true,
                 "transform-sticky-regex" => plugins.sticky_regex = true,
                 _ => plugins.unsupported.push(entry.name().to_owned()),

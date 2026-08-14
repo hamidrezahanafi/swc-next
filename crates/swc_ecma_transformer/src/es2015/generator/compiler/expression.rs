@@ -148,6 +148,10 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
                 object.set_properties(self.ast, compiled);
                 expression
             }
+            NodeKindData::Class(class) => {
+                self.compile_class(class);
+                expression
+            }
             NodeKindData::TemplateLiteral(template) => {
                 self.compile_template(template);
                 expression
@@ -236,6 +240,53 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
         binary.set_left(self.ast, left);
         binary.set_right(self.ast, right);
         expression
+    }
+
+    fn compile_class(&mut self, class: swc_next_ecma_ast::Class) {
+        self.compile_decorators(self.nodes(class.decorators(self.ast)));
+        if let Some(super_class) = class.super_class(self.ast) {
+            let super_class = self.compile_expr(super_class);
+            class.set_super_class(self.ast, Some(super_class));
+        }
+
+        let body = class.body(self.ast);
+        for element in self.nodes(body.body(self.ast)) {
+            match self.ast.class_element_data(element) {
+                ClassElementData::MethodDefinition(method) => {
+                    self.compile_decorators(self.nodes(method.decorators(self.ast)));
+                    self.compile_property_key(method.key(self.ast), |compiler, key| {
+                        method.set_key(compiler.ast, key);
+                    });
+                }
+                ClassElementData::PropertyDefinition(property) => {
+                    self.compile_decorators(self.nodes(property.decorators(self.ast)));
+                    self.compile_property_key(property.key(self.ast), |compiler, key| {
+                        property.set_key(compiler.ast, key);
+                    });
+                }
+                ClassElementData::TsMethodDefinition(method) => {
+                    self.compile_decorators(self.nodes(method.decorators(self.ast)));
+                    self.compile_property_key(method.key(self.ast), |compiler, key| {
+                        method.set_key(compiler.ast, key);
+                    });
+                }
+                ClassElementData::StaticBlock(_) | ClassElementData::TsIndexSignature(_) => {}
+            }
+        }
+    }
+
+    fn compile_decorators(&mut self, decorators: Vec<Decorator>) {
+        for decorator in decorators {
+            let expression = self.compile_expr(decorator.expression(self.ast));
+            decorator.set_expression(self.ast, expression);
+        }
+    }
+
+    fn compile_property_key(&mut self, key: PropertyKey, set: impl FnOnce(&mut Self, PropertyKey)) {
+        if let PropertyKeyData::Expr(expression) = self.ast.property_key_data(key) {
+            let expression = self.compile_expr(expression);
+            set(self, PropertyKey::Expr(expression));
+        }
     }
 
     fn compile_template(&mut self, template: swc_next_ecma_ast::TemplateLiteral) {

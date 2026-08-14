@@ -5,8 +5,6 @@ use self::analysis::GeneratorAnalysis;
 
 mod analysis;
 mod compiler;
-#[cfg(test)]
-mod tests;
 
 pub(super) struct Generator;
 

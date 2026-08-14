@@ -2,10 +2,11 @@ use std::collections::HashSet;
 
 use swc_next_ecma_ast::{
     Argument, ArgumentData, AssignmentOperator, AssignmentTarget, Ast, AstUtf8, BinaryExpression,
-    BinaryOperator, BindingPattern, DUMMY_SP, Expr, ForStatementInitData, ForStatementLeftData,
-    FormalParameterKind, Function, FunctionType, LogicalOperator, NodeKind, NodeKindData,
-    NumericLiteralKind, ObjectPropertyKind, ObjectPropertyKindData, PropertyKey, PropertyKeyData,
-    Stmt, TypedSubRange, UnaryOperator, VariableKind,
+    BinaryOperator, BindingPattern, ClassElementData, DUMMY_SP, Decorator, Expr,
+    ForStatementInitData, ForStatementLeftData, FormalParameterKind, Function, FunctionType,
+    LogicalOperator, NodeKind, NodeKindData, NumericLiteralKind, ObjectPropertyKind,
+    ObjectPropertyKindData, PropertyKey, PropertyKeyData, Stmt, TypedSubRange, UnaryOperator,
+    VariableKind,
 };
 use swc_next_ecma_semantic::Semantic;
 

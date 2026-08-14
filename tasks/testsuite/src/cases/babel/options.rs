@@ -82,7 +82,7 @@ impl From<BabelOptions> for TransformerOptions {
             assumptions: options.assumptions,
             es2015: ES2015Options {
                 arrow_functions: plugins.arrow_function,
-                generator: false,
+                generator: plugins.generator,
                 shorthand_properties: plugins.shorthand_properties,
                 sticky_regex: plugins.sticky_regex,
             },

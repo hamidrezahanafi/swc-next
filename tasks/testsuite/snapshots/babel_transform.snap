@@ -5,9 +5,9 @@ Total
 -----
 Cases: 4069
 Passed: 443/4069 (10.89%)
-Failed: 60/4069 (1.47%)
+Failed: 73/4069 (1.79%)
 Panicked: 0/4069 (0.00%)
-Skipped: 3566/4069 (87.64%)
+Skipped: 3553/4069 (87.32%)
 
 Packages
 ========
@@ -694,9 +694,23 @@ babel-plugin-transform-regenerator
 ----------------------------------
 Cases: 32
 Passed: 0/32 (0.00%)
-Failed: 0/32 (0.00%)
+Failed: 13/32 (40.62%)
 Panicked: 0/32 (0.00%)
-Skipped: 32/32 (100.00%)
+Skipped: 19/32 (59.38%)
+Messages:
+Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/arrow-inside-generator/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/arrow-inside-generator: transformed output differs from output.js
+Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/await-yield/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/await-yield: transformed output differs from output.js
+Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/class-computed-key-child-yield/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/class-computed-key-child-yield: transformed output differs from output.js
+Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/class-inside-generator/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/class-inside-generator: transformed output differs from output.js
+Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/computed-properties/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/computed-properties: transformed output differs from output.js
+Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/existing-regeneratorRuntime-usage/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/existing-regeneratorRuntime-usage: transformed output differs from output.js
+Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/for-in/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/for-in: transformed output differs from output.js
+Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/multiple-yield-in-call/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/multiple-yield-in-call: transformed output differs from output.js
+Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/no-external-helpers/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/no-external-helpers: transformed output differs from output.js
+Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/yield-sparse-array/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/yield-sparse-array: transformed output differs from output.js
+Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/misc/yield/input.js - babel-plugin-transform-regenerator/test/fixtures/misc/yield: transformed output differs from output.js
+Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/scope/6923/input.js - babel-plugin-transform-regenerator/test/fixtures/scope/6923: transformed output differs from output.js
+Failed: fixtures/babel/packages/babel-plugin-transform-regenerator/test/fixtures/variable-renaming/retain-lines/input.js - babel-plugin-transform-regenerator/test/fixtures/variable-renaming/retain-lines: transformed output differs from output.js
 
 babel-plugin-transform-regexp-modifiers
 ---------------------------------------
