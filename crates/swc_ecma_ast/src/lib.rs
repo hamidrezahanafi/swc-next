@@ -4,6 +4,7 @@ mod comment;
 mod derive;
 mod diagnostic;
 pub mod ffi;
+mod hygiene;
 mod node_id;
 mod semantic;
 mod strings;
@@ -29,6 +30,7 @@ pub use derive::*;
 pub use diagnostic::*;
 pub use generated::ast_node::{NodeKind, NodeKindData};
 pub use generated::ast_visitor::*;
+pub use hygiene::{Mark, SyntaxContext};
 pub use node_id::{AstNode, ExtraDataCompact, ExtraDataId, NodeId, SubRange, TypedSubRange};
 pub use semantic::{ReferenceId, ScopeId, SymbolId};
 pub use strings::{AstUtf8, AstWtf8};
@@ -57,6 +59,9 @@ pub struct Ast<'a> {
 
     /// Source-backed and decoded AST strings.
     strings: StringPool<'a>,
+
+    /// Hygiene marks and per-node syntax contexts.
+    hygiene: hygiene::Hygiene<'a>,
 }
 
 multi_index_vec! {
@@ -113,6 +118,7 @@ impl<'a> Ast<'a> {
             nodes: NodeData::new_in(allocator),
             extra_data: ArenaVec::with_capacity_in(0, allocator),
             strings: StringPool::new_in(allocator, source),
+            hygiene: hygiene::Hygiene::new_in(allocator),
         }
     }
 
@@ -136,9 +142,11 @@ impl<'a> Ast<'a> {
         let span = *self.nodes.span(new);
         let kind = *self.nodes.kind(new);
         let data = *self.nodes.data(new);
+        let context = self.hygiene.node_context(new);
         *self.nodes.span_mut(old) = span;
         *self.nodes.kind_mut(old) = kind;
         *self.nodes.data_mut(old) = data;
+        self.hygiene.set_node_context(old, context);
     }
 
     /// Replace `old` with a newly built `new` node, discard the temporary node,
@@ -167,10 +175,13 @@ impl<'a> Ast<'a> {
         let span = *self.nodes.span(new);
         let kind = *self.nodes.kind(new);
         let data = *self.nodes.data(new);
+        let context = self.hygiene.node_context(new);
         *self.nodes.span_mut(old) = span;
         *self.nodes.kind_mut(old) = kind;
         *self.nodes.data_mut(old) = data;
+        self.hygiene.set_node_context(old, context);
         self.nodes.truncate(new.index());
+        self.hygiene.truncate_nodes(new.index());
 
         unsafe { New::from_node_id_unchecked(old) }
     }
@@ -337,6 +348,51 @@ impl<'a> Ast<'a> {
         self.nodes.len()
     }
 
+    /// Returns the hygiene context attached to `node`.
+    #[inline]
+    pub fn syntax_context(&self, node: NodeId) -> SyntaxContext {
+        assert!(node.index() < self.nodes.len());
+        self.hygiene.node_context(node)
+    }
+
+    /// Attaches a hygiene context to `node`.
+    #[inline]
+    pub fn set_syntax_context(&mut self, node: NodeId, context: SyntaxContext) {
+        assert!(node.index() < self.nodes.len());
+        self.hygiene.set_node_context(node, context);
+    }
+
+    /// Allocates a fresh hygiene mark below `parent`.
+    #[inline]
+    pub fn fresh_mark(&mut self, parent: Mark) -> Mark {
+        self.hygiene.fresh_mark(parent)
+    }
+
+    /// Returns whether `mark` is equal to or below `ancestor`.
+    #[inline]
+    pub fn mark_is_descendant_of(&self, mark: Mark, ancestor: Mark) -> bool {
+        self.hygiene.is_descendant_of(mark, ancestor)
+    }
+
+    /// Applies `mark` to a syntax context, reusing an existing chain when one
+    /// has already been allocated.
+    #[inline]
+    pub fn apply_mark(&mut self, context: SyntaxContext, mark: Mark) -> SyntaxContext {
+        self.hygiene.apply_mark(context, mark)
+    }
+
+    /// Returns the outermost mark of `context`.
+    #[inline]
+    pub fn outer_mark(&self, context: SyntaxContext) -> Mark {
+        self.hygiene.outer_mark(context)
+    }
+
+    /// Removes and returns the outermost mark of `context`.
+    #[inline]
+    pub fn remove_mark(&self, context: &mut SyntaxContext) -> Mark {
+        self.hygiene.remove_mark(context)
+    }
+
     /// Returns the number of entries in the out-of-line field table.
     #[inline]
     pub fn extra_data_count(&self) -> usize {
@@ -356,6 +412,7 @@ impl<'a> Ast<'a> {
         assert!(nodes_len <= self.nodes.len());
         assert!(extra_data_len <= self.extra_data.len());
         self.nodes.truncate(nodes_len);
+        self.hygiene.truncate_nodes(nodes_len);
         self.extra_data.truncate(extra_data_len);
     }
 
