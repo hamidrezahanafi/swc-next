@@ -2,7 +2,7 @@ use swc_next_ecma_ast::{
     Ast, ObjectProperty, Program, RegExpLiteral, Traverse, TraverseAction, TraverseCtx,
     TraverseWith,
 };
-use swc_next_ecma_semantic::Semantic;
+use swc_next_ecma_semantic::{Semantic, SemanticFeatureFlags};
 
 use crate::{
     assumptions::Assumptions,
@@ -21,8 +21,23 @@ pub struct TransformerOptions {
     pub es2015: es2015::ES2015Options,
 }
 
-pub struct TransformerImpl<'a> {
-    semantic: &'a Semantic<'a>,
+impl TransformerOptions {
+    pub fn semantic_features(&self) -> SemanticFeatureFlags {
+        let mut features = SemanticFeatureFlags::empty();
+        if self.es2015.arrow_functions.is_some() {
+            features |= SemanticFeatureFlags::FUNCTION_ENV_CAPTURE;
+        }
+        if self.es2015.generator {
+            features |= SemanticFeatureFlags::YIELD
+                | SemanticFeatureFlags::GENERATOR_FUNCTIONS
+                | SemanticFeatureFlags::FUNCTION_ENV_CAPTURE;
+        }
+        features
+    }
+}
+
+pub struct TransformerImpl<'semantic, 'ast> {
+    semantic: &'semantic mut Semantic<'ast>,
     x0_es2015: es2015::ES2015,
 }
 
@@ -30,7 +45,7 @@ impl Transformer {
     pub fn transform<'a>(
         program: Program,
         ast: &mut Ast<'a>,
-        semantic: &Semantic,
+        semantic: &mut Semantic<'a>,
         options: TransformerOptions,
     ) {
         let mut transformer = TransformerImpl {
@@ -45,21 +60,25 @@ impl Transformer {
     }
 }
 
-impl<'a> Traverse<'a, TransformerState> for TransformerImpl<'_> {
+impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     fn enter_program(
         &mut self,
         node: Program,
-        ctx: &mut TransformerCtx<'_, 'a>,
+        ctx: &mut TransformerCtx<'_, 'ast>,
     ) -> TraverseAction<Program> {
         self.x0_es2015.transform(node, self.semantic, ctx);
-        TraverseAction::Proceed
+        if self.x0_es2015.needs_node_traversal() {
+            TraverseAction::Proceed
+        } else {
+            TraverseAction::Skip
+        }
     }
 
-    fn exit_object_property(&mut self, node: ObjectProperty, ctx: &mut TransformerCtx<'_, 'a>) {
+    fn exit_object_property(&mut self, node: ObjectProperty, ctx: &mut TransformerCtx<'_, 'ast>) {
         self.x0_es2015.exit_object_property(node, ctx);
     }
 
-    fn exit_reg_exp_literal(&mut self, node: RegExpLiteral, ctx: &mut TransformerCtx<'_, 'a>) {
+    fn exit_reg_exp_literal(&mut self, node: RegExpLiteral, ctx: &mut TransformerCtx<'_, 'ast>) {
         self.x0_es2015.exit_reg_exp_literal(node, ctx);
     }
 }

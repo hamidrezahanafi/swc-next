@@ -2429,10 +2429,10 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         };
         let accessor_before_star =
             next.tag == TokenTag::Star && matches!(token.tag, TokenTag::Get | TokenTag::Set);
-        let consume_as_modifier = can_start_element_key(next.tag)
-            && !accessor_before_star
-            && !(requires_same_line(token.tag) && next.has_line_terminator_before())
-            && !modifiers.conflicts(token.tag);
+        let consume_as_modifier = !(!can_start_element_key(next.tag)
+            || accessor_before_star
+            || modifiers.conflicts(token.tag)
+            || requires_same_line(token.tag) && next.has_line_terminator_before());
 
         if !consume_as_modifier {
             self.advance_without_escape_check()?;

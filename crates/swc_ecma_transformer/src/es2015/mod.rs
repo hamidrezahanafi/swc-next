@@ -36,24 +36,21 @@ impl ES2015 {
 }
 
 impl ES2015 {
+    pub(crate) fn needs_node_traversal(&self) -> bool {
+        self.shorthand_properties || self.sticky_regex
+    }
+
     pub(crate) fn transform<'a>(
         &mut self,
         node: Program,
-        semantic: &Semantic,
+        semantic: &mut Semantic<'a>,
         ctx: &mut TransformerCtx<'_, 'a>,
     ) {
-        // Semantic-dependent generator facts must be collected from the
-        // original tree. Lowering waits until after arrow conversion so
-        // lexical `this`/`arguments` inside generator-local arrows keep the
-        // same environment as SWC's established ES2015 pass order.
-        let generator_analysis = self
-            .generator
-            .then(|| generator::Generator::analyze(node, ctx.ast, semantic));
         if let Some(arrow) = &mut self.arrow {
             arrow.transform(node, ctx.ast, semantic);
         }
-        if let Some(generator_analysis) = generator_analysis {
-            generator::Generator.transform(generator_analysis, ctx.ast, semantic);
+        if self.generator {
+            generator::Generator.transform(ctx.ast, semantic);
         }
     }
 

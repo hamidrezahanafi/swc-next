@@ -23,12 +23,12 @@ swc_next_ecma_transformer = { workspace = true }
 
 # Local SWC checkout used by `generator_transform`. Keep these path dependencies
 # local to the benchmark task so the comparison measures both working trees.
-swc_old_common = { package = "swc_common", path = "/private/tmp/swc-generator-bench-base/crates/swc_common" }
-swc_old_ecma_ast = { package = "swc_ecma_ast", path = "/private/tmp/swc-generator-bench-base/crates/swc_ecma_ast" }
-swc_old_ecma_codegen = { package = "swc_ecma_codegen", path = "/private/tmp/swc-generator-bench-base/crates/swc_ecma_codegen" }
-swc_old_ecma_compat_es2015 = { package = "swc_ecma_compat_es2015", path = "/private/tmp/swc-generator-bench-base/crates/swc_ecma_compat_es2015" }
-swc_old_ecma_parser = { package = "swc_ecma_parser", path = "/private/tmp/swc-generator-bench-base/crates/swc_ecma_parser" }
-swc_old_ecma_transforms_base = { package = "swc_ecma_transforms_base", path = "/private/tmp/swc-generator-bench-base/crates/swc_ecma_transforms_base" }
+swc_old_common = { package = "swc_common", path = "../../../swc/crates/swc_common" }
+swc_old_ecma_ast = { package = "swc_ecma_ast", path = "../../../swc/crates/swc_ecma_ast" }
+swc_old_ecma_codegen = { package = "swc_ecma_codegen", path = "../../../swc/crates/swc_ecma_codegen" }
+swc_old_ecma_compat_es2015 = { package = "swc_ecma_compat_es2015", path = "../../../swc/crates/swc_ecma_compat_es2015" }
+swc_old_ecma_parser = { package = "swc_ecma_parser", path = "../../../swc/crates/swc_ecma_parser" }
+swc_old_ecma_transforms_base = { package = "swc_ecma_transforms_base", path = "../../../swc/crates/swc_ecma_transforms_base" }
 
 criterion  = { workspace = true }
 gungraun   = { workspace = true }

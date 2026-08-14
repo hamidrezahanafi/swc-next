@@ -1,11 +1,13 @@
-use swc_next_allocator::vec::Vec as ArenaVec;
+use std::collections::HashMap;
+
+use swc_next_allocator::{hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec};
 use swc_next_ecma_ast::{
-    ArrowFunctionExpression, Ast, Class, Directive, Function, FunctionBody, NodeId, Program,
-    ScopeId,
+    ArrowFunctionExpression, Ast, Class, Directive, Function, FunctionBody, NodeId, NodeKind,
+    NodeKindData, Program, ScopeId,
 };
 
 use crate::{
-    Semantic,
+    EffectCounts, FunctionCaptureData, Semantic, SemanticFeatureFlags, SemanticTransformFacts,
     binder::{ReferenceFlags, ReferenceSpace, SymbolTracker},
     module_record::ModuleRecordBuilder,
     scope::ScopeTracker,
@@ -29,11 +31,13 @@ impl<'traverse, 'ast> SemanticVisitCtx<'traverse, 'ast> {
     pub fn enter_node(&mut self, node: NodeId) -> ReferenceFlags {
         let parent = self.current_node;
         self.current_node = Some(node);
+        self.state.enter_transform_node(self.ast, node);
         self.state.enter_node(node, parent)
     }
 
     pub fn leave_node(&mut self, node: NodeId) {
         debug_assert_eq!(self.current_node, Some(node));
+        self.state.leave_transform_node(self.ast, node);
         self.current_node = self.state.node_parents[node.index()];
     }
 
@@ -57,6 +61,207 @@ impl<'traverse, 'ast> SemanticVisitCtx<'traverse, 'ast> {
     }
 }
 
+#[derive(Default)]
+struct CaptureCandidates {
+    arguments: Vec<NodeId>,
+    new_targets: Vec<NodeId>,
+}
+
+struct TransformFactsCollector<'a> {
+    features: SemanticFeatureFlags,
+    effects: Option<ArenaVec<'a, EffectCounts>>,
+    effect_owners: Option<ArenaVec<'a, Option<NodeId>>>,
+    generator_functions: ArenaVec<'a, Function>,
+    async_functions: ArenaVec<'a, NodeId>,
+    function_boundaries: ArenaVec<'a, NodeId>,
+    capture_boundaries: Vec<Option<NodeId>>,
+    capture_candidates: HashMap<NodeId, CaptureCandidates>,
+    yield_nodes: HashMap<NodeId, Vec<NodeId>>,
+}
+
+impl<'a> TransformFactsCollector<'a> {
+    fn new(tree: &Ast<'a>, features: SemanticFeatureFlags) -> Self {
+        let allocator = tree.allocator();
+        let collect_effects =
+            features.intersects(SemanticFeatureFlags::YIELD | SemanticFeatureFlags::AWAIT);
+        let mut effects =
+            collect_effects.then(|| ArenaVec::with_capacity_in(tree.node_count(), allocator));
+        let mut effect_owners =
+            collect_effects.then(|| ArenaVec::with_capacity_in(tree.node_count(), allocator));
+        if let Some(effects) = &mut effects {
+            effects.resize(tree.node_count(), EffectCounts::default());
+        }
+        if let Some(owners) = &mut effect_owners {
+            owners.resize(tree.node_count(), None);
+        }
+        Self {
+            features,
+            effects,
+            effect_owners,
+            generator_functions: ArenaVec::new_in(allocator),
+            async_functions: ArenaVec::new_in(allocator),
+            function_boundaries: ArenaVec::new_in(allocator),
+            capture_boundaries: Vec::new(),
+            capture_candidates: HashMap::new(),
+            yield_nodes: HashMap::new(),
+        }
+    }
+
+    fn enter_node(&mut self, tree: &Ast<'_>, node: NodeId) {
+        match tree.node_kind(node) {
+            NodeKind::Function => self.capture_boundaries.push(Some(node)),
+            NodeKind::Class => self.capture_boundaries.push(None),
+            _ => {}
+        }
+        if self
+            .features
+            .contains(SemanticFeatureFlags::FUNCTION_ENV_CAPTURE)
+            && let Some(Some(owner)) = self.capture_boundaries.last().copied()
+            && let NodeKindData::Function(owner_function) = tree.kind_data(owner)
+            && owner_function.generator(tree)
+        {
+            match tree.kind_data(node) {
+                NodeKindData::IdentifierReference(identifier)
+                    if tree.get_utf8(identifier.name(tree)) == "arguments" =>
+                {
+                    self.capture_candidates
+                        .entry(owner)
+                        .or_default()
+                        .arguments
+                        .push(node);
+                }
+                NodeKindData::MetaProperty(meta)
+                    if tree.get_utf8(meta.meta(tree).name(tree)) == "new"
+                        && tree.get_utf8(meta.property(tree).name(tree)) == "target" =>
+                {
+                    self.capture_candidates
+                        .entry(owner)
+                        .or_default()
+                        .new_targets
+                        .push(node);
+                }
+                _ => {}
+            }
+        }
+
+        if matches!(
+            tree.node_kind(node),
+            NodeKind::Function | NodeKind::ArrowFunctionExpression
+        ) {
+            self.function_boundaries.push(node);
+        }
+        if let Some(owners) = &mut self.effect_owners {
+            owners[node.index()] = self.function_boundaries.last().copied();
+        }
+        let Some(effects) = &mut self.effects else {
+            return;
+        };
+        match tree.node_kind(node) {
+            NodeKind::YieldExpression if self.features.contains(SemanticFeatureFlags::YIELD) => {
+                effects[node.index()].yields = 1;
+                if let Some(owner) = self.function_boundaries.last().copied() {
+                    self.yield_nodes.entry(owner).or_default().push(node);
+                }
+            }
+            NodeKind::AwaitExpression if self.features.contains(SemanticFeatureFlags::AWAIT) => {
+                effects[node.index()].awaits = 1;
+            }
+            _ => {}
+        }
+    }
+
+    fn leave_node(&mut self, tree: &Ast<'_>, node: NodeId, parent: Option<NodeId>) {
+        match tree.kind_data(node) {
+            NodeKindData::Function(function) => {
+                if self
+                    .features
+                    .contains(SemanticFeatureFlags::GENERATOR_FUNCTIONS)
+                    && function.generator(tree)
+                {
+                    self.generator_functions.push(function);
+                }
+                if self
+                    .features
+                    .contains(SemanticFeatureFlags::ASYNC_FUNCTIONS)
+                    && function.r#async(tree)
+                {
+                    self.async_functions.push(node);
+                }
+            }
+            NodeKindData::ArrowFunctionExpression(arrow)
+                if self
+                    .features
+                    .contains(SemanticFeatureFlags::ASYNC_FUNCTIONS)
+                    && arrow.r#async(tree) =>
+            {
+                self.async_functions.push(node);
+            }
+            _ => {}
+        }
+
+        let is_boundary = matches!(
+            tree.node_kind(node),
+            NodeKind::Function | NodeKind::ArrowFunctionExpression
+        );
+        if !is_boundary && let (Some(parent), Some(effects)) = (parent, &mut self.effects) {
+            let child = effects[node.index()];
+            effects[parent.index()].yields = effects[parent.index()]
+                .yields
+                .checked_add(child.yields)
+                .expect("yield effect count overflow");
+            effects[parent.index()].awaits = effects[parent.index()]
+                .awaits
+                .checked_add(child.awaits)
+                .expect("await effect count overflow");
+        }
+        if matches!(tree.node_kind(node), NodeKind::Function | NodeKind::Class) {
+            let expected = matches!(tree.node_kind(node), NodeKind::Function).then_some(node);
+            debug_assert_eq!(self.capture_boundaries.pop(), Some(expected));
+        }
+        if is_boundary {
+            debug_assert_eq!(self.function_boundaries.pop(), Some(node));
+        }
+    }
+
+    fn finish(self, semantic: &Semantic<'a>, tree: &Ast<'a>) -> SemanticTransformFacts<'a> {
+        let allocator = tree.allocator();
+        let mut function_captures = ArenaHashMap::new_in(allocator);
+        for (function, candidates) in self.capture_candidates {
+            let mut captures = FunctionCaptureData {
+                arguments: ArenaVec::new_in(allocator),
+                new_targets: ArenaVec::new_in(allocator),
+            };
+            for node in candidates.arguments {
+                let Some(reference_id) = semantic.reference_of(node) else {
+                    continue;
+                };
+                let reference = semantic.reference(reference_id);
+                if reference.flags.space == ReferenceSpace::Value && reference.symbol.is_none() {
+                    captures.arguments.push(reference_id);
+                }
+            }
+            captures.new_targets.extend(candidates.new_targets);
+            if !captures.arguments.is_empty() || !captures.new_targets.is_empty() {
+                function_captures.insert(function, captures);
+            }
+        }
+        let mut yield_nodes = ArenaHashMap::new_in(allocator);
+        for (function, nodes) in self.yield_nodes {
+            let mut arena_nodes = ArenaVec::with_capacity_in(nodes.len(), allocator);
+            arena_nodes.extend(nodes);
+            yield_nodes.insert(function, arena_nodes);
+        }
+        SemanticTransformFacts {
+            effects: self.effects,
+            effect_owners: self.effect_owners,
+            generator_functions: self.generator_functions,
+            async_functions: self.async_functions,
+            function_captures,
+            yield_nodes,
+        }
+    }
+}
+
 /// Walk context combining the current node, scope tracker, symbol tracker,
 /// and reference state. Visitor hooks use it to inspect surrounding source
 /// structure or to query and contribute symbols.
@@ -71,10 +276,12 @@ pub(crate) struct SemanticContext<'a> {
     // per-node tables carried into the final `Semantic`
     node_scopes: ArenaVec<'a, ScopeId>,
     node_parents: ArenaVec<'a, Option<NodeId>>,
+    features: SemanticFeatureFlags,
+    transform_facts: Option<TransformFactsCollector<'a>>,
 }
 
 impl<'a> SemanticContext<'a> {
-    pub fn init(root: Program, tree: &Ast<'a>) -> Self {
+    pub fn init(root: Program, tree: &Ast<'a>, features: SemanticFeatureFlags) -> Self {
         let allocator = tree.allocator();
         let mut node_scopes = ArenaVec::with_capacity_in(tree.node_count(), allocator);
         let mut node_parents = ArenaVec::with_capacity_in(tree.node_count(), allocator);
@@ -89,6 +296,21 @@ impl<'a> SemanticContext<'a> {
             reference_flags: ReferenceFlags::default(),
             node_scopes,
             node_parents,
+            features,
+            transform_facts: (!features.is_empty())
+                .then(|| TransformFactsCollector::new(tree, features)),
+        }
+    }
+
+    fn enter_transform_node(&mut self, tree: &Ast<'_>, node: NodeId) {
+        if let Some(facts) = &mut self.transform_facts {
+            facts.enter_node(tree, node);
+        }
+    }
+
+    fn leave_transform_node(&mut self, tree: &Ast<'_>, node: NodeId) {
+        if let Some(facts) = &mut self.transform_facts {
+            facts.leave_node(tree, node, self.node_parents[node.index()]);
         }
     }
 
@@ -272,15 +494,21 @@ impl<'a> SemanticContext<'a> {
         self.scope.exit_decorator();
     }
 
-    pub fn finalize(self, tree: &Ast) -> Semantic<'a> {
+    pub fn finalize(mut self, tree: &Ast<'a>) -> Semantic<'a> {
         let (scopes, has_with_statement) = self.scope.into_scope_tree();
-        self.symbols.finalize(
+        let mut semantic = self.symbols.finalize(
             tree,
             scopes,
             has_with_statement,
+            self.features,
             self.node_scopes,
             self.node_parents,
             self.module_record,
-        )
+        );
+        semantic.features = self.features;
+        if let Some(facts) = self.transform_facts.take() {
+            semantic.transform_facts = Some(facts.finish(&semantic, tree));
+        }
+        semantic
     }
 }

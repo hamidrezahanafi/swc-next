@@ -1,6 +1,6 @@
 use super::*;
 
-impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
+impl<'names, 'ast> GeneratorCompiler<'names, 'ast> {
     pub(super) fn compile_stmt(&mut self, statement: Stmt) {
         match self.ast.kind_data(statement.node_id()) {
             NodeKindData::BlockStatement(block) => {
@@ -95,7 +95,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
                 let jump = self.jump(target);
                 self.emit(jump);
             }
-            _ if !self.facts.contains(statement) => self.emit(statement),
+            _ if !self.contains_yield(statement) => self.emit(statement),
             _ => panic!(
                 "generator lowering is missing statement support for {:?}",
                 self.ast.node_kind(statement.node_id())

@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use swc_next_allocator::{
     Allocator, hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec, wtf8::Wtf8,
 };
@@ -43,6 +45,25 @@ macro_rules! define_ast_string {
 define_ast_string!(AstUtf8);
 define_ast_string!(AstWtf8);
 
+/// Canonical identity for a string used by semantic analysis.
+///
+/// Unlike [`AstUtf8`] and [`AstWtf8`], which preserve the original source or
+/// decoded-string location, an `AstStr` is canonical within one AST string
+/// pool: equal bytes with the same encoding always produce the same handle.
+/// `Hash` and `Eq` compare only this stable handle and never inspect contents.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct AstStr {
+    start: u32,
+    end: u32,
+    encoding: AstStrEncoding,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum AstStrEncoding {
+    Utf8,
+    Wtf8,
+}
+
 impl From<AstUtf8> for AstWtf8 {
     #[inline]
     fn from(value: AstUtf8) -> Self {
@@ -58,6 +79,8 @@ pub(crate) struct StringPool<'a> {
     pub(crate) source: &'a str,
     pub(crate) extra: ArenaVec<'a, u8>,
     dedup: ArenaHashMap<'a, ArenaVec<'a, u8>, (u32, u32)>,
+    canonical_utf8: RefCell<ArenaHashMap<'a, ArenaVec<'a, u8>, AstStr>>,
+    canonical_wtf8: RefCell<ArenaHashMap<'a, ArenaVec<'a, u8>, AstStr>>,
 }
 
 impl<'a> StringPool<'a> {
@@ -68,6 +91,8 @@ impl<'a> StringPool<'a> {
             allocator,
             extra: ArenaVec::new_in(allocator),
             dedup: ArenaHashMap::new_in(allocator),
+            canonical_utf8: RefCell::new(ArenaHashMap::new_in(allocator)),
+            canonical_wtf8: RefCell::new(ArenaHashMap::new_in(allocator)),
         }
     }
 
@@ -81,6 +106,63 @@ impl<'a> StringPool<'a> {
     pub fn get_wtf8(&self, id: AstWtf8) -> &Wtf8 {
         // SAFETY: `AstWtf8` is guaranteed to reference valid WTF-8.
         unsafe { Wtf8::from_bytes_unchecked(self.get_bytes(id.start, id.end)) }
+    }
+
+    #[inline]
+    pub fn get_ast_str_bytes(&self, id: AstStr) -> &[u8] {
+        self.get_bytes(id.start, id.end)
+    }
+
+    #[inline]
+    pub fn ast_str_is_utf8(&self, id: AstStr) -> bool {
+        id.encoding == AstStrEncoding::Utf8
+    }
+
+    #[inline]
+    pub fn canonicalize_utf8(&self, id: AstUtf8) -> AstStr {
+        self.canonicalize(id.start, id.end, AstStrEncoding::Utf8)
+    }
+
+    #[inline]
+    pub fn canonicalize_wtf8(&self, id: AstWtf8) -> AstStr {
+        let bytes = self.get_bytes(id.start, id.end);
+        let encoding = if std::str::from_utf8(bytes).is_ok() {
+            AstStrEncoding::Utf8
+        } else {
+            AstStrEncoding::Wtf8
+        };
+        self.canonicalize(id.start, id.end, encoding)
+    }
+
+    #[inline]
+    pub fn canonical_utf8(&self, text: &str) -> Option<AstStr> {
+        self.canonical_utf8.borrow().get(text.as_bytes()).copied()
+    }
+
+    pub fn canonicalize_prefix(&self, id: AstStr, len: usize) -> AstStr {
+        assert!(len <= (id.end - id.start) as usize);
+        self.canonicalize(id.start, id.start + len as u32, id.encoding)
+    }
+
+    fn canonicalize(&self, start: u32, end: u32, encoding: AstStrEncoding) -> AstStr {
+        let text = self.get_bytes(start, end);
+        let table = match encoding {
+            AstStrEncoding::Utf8 => &self.canonical_utf8,
+            AstStrEncoding::Wtf8 => &self.canonical_wtf8,
+        };
+        if let Some(&id) = table.borrow().get(text) {
+            return id;
+        }
+
+        let id = AstStr {
+            start,
+            end,
+            encoding,
+        };
+        let mut key = ArenaVec::with_capacity_in(text.len(), self.allocator);
+        key.extend_from_slice(text);
+        table.borrow_mut().insert(key, id);
+        id
     }
 
     #[inline]

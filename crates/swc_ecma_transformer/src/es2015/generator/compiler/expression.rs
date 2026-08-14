@@ -1,6 +1,6 @@
 use super::*;
 
-impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
+impl<'names, 'ast> GeneratorCompiler<'names, 'ast> {
     pub(super) fn compile_expr(&mut self, expression: Expr) -> Expr {
         match self.ast.kind_data(expression.node_id()) {
             NodeKindData::YieldExpression(yield_expression) => {
@@ -44,7 +44,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
                 {
                     let object = self.compile_expr(member.object(self.ast));
                     let property = member.property(self.ast);
-                    let object = if self.facts.contains(property) {
+                    let object = if self.contains_yield(property) {
                         self.cache(object)
                     } else {
                         object
@@ -63,7 +63,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
                 let right_node = assignment.right(self.ast);
                 let left = self.compile_assignment_target(
                     assignment.left(self.ast),
-                    self.facts.contains(right_node),
+                    self.contains_yield(right_node),
                 );
                 let right = self.compile_expr(right_node);
                 assignment.set_left(self.ast, left);
@@ -73,7 +73,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
             NodeKindData::MemberExpression(member) => {
                 let object = self.compile_expr(member.object(self.ast));
                 let property = member.property(self.ast);
-                let object = if self.facts.contains(property) {
+                let object = if self.contains_yield(property) {
                     self.cache(object)
                 } else {
                     object
@@ -90,7 +90,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
                 let callee = self.compile_expr(call.callee(self.ast));
                 let callee = if arguments
                     .iter()
-                    .any(|argument| self.facts.contains(*argument))
+                    .any(|argument| self.contains_yield(*argument))
                 {
                     self.preserve_callee(callee)
                 } else {
@@ -107,7 +107,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
                 let callee = self.compile_expr(new_expression.callee(self.ast));
                 let callee = if arguments
                     .iter()
-                    .any(|argument| self.facts.contains(*argument))
+                    .any(|argument| self.contains_yield(*argument))
                 {
                     self.cache(callee)
                 } else {
@@ -126,7 +126,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
                     let later_yield = elements[index + 1..]
                         .iter()
                         .flatten()
-                        .any(|argument| self.facts.contains(*argument));
+                        .any(|argument| self.contains_yield(*argument));
                     let element =
                         element.map(|argument| self.compile_argument(argument, later_yield));
                     compiled.push(element);
@@ -141,7 +141,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
                 for (index, property) in properties.iter().copied().enumerate() {
                     let later_yield = properties[index + 1..]
                         .iter()
-                        .any(|property| self.facts.contains(*property));
+                        .any(|property| self.contains_yield(*property));
                     compiled.push(self.compile_object_property(property, later_yield));
                 }
                 let compiled = self.ast.add_typed_sub_range(compiled);
@@ -159,7 +159,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
             NodeKindData::TaggedTemplateExpression(tagged) => {
                 let quasi = tagged.quasi(self.ast);
                 let tag = self.compile_expr(tagged.tag(self.ast));
-                let tag = if self.facts.contains(quasi) {
+                let tag = if self.contains_yield(quasi) {
                     self.preserve_callee(tag)
                 } else {
                     tag
@@ -220,7 +220,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
                 }
                 last
             }
-            _ if !self.facts.contains(expression) => expression,
+            _ if !self.contains_yield(expression) => expression,
             _ => panic!(
                 "generator lowering is missing expression support for {:?}",
                 self.ast.node_kind(expression.node_id())
@@ -231,7 +231,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
     fn compile_binary(&mut self, expression: Expr, binary: BinaryExpression) -> Expr {
         let left = self.compile_expr(binary.left(self.ast));
         let right_node = binary.right(self.ast);
-        let left = if self.facts.contains(right_node) {
+        let left = if self.contains_yield(right_node) {
             self.cache(left)
         } else {
             left
@@ -295,7 +295,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
         for (index, expression) in expressions.iter().copied().enumerate() {
             let later_yield = expressions[index + 1..]
                 .iter()
-                .any(|expression| self.facts.contains(*expression));
+                .any(|expression| self.contains_yield(*expression));
             let expression = self.compile_expr(expression);
             compiled.push(if later_yield {
                 self.cache(expression)
@@ -315,7 +315,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
         if let NodeKindData::MemberExpression(member) = self.ast.kind_data(target.node_id()) {
             let object = self.compile_expr(member.object(self.ast));
             let property = member.property(self.ast);
-            let object = if preserve || self.facts.contains(property) {
+            let object = if preserve || self.contains_yield(property) {
                 self.cache(object)
             } else {
                 object
@@ -330,7 +330,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
                 };
                 member.set_property(self.ast, PropertyKey::Expr(property_expr));
             }
-        } else if self.facts.contains(target) {
+        } else if self.contains_yield(target) {
             panic!(
                 "generator lowering requires destructuring assignment targets to be lowered first"
             );
@@ -397,7 +397,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
         for (index, argument) in arguments.iter().copied().enumerate() {
             let later_yield = arguments[index + 1..]
                 .iter()
-                .any(|argument| self.facts.contains(*argument));
+                .any(|argument| self.contains_yield(*argument));
             compiled.push(self.compile_argument(argument, later_yield));
         }
         compiled
@@ -445,7 +445,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
                 if let PropertyKeyData::Expr(key_expr) = self.ast.property_key_data(key) {
                     let key_expr = self.compile_expr(key_expr);
                     let key_expr =
-                        if self.facts.contains(object_property.value(self.ast)) || preserve {
+                        if self.contains_yield(object_property.value(self.ast)) || preserve {
                             self.cache(key_expr)
                         } else {
                             key_expr

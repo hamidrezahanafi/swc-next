@@ -33,7 +33,7 @@ pub use generated::ast_visitor::*;
 pub use hygiene::{Mark, SyntaxContext};
 pub use node_id::{AstNode, ExtraDataCompact, ExtraDataId, NodeId, SubRange, TypedSubRange};
 pub use semantic::{ReferenceId, ScopeId, SymbolId};
-pub use strings::{AstUtf8, AstWtf8};
+pub use strings::{AstStr, AstUtf8, AstWtf8};
 pub use syntax::*;
 pub use visit::{TraverseAction, TraverseCtx, run_visit};
 
@@ -331,6 +331,36 @@ impl<'a> Ast<'a> {
     #[inline]
     pub fn get_wtf8(&self, id: AstWtf8) -> &swc_next_allocator::wtf8::Wtf8 {
         self.strings.get_wtf8(id)
+    }
+
+    #[inline]
+    pub fn canonicalize_utf8(&self, id: AstUtf8) -> AstStr {
+        self.strings.canonicalize_utf8(id)
+    }
+
+    #[inline]
+    pub fn canonicalize_wtf8(&self, id: AstWtf8) -> AstStr {
+        self.strings.canonicalize_wtf8(id)
+    }
+
+    #[inline]
+    pub fn canonical_utf8(&self, text: &str) -> Option<AstStr> {
+        self.strings.canonical_utf8(text)
+    }
+
+    #[inline]
+    pub fn get_ast_str_bytes(&self, id: AstStr) -> &[u8] {
+        self.strings.get_ast_str_bytes(id)
+    }
+
+    #[inline]
+    pub fn canonicalize_ast_str_prefix(&self, id: AstStr, len: usize) -> AstStr {
+        self.strings.canonicalize_prefix(id, len)
+    }
+
+    #[inline]
+    pub fn ast_str_is_utf8(&self, id: AstStr) -> bool {
+        self.strings.ast_str_is_utf8(id)
     }
 
     #[inline]

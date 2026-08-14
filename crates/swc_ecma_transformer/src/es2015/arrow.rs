@@ -24,8 +24,13 @@ impl ArrowFunctions {
         Self { _options: options }
     }
 
-    pub fn transform<'a>(&mut self, program: Program, ast: &mut Ast<'a>, semantic: &Semantic) {
-        let mut visitor = ArrowVisitor::new(ast, semantic);
+    pub fn transform<'a>(
+        &mut self,
+        program: Program,
+        ast: &mut Ast<'a>,
+        semantic: &mut Semantic<'a>,
+    ) {
+        let mut visitor = ArrowVisitor::new(program, ast, semantic);
         program.visit_mut_children_with(&mut visitor);
         let frame = visitor.hoister.take_frame();
         visitor
@@ -36,14 +41,20 @@ impl ArrowFunctions {
 
 struct ArrowVisitor<'visit, 'ast> {
     ast: &'visit mut Ast<'ast>,
-    hoister: FnEnvHoister<'visit>,
+    hoister: FnEnvHoister<'visit, 'ast>,
     in_subclass: bool,
     next_method_is_derived_constructor: Option<bool>,
 }
 
 impl<'visit, 'ast> ArrowVisitor<'visit, 'ast> {
-    fn new(ast: &'visit mut Ast<'ast>, semantic: &'visit Semantic) -> Self {
-        let hoister = FnEnvHoister::new(ast, semantic);
+    fn new(
+        program: Program,
+        ast: &'visit mut Ast<'ast>,
+        semantic: &'visit mut Semantic<'ast>,
+    ) -> Self {
+        let scope = semantic.scope_of(program.node_id());
+        let scope = semantic.scope(scope).hoist_target;
+        let hoister = FnEnvHoister::new(semantic, scope);
         Self {
             ast,
             hoister,
@@ -125,7 +136,8 @@ impl<'ast> VisitMut<'ast> for ArrowVisitor<'_, 'ast> {
             .take()
             .unwrap_or(false);
         let old_in_arrow = self.hoister.set_in_arrow(false);
-        self.hoister.push_frame();
+        let scope = self.hoister.hoist_scope_of(node.body(self.ast).node_id());
+        self.hoister.push_frame(scope, Some(node.node_id()));
         node.visit_mut_children_with(self);
         let frame = self.hoister.take_frame();
         self.hoister
@@ -164,7 +176,8 @@ impl<'ast> VisitMut<'ast> for ArrowVisitor<'_, 'ast> {
 
     fn visit_mut_static_block(&mut self, node: StaticBlock) -> Option<StaticBlock> {
         let old_in_arrow = self.hoister.set_in_arrow(false);
-        self.hoister.push_frame();
+        let scope = self.hoister.hoist_scope_of(node.node_id());
+        self.hoister.push_frame(scope, None);
         node.visit_mut_children_with(self);
         let frame = self.hoister.take_frame();
         self.hoister.inject_into_static_block(node, frame, self.ast);

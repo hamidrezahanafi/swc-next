@@ -1,9 +1,7 @@
-use std::hash::BuildHasher;
-
 use oxc_index::Idx;
-use swc_next_allocator::{Allocator, CloneIn, vec::Vec as ArenaVec};
+use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
 use swc_next_ecma_ast::{
-    Ast, AstUtf8, AstWtf8, BindingIdentifier, Class, ClassType, ExportNamedDeclaration,
+    Ast, AstStr, AstUtf8, BindingIdentifier, Class, ClassType, ExportNamedDeclaration,
     ExportSpecifier, Function, FunctionType, IdentifierReference, ImportDeclaration,
     ImportOrExportKind, ImportSpecifier, JsxClosingElement, JsxElementName, JsxElementNameData,
     JsxIdentifier, JsxMemberExpressionObjectData, JsxOpeningElement, NodeId, NodeKind,
@@ -13,7 +11,7 @@ use swc_next_ecma_ast::{
 };
 
 use crate::{
-    DeclarationId, ScopeMap, Semantic,
+    DeclarationId, ScopeMap, Semantic, SemanticFeatureFlags, UsedNameMap, UsedNameState,
     module_record::ModuleRecordBuilder,
     scope::{self, ScopeKind, ScopeTracker, ScopeTree},
 };
@@ -45,7 +43,7 @@ pub struct Range {
 /// contribution of an individual declaration matters.
 #[derive(Debug, Clone, Copy)]
 pub struct Symbol {
-    pub name: AstWtf8,
+    pub name: AstStr,
     pub flags: SymbolFlags,
     /// The scope the symbol is declared in. For a hoisting `var`,
     /// this is the hoist target it lands in, not the block it is
@@ -352,7 +350,7 @@ impl Excludes {
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct Reference {
-    pub name: AstUtf8,
+    pub name: AstStr,
     /// The scope the reference appears in.
     pub scope: ScopeId,
     /// The referencing node.
@@ -1088,18 +1086,18 @@ impl<'a> SymbolTracker<'a> {
             return None;
         }
         let name = identifier.name(tree);
-        let symbol_id = self.declare(tree, name.into(), node);
+        let canonical_name = tree.canonicalize_utf8(name);
+        let symbol_id = self.declare(tree, canonical_name, node);
 
         // Register a hoisting var in every block it passes through so
         // block-scoped redeclarations see it.
         if self.pending.flags.is_hoisting_var() && scope.current != self.pending.scope {
-            let name = tree.get_utf8(name).as_bytes().clone_in(self.allocator);
             for scope_id in scope.ancestors(Some(scope.current)) {
                 if scope_id == self.pending.scope {
                     break;
                 }
                 self.hoisting_variables[scope_id.index()]
-                    .entry(name)
+                    .entry(canonical_name)
                     .or_insert(symbol_id);
             }
         }
@@ -1179,8 +1177,7 @@ impl<'a> SymbolTracker<'a> {
             return;
         };
         let name = parameter_name.name(tree);
-        let Some(parameter) = self.own_binding(scope.current, tree.get_utf8(name).as_bytes())
-        else {
+        let Some(parameter) = self.own_binding(scope.current, tree.canonicalize_utf8(name)) else {
             return;
         };
         if !self
@@ -1219,8 +1216,10 @@ impl<'a> SymbolTracker<'a> {
         }
         let member_id = member.id(tree).node_id();
         let name = match tree.kind_data(member_id) {
-            NodeKindData::IdentifierName(identifier) => identifier.name(tree).into(),
-            NodeKindData::StringLiteral(literal) => literal.value(tree),
+            NodeKindData::IdentifierName(identifier) => {
+                tree.canonicalize_utf8(identifier.name(tree))
+            }
+            NodeKindData::StringLiteral(literal) => tree.canonicalize_wtf8(literal.value(tree)),
             _ => return,
         };
         let saved = self.pending;
@@ -1276,7 +1275,7 @@ impl<'a> SymbolTracker<'a> {
     /// existing binding is merged. On conflict, its flags remain unchanged
     /// because the caller reports the diagnostic. Every node is still stored
     /// as a declaration for error recovery.
-    pub fn declare(&mut self, tree: &Ast, name: AstWtf8, node: NodeId) -> SymbolId {
+    pub fn declare(&mut self, tree: &Ast, name: AstStr, node: NodeId) -> SymbolId {
         let target = self.pending.scope;
         assert!(target.index() < self.scope_maps.len());
         assert!(node.index() < tree.node_count());
@@ -1285,8 +1284,7 @@ impl<'a> SymbolTracker<'a> {
         declaration_flags.set(SymbolFlags::EXPORTED, self.export_state.is_exported());
         declaration_flags.set(SymbolFlags::IS_DEFAULT, self.export_state.is_default());
 
-        let name_text = tree.get_wtf8(name).as_bytes();
-        let id = if let Some(existing) = self.binding(target, name_text) {
+        let id = if let Some(existing) = self.binding(target, name) {
             let symbol = &mut self.symbols[existing.index()];
             if !symbol.flags.intersects(self.pending.excludes)
                 || self.pending.allows_annex_b_function_duplicate(symbol.flags)
@@ -1312,8 +1310,7 @@ impl<'a> SymbolTracker<'a> {
                 declarations: Range::default(),
             });
             self.first_decls.push(node);
-            let key = tree.get_wtf8(name).as_bytes().clone_in(self.allocator);
-            self.scope_maps[target.index()].insert(key, new_id);
+            self.scope_maps[target.index()].insert(name, new_id);
             new_id
         };
 
@@ -1347,7 +1344,7 @@ impl<'a> SymbolTracker<'a> {
         };
         let id = reference_id(self.references.len());
         self.references.push(Reference {
-            name,
+            name: tree.canonicalize_utf8(name),
             scope,
             node,
             symbol: None,
@@ -1371,20 +1368,27 @@ impl<'a> SymbolTracker<'a> {
 
     /// The binding of `name` declared directly in `scope`, excluding
     /// hoisting `var`s passing through.
-    pub fn own_binding(&self, scope: ScopeId, name: &[u8]) -> Option<SymbolId> {
+    pub fn own_binding(&self, scope: ScopeId, name: AstStr) -> Option<SymbolId> {
         self.scope_maps
             .get(scope.index())
-            .and_then(|map| map.get(name).copied())
+            .and_then(|map| map.get(&name).copied())
     }
 
     /// The binding of `name` at `scope`, including a hoisting `var` passing
     /// through on its way to its hoist target.
-    pub fn binding(&self, scope: ScopeId, name: &[u8]) -> Option<SymbolId> {
+    pub fn binding(&self, scope: ScopeId, name: AstStr) -> Option<SymbolId> {
         self.own_binding(scope, name).or_else(|| {
             self.hoisting_variables
                 .get(scope.index())
-                .and_then(|map| map.get(name).copied())
+                .and_then(|map| map.get(&name).copied())
         })
+    }
+
+    pub fn binding_text(&self, tree: &Ast<'_>, scope: ScopeId, name: &[u8]) -> Option<SymbolId> {
+        std::str::from_utf8(name)
+            .ok()
+            .and_then(|name| tree.canonical_utf8(name))
+            .and_then(|name| self.binding(scope, name))
     }
 
     fn sync_scope_maps_from(&mut self, scope: &ScopeTracker<'a>) {
@@ -1410,11 +1414,13 @@ impl<'a> SymbolTracker<'a> {
     /// declaration, use, and node indexes and resolves every reference
     /// to its declaring symbol. The result aliases tracker storage and
     /// remains valid for the source tree's arena lifetime.
+    #[allow(clippy::too_many_arguments)]
     pub fn finalize(
         mut self,
         tree: &Ast,
         mut scopes: ScopeTree<'a>,
         has_with_statement: bool,
+        features: SemanticFeatureFlags,
         node_scopes: ArenaVec<'a, ScopeId>,
         node_parents: ArenaVec<'a, Option<NodeId>>,
         module_record: ModuleRecordBuilder<'a>,
@@ -1481,16 +1487,13 @@ impl<'a> SymbolTracker<'a> {
 
         for reference_index in 0..self.references.len() {
             let reference = self.references[reference_index];
-            let name = tree.get_utf8(reference.name).as_bytes();
+            let name = tree.get_ast_str_bytes(reference.name);
             if name == b"eval"
                 && reference.flags.is_read()
                 && is_direct_eval_reference(tree, &node_parents, reference.node)
             {
                 scopes.mark_direct_eval(reference.scope);
             }
-            let hash = self.scope_maps[ScopeId::ROOT.index()]
-                .hasher()
-                .hash_one(name);
             // The implicit arguments object (10.2.11
             // argumentsObjectNeeded) shadows outer bindings; an own
             // parameter or var still wins.
@@ -1500,10 +1503,7 @@ impl<'a> SymbolTracker<'a> {
             ) && name == b"arguments";
             let mut resolved = None;
             for ancestor in scopes.ancestors(Some(reference.scope)) {
-                if let Some((_, &id)) = self.scope_maps[ancestor.index()]
-                    .raw_entry()
-                    .from_hash(hash, |candidate| *candidate == name)
-                {
+                if let Some(&id) = self.scope_maps[ancestor.index()].get(&reference.name) {
                     let symbol = self.symbols[id.index()];
                     // A binding outside the reference's space does not
                     // shadow; keep walking.
@@ -1549,7 +1549,7 @@ impl<'a> SymbolTracker<'a> {
                 let target_with = if let Some(symbol) = reference.symbol {
                     let scope = self.symbols[symbol.index()].scope;
                     with_ancestry[scope.index()].lexical
-                } else if tree.get_utf8(reference.name).as_bytes() == b"arguments" {
+                } else if tree.get_ast_str_bytes(reference.name) == b"arguments" {
                     reference_ancestors.arguments
                 } else {
                     None
@@ -1586,6 +1586,52 @@ impl<'a> SymbolTracker<'a> {
             range.len += 1;
         }
 
+        let mut used_names = ArenaVec::new_in(self.allocator);
+        let mut direct_symbol_names = ArenaVec::new_in(self.allocator);
+        if features.contains(SemanticFeatureFlags::FUNCTION_ENV_CAPTURE) {
+            let scope_count = scopes.list.len();
+            used_names.reserve(scope_count);
+            direct_symbol_names.reserve(scope_count);
+            for _ in 0..scope_count {
+                used_names.push(UsedNameMap::new_in(self.allocator));
+                direct_symbol_names.push(UsedNameMap::new_in(self.allocator));
+            }
+            for symbol in &self.symbols {
+                observe_used_name(
+                    tree,
+                    &mut direct_symbol_names[symbol.scope.index()],
+                    symbol.name,
+                );
+                for scope in scopes.ancestors(Some(symbol.scope)) {
+                    observe_used_name(tree, &mut used_names[scope.index()], symbol.name);
+                }
+            }
+            for reference in &self.references {
+                for scope in scopes.ancestors(Some(reference.scope)) {
+                    observe_used_name(tree, &mut used_names[scope.index()], reference.name);
+                }
+            }
+        }
+
+        let mut declaration_lists = ArenaVec::with_capacity_in(symbol_count, self.allocator);
+        let mut use_lists = ArenaVec::with_capacity_in(symbol_count, self.allocator);
+        for symbol in &self.symbols {
+            let range = symbol.declarations;
+            let mut list = ArenaVec::with_capacity_in(range.len as usize, self.allocator);
+            let start = range.start as usize;
+            list.extend_from_slice(&declarations[start..start + range.len as usize]);
+            declaration_lists.push(list);
+        }
+        for range in &use_ranges {
+            let mut list = ArenaVec::with_capacity_in(range.len as usize, self.allocator);
+            let start = range.start as usize;
+            list.extend_from_slice(&use_ids[start..start + range.len as usize]);
+            use_lists.push(list);
+        }
+
+        let mut node_registered = ArenaVec::with_capacity_in(node_count, self.allocator);
+        node_registered.resize(node_count, true);
+
         let module_record = module_record.finalize(
             &declarations,
             &node_declarations,
@@ -1598,17 +1644,49 @@ impl<'a> SymbolTracker<'a> {
             symbols: self.symbols,
             references: self.references,
             declarations,
+            declaration_lists,
             module_record,
-            use_ids,
-            use_ranges,
+            use_lists,
             scope_maps: self.scope_maps,
             hoisting_variables: self.hoisting_variables,
             node_scopes,
             node_parents,
+            node_registered,
             node_declarations,
             node_references,
+            features,
+            transform_facts: None,
+            used_names,
+            direct_symbol_names,
         }
     }
+}
+
+pub(crate) fn observe_used_name(tree: &Ast<'_>, names: &mut UsedNameMap<'_>, name: AstStr) {
+    names.entry(name).or_default().bare_used = true;
+
+    let text = tree.get_ast_str_bytes(name);
+    let digit_start = text
+        .iter()
+        .rposition(|byte| !byte.is_ascii_digit())
+        .map_or(0, |index| index + 1);
+    if digit_start == text.len() {
+        return;
+    }
+    let Some(suffix) = text[digit_start..].iter().try_fold(0u64, |value, digit| {
+        value.checked_mul(10)?.checked_add(u64::from(digit - b'0'))
+    }) else {
+        return;
+    };
+    let Some(next_suffix) = suffix.checked_add(1) else {
+        return;
+    };
+    let base = tree.canonicalize_ast_str_prefix(name, digit_start);
+    let state = names.entry(base).or_insert(UsedNameState {
+        bare_used: false,
+        next_suffix,
+    });
+    state.next_suffix = state.next_suffix.max(next_suffix);
 }
 
 #[derive(Clone, Copy, Default)]

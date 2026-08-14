@@ -1,158 +1,43 @@
-use std::collections::HashMap;
-
 use swc_next_ecma_ast::{
-    Argument, ArgumentData, AssignmentOperator, AssignmentTarget, Ast, AstUtf8, BinaryExpression,
-    BinaryOperator, BindingPattern, ClassElementData, DUMMY_SP, Decorator, Expr,
+    Argument, ArgumentData, AssignmentOperator, AssignmentTarget, Ast, AstNode, AstUtf8,
+    BinaryExpression, BinaryOperator, BindingPattern, ClassElementData, DUMMY_SP, Decorator, Expr,
     ForStatementInitData, ForStatementLeftData, FormalParameterKind, Function, FunctionType,
-    LogicalOperator, Mark, NodeKind, NodeKindData, NumericLiteralKind, ObjectPropertyKind,
-    ObjectPropertyKindData, PropertyKey, PropertyKeyData, ScopeId, Stmt, SyntaxContext,
-    TypedSubRange, UnaryOperator, VariableKind,
+    LogicalOperator, NodeKind, NodeKindData, NumericLiteralKind, ObjectPropertyKind,
+    ObjectPropertyKindData, PropertyKey, PropertyKeyData, ScopeId, Stmt, SymbolId, TypedSubRange,
+    UnaryOperator, VariableKind,
 };
-use swc_next_ecma_semantic::Semantic;
+use swc_next_ecma_semantic::{
+    FunctionCaptures, ReferenceFlags, Semantic, SubtreeEffect, SymbolFlags,
+};
 
-use super::analysis::{CaptureFacts, GeneratorAnalysis, YieldFacts};
+use crate::state::{PrivateName, reserve_private_name};
 
 mod expression;
 mod statement;
 
-pub(super) fn transform(
-    mut analysis: GeneratorAnalysis,
-    ast: &mut Ast<'_>,
-    semantic: &Semantic<'_>,
-) {
-    for function in analysis.generators {
-        let captures = analysis
-            .captures
-            .remove(&function.node_id())
-            .unwrap_or_default();
+pub(super) fn transform<'a>(ast: &mut Ast<'a>, semantic: &mut Semantic<'a>) {
+    let generators = semantic
+        .generator_functions_post_order()
+        .expect("generator transform requires GENERATOR_FUNCTIONS semantic feature")
+        .to_vec();
+    for function in generators {
+        let captures = semantic
+            .function_captures(function.node_id())
+            .expect("generator transform requires FUNCTION_ENV_CAPTURE semantic feature");
+        let arguments = captures.arguments.to_vec();
+        let new_targets = captures.new_targets.to_vec();
         let body_scope = semantic.scope_of(function.body(ast).node_id());
         let scope = semantic.scope(body_scope).hoist_target;
-        let names = NameAllocator::new(semantic, scope);
-        GeneratorCompiler::new(ast, &analysis.yields, names, captures).lower(function);
+        GeneratorCompiler::new(ast, semantic, scope, &arguments, &new_targets).lower(function);
+        semantic.clear_generator_yield_effects(function.node_id());
     }
+    semantic.finish_generator_transform();
 }
 
-#[derive(Clone, Copy)]
-struct PrivateName {
-    text: AstUtf8,
-    context: SyntaxContext,
-}
-
-struct NameAllocator<'semantic> {
-    semantic: &'semantic Semantic<'semantic>,
-    scope: ScopeId,
-    next_suffix: HashMap<AstUtf8, u64>,
-}
-
-impl<'semantic> NameAllocator<'semantic> {
-    fn new(semantic: &'semantic Semantic<'semantic>, scope: ScopeId) -> Self {
-        Self {
-            semantic,
-            scope,
-            next_suffix: HashMap::new(),
-        }
-    }
-
-    fn fresh(&mut self, base: &str, ast: &mut Ast<'_>) -> PrivateName {
-        let base_name = ast.add_utf8(base);
-        let suffix = if let Some(suffix) = self.next_suffix.get_mut(&base_name) {
-            let current = *suffix;
-            *suffix = suffix.checked_add(1).expect("private name suffix overflow");
-            Some(current)
-        } else {
-            let (bare_used, largest_suffix) = self.scan_existing(base.as_bytes(), ast);
-            let next = largest_suffix
-                .checked_add(1)
-                .expect("private name suffix overflow");
-            let following = next
-                .checked_add(u64::from(bare_used))
-                .expect("private name suffix overflow");
-            self.next_suffix.insert(base_name, following);
-            bare_used.then_some(next)
-        };
-
-        let text = if let Some(suffix) = suffix {
-            let mut candidate = base.to_owned();
-            candidate.push_str(&suffix.to_string());
-            ast.add_utf8(&candidate)
-        } else {
-            base_name
-        };
-        let mark = ast.fresh_mark(Mark::root());
-        let context = ast.apply_mark(SyntaxContext::empty(), mark);
-        PrivateName { text, context }
-    }
-
-    fn scan_existing(&self, base: &[u8], ast: &Ast<'_>) -> (bool, u64) {
-        let mut bare_used = false;
-        let mut largest_suffix = 0;
-
-        for entry in self.semantic.iter_symbols() {
-            let symbol = entry.symbol;
-            if self.scopes_overlap(symbol.scope, self.scope) {
-                observe_name(
-                    ast.get_wtf8(symbol.name).as_bytes(),
-                    base,
-                    &mut bare_used,
-                    &mut largest_suffix,
-                );
-            }
-        }
-        for entry in self.semantic.iter_references() {
-            let reference = entry.reference;
-            if self.is_scope_ancestor(self.scope, reference.scope) {
-                observe_name(
-                    ast.get_utf8(reference.name).as_bytes(),
-                    base,
-                    &mut bare_used,
-                    &mut largest_suffix,
-                );
-            }
-        }
-
-        (bare_used, largest_suffix)
-    }
-
-    fn scopes_overlap(&self, left: ScopeId, right: ScopeId) -> bool {
-        self.is_scope_ancestor(left, right) || self.is_scope_ancestor(right, left)
-    }
-
-    fn is_scope_ancestor(&self, ancestor: ScopeId, mut scope: ScopeId) -> bool {
-        loop {
-            if scope == ancestor {
-                return true;
-            }
-            let Some(parent) = self.semantic.scope(scope).parent else {
-                return false;
-            };
-            scope = parent;
-        }
-    }
-}
-
-fn observe_name(name: &[u8], base: &[u8], bare_used: &mut bool, largest_suffix: &mut u64) {
-    let Some(suffix) = name.strip_prefix(base) else {
-        return;
-    };
-    if suffix.is_empty() {
-        *bare_used = true;
-        return;
-    }
-    if !suffix.iter().all(u8::is_ascii_digit) {
-        return;
-    }
-    let Some(value) = suffix.iter().try_fold(0u64, |value, digit| {
-        value.checked_mul(10)?.checked_add(u64::from(digit - b'0'))
-    }) else {
-        return;
-    };
-    *largest_suffix = (*largest_suffix).max(value);
-}
-
-struct GeneratorCompiler<'facts, 'semantic, 'ast> {
+struct GeneratorCompiler<'semantic, 'ast> {
     ast: &'semantic mut Ast<'ast>,
-    facts: &'facts YieldFacts,
-    names: NameAllocator<'semantic>,
+    semantic: &'semantic mut Semantic<'ast>,
+    scope: ScopeId,
     state_name: PrivateName,
     cases: Vec<Vec<Stmt>>,
     current: usize,
@@ -170,18 +55,19 @@ struct ControlTarget {
     name: Option<Vec<u8>>,
 }
 
-impl<'facts, 'semantic, 'ast> GeneratorCompiler<'facts, 'semantic, 'ast> {
+impl<'semantic, 'ast> GeneratorCompiler<'semantic, 'ast> {
     fn new(
         ast: &'semantic mut Ast<'ast>,
-        facts: &'facts YieldFacts,
-        mut names: NameAllocator<'semantic>,
-        captures: CaptureFacts,
+        semantic: &'semantic mut Semantic<'ast>,
+        scope: ScopeId,
+        arguments: &[swc_next_ecma_ast::ReferenceId],
+        new_targets: &[swc_next_ecma_ast::NodeId],
     ) -> Self {
-        let state_name = names.fresh("_state", ast);
+        let state_name = reserve_private_name(ast, semantic, scope, "_state");
         let mut compiler = Self {
             ast,
-            facts,
-            names,
+            semantic,
+            scope,
             state_name,
             cases: vec![Vec::new()],
             current: 0,
@@ -191,44 +77,120 @@ impl<'facts, 'semantic, 'ast> GeneratorCompiler<'facts, 'semantic, 'ast> {
             control: Vec::new(),
             with_stack: Vec::new(),
         };
-        compiler.prepare_captures(captures);
+        compiler.prepare_captures(FunctionCaptures {
+            arguments,
+            new_targets,
+        });
         compiler
     }
 
-    fn prepare_captures(&mut self, captures: CaptureFacts) {
+    #[inline]
+    fn contains_yield<N: AstNode>(&self, node: N) -> bool {
+        self.semantic
+            .contains_effect(node.node_id(), SubtreeEffect::Yield)
+            .expect("generator transform requires the YIELD semantic feature")
+    }
+
+    fn prepare_captures(&mut self, captures: FunctionCaptures<'_>) {
         if !captures.arguments.is_empty() {
-            let name = self.names.fresh("_arguments", self.ast);
-            for reference in captures.arguments {
-                reference.set_name(self.ast, name.text);
-                self.ast
-                    .set_syntax_context(reference.node_id(), name.context);
-            }
+            let name = reserve_private_name(self.ast, self.semantic, self.scope, "_arguments");
             let source_name = self.ast.add_utf8("arguments");
             let initializer = self.ast.expr_identifier_reference(DUMMY_SP, source_name);
             let declaration = self.named_declarator(name, Some(initializer));
+            let symbol = self.register_declarator(declaration, name);
+            self.semantic.register_node(
+                initializer.node_id(),
+                Some(declaration.node_id()),
+                self.scope,
+            );
+            self.semantic.reference_generated(
+                self.ast,
+                self.scope,
+                initializer.node_id(),
+                self.ast.canonicalize_utf8(source_name),
+                ReferenceFlags::default(),
+                None,
+            );
+            let generated_name = self.ast.canonicalize_utf8(name.text);
+            for reference_id in captures.arguments {
+                let reference_node = self.semantic.reference(*reference_id).node;
+                let NodeKindData::IdentifierReference(reference) =
+                    self.ast.kind_data(reference_node)
+                else {
+                    continue;
+                };
+                reference.set_name(self.ast, name.text);
+                self.ast
+                    .set_syntax_context(reference.node_id(), name.context);
+                self.semantic
+                    .rename_reference(self.ast, *reference_id, generated_name);
+                self.semantic.rebind_reference(*reference_id, Some(symbol));
+            }
             self.capture_vars.push(declaration);
         }
         if !captures.new_targets.is_empty() {
-            let name = self.names.fresh("_newtarget", self.ast);
-            for meta in captures.new_targets {
-                let replacement = self.ast.identifier_reference(DUMMY_SP, name.text);
-                self.ast
-                    .set_syntax_context(replacement.node_id(), name.context);
-                // SAFETY: `MetaProperty` occurs through an `Expr` edge, which
-                // also accepts `IdentifierReference`; the temporary is the
-                // final unattached node and is consumed immediately.
-                unsafe {
-                    self.ast.replace_data(meta, replacement);
-                }
-            }
+            let name = reserve_private_name(self.ast, self.semantic, self.scope, "_newtarget");
             let meta_name = self.ast.add_utf8("new");
             let property_name = self.ast.add_utf8("target");
             let meta = self.ast.identifier_name(DUMMY_SP, meta_name);
             let property = self.ast.identifier_name(DUMMY_SP, property_name);
             let initializer = self.ast.expr_meta_property(DUMMY_SP, meta, property);
             let declaration = self.named_declarator(name, Some(initializer));
+            let symbol = self.register_declarator(declaration, name);
+            self.semantic.register_node(
+                initializer.node_id(),
+                Some(declaration.node_id()),
+                self.scope,
+            );
+            let generated_name = self.ast.canonicalize_utf8(name.text);
+            for meta_node in captures.new_targets {
+                let NodeKindData::MetaProperty(meta) = self.ast.kind_data(*meta_node) else {
+                    continue;
+                };
+                let replacement = self.ast.identifier_reference(DUMMY_SP, name.text);
+                self.ast
+                    .set_syntax_context(replacement.node_id(), name.context);
+                unsafe {
+                    self.ast.replace_data(meta, replacement);
+                }
+                self.semantic.reference_generated(
+                    self.ast,
+                    self.scope,
+                    *meta_node,
+                    generated_name,
+                    ReferenceFlags::default(),
+                    Some(symbol),
+                );
+            }
             self.capture_vars.push(declaration);
         }
+    }
+
+    fn register_declarator(
+        &mut self,
+        declaration: swc_next_ecma_ast::VariableDeclarator,
+        name: PrivateName,
+    ) -> SymbolId {
+        self.semantic
+            .register_node(declaration.node_id(), None, self.scope);
+        let identifier = declaration
+            .id(self.ast)
+            .as_binding_identifier(self.ast)
+            .expect("private binding is an identifier");
+        if identifier.node_id() != declaration.node_id() {
+            self.semantic.register_node(
+                identifier.node_id(),
+                Some(declaration.node_id()),
+                self.scope,
+            );
+        }
+        self.semantic.declare(
+            self.ast,
+            self.scope,
+            identifier.node_id(),
+            self.ast.canonicalize_utf8(name.text),
+            SymbolFlags::FUNCTION_SCOPED_VAR,
+        )
     }
 
     fn named_declarator(
@@ -330,7 +292,7 @@ impl<'facts, 'semantic, 'ast> GeneratorCompiler<'facts, 'semantic, 'ast> {
     }
 }
 
-impl<'facts, 'semantic, 'ast> GeneratorCompiler<'facts, 'semantic, 'ast> {
+impl<'semantic, 'ast> GeneratorCompiler<'semantic, 'ast> {
     fn cache(&mut self, expression: Expr) -> Expr {
         let name = self.new_temp();
         self.emit_assignment(name, expression);
@@ -338,7 +300,7 @@ impl<'facts, 'semantic, 'ast> GeneratorCompiler<'facts, 'semantic, 'ast> {
     }
 
     fn new_temp(&mut self) -> PrivateName {
-        let name = self.names.fresh("_tmp", self.ast);
+        let name = reserve_private_name(self.ast, self.semantic, self.scope, "_tmp");
         let pattern = self.ast.binding_pattern_binding_identifier(
             DUMMY_SP,
             name.text,

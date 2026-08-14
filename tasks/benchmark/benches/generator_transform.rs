@@ -7,7 +7,7 @@ use swc_next_ecma_codegen::{Options as NextCodegenOptions, print as next_print};
 use swc_next_ecma_parser::{
     NoTokenParserConfig, Options as NextParserOptions, Parser as NextParser,
 };
-use swc_next_ecma_semantic::{AnalyzeOptions, analyze};
+use swc_next_ecma_semantic::{AnalyzeOptions, Semantic, SemanticFeatureFlags, analyze};
 use swc_next_ecma_transformer::{Transformer, TransformerOptions, es2015::ES2015Options};
 use swc_old_common::{
     FileName, GLOBALS, Globals, Mark, SourceMap, comments::NoopComments, sync::Lrc,
@@ -116,6 +116,16 @@ fn old_codegen(cm: Lrc<SourceMap>, program: &OldProgram) -> Vec<u8> {
     output
 }
 
+fn next_transformer_options() -> TransformerOptions {
+    TransformerOptions {
+        es2015: ES2015Options {
+            generator: true,
+            ..ES2015Options::default()
+        },
+        ..TransformerOptions::default()
+    }
+}
+
 fn next_codegen_options() -> NextCodegenOptions {
     NextCodegenOptions {
         minify: true,
@@ -141,20 +151,26 @@ fn next_parse<'a>(ast: &mut Ast<'a>) -> NextProgram {
     parsed.program
 }
 
-fn next_transform(program: NextProgram, ast: &mut Ast<'_>) {
-    let semantic = analyze(program, ast, AnalyzeOptions::default()).semantic;
-    Transformer::transform(
+fn next_analyze<'a>(
+    program: NextProgram,
+    ast: &Ast<'a>,
+    options: &TransformerOptions,
+) -> Semantic<'a> {
+    analyze(
         program,
         ast,
-        &semantic,
-        TransformerOptions {
-            es2015: ES2015Options {
-                generator: true,
-                ..ES2015Options::default()
-            },
-            ..TransformerOptions::default()
+        AnalyzeOptions {
+            features: options.semantic_features(),
+            ..AnalyzeOptions::default()
         },
-    );
+    )
+    .semantic
+}
+
+fn next_transform(program: NextProgram, ast: &mut Ast<'_>) {
+    let options = next_transformer_options();
+    let mut semantic = next_analyze(program, ast, &options);
+    Transformer::transform(program, ast, &mut semantic, options);
 }
 
 fn verify_only_generator_transform(source: &str) -> (usize, usize, usize, usize) {
@@ -237,7 +253,7 @@ fn bench_prerequisites(c: &mut Criterion, source: &str, generator_count: usize) 
         });
     });
 
-    group.bench_function("swc-next/semantic", |b| {
+    group.bench_function("swc-next/semantic/features-empty", |b| {
         b.iter_custom(|iterations| {
             let mut elapsed = Duration::ZERO;
             for _ in 0..iterations {
@@ -246,6 +262,54 @@ fn bench_prerequisites(c: &mut Criterion, source: &str, generator_count: usize) 
                 let program = next_parse(&mut ast);
                 let start = Instant::now();
                 black_box(analyze(program, &ast, AnalyzeOptions::default()));
+                elapsed += start.elapsed();
+            }
+            elapsed
+        });
+    });
+
+    let generator_features = next_transformer_options().semantic_features();
+    group.bench_function("swc-next/semantic/generator-only", |b| {
+        b.iter_custom(|iterations| {
+            let mut elapsed = Duration::ZERO;
+            for _ in 0..iterations {
+                let allocator = Allocator::new();
+                let mut ast = Ast::new(source, &allocator);
+                let program = next_parse(&mut ast);
+                let start = Instant::now();
+                black_box(analyze(
+                    program,
+                    &ast,
+                    AnalyzeOptions {
+                        features: generator_features,
+                        ..AnalyzeOptions::default()
+                    },
+                ));
+                elapsed += start.elapsed();
+            }
+            elapsed
+        });
+    });
+
+    let async_features = SemanticFeatureFlags::AWAIT
+        | SemanticFeatureFlags::ASYNC_FUNCTIONS
+        | SemanticFeatureFlags::FUNCTION_ENV_CAPTURE;
+    group.bench_function("swc-next/semantic/async-only", |b| {
+        b.iter_custom(|iterations| {
+            let mut elapsed = Duration::ZERO;
+            for _ in 0..iterations {
+                let allocator = Allocator::new();
+                let mut ast = Ast::new(source, &allocator);
+                let program = next_parse(&mut ast);
+                let start = Instant::now();
+                black_box(analyze(
+                    program,
+                    &ast,
+                    AnalyzeOptions {
+                        features: async_features,
+                        ..AnalyzeOptions::default()
+                    },
+                ));
                 elapsed += start.elapsed();
             }
             elapsed
@@ -314,20 +378,10 @@ fn bench_transform(c: &mut Criterion, source: &str, generator_count: usize) {
                 let allocator = Allocator::new();
                 let mut ast = Ast::new(source, &allocator);
                 let program = next_parse(&mut ast);
-                let semantic = analyze(program, &ast, AnalyzeOptions::default()).semantic;
+                let options = next_transformer_options();
+                let mut semantic = next_analyze(program, &ast, &options);
                 let start = Instant::now();
-                Transformer::transform(
-                    program,
-                    &mut ast,
-                    &semantic,
-                    TransformerOptions {
-                        es2015: ES2015Options {
-                            generator: true,
-                            ..ES2015Options::default()
-                        },
-                        ..TransformerOptions::default()
-                    },
-                );
+                Transformer::transform(program, &mut ast, &mut semantic, options);
                 elapsed += start.elapsed();
                 black_box(program);
             }
@@ -349,9 +403,14 @@ fn bench_next_breakdown(c: &mut Criterion, source: &str, generator_count: usize)
                 let allocator = Allocator::new();
                 let mut ast = Ast::new(source, &allocator);
                 let program = next_parse(&mut ast);
-                let semantic = analyze(program, &ast, AnalyzeOptions::default()).semantic;
+                let mut semantic = analyze(program, &ast, AnalyzeOptions::default()).semantic;
                 let start = Instant::now();
-                Transformer::transform(program, &mut ast, &semantic, TransformerOptions::default());
+                Transformer::transform(
+                    program,
+                    &mut ast,
+                    &mut semantic,
+                    TransformerOptions::default(),
+                );
                 elapsed += start.elapsed();
                 black_box(program);
             }
@@ -366,20 +425,10 @@ fn bench_next_breakdown(c: &mut Criterion, source: &str, generator_count: usize)
                 let allocator = Allocator::new();
                 let mut ast = Ast::new(&nongenerator_source, &allocator);
                 let program = next_parse(&mut ast);
-                let semantic = analyze(program, &ast, AnalyzeOptions::default()).semantic;
+                let options = next_transformer_options();
+                let mut semantic = next_analyze(program, &ast, &options);
                 let start = Instant::now();
-                Transformer::transform(
-                    program,
-                    &mut ast,
-                    &semantic,
-                    TransformerOptions {
-                        es2015: ES2015Options {
-                            generator: true,
-                            ..ES2015Options::default()
-                        },
-                        ..TransformerOptions::default()
-                    },
-                );
+                Transformer::transform(program, &mut ast, &mut semantic, options);
                 elapsed += start.elapsed();
                 black_box(program);
             }
@@ -394,21 +443,16 @@ fn bench_next_breakdown(c: &mut Criterion, source: &str, generator_count: usize)
                 let allocator = Allocator::new();
                 let mut ast = Ast::new(source, &allocator);
                 let program = next_parse(&mut ast);
-                let semantic = analyze(program, &ast, AnalyzeOptions::default()).semantic;
+                let options = next_transformer_options();
+                let mut semantic = next_analyze(program, &ast, &options);
+                Transformer::transform(program, &mut ast, &mut semantic, options);
+                let start = Instant::now();
                 Transformer::transform(
                     program,
                     &mut ast,
-                    &semantic,
-                    TransformerOptions {
-                        es2015: ES2015Options {
-                            generator: true,
-                            ..ES2015Options::default()
-                        },
-                        ..TransformerOptions::default()
-                    },
+                    &mut semantic,
+                    TransformerOptions::default(),
                 );
-                let start = Instant::now();
-                Transformer::transform(program, &mut ast, &semantic, TransformerOptions::default());
                 elapsed += start.elapsed();
                 black_box(program);
             }

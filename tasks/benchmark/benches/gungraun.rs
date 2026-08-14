@@ -93,7 +93,10 @@ fn bench_semantic_with_syntax_check(parsed: ParsedProgram) {
     black_box(analyze(
         parsed.program,
         &parsed.ast,
-        AnalyzeOptions { check_syntax: true },
+        AnalyzeOptions {
+            check_syntax: true,
+            ..AnalyzeOptions::default()
+        },
     ));
 }
 

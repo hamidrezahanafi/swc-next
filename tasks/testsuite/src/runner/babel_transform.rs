@@ -64,7 +64,15 @@ fn transform_input(case: &BabelTransformCase) -> Result<String, String> {
     let allocator = Allocator::new();
     let mut ast = Ast::new(source, &allocator);
     let program = parse_program(&mut ast, case)?;
-    let semantic_ret = analyze(program, &ast, AnalyzeOptions { check_syntax: true });
+    let options: TransformerOptions = case.options.clone().into();
+    let mut semantic_ret = analyze(
+        program,
+        &ast,
+        AnalyzeOptions {
+            check_syntax: true,
+            features: options.semantic_features(),
+        },
+    );
     if let Some(diagnostic) = semantic_ret
         .diagnostics
         .iter()
@@ -76,8 +84,7 @@ fn transform_input(case: &BabelTransformCase) -> Result<String, String> {
         ));
     }
 
-    let options: TransformerOptions = case.options.clone().into();
-    Transformer::transform(program, &mut ast, &semantic_ret.semantic, options);
+    Transformer::transform(program, &mut ast, &mut semantic_ret.semantic, options);
     Ok(print(&allocator, &ast, program, CodegenOptions::default())
         .code
         .to_owned())

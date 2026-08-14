@@ -33,7 +33,7 @@ use swc_next_ecma_ast::{
 };
 
 use crate::{
-    ReferenceFlags, ReferenceSpace, Semantic, Symbol, SymbolFlags,
+    ReferenceFlags, ReferenceSpace, Semantic, SemanticFeatureFlags, Symbol, SymbolFlags,
     context::{SemanticContext, SemanticVisitCtx},
     ecmascript,
     scope::ScopeKind,
@@ -54,10 +54,15 @@ struct CheckerState<'a> {
 }
 
 impl<'traverse, 'a> Checker<'traverse, 'a> {
-    pub fn new(root: Program, ast: &'traverse Ast<'a>, check_syntax: bool) -> Self {
+    pub fn new(
+        root: Program,
+        ast: &'traverse Ast<'a>,
+        check_syntax: bool,
+        features: SemanticFeatureFlags,
+    ) -> Self {
         Self {
             checks: CheckerState::new(ast.allocator()),
-            context: SemanticVisitCtx::new(ast, SemanticContext::init(root, ast)),
+            context: SemanticVisitCtx::new(ast, SemanticContext::init(root, ast, features)),
             check_syntax,
             in_ts_module_name: false,
         }
@@ -177,7 +182,7 @@ impl<'a> CheckerState<'a> {
         for index in 0..self.export_specifiers.len() {
             let specifier = self.export_specifiers[index];
             if symbols
-                .binding(ScopeId::MODULE, specifier.local_name)
+                .binding_text(tree, ScopeId::MODULE, specifier.local_name)
                 .is_none()
             {
                 let message = self.fmt(format_args!(
@@ -824,10 +829,10 @@ impl Checker<'_, '_> {
                         ReportOptions::default(),
                     );
                 }
-                let existing = context
-                    .state
-                    .symbols
-                    .binding(context.state.symbols.pending.scope, name);
+                let existing = context.state.symbols.binding(
+                    context.state.symbols.pending.scope,
+                    context.ast.canonicalize_utf8(identifier.name(context.ast)),
+                );
                 checks.check_redeclaration(identifier, node_id, name, flags, context, existing);
                 if context.state.symbols.export_state.named().is_some() {
                     let skip = existing.is_some() && context.ast.is_ts();
@@ -2580,6 +2585,7 @@ impl<'a> CheckerState<'a> {
         existing_id: Option<SymbolId>,
     ) {
         assert!(!name.is_empty());
+        let canonical_name = context.ast.canonicalize_utf8(identifier.name(context.ast));
         let target = context.state.symbols.pending.scope;
         let excludes = context.state.symbols.pending.excludes;
         if let Some(existing_id) = existing_id {
@@ -2662,7 +2668,7 @@ impl<'a> CheckerState<'a> {
             });
             if outer_holds_parameters
                 && let Some(outer) = outer
-                && let Some(symbol_id) = context.state.symbols.own_binding(outer, name)
+                && let Some(symbol_id) = context.state.symbols.own_binding(outer, canonical_name)
             {
                 let existing = context.state.symbols.symbol(symbol_id);
                 if existing
@@ -2693,7 +2699,8 @@ impl<'a> CheckerState<'a> {
                 if scope_id == target {
                     break;
                 }
-                let Some(symbol_id) = context.state.symbols.own_binding(scope_id, name) else {
+                let Some(symbol_id) = context.state.symbols.own_binding(scope_id, canonical_name)
+                else {
                     continue;
                 };
                 let existing = context.state.symbols.symbol(symbol_id);

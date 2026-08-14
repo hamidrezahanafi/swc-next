@@ -1,143 +1,149 @@
 # Generator transform benchmark
 
-This is a local diagnostic comparison. It is not a CI Callgrind/Gungraun
-result, so the wall-clock numbers should not be used as a merge gate.
+This document records a local diagnostic comparison. Wall-clock data is useful
+for checking scaling and phase balance, but it is not a CI Callgrind/Gungraun
+merge gate.
 
 ## Revisions and environment
 
-- SWC Next: `8671704472d86eb898e0384327972d304575cbfb`
-- SWC: `5bf27fd72e4667bac6cc86888b8facb8b91f8077`, from a clean detached worktree
-- Rust: `rustc 1.95.0 (59807616e 2026-04-14)`, release benchmark profile
-- Machine: Apple M5 Pro, 18 cores, 48 GB RAM, arm64 macOS
+- SWC Next optimized implementation: based on
+  `d181c8f2c17803515b6d3b7f75ce656f1e782efc`
+- SWC Next baseline: clean detached `d181c8f2c17803515b6d3b7f75ce656f1e782efc`
+- SWC comparison checkout: `5bf27fd72e4667bac6cc86888b8facb8b91f8077`
+- Rust: `rustc 1.96.1 (31fca3adb 2026-06-26)`
+- Machine: Linux x86_64 VM, 32 online vCPUs, Intel Xeon Platinum 8336C
+- Profile: Cargo `bench` release profile, Criterion 100 samples
 
-The benchmark uses a generated script containing 48 generator functions by
-default. Each function exercises `yield`, `yield*`, loops, `for-in`, calls,
-`switch`, and `try/catch/finally`.
+The generated input exercises `yield`, `yield*`, loops, `for-in`, calls,
+`switch`, and `try/catch/finally`. Every run uses generator-only transform
+options. A startup assertion verifies that generator syntax disappears,
+`_ts_generator` is emitted, and an arrow-function sentinel remains unchanged.
+
+Commands:
 
 ```sh
-GENERATOR_BENCH_COUNT=48 \
-  cargo bench -p benchmark --bench generator_transform -- generator/48/
+GENERATOR_BENCH_COUNT=1 cargo bench --locked -p benchmark \
+  --bench generator_transform -- generator/1/ --noplot
+GENERATOR_BENCH_COUNT=48 cargo bench --locked -p benchmark \
+  --bench generator_transform -- generator/48/ --noplot
+GENERATOR_BENCH_COUNT=192 cargo bench --locked -p benchmark \
+  --bench generator_transform -- generator/192/ --noplot
 ```
 
-`GENERATOR_BENCH_COUNT` is part of the Criterion benchmark ID so results from
-different corpus sizes are not compared as the same case.
+## Execution flow
 
-## Measurement boundaries
+```text
+TransformerOptions(generator=true)
+  derives YIELD + GENERATOR_FUNCTIONS + FUNCTION_ENV_CAPTURE
+       ↓
+Semantic single traversal
+  canonical names + scopes/symbols/references
+  yield counts + generator post-order + captures
+  used-name index
+       ↓
+Generator transform
+  consumes semantic facts directly
+  reserves generated names in mutable Semantic
+  updates capture declaration/reference IDs
+  clears yield counts along recorded ancestor paths
+       ↓
+No node-level transforms enabled
+  TraverseAction::Skip; lowered tree is not traversed again
+```
 
-The benchmark reports these phases separately:
+## Current phase results
 
-1. parse;
-2. resolver for SWC or semantic analysis for SWC Next;
-3. generator-only transform;
-4. minified codegen;
-5. parse + prerequisite + generator-only transform + minified codegen.
+The values below are Criterion point estimates.
 
-Resolver/semantic work is outside the transform timer. The transform timer
-calls only SWC's `generator` pass or SWC Next with
-`ES2015Options.generator = true`; every other compatibility transform remains
-disabled. A startup assertion checks that generator syntax is removed, the
-`_ts_generator` call is present, and an arrow-function sentinel is unchanged.
+| Count | Phase | SWC | SWC Next | SWC Next relative |
+| ---: | --- | ---: | ---: | ---: |
+| 1 | Parse | 13.255 us | 5.093 us | 61.6% faster |
+| 1 | Resolver / generator semantic | 3.719 us | 7.984 us | 2.15x |
+| 1 | Generator transform | 33.975 us | 15.806 us | 53.5% faster |
+| 1 | Codegen | 31.069 us | 16.563 us | 46.7% faster |
+| 1 | End to end | 104.98 us | 50.314 us | 52.1% faster |
+| 48 | Parse | 589.13 us | 210.89 us | 64.2% faster |
+| 48 | Resolver / generator semantic | 123.18 us | 297.53 us | 2.42x |
+| 48 | Generator transform | 1.4041 ms | 663.82 us | 52.7% faster |
+| 48 | Codegen | 1.2447 ms | 805.25 us | 35.3% faster |
+| 48 | End to end | 3.9449 ms | 1.9777 ms | 49.9% faster |
+| 192 | Parse | 2.5320 ms | 845.62 us | 66.6% faster |
+| 192 | Resolver / generator semantic | 595.17 us | 1.2892 ms | 2.17x |
+| 192 | Generator transform | 5.2221 ms | 2.8281 ms | 45.8% faster |
+| 192 | Codegen | 5.2128 ms | 3.3432 ms | 35.9% faster |
+| 192 | End to end | 16.058 ms | 8.2282 ms | 48.8% faster |
 
-SWC receives a fresh `Globals` and `Helpers` context per compilation. Their
-construction is outside the generator-only timer. Both code generators use
-minified output; comparing their default pretty-printers is not meaningful
-because their line-breaking policies differ.
+The resolver and semantic rows are not equivalent algorithms. SWC Next semantic
+also builds the requested transform facts and incremental indexes.
 
-"End to end" below means only those five measured stages, not a complete ES5
-pipeline. In particular, SWC's later hygiene/fixer passes are intentionally not
-run. SWC's generator pass can therefore leave textually equal private names
-distinguished only by syntax context; the benchmark checks structural lowering
-invariants, not byte-for-byte or directly executable output equivalence.
+Input/output sizes:
 
-## Default 48-generator result
+| Generators | Source | SWC output | SWC Next output | SWC Next nodes |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 758 B | 1,510 B | 1,569 B | 138 → 528 |
+| 48 | 34,627 B | 71,052 B | 73,884 B | 6,013 → 24,733 |
+| 192 | 138,635 B | 284,356 B | 295,684 B | 24,013 → 98,893 |
 
-Input: 34,627 bytes. SWC Next expands from 6,013 to 24,733 flat AST nodes.
-Minified output is 71,052 bytes for SWC and 73,884 bytes for SWC Next.
+## Optional semantic feature cost
 
-| Phase | SWC median | SWC Next median | SWC Next relative |
-| --- | ---: | ---: | ---: |
-| Parse | 212.45 us | 73.09 us | 65.6% faster |
-| Resolver / semantic | 59.81 us | 41.08 us | 31.3% faster |
-| Generator-only transform | 507.16 us | 631.13 us | 24.4% slower |
-| Minified codegen | 431.21 us | 365.19 us | 15.3% faster |
-| End to end | 1.3632 ms | 1.1171 ms | 18.1% faster |
+| Generators | features=empty | generator-only | async-only |
+| ---: | ---: | ---: | ---: |
+| 1 | 4.046 us | 7.984 us | 7.606 us |
+| 48 | 147.09 us | 297.53 us | 270.67 us |
+| 192 | 675.90 us | 1.2892 ms | 1.2274 ms |
 
-Although generator transform alone is slower, the measured pipeline is faster
-because parse, semantic analysis, and codegen save more time than the transform
-loses.
+The empty configuration does not allocate the transform-fact side tables.
+Generator-only pays for yield counts, post-order generator/capture facts, and
+the used-name index. Async-only uses the corresponding await/async facts.
 
-## SWC Next transform breakdown
+## Same-machine before/after transform comparison
 
-The 48-generator diagnostic cases measured:
+The baseline was measured from a temporary detached worktree at the base
+revision with the same compiler, machine, input generator, release target, and
+Criterion settings. Only the generator transform cases were run.
 
-| Component | Median |
-| --- | ---: |
-| Framework traversal over input with no transforms | 12.33 us |
-| Generator enabled but no generator matches | 24.35 us |
-| Framework traversal over the lowered tree | 61.46 us |
-
-The generator analysis visitor itself is approximately the difference between
-the first two rows, about 12 us. It is not the main cost.
-
-The last row is avoidable in a generator-only run. Generator lowering happens
-inside `enter_program`, after which `TraverseAction::Proceed` walks the newly
-expanded 24,733-node tree even though shorthand and sticky-regexp transforms
-are disabled. This accounts for about 9.7% of SWC Next's transform time.
-
-## Scaling
-
-Each implementation was run separately to prevent one benchmark's untimed
-setup from affecting the next benchmark.
-
-| Generator count | SWC | SWC Next | SWC Next relative | SWC / generator | Next / generator |
+| Generators | Baseline | Optimized | Improvement | Baseline / generator | Optimized / generator |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | 10.72 us | 10.87 us | 1.4% slower | 10.72 us | 10.87 us |
-| 48 | 507.16 us | 631.13 us | 24.4% slower | 10.57 us | 13.15 us |
-| 192 | 2.0245 ms | 4.5569 ms | 125.1% slower | 10.54 us | 23.73 us |
+| 1 | 23.515 us | 15.806 us | 32.8% | 23.52 us | 15.81 us |
+| 48 | 1.4285 ms | 663.82 us | 53.5% | 29.76 us | 13.83 us |
+| 192 | 10.666 ms | 2.8281 ms | 73.5% | 55.55 us | 14.73 us |
 
-SWC stays almost linear. SWC Next's per-generator time rises with the total
-number of generators.
+From 48 to 192 generators, input size grows 4x:
 
-The cross-generator nonlinear work is the current `NameAllocator`:
+- baseline transform grows 7.47x and its per-generator cost grows 86.7%;
+- optimized transform grows 4.26x and its per-generator cost grows 6.5%.
 
-- a new allocator is created for every generator scope;
-- the first `_state` and `_tmp` allocation in each generator calls
-  `scan_existing`;
-- `scan_existing` iterates every semantic symbol and reference in the whole
-  program and repeatedly walks scope ancestors;
-- the per-base suffix map only caches within that one generator allocator.
+This is the central acceptance result: removing per-generator full
+symbol/reference scans eliminates the observed quadratic growth. The optimized
+curve is close to linear over the requested 1/48/192 range.
 
-For this corpus, both the number of generator scopes and the size of semantic
-data grow together. The resulting work is approximately
-`generators * (symbols + references)`, i.e. quadratic for this scaling test.
+## Transform framework breakdown
 
-SWC does less work inside the isolated generator pass for private names: it
-creates identifiers with distinct syntax contexts and leaves textual collision
-resolution to the later hygiene pass. SWC Next currently performs the scope
-scan and textual suffix allocation inside generator lowering because its
-codegen does not yet consume hygiene contexts. This gives SWC an advantage in
-the deliberately generator-only timer.
+| Generators | No-op input | Generator enabled, no match | No-op after lowering |
+| ---: | ---: | ---: | ---: |
+| 1 | 62 ns | 67 ns | 100 ns |
+| 48 | 124 ns | 92 ns | 150 ns |
+| 192 | 302 ns | 267 ns | 182 ns |
 
-## Other structural differences
+These cases now measure dispatch-only overhead. When shorthand and sticky-regexp
+passes are disabled, the transformer returns `TraverseAction::Skip`; it no
+longer traverses the expanded lowered tree. Generator analysis is also absent:
+yield queries, function order, captures, and used names come from Semantic.
 
-- SWC Next collects yield facts once with an independent immutable visitor.
-  SWC calls `contains_yield` at 24 sites and recursively scans relevant
-  subtrees. The single-generator result shows that the independent visitor is
-  not inherently slower.
-- SWC lowers a function after visiting its original children, so its wrapper
-  does not traverse the newly generated state machine again. SWC Next's outer
-  transformer currently does.
-- The emitted state machines are not identical. For the one-generator fixture,
-  SWC Next emits about 3.9% more minified bytes. More generated nodes increase
-  lowering and post-transform traversal work, although SWC Next codegen is
-  still faster in this benchmark.
+Name reservation and yield-effect commit are included in the generator
+transform timer. They are incremental operations, not independently timed
+public passes: name lookup is indexed, and commit visits only recorded yield
+ancestor paths. A future CI Callgrind harness can split their instruction
+counts without adding wall-clock instrumentation to production code.
 
-## Recommended optimization order
+## Interpretation
 
-1. Build a semantic used-name index once per analysis phase, keyed by hoist
-   scope and canonical pooled name, then keep only `base -> next_suffix` mutable
-   state in each allocator. Do not scan all symbols/references per generator.
-2. Let the transformer skip traversal after whole-program lowering when no
-   node-level ES2015 transforms are enabled.
-3. Re-profile the state-machine compiler after removing those two framework
-   costs; only then compare case/temp generation strategies with SWC.
+- Output snapshots for the pinned Babel generator fixtures remain unchanged.
+- Generator transform is faster than the SWC comparison at all three sizes on
+  this machine.
+- The single-generator case improves, so mutable Semantic and context updates
+  did not introduce a fixed-cost regression.
+- The feature-empty semantic case remains materially cheaper than requested
+  generator/async facts, confirming that option-driven collection is active.
+- Local timing can be noisy; instruction-count claims still require the
+  repository Gungraun GitHub Actions workflow.
