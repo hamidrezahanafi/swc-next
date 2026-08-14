@@ -69,7 +69,8 @@ impl<'a> Visit<'a> for YieldCollector<'a> {
     }
 
     fn leave_node(&mut self, node: NodeId) {
-        debug_assert_eq!(self.path.pop(), Some(node));
+        let popped = self.path.pop();
+        debug_assert_eq!(popped, Some(node));
     }
 
     fn visit_yield_expression(&mut self, node: YieldExpression) {

@@ -359,7 +359,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
         self.emit(jump);
 
         self.current = end_label;
-        self.ast.expr_identifier_reference(DUMMY_SP, result)
+        self.private_reference(result)
     }
 
     fn compile_logical(&mut self, left: Expr, right: Expr, operator: LogicalOperator) -> Expr {
@@ -368,7 +368,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
         self.emit_assignment(result, left);
         let right_label = self.new_case();
         let end_label = self.new_case();
-        let result_expr = self.ast.expr_identifier_reference(DUMMY_SP, result);
+        let result_expr = self.private_reference(result);
         match operator {
             LogicalOperator::And => self.emit_conditional_jump(result_expr, end_label, true),
             LogicalOperator::Or => self.emit_conditional_jump(result_expr, end_label, false),
@@ -389,7 +389,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
         let jump = self.jump(end_label);
         self.emit(jump);
         self.current = end_label;
-        self.ast.expr_identifier_reference(DUMMY_SP, result)
+        self.private_reference(result)
     }
 
     fn compile_arguments(&mut self, arguments: Vec<Argument>) -> Vec<Argument> {

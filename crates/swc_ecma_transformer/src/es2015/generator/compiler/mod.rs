@@ -1,12 +1,12 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use swc_next_ecma_ast::{
     Argument, ArgumentData, AssignmentOperator, AssignmentTarget, Ast, AstUtf8, BinaryExpression,
     BinaryOperator, BindingPattern, ClassElementData, DUMMY_SP, Decorator, Expr,
     ForStatementInitData, ForStatementLeftData, FormalParameterKind, Function, FunctionType,
-    LogicalOperator, NodeKind, NodeKindData, NumericLiteralKind, ObjectPropertyKind,
-    ObjectPropertyKindData, PropertyKey, PropertyKeyData, Stmt, TypedSubRange, UnaryOperator,
-    VariableKind,
+    LogicalOperator, Mark, NodeKind, NodeKindData, NumericLiteralKind, ObjectPropertyKind,
+    ObjectPropertyKindData, PropertyKey, PropertyKeyData, ScopeId, Stmt, SyntaxContext,
+    TypedSubRange, UnaryOperator, VariableKind,
 };
 use swc_next_ecma_semantic::Semantic;
 
@@ -20,51 +20,140 @@ pub(super) fn transform(
     ast: &mut Ast<'_>,
     semantic: &Semantic<'_>,
 ) {
-    let mut names = NameAllocator::new(ast, semantic);
     for function in analysis.generators {
         let captures = analysis
             .captures
             .remove(&function.node_id())
             .unwrap_or_default();
-        GeneratorCompiler::new(ast, &analysis.yields, &mut names, captures).lower(function);
+        let body_scope = semantic.scope_of(function.body(ast).node_id());
+        let scope = semantic.scope(body_scope).hoist_target;
+        let names = NameAllocator::new(semantic, scope);
+        GeneratorCompiler::new(ast, &analysis.yields, names, captures).lower(function);
     }
 }
 
-struct NameAllocator {
-    used: HashSet<Vec<u8>>,
+#[derive(Clone, Copy)]
+struct PrivateName {
+    text: AstUtf8,
+    context: SyntaxContext,
 }
 
-impl NameAllocator {
-    fn new(ast: &Ast<'_>, semantic: &Semantic<'_>) -> Self {
-        let mut used = HashSet::new();
-        for entry in semantic.iter_symbols() {
-            used.insert(ast.get_wtf8(entry.symbol.name).as_bytes().to_vec());
+struct NameAllocator<'semantic> {
+    semantic: &'semantic Semantic<'semantic>,
+    scope: ScopeId,
+    next_suffix: HashMap<AstUtf8, u64>,
+}
+
+impl<'semantic> NameAllocator<'semantic> {
+    fn new(semantic: &'semantic Semantic<'semantic>, scope: ScopeId) -> Self {
+        Self {
+            semantic,
+            scope,
+            next_suffix: HashMap::new(),
         }
-        for entry in semantic.iter_references() {
-            used.insert(ast.get_utf8(entry.reference.name).as_bytes().to_vec());
-        }
-        Self { used }
     }
 
-    fn fresh(&mut self, base: &str, ast: &mut Ast<'_>) -> AstUtf8 {
-        let mut candidate = base.to_owned();
-        let mut suffix = 1u32;
-        while self.used.contains(candidate.as_bytes()) {
-            candidate.clear();
-            candidate.push_str(base);
+    fn fresh(&mut self, base: &str, ast: &mut Ast<'_>) -> PrivateName {
+        let base_name = ast.add_utf8(base);
+        let suffix = if let Some(suffix) = self.next_suffix.get_mut(&base_name) {
+            let current = *suffix;
+            *suffix = suffix.checked_add(1).expect("private name suffix overflow");
+            Some(current)
+        } else {
+            let (bare_used, largest_suffix) = self.scan_existing(base.as_bytes(), ast);
+            let next = largest_suffix
+                .checked_add(1)
+                .expect("private name suffix overflow");
+            let following = next
+                .checked_add(u64::from(bare_used))
+                .expect("private name suffix overflow");
+            self.next_suffix.insert(base_name, following);
+            bare_used.then_some(next)
+        };
+
+        let text = if let Some(suffix) = suffix {
+            let mut candidate = base.to_owned();
             candidate.push_str(&suffix.to_string());
-            suffix += 1;
+            ast.add_utf8(&candidate)
+        } else {
+            base_name
+        };
+        let mark = ast.fresh_mark(Mark::root());
+        let context = ast.apply_mark(SyntaxContext::empty(), mark);
+        PrivateName { text, context }
+    }
+
+    fn scan_existing(&self, base: &[u8], ast: &Ast<'_>) -> (bool, u64) {
+        let mut bare_used = false;
+        let mut largest_suffix = 0;
+
+        for entry in self.semantic.iter_symbols() {
+            let symbol = entry.symbol;
+            if self.scopes_overlap(symbol.scope, self.scope) {
+                observe_name(
+                    ast.get_wtf8(symbol.name).as_bytes(),
+                    base,
+                    &mut bare_used,
+                    &mut largest_suffix,
+                );
+            }
         }
-        self.used.insert(candidate.as_bytes().to_vec());
-        ast.add_utf8(&candidate)
+        for entry in self.semantic.iter_references() {
+            let reference = entry.reference;
+            if self.is_scope_ancestor(self.scope, reference.scope) {
+                observe_name(
+                    ast.get_utf8(reference.name).as_bytes(),
+                    base,
+                    &mut bare_used,
+                    &mut largest_suffix,
+                );
+            }
+        }
+
+        (bare_used, largest_suffix)
+    }
+
+    fn scopes_overlap(&self, left: ScopeId, right: ScopeId) -> bool {
+        self.is_scope_ancestor(left, right) || self.is_scope_ancestor(right, left)
+    }
+
+    fn is_scope_ancestor(&self, ancestor: ScopeId, mut scope: ScopeId) -> bool {
+        loop {
+            if scope == ancestor {
+                return true;
+            }
+            let Some(parent) = self.semantic.scope(scope).parent else {
+                return false;
+            };
+            scope = parent;
+        }
     }
 }
 
-struct GeneratorCompiler<'facts, 'names, 'ast> {
-    ast: &'names mut Ast<'ast>,
+fn observe_name(name: &[u8], base: &[u8], bare_used: &mut bool, largest_suffix: &mut u64) {
+    let Some(suffix) = name.strip_prefix(base) else {
+        return;
+    };
+    if suffix.is_empty() {
+        *bare_used = true;
+        return;
+    }
+    if !suffix.iter().all(u8::is_ascii_digit) {
+        return;
+    }
+    let Some(value) = suffix.iter().try_fold(0u64, |value, digit| {
+        value.checked_mul(10)?.checked_add(u64::from(digit - b'0'))
+    }) else {
+        return;
+    };
+    *largest_suffix = (*largest_suffix).max(value);
+}
+
+struct GeneratorCompiler<'facts, 'semantic, 'ast> {
+    ast: &'semantic mut Ast<'ast>,
     facts: &'facts YieldFacts,
-    names: &'names mut NameAllocator,
-    state_name: AstUtf8,
+    names: NameAllocator<'semantic>,
+    state_name: PrivateName,
     cases: Vec<Vec<Stmt>>,
     current: usize,
     hoisted_vars: Vec<swc_next_ecma_ast::VariableDeclarator>,
@@ -81,11 +170,11 @@ struct ControlTarget {
     name: Option<Vec<u8>>,
 }
 
-impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
+impl<'facts, 'semantic, 'ast> GeneratorCompiler<'facts, 'semantic, 'ast> {
     fn new(
-        ast: &'names mut Ast<'ast>,
+        ast: &'semantic mut Ast<'ast>,
         facts: &'facts YieldFacts,
-        names: &'names mut NameAllocator,
+        mut names: NameAllocator<'semantic>,
         captures: CaptureFacts,
     ) -> Self {
         let state_name = names.fresh("_state", ast);
@@ -110,7 +199,9 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
         if !captures.arguments.is_empty() {
             let name = self.names.fresh("_arguments", self.ast);
             for reference in captures.arguments {
-                reference.set_name(self.ast, name);
+                reference.set_name(self.ast, name.text);
+                self.ast
+                    .set_syntax_context(reference.node_id(), name.context);
             }
             let source_name = self.ast.add_utf8("arguments");
             let initializer = self.ast.expr_identifier_reference(DUMMY_SP, source_name);
@@ -120,7 +211,9 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
         if !captures.new_targets.is_empty() {
             let name = self.names.fresh("_newtarget", self.ast);
             for meta in captures.new_targets {
-                let replacement = self.ast.identifier_reference(DUMMY_SP, name);
+                let replacement = self.ast.identifier_reference(DUMMY_SP, name.text);
+                self.ast
+                    .set_syntax_context(replacement.node_id(), name.context);
                 // SAFETY: `MetaProperty` occurs through an `Expr` edge, which
                 // also accepts `IdentifierReference`; the temporary is the
                 // final unattached node and is consumed immediately.
@@ -140,16 +233,21 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
 
     fn named_declarator(
         &mut self,
-        name: AstUtf8,
+        name: PrivateName,
         initializer: Option<Expr>,
     ) -> swc_next_ecma_ast::VariableDeclarator {
         let pattern = self.ast.binding_pattern_binding_identifier(
             DUMMY_SP,
-            name,
+            name.text,
             TypedSubRange::empty(),
             None,
             false,
         );
+        let identifier = pattern
+            .as_binding_identifier(self.ast)
+            .expect("private binding is an identifier");
+        self.ast
+            .set_syntax_context(identifier.node_id(), name.context);
         self.ast
             .variable_declarator(DUMMY_SP, pattern, initializer, false)
     }
@@ -170,7 +268,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
             .ast
             .formal_parameter_pattern_binding_pattern_binding_identifier(
                 DUMMY_SP,
-                self.state_name,
+                self.state_name.text,
                 TypedSubRange::empty(),
                 None,
                 false,
@@ -185,6 +283,12 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
             None,
             FormalParameterKind::FormalParameters,
         );
+        let state_identifier = state_pattern
+            .as_binding_pattern(self.ast)
+            .and_then(|pattern| pattern.as_binding_identifier(self.ast))
+            .expect("state parameter is an identifier");
+        self.ast
+            .set_syntax_context(state_identifier.node_id(), self.state_name.context);
         let inner = self.ast.expr_function(
             DUMMY_SP,
             FunctionType::FunctionExpression,
@@ -226,31 +330,47 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
     }
 }
 
-impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
+impl<'facts, 'semantic, 'ast> GeneratorCompiler<'facts, 'semantic, 'ast> {
     fn cache(&mut self, expression: Expr) -> Expr {
         let name = self.new_temp();
         self.emit_assignment(name, expression);
-        self.ast.expr_identifier_reference(DUMMY_SP, name)
+        self.private_reference(name)
     }
 
-    fn new_temp(&mut self) -> AstUtf8 {
+    fn new_temp(&mut self) -> PrivateName {
         let name = self.names.fresh("_tmp", self.ast);
         let pattern = self.ast.binding_pattern_binding_identifier(
             DUMMY_SP,
-            name,
+            name.text,
             TypedSubRange::empty(),
             None,
             false,
         );
+        let identifier = pattern
+            .as_binding_identifier(self.ast)
+            .expect("private binding is an identifier");
+        self.ast
+            .set_syntax_context(identifier.node_id(), name.context);
         let declarator = self.ast.variable_declarator(DUMMY_SP, pattern, None, false);
         self.hoisted_vars.push(declarator);
         name
     }
 
-    fn emit_assignment(&mut self, name: AstUtf8, expression: Expr) {
+    fn private_reference(&mut self, name: PrivateName) -> Expr {
+        let expression = self.ast.expr_identifier_reference(DUMMY_SP, name.text);
+        let identifier = expression
+            .as_identifier_reference(self.ast)
+            .expect("private reference is an identifier");
+        self.ast
+            .set_syntax_context(identifier.node_id(), name.context);
+        expression
+    }
+
+    fn emit_assignment(&mut self, name: PrivateName, expression: Expr) {
         let left = self
             .ast
-            .assignment_target_simple_assignment_target_identifier_reference(DUMMY_SP, name);
+            .assignment_target_simple_assignment_target_identifier_reference(DUMMY_SP, name.text);
+        self.ast.set_syntax_context(left.node_id(), name.context);
         let assignment = self.ast.expr_assignment_expression(
             DUMMY_SP,
             left,
@@ -262,9 +382,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
     }
 
     fn state_call(&mut self, property: &str) -> Expr {
-        let object = self
-            .ast
-            .expr_identifier_reference(DUMMY_SP, self.state_name);
+        let object = self.private_reference(self.state_name);
         let property_name = self.ast.add_utf8(property);
         let property = self
             .ast
@@ -308,9 +426,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
         let elements = self.ast.add_typed_sub_range(elements);
         let record = self.ast.expr_array_expression(DUMMY_SP, elements);
 
-        let state = self
-            .ast
-            .expr_identifier_reference(DUMMY_SP, self.state_name);
+        let state = self.private_reference(self.state_name);
         let trys_name = self.ast.add_utf8("trys");
         let trys_key = self.ast.property_key_identifier_name(DUMMY_SP, trys_name);
         let trys = self
@@ -352,9 +468,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
             self.ast
                 .add_typed_sub_range(std::mem::take(&mut self.cases[0]))
         } else {
-            let object = self
-                .ast
-                .expr_identifier_reference(DUMMY_SP, self.state_name);
+            let object = self.private_reference(self.state_name);
             let label_name = self.ast.add_utf8("label");
             let property = self.ast.property_key_identifier_name(DUMMY_SP, label_name);
             let discriminant = self

@@ -298,13 +298,13 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
             .expr_array_expression(DUMMY_SP, TypedSubRange::empty());
         self.emit_assignment(keys, empty);
 
-        let keys_expr = self.ast.expr_identifier_reference(DUMMY_SP, keys);
+        let keys_expr = self.private_reference(keys);
         let push_name = self.ast.add_utf8("push");
         let push_key = self.ast.property_key_identifier_name(DUMMY_SP, push_name);
         let push = self
             .ast
             .expr_member_expression(DUMMY_SP, keys_expr, push_key, false, false);
-        let key_expr = self.ast.expr_identifier_reference(DUMMY_SP, key);
+        let key_expr = self.private_reference(key);
         let arguments = self.ast.add_typed_sub_range([Argument::Expr(key_expr)]);
         let push = self
             .ast
@@ -313,8 +313,10 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
         let collection_left = self
             .ast
             .for_statement_left_assignment_target_simple_assignment_target_identifier_reference(
-                DUMMY_SP, key,
+                DUMMY_SP, key.text,
             );
+        self.ast
+            .set_syntax_context(collection_left.node_id(), key.context);
         let collection = self
             .ast
             .stmt_for_in_statement(DUMMY_SP, collection_left, right, push);
@@ -330,8 +332,8 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
         self.emit(jump);
 
         self.current = head;
-        let index_expr = self.ast.expr_identifier_reference(DUMMY_SP, index);
-        let keys_expr = self.ast.expr_identifier_reference(DUMMY_SP, keys);
+        let index_expr = self.private_reference(index);
+        let keys_expr = self.private_reference(keys);
         let length_name = self.ast.add_utf8("length");
         let length_key = self.ast.property_key_identifier_name(DUMMY_SP, length_name);
         let length = self
@@ -343,8 +345,8 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
         self.emit_conditional_jump(test, end, true);
 
         self.current = loop_body;
-        let keys_expr = self.ast.expr_identifier_reference(DUMMY_SP, keys);
-        let index_expr = self.ast.expr_identifier_reference(DUMMY_SP, index);
+        let keys_expr = self.private_reference(keys);
+        let index_expr = self.private_reference(index);
         let key_value = self.ast.expr_member_expression(
             DUMMY_SP,
             keys_expr,
@@ -373,7 +375,7 @@ impl<'facts, 'names, 'ast> GeneratorCompiler<'facts, 'names, 'ast> {
         }
 
         self.current = update;
-        let index_expr = self.ast.expr_identifier_reference(DUMMY_SP, index);
+        let index_expr = self.private_reference(index);
         let one = self.number(1);
         let next = self
             .ast
