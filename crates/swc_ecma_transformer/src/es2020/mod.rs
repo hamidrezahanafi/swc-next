@@ -1,23 +1,27 @@
 //! ES2020 transforms.
 
-use swc_next_ecma_ast::{AssignmentExpression, LogicalExpression};
+use swc_next_ecma_ast::{AssignmentExpression, LogicalExpression, Program};
 
 use crate::state::TransformerCtx;
 
+mod export_namespace_from;
 mod nullish_coalescing;
 
 pub struct ES2020 {
+    export_namespace_from: bool,
     nullish_coalescing: bool,
 }
 
 #[derive(Default)]
 pub struct ES2020Options {
+    pub export_namespace_from: bool,
     pub nullish_coalescing: bool,
 }
 
 impl ES2020 {
     pub fn new(options: ES2020Options) -> Self {
         Self {
+            export_namespace_from: options.export_namespace_from,
             nullish_coalescing: options.nullish_coalescing,
         }
     }
@@ -25,7 +29,13 @@ impl ES2020 {
 
 impl ES2020 {
     pub(crate) fn needs_node_traversal(&self) -> bool {
-        self.nullish_coalescing
+        self.nullish_coalescing || self.export_namespace_from
+    }
+
+    pub(crate) fn transform_program(&self, node: Program, ctx: &mut TransformerCtx<'_, '_>) {
+        if self.export_namespace_from {
+            export_namespace_from::ExportNamespaceFrom::new().transform_program(node, ctx);
+        }
     }
 
     pub(crate) fn exit_logical_expression(

@@ -93,6 +93,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
         ctx: &mut TransformerCtx<'_, 'ast>,
     ) -> TraverseAction<Program> {
         self.x0_es2015.transform(node, self.semantic, ctx);
+        self.x0_es2020.transform_program(node, ctx);
         if self.x0_es3.needs_node_traversal()
             || self.x0_es2015.needs_node_traversal()
             || self.x0_es2016.needs_node_traversal()
