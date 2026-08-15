@@ -1,6 +1,6 @@
 use swc_next_ecma_ast::{
-    AssignmentExpression, ObjectExpression, ObjectProperty, Program, RegExpLiteral,
-    VariableDeclarator,
+    AssignmentExpression, BinaryExpression, ObjectExpression, ObjectProperty, Program,
+    RegExpLiteral, VariableDeclarator,
 };
 use swc_next_ecma_semantic::Semantic;
 
@@ -10,6 +10,7 @@ pub mod arrow;
 pub mod duplicate_keys;
 pub mod function_name;
 mod generator;
+pub mod instanceof;
 pub mod shorthand;
 pub mod sticky_regex;
 pub(crate) mod util;
@@ -19,6 +20,7 @@ pub struct ES2015 {
     duplicate_keys: bool,
     generator: bool,
     function_name: bool,
+    instanceof: bool,
     shorthand_properties: bool,
     sticky_regex: bool,
 }
@@ -29,6 +31,7 @@ pub struct ES2015Options {
     pub duplicate_keys: bool,
     pub generator: bool,
     pub function_name: bool,
+    pub instanceof: bool,
     pub shorthand_properties: bool,
     pub sticky_regex: bool,
 }
@@ -40,6 +43,7 @@ impl ES2015 {
             duplicate_keys: options.duplicate_keys,
             generator: options.generator,
             function_name: options.function_name,
+            instanceof: options.instanceof,
             shorthand_properties: options.shorthand_properties,
             sticky_regex: options.sticky_regex,
         }
@@ -50,6 +54,7 @@ impl ES2015 {
     pub(crate) fn needs_node_traversal(&self) -> bool {
         self.duplicate_keys
             || self.function_name
+            || self.instanceof
             || self.shorthand_properties
             || self.sticky_regex
     }
@@ -88,6 +93,16 @@ impl ES2015 {
     ) {
         if self.duplicate_keys {
             duplicate_keys::DuplicateKeys.exit_object_expression(node, ctx);
+        }
+    }
+
+    pub(crate) fn exit_binary_expression(
+        &mut self,
+        node: BinaryExpression,
+        ctx: &mut TransformerCtx<'_, '_>,
+    ) {
+        if self.instanceof {
+            instanceof::InstanceOf.exit_binary_expression(node, ctx);
         }
     }
 
