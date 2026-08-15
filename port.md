@@ -59,7 +59,7 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 | typeof_symbol | P0 | `es2015/typeof_symbol.rs` | **已实现** | `typeof x` → `_typeof(x)` |
 | spread | P0 | `es2015/spread.rs` | **已实现** | `f(...args)` → `f.apply(void 0, args)` |
 | for_of | P0 | `es2015/for_of.rs` | **已实现** | `for (var x of arr)` → iterator loop |
-| object_super | P1 | `es2015/object_super.rs` | **Stub（待实现）** | `super.prop` in object literals |
+| object_super | P1 | `es2015/object_super.rs` | **已实现** | `super.prop` in object literals |
 
 ### 2. ES2015 Heavy Transforms（需要语义分析/需要设计文档）
 
@@ -90,7 +90,7 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 
 | Transform | 优先级 | 复杂度 | 设计文档 | 状态 | 说明 |
 |-----------|--------|--------|----------|------|------|
-| async_to_generator | P0 | 复杂 | `docs/design/async-to-generator.md` | 待实现 | `async function` → generator wrapper，需 `AWAIT` + `ASYNC_FUNCTIONS` |
+| async_to_generator | P0 | 复杂 | `docs/design/async-to-generator.md` | **已实现** | `async function` → generator wrapper，需 `AWAIT` + `ASYNC_FUNCTIONS` |
 
 ### 5. ES2018
 
@@ -297,7 +297,9 @@ TypeScript、React、Module、Proposal 等。
 所有 P0 transform 已实现，包括：
 
 - [x] ES3: member_expr_lits, property_literals, reserved_words
-- [x] ES2015: shorthand, sticky_regex, function_name, duplicate_keys, instanceof, typeof_symbol, template_literal, spread, computed_props, block_scoped_functions, for_of, new_target, arrow_functions, generator
+- [x] ES2015: shorthand, sticky_regex, function_name, duplicate_keys, instanceof, typeof_symbol, template_literal, spread, computed_props, block_scoped_functions, for_of, new_target, arrow_functions, generator, object_super
+- [x] ES2016: exponentiation
+- [x] ES2017: async_to_generator
 - [x] ES2016: exponentiation
 - [x] ES2019: optional_catch_binding
 - [x] ES2020: nullish_coalescing, optional_chaining
@@ -306,12 +308,12 @@ TypeScript、React、Module、Proposal 等。
 
 ### P1（待实现）
 
-- [ ] es2015.object_super（Stub 已创建，需完整实现）
+- [x] es2015.object_super — `super` in object literals, 使用 `_get`/`_set` helper
 - [ ] es2015.block_scoping（需设计文档）
 - [ ] es2015.classes（需设计文档）
 - [ ] es2015.destructuring（需设计文档）
 - [ ] es2015.parameters（需设计文档）
-- [ ] es2017.async_to_generator（需设计文档）
+- [x] es2017.async_to_generator — `async function` → `_asyncToGenerator(function*(){...})()`
 - [ ] es2018.object_rest_spread
 - [ ] es2022.class_properties（需设计文档）
 - [ ] bugfixes.safari_id_destructuring_collision_in_function_expression（Stub 已创建，需完整实现）

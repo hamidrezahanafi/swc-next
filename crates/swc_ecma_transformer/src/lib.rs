@@ -16,6 +16,7 @@ pub mod assumptions;
 pub mod bugfixes;
 pub mod es2015;
 pub mod es2016;
+pub mod es2017;
 pub mod es2019;
 pub mod es2020;
 pub mod es2021;
@@ -32,6 +33,7 @@ pub struct TransformerOptions {
     pub es3: es3::ES3Options,
     pub es2015: es2015::ES2015Options,
     pub es2016: es2016::ES2016Options,
+    pub es2017: es2017::ES2017Options,
     pub es2019: es2019::ES2019Options,
     pub es2020: es2020::ES2020Options,
     pub es2021: es2021::ES2021Options,
@@ -49,6 +51,11 @@ impl TransformerOptions {
                 | SemanticFeatureFlags::GENERATOR_FUNCTIONS
                 | SemanticFeatureFlags::FUNCTION_ENV_CAPTURE;
         }
+        if self.es2017.async_to_generator {
+            features |= SemanticFeatureFlags::ASYNC_FUNCTIONS
+                | SemanticFeatureFlags::AWAIT
+                | SemanticFeatureFlags::FUNCTION_ENV_CAPTURE;
+        }
         features
     }
 }
@@ -59,6 +66,7 @@ pub struct TransformerImpl<'semantic, 'ast> {
     x0_es3: es3::ES3,
     x0_es2015: es2015::ES2015,
     x0_es2016: es2016::ES2016,
+    x0_es2017: es2017::ES2017,
     x0_es2019: es2019::ES2019,
     x0_es2020: es2020::ES2020,
     x0_es2021: es2021::ES2021,
@@ -78,6 +86,7 @@ impl Transformer {
             x0_es3: es3::ES3::new(options.es3),
             x0_es2015: es2015::ES2015::new(options.es2015),
             x0_es2016: es2016::ES2016::new(options.es2016),
+            x0_es2017: es2017::ES2017::new(options.es2017),
             x0_es2019: es2019::ES2019::new(options.es2019),
             x0_es2020: es2020::ES2020::new(options.es2020),
             x0_es2021: es2021::ES2021::new(options.es2021),
@@ -98,11 +107,13 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
         ctx: &mut TransformerCtx<'_, 'ast>,
     ) -> TraverseAction<Program> {
         self.x0_es2015.transform(node, self.semantic, ctx);
+        self.x0_es2017.transform_program(node, ctx);
         self.x0_es2020.transform_program(node, ctx);
         if self.x0_es3.needs_node_traversal()
             || self.x0_bugfixes.needs_node_traversal()
             || self.x0_es2015.needs_node_traversal()
             || self.x0_es2016.needs_node_traversal()
+            || self.x0_es2017.needs_node_traversal()
             || self.x0_es2019.needs_node_traversal()
             || self.x0_es2020.needs_node_traversal()
             || self.x0_es2021.needs_node_traversal()

@@ -1,71 +1,103 @@
-# Async to Generator Transform Design
+# Async to Generator Transform
 
-## 目标
+## Overview
 
+Transforms `async` functions and arrow functions into generator-based wrappers using
+the `_asyncToGenerator` helper. This is part of the ES2017 transform set.
+
+## Transform Rules
+
+### Async Function
+
+Input:
 ```js
-// Input
-async function foo() {
-  await bar();
-  return baz();
-}
-
-// Output
-function foo() {
-  return _asyncToGenerator(function*() {
-    yield bar();
-    return baz();
-  })();
+async function foo(a, b) {
+    let x = await bar();
+    return x;
 }
 ```
 
-## Semantic 依赖
+Output:
+```js
+var _asyncToGenerator = /* ... */;
+function foo(a, b) {
+    return _asyncToGenerator(function*() {
+        let x = yield bar();
+        return x;
+    })();
+}
+```
 
-- `AWAIT` — 子树是否包含 `await`
-- `ASYNC_FUNCTIONS` — 后序遍历所有 async function
-- `FUNCTION_ENV_CAPTURE` — 函数环境捕获（`arguments`、`new.target`、`this`、`super`）
+### Async Arrow Function
 
-## AST 操作
+Input:
+```js
+const foo = async () => {
+    let x = await bar();
+    return x;
+};
+```
 
-### 需要新增的 SemanticFeatureFlags
+Output:
+```js
+var _asyncToGenerator = /* ... */;
+const foo = _asyncToGenerator(function*() {
+    let x = yield bar();
+    return x;
+});
+```
 
-- `AWAIT` — 已定义
-- `ASYNC_FUNCTIONS` — 已定义
+## Key Transformations
 
-### 操作分类
+### `await` -> `yield`
+Every `await` expression in an async function is replaced with `yield`.
 
-1. **识别 async function**：遍历所有 `Function` 节点，检查 `r#async: true`
-2. **替换 Function**：将 `async function foo() { ... }` 替换为 `function foo() { return _asyncToGenerator(function*() { ... })(); }`
-3. **替换 ArrowFunction**：`async () => {}` → `_asyncToGenerator(function*() {})()`
-4. **Helper 调用**：在 Program 顶部插入 `_asyncToGenerator` helper 定义
+### `this` / `arguments` / `super` handling
+- `this` in async functions: the wrapper calls `.call(this)` to preserve `this` binding.
+- `arguments` in async functions: the wrapper calls `.apply(this, arguments)`.
+- `super` in async functions: use `FnEnvHoister` to hoist `super` references.
+- `this` in async arrows within subclass constructors: replace `this` with `_this` variable.
 
-## Scope 操作
+### `for-await-of` -> try/catch with generator
+`for await (const x of iter)` is rewritten to a complex try/catch pattern using
+`_asyncIterator` helper and `yield` in a for loop.
 
-- 新建 generator scope（内部 function* 的 scope）
-- 新增 `_asyncToGenerator` binding（module scope）
+## Implementation Strategy
 
-## Helper 依赖
+### State Tracking (Traverse hooks)
 
-- `_asyncToGenerator(fn)` — 在 `@swc/helpers` 中定义，将 generator 包装为 async 兼容函数
+- `enter_function` / `exit_function`: Track async function state via `FnState` stack.
+- `enter_arrow_function_expression` / `exit_arrow_function_expression`: Track async arrows.
+- `enter_class` / `exit_class`: Track subclass context for `_this` rewriting.
+- `exit_expression`: Detect `this`, `arguments`, `await`, `super`, `yield*` usage.
 
-## 边界情况
+### Tree Rewriting (VisitMut)
 
-1. **`async function` 声明**：转换为普通函数声明，body 用 generator wrapper 替换
-2. **`async function` 表达式**：转换为普通函数表达式
-3. **`async () => {}` 箭头函数**：转换为 `_asyncToGenerator(function*() {})()`
-4. **`super` 在 async arrow 中**：需要 `FUNCTION_ENV_CAPTURE` 捕获 `this`
-5. **`arguments` 在 async arrow 中**：需要 `FUNCTION_ENV_CAPTURE` 捕获 `arguments`
-6. **`await` 不在 async 中**：语法错误，不处理
-7. **嵌套 async**：内层 async 应已被处理，不会出现 `await` 在普通函数中
+- `visit_mut_expr`: Replace `await` with `yield`; replace `yield*` with delegate pattern.
+- `visit_mut_stmt`: Handle `for-await-of` transformation.
+- `visit_mut_this_expression`: Replace `this` with `_this` in constructor arrows.
 
-## Babel 兼容性
+### Helper Functions
 
-Babel 的 `@babel/plugin-transform-async-to-generator` 使用 `_asyncToGenerator` helper，输出格式与上述一致。SWC 对 `async` 箭头函数的处理略有不同：Babel 在箭头函数中会保留 `this` 绑定，而 SWC 将 `async () => {}` 一并转换为 generator wrapper。
+Helpers are emitted as top-level `var` declarations at the program level:
+- `_asyncToGenerator`: Core wrapper for async functions.
+- `_awaitAsyncGenerator`: Used for `await` in async generators.
+- `_asyncIterator`: Used for `for-await-of` iteration.
+- `_asyncGeneratorDelegate`: Used for `yield*` in async generators.
+- `_wrapAsyncGenerator`: Used for async generator functions.
 
-## 实现策略
+## File Structure
 
-1. 在 `enter_program` 中，利用 `ASYNC_FUNCTIONS` semantic feature 后序遍历所有 async function
-2. 对于每个 async function：
-   - 创建 `function*` 替换原函数体
-   - 包裹 `_asyncToGenerator(func)()`
-   - 将 `await` 替换为 `yield`
-3. 在 Program 顶部注入 `_asyncToGenerator` helper 声明
+```
+crates/swc_ecma_transformer/
+  src/
+    es2017/
+      mod.rs          -- ES2017 module, exports AsyncToGenerator
+      async_to_generator.rs  -- Main transform implementation
+```
+
+## Dependencies
+
+- `FnEnvHoister` from `es2015/util/fn_env_hoister.rs` for `super` hoisting.
+- `Traverse` trait hooks for enter/exit callbacks.
+- `VisitMut` trait for recursive AST rewriting.
