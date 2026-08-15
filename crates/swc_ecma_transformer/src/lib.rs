@@ -1,7 +1,8 @@
 use swc_next_ecma_ast::{
-    AssignmentExpression, Ast, BinaryExpression, BlockStatement, CatchClause, LogicalExpression,
-    MemberExpression, MetaProperty, ObjectExpression, ObjectProperty, Program, RegExpLiteral,
-    Traverse, TraverseAction, TraverseCtx, TraverseWith, UnaryExpression, VariableDeclarator,
+    ArrayExpression, AssignmentExpression, Ast, BinaryExpression, BlockStatement, CallExpression,
+    CatchClause, LogicalExpression, MemberExpression, MetaProperty, NewExpression,
+    ObjectExpression, ObjectProperty, Program, RegExpLiteral, Traverse, TraverseAction,
+    TraverseCtx, TraverseWith, UnaryExpression, VariableDeclarator,
 };
 use swc_next_ecma_semantic::{Semantic, SemanticFeatureFlags};
 
@@ -200,6 +201,30 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
         ctx: &mut TransformerCtx<'_, 'ast>,
     ) {
         self.x0_es2015.exit_meta_property(node, ctx);
+    }
+
+    fn exit_array_expression(
+        &mut self,
+        node: ArrayExpression,
+        ctx: &mut TransformerCtx<'_, 'ast>,
+    ) {
+        self.x0_es2015.exit_array_expression(node, ctx);
+    }
+
+    fn exit_call_expression(
+        &mut self,
+        node: CallExpression,
+        ctx: &mut TransformerCtx<'_, 'ast>,
+    ) {
+        self.x0_es2015.exit_call_expression(node, ctx);
+    }
+
+    fn exit_new_expression(
+        &mut self,
+        node: NewExpression,
+        ctx: &mut TransformerCtx<'_, 'ast>,
+    ) {
+        self.x0_es2015.exit_new_expression(node, ctx);
     }
 
     fn enter_catch_clause(

@@ -1,6 +1,7 @@
 use swc_next_ecma_ast::{
-    AssignmentExpression, BinaryExpression, BlockStatement, MetaProperty, ObjectExpression,
-    ObjectProperty, Program, RegExpLiteral, UnaryExpression, VariableDeclarator,
+    ArrayExpression, AssignmentExpression, BinaryExpression, BlockStatement, CallExpression,
+    MetaProperty, NewExpression, ObjectExpression, ObjectProperty, Program, RegExpLiteral,
+    UnaryExpression, VariableDeclarator,
 };
 use swc_next_ecma_semantic::Semantic;
 
@@ -15,6 +16,7 @@ mod generator;
 pub mod instanceof;
 pub mod new_target;
 pub mod shorthand;
+pub mod spread;
 pub mod sticky_regex;
 pub mod typeof_symbol;
 pub(crate) mod util;
@@ -30,6 +32,7 @@ pub struct ES2015 {
     new_target: bool,
     new_target_state: Option<new_target::NewTarget>,
     shorthand_properties: bool,
+    spread: bool,
     sticky_regex: bool,
     typeof_symbol: bool,
     typeof_symbol_state: Option<typeof_symbol::TypeofSymbol>,
@@ -46,6 +49,7 @@ pub struct ES2015Options {
     pub instanceof: bool,
     pub new_target: bool,
     pub shorthand_properties: bool,
+    pub spread: bool,
     pub sticky_regex: bool,
     pub typeof_symbol: bool,
 }
@@ -67,6 +71,7 @@ impl ES2015 {
                 None
             },
             shorthand_properties: options.shorthand_properties,
+            spread: options.spread,
             sticky_regex: options.sticky_regex,
             typeof_symbol: options.typeof_symbol,
             typeof_symbol_state: if options.typeof_symbol {
@@ -87,6 +92,7 @@ impl ES2015 {
             || self.instanceof
             || self.new_target
             || self.shorthand_properties
+            || self.spread
             || self.sticky_regex
             || self.typeof_symbol
     }
@@ -219,6 +225,36 @@ impl ES2015 {
             if let Some(nt) = &mut self.new_target_state {
                 nt.exit_meta_property(node, ctx);
             }
+        }
+    }
+
+    pub(crate) fn exit_array_expression(
+        &mut self,
+        node: ArrayExpression,
+        ctx: &mut TransformerCtx<'_, '_>,
+    ) {
+        if self.spread {
+            spread::Spread::new().exit_array_expression(node, ctx);
+        }
+    }
+
+    pub(crate) fn exit_call_expression(
+        &mut self,
+        node: CallExpression,
+        ctx: &mut TransformerCtx<'_, '_>,
+    ) {
+        if self.spread {
+            spread::Spread::new().exit_call_expression(node, ctx);
+        }
+    }
+
+    pub(crate) fn exit_new_expression(
+        &mut self,
+        node: NewExpression,
+        ctx: &mut TransformerCtx<'_, '_>,
+    ) {
+        if self.spread {
+            spread::Spread::new().exit_new_expression(node, ctx);
         }
     }
 }
