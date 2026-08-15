@@ -1,11 +1,13 @@
 use swc_next_ecma_ast::{
-    AssignmentExpression, ObjectProperty, Program, RegExpLiteral, VariableDeclarator,
+    AssignmentExpression, ObjectExpression, ObjectProperty, Program, RegExpLiteral,
+    VariableDeclarator,
 };
 use swc_next_ecma_semantic::Semantic;
 
 use crate::state::TransformerCtx;
 
 pub mod arrow;
+pub mod duplicate_keys;
 pub mod function_name;
 mod generator;
 pub mod shorthand;
@@ -14,6 +16,7 @@ pub(crate) mod util;
 
 pub struct ES2015 {
     arrow: Option<arrow::ArrowFunctions>,
+    duplicate_keys: bool,
     generator: bool,
     function_name: bool,
     shorthand_properties: bool,
@@ -23,6 +26,7 @@ pub struct ES2015 {
 #[derive(Default)]
 pub struct ES2015Options {
     pub arrow_functions: Option<arrow::ArrowFunctionsOptions>,
+    pub duplicate_keys: bool,
     pub generator: bool,
     pub function_name: bool,
     pub shorthand_properties: bool,
@@ -33,6 +37,7 @@ impl ES2015 {
     pub fn new(options: ES2015Options) -> Self {
         Self {
             arrow: options.arrow_functions.map(arrow::ArrowFunctions::new),
+            duplicate_keys: options.duplicate_keys,
             generator: options.generator,
             function_name: options.function_name,
             shorthand_properties: options.shorthand_properties,
@@ -43,7 +48,10 @@ impl ES2015 {
 
 impl ES2015 {
     pub(crate) fn needs_node_traversal(&self) -> bool {
-        self.function_name || self.shorthand_properties || self.sticky_regex
+        self.duplicate_keys
+            || self.function_name
+            || self.shorthand_properties
+            || self.sticky_regex
     }
 
     pub(crate) fn transform<'a>(
@@ -70,6 +78,16 @@ impl ES2015 {
         }
         if self.shorthand_properties {
             shorthand::Shorthand.exit_object_property(node, ctx);
+        }
+    }
+
+    pub(crate) fn exit_object_expression(
+        &mut self,
+        node: ObjectExpression,
+        ctx: &mut TransformerCtx<'_, '_>,
+    ) {
+        if self.duplicate_keys {
+            duplicate_keys::DuplicateKeys.exit_object_expression(node, ctx);
         }
     }
 

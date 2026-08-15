@@ -1,6 +1,6 @@
 use swc_next_ecma_ast::{
-    AssignmentExpression, Ast, ObjectProperty, Program, RegExpLiteral, Traverse, TraverseAction,
-    TraverseCtx, TraverseWith, VariableDeclarator,
+    AssignmentExpression, Ast, ObjectExpression, ObjectProperty, Program, RegExpLiteral, Traverse,
+    TraverseAction, TraverseCtx, TraverseWith, VariableDeclarator,
 };
 use swc_next_ecma_semantic::{Semantic, SemanticFeatureFlags};
 
@@ -76,6 +76,14 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
 
     fn exit_object_property(&mut self, node: ObjectProperty, ctx: &mut TransformerCtx<'_, 'ast>) {
         self.x0_es2015.exit_object_property(node, ctx);
+    }
+
+    fn exit_object_expression(
+        &mut self,
+        node: ObjectExpression,
+        ctx: &mut TransformerCtx<'_, 'ast>,
+    ) {
+        self.x0_es2015.exit_object_expression(node, ctx);
     }
 
     fn exit_variable_declarator(
