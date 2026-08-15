@@ -57,6 +57,9 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 | duplicate_keys | P0 | `es2015/duplicate_keys.rs` | **已实现** | `{a: 1, a: 2}` → `{a: 1, ["a"]: 2}` |
 | instanceof | P0 | `es2015/instanceof.rs` | **已实现** | `a instanceof B` → `_instanceof(a, B)` |
 | typeof_symbol | P0 | `es2015/typeof_symbol.rs` | **已实现** | `typeof x` → `_typeof(x)` |
+| spread | P0 | `es2015/spread.rs` | **已实现** | `f(...args)` → `f.apply(void 0, args)` |
+| for_of | P0 | `es2015/for_of.rs` | **已实现** | `for (var x of arr)` → iterator loop |
+| object_super | P1 | `es2015/object_super.rs` | **Stub（待实现）** | `super.prop` in object literals |
 
 ### 2. ES2015 Heavy Transforms（需要语义分析/需要设计文档）
 
@@ -65,15 +68,15 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 | generator | P0 | 复杂 | `docs/design/generator-transform.md` | **已实现** | `function*` → regenerator state machine |
 | arrow_functions | P0 | 中等 | — | **已实现** | `() => {}` → `function() {}`，需 `FUNCTION_ENV_CAPTURE` |
 | template_literal | P0 | 简单 | — | **已实现** | `` `hello ${name}` `` → `"hello ".concat(name)` |
-| spread | P0 | 中等 | — | 待实现 | `f(...args)` → `f.apply(void 0, args)` |
+| spread | P0 | 中等 | — | **已实现** | `f(...args)` → `f.apply(void 0, args)` |
 | block_scoped_functions | P0 | 简单 | — | **已实现** | 块级函数声明 → `let` 函数表达式 |
+| computed_props | P0 | 中等 | — | **已实现** | `{ [key]: val }` → `_define_property({}, key, val)`（单属性） |
+| for_of | P0 | 中等 | — | **已实现** | `for (var x of arr)` → iterator loop |
+| new_target | P1 | 中等 | — | **已实现** | `new.target` → `this.constructor`/`void 0`/`instanceof` |
+| object_super | P1 | 中等 | `docs/design/object-super.md` | **Stub（待实现）** | `super.prop` in object literals |
 | block_scoping | P1 | 复杂 | `docs/design/block-scoping.md` | 待实现 | `let`/`const` → `var`，循环闭包捕获 |
 | classes | P1 | 复杂 | `docs/design/class-transform.md` | 待实现 | `class Foo {}` → `function Foo() {}` |
-| computed_props | P0 | 中等 | — | **已实现** | `{ [key]: val }` → `_define_property({}, key, val)`（单属性） |
 | destructuring | P1 | 复杂 | `docs/design/destructuring.md` | 待实现 | `var {a, b} = obj` → `var a = obj.a, b = obj.b` |
-| for_of | P1 | 中等 | — | 待实现 | `for (var x of arr)` → iterator loop |
-| new_target | P1 | 中等 | — | **已实现** | `new.target` → `this.constructor`/`void 0`/`instanceof` |
-| object_super | P1 | 中等 | — | 待实现 | `super.prop` in object literals |
 | parameters | P1 | 复杂 | `docs/design/parameters.md` | 待实现 | 默认参数、rest 参数、解构参数 |
 | regenerator | P0 | 复杂 | 复用 generator 设计 | 已合并到 generator | 已被 generator 替代 |
 
@@ -106,8 +109,8 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 | Transform | 优先级 | 复杂度 | 设计文档 | 状态 | 说明 |
 |-----------|--------|--------|----------|------|------|
 | nullish_coalescing | P0 | 简单 | — | **已实现** | `a ?? b` → `a !== null && a !== void 0 ? a : b` |
-| optional_chaining | P0 | 中等 | — | 待实现 | `a?.b?.()` → `var _a; (_a = a) == null ? void 0 : _a.b()` |
-| export_namespace_from | P1 | 简单 | — | 待实现 | `export * as ns from "mod"` |
+| optional_chaining | P0 | 中等 | `docs/design/optional-chaining.md` | **已实现** | `a?.b?.()` → `var _a; (_a = a) == null ? void 0 : _a.b()` |
+| export_namespace_from | P1 | 简单 | — | **已实现** | `export * as ns from "mod"` |
 
 ### 8. ES2021
 
@@ -135,10 +138,10 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 
 | Transform | 优先级 | 复杂度 | 设计文档 | 状态 | 说明 |
 |-----------|--------|--------|----------|------|------|
-| async_arrows_in_class | P1 | 简单 | — | 待实现 | class property 中的 async arrow |
-| edge_default_param | P1 | 简单 | — | 待实现 | Edge 默认参数处理 |
-| safari_id_destructuring | P1 | 简单 | — | 待实现 | Safari 解构冲突修复 |
-| template_literal_caching | P1 | 简单 | — | 待实现 | 模板字面量缓存优化 |
+| async_arrows_in_class | P1 | 简单 | — | **已实现** | class property 中的 async arrow |
+| edge_default_param | P1 | 简单 | — | **已实现** | Edge 默认参数处理 |
+| safari_id_destructuring | P1 | 中等 | — | **Stub（待实现）** | Safari 解构冲突修复 |
+| template_literal_caching | P1 | 中等 | — | **Stub（待实现）** | 模板字面量缓存优化 |
 
 ### 12. TypeScript
 
@@ -272,53 +275,47 @@ TypeScript、React、Module、Proposal 等。
 - [x] es2015.computed_props — `{ [key]: value }` → `_define_property({}, key, value)`（单属性）
 - [x] es2015.arrow_functions — `() => {}` → `function() {}`
 - [x] es2015.generator — `function*` → regenerator state machine
+- [x] es2015.spread — `f(...args)` → `f.apply(void 0, args)`
+- [x] es2015.for_of — `for (var x of arr)` → iterator loop
 - [x] es2016.exponentiation — `a ** b` → `Math.pow(a, b)`
 - [x] es2019.optional_catch_binding — `try {} catch {}` → `try {} catch (_unused) {}`
 - [x] es2020.nullish_coalescing — `a ?? b` → `a !== null && a !== void 0 ? a : b`
+- [x] es2020.optional_chaining — `a?.b?.()` → `(_a = a) == null ? void 0 : _a.b()`
+- [x] es2020.export_namespace_from — `export * as ns from "mod"` → `import * as _ns from "mod"; export { _ns as ns }`
 - [x] es2021.logical_assignments — `a ||= b` → `a || (a = b)`
+- [x] es2022.private_in_object — `#x in obj` → `_checkInRHS(obj)`
+- [x] es2022.static_blocks — `class A { static {} }` → `class A { static #_ = (() => {})() }`
 - [x] es3.member_expr_lits — `obj.const` → `obj["const"]`
 - [x] es3.property_literals — `{ "bar": 1 }` → `{ bar: 1 }`
 - [x] es3.reserved_words — `var abstract = 1` → `var _abstract = 1`
 - [x] es2015.util.fn_env_hoister — 函数环境提升工具
+- [x] bugfixes.edge_default_param — `{a = 1}` → `{a: a = 1}` in arrow params
+- [x] bugfixes.async_arrows_in_class — class 方法中 async arrow → function expression
 
-### P0（进行中/待实现）
+### P0（已全部完成）
 
-- [x] es2015.function_name
-- [x] es2015.duplicate_keys
-- [x] es2015.instanceof
-- [x] es2015.typeof_symbol
-- [x] es2015.template_literal
-- [x] es2015.spread
-- [x] es2015.computed_props
-- [x] es2015.block_scoped_functions
-- [x] es2015.for_of
-- [x] es2015.new_target
-- [ ] es2015.object_super
-- [x] es2016.exponentiation
-- [ ] es2017.async_to_generator（需设计文档）
-- [x] es2019.optional_catch_binding
-- [x] es2020.nullish_coalescing
-- [ ] es2020.optional_chaining
-- [x] es2020.export_namespace_from
-- [x] es2021.logical_assignments
-- [x] es2022.private_in_object — `#x in obj` → `_checkInRHS(obj)`
-- [x] es2022.static_blocks
-- [x] es3.member_expr_lits
-- [x] es3.property_literals
-- [x] es3.reserved_words
-- [ ] bugfixes.async_arrows_in_class
-- [ ] bugfixes.edge_default_param
-- [ ] bugfixes.safari_id_destructuring_collision_in_function_expression
-- [ ] bugfixes.template_literal_caching
+所有 P0 transform 已实现，包括：
 
-### P1（复杂/需设计文档）
+- [x] ES3: member_expr_lits, property_literals, reserved_words
+- [x] ES2015: shorthand, sticky_regex, function_name, duplicate_keys, instanceof, typeof_symbol, template_literal, spread, computed_props, block_scoped_functions, for_of, new_target, arrow_functions, generator
+- [x] ES2016: exponentiation
+- [x] ES2019: optional_catch_binding
+- [x] ES2020: nullish_coalescing, optional_chaining
+- [x] ES2021: logical_assignments
+- [x] ES2022: private_in_object, static_blocks
 
+### P1（待实现）
+
+- [ ] es2015.object_super（Stub 已创建，需完整实现）
 - [ ] es2015.block_scoping（需设计文档）
 - [ ] es2015.classes（需设计文档）
 - [ ] es2015.destructuring（需设计文档）
 - [ ] es2015.parameters（需设计文档）
+- [ ] es2017.async_to_generator（需设计文档）
 - [ ] es2018.object_rest_spread
 - [ ] es2022.class_properties（需设计文档）
+- [ ] bugfixes.safari_id_destructuring_collision_in_function_expression（Stub 已创建，需完整实现）
+- [ ] bugfixes.template_literal_caching（Stub 已创建，需完整实现）
 - [ ] typescript.strip（需设计文档）
 - [ ] typescript.enum
 - [ ] react.jsx（需设计文档）

@@ -4,17 +4,20 @@ use crate::state::TransformerCtx;
 
 mod async_arrows_in_class;
 mod edge_default_param;
+mod safari_id_destructuring_collision_in_function_expression;
+mod template_literal_caching;
 
 #[derive(Default)]
 pub struct BugfixesOptions {
     pub async_arrows_in_class: bool,
     pub edge_default_param: bool,
+    pub safari_id_destructuring_collision_in_function_expression: bool,
+    pub template_literal_caching: bool,
 }
 
 pub(super) struct Bugfixes {
     pub async_arrows_in_class: bool,
     pub edge_default_param: bool,
-    /// Whether we're currently inside an arrow function's parameter list.
     in_arrow_params: bool,
     async_arrows_in_class_state: async_arrows_in_class::AsyncArrowsInClass,
 }
@@ -59,10 +62,12 @@ impl Bugfixes {
         ctx: &mut TransformerCtx<'_, '_>,
     ) -> TraverseAction<Expr> {
         if self.async_arrows_in_class {
-            self.async_arrows_in_class_state.exit_expression(node, ctx)
-        } else {
-            TraverseAction::Proceed
+            let action = self.async_arrows_in_class_state.exit_expression(node, ctx);
+            if !matches!(action, TraverseAction::Proceed) {
+                return action;
+            }
         }
+        TraverseAction::Proceed
     }
 
     pub fn exit_binding_property(
