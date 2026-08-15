@@ -155,7 +155,7 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 | Transform | 优先级 | 复杂度 | 设计文档 | 状态 | 说明 |
 |-----------|--------|--------|----------|------|------|
 | jsx | P1 | 复杂 | `docs/design/jsx-transform.md` | 待实现 | JSX → `jsx()`/`jsxs()`/`jsxDEV()` |
-| jsx_self | P1 | 简单 | — | 待实现 | `__self` 属性 |
+| jsx_self | P1 | 简单 | — | **已实现** | `__self` 属性 |
 | jsx_src | P1 | 简单 | — | 待实现 | `__source` 属性 |
 | display_name | P1 | 简单 | — | 待实现 | `Component.displayName` |
 | pure_annotations | P1 | 简单 | — | 待实现 | `/*#__PURE__*/` 注解 |
@@ -176,7 +176,7 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 |-----------|--------|--------|----------|------|------|
 | decorators | P2 | 复杂 | `docs/design/decorators.md` | 待实现 | 2022-03 / 2023-11 decorators |
 | export_default_from | P2 | 简单 | — | 待实现 | `export default from "mod"` |
-| import_attributes | P2 | 简单 | — | 待实现 | `import json from "file.json" with { type: "json" }` |
+| import_attributes | P2 | 简单 | — | **已实现** | `import json from "file.json" with { type: "json" }` → strip attributes |
 | explicit_resource_management | P2 | 中等 | — | 待实现 | `using` / `await using` |
 
 ## 执行策略
@@ -321,12 +321,12 @@ TypeScript、React、Module、Proposal 等。
 - [ ] typescript.strip（需设计文档）
 - [ ] typescript.enum
 - [ ] react.jsx（需设计文档）
-- [ ] react.jsx_self
+- [x] react.jsx_self
 - [ ] react.jsx_src
 - [ ] react.display_name
 - [ ] react.pure_annotations
 - [ ] proposal.export_default_from
-- [ ] proposal.import_attributes
+- [x] proposal.import_attributes
 
 ### P2（远期）
 
