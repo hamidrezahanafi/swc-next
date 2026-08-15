@@ -1,7 +1,7 @@
 use swc_next_ecma_ast::{
     ArrayExpression, AssignmentExpression, BinaryExpression, BlockStatement, CallExpression,
-    MetaProperty, NewExpression, ObjectExpression, ObjectProperty, Program, RegExpLiteral,
-    UnaryExpression, VariableDeclarator,
+    Expr, MetaProperty, NewExpression, ObjectExpression, ObjectProperty, Program, RegExpLiteral,
+    TraverseAction, UnaryExpression, VariableDeclarator,
 };
 use swc_next_ecma_semantic::Semantic;
 
@@ -34,6 +34,7 @@ pub struct ES2015 {
     instanceof: bool,
     new_target: bool,
     new_target_state: Option<new_target::NewTarget>,
+    object_super: Option<object_super::ObjectSuper>,
     shorthand_properties: bool,
     spread: bool,
     sticky_regex: bool,
@@ -52,6 +53,7 @@ pub struct ES2015Options {
     pub function_name: bool,
     pub instanceof: bool,
     pub new_target: bool,
+    pub object_super: bool,
     pub shorthand_properties: bool,
     pub spread: bool,
     pub sticky_regex: bool,
@@ -72,6 +74,11 @@ impl ES2015 {
             new_target: options.new_target,
             new_target_state: if options.new_target {
                 Some(new_target::NewTarget::new())
+            } else {
+                None
+            },
+            object_super: if options.object_super {
+                Some(object_super::ObjectSuper::new())
             } else {
                 None
             },
@@ -96,6 +103,7 @@ impl ES2015 {
             || self.function_name
             || self.instanceof
             || self.new_target
+            || self.object_super.is_some()
             || self.shorthand_properties
             || self.spread
             || self.sticky_regex
@@ -132,6 +140,16 @@ impl ES2015 {
         }
     }
 
+    pub(crate) fn enter_object_expression(
+        &mut self,
+        node: ObjectExpression,
+        ctx: &mut TransformerCtx<'_, '_>,
+    ) {
+        if let Some(os) = &mut self.object_super {
+            os.enter_object_expression(node, ctx);
+        }
+    }
+
     pub(crate) fn exit_object_expression(
         &mut self,
         node: ObjectExpression,
@@ -142,6 +160,33 @@ impl ES2015 {
         }
         if self.computed_props {
             computed_props::ComputedProps.exit_object_expression(node, ctx);
+        }
+        if let Some(os) = &mut self.object_super {
+            os.exit_object_expression(node, ctx);
+        }
+    }
+
+    pub(crate) fn exit_expression(
+        &mut self,
+        node: Expr,
+        ctx: &mut TransformerCtx<'_, '_>,
+    ) -> TraverseAction<Expr> {
+        if let Some(os) = &mut self.object_super {
+            let action = os.exit_expression(node, ctx);
+            if !matches!(action, TraverseAction::Proceed) {
+                return action;
+            }
+        }
+        TraverseAction::Proceed
+    }
+
+    pub(crate) fn exit_program(
+        &mut self,
+        node: Program,
+        ctx: &mut TransformerCtx<'_, '_>,
+    ) {
+        if let Some(os) = &mut self.object_super {
+            os.exit_program(node, ctx);
         }
     }
 

@@ -114,9 +114,26 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
         }
     }
 
+    fn exit_program(
+        &mut self,
+        node: Program,
+        ctx: &mut TransformerCtx<'_, 'ast>,
+    ) {
+        self.x0_es2015.exit_program(node, ctx);
+    }
+
     fn exit_object_property(&mut self, node: ObjectProperty, ctx: &mut TransformerCtx<'_, 'ast>) {
         self.x0_es3.exit_object_property(node, ctx);
         self.x0_es2015.exit_object_property(node, ctx);
+    }
+
+    fn enter_object_expression(
+        &mut self,
+        node: ObjectExpression,
+        ctx: &mut TransformerCtx<'_, 'ast>,
+    ) -> TraverseAction<ObjectExpression> {
+        self.x0_es2015.enter_object_expression(node, ctx);
+        TraverseAction::Proceed
     }
 
     fn exit_object_expression(
@@ -151,6 +168,10 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
         ctx: &mut TransformerCtx<'_, 'ast>,
     ) -> TraverseAction<Expr> {
         let action = self.x0_bugfixes.exit_expression(node, ctx);
+        if !matches!(action, TraverseAction::Proceed) {
+            return action;
+        }
+        let action = self.x0_es2015.exit_expression(node, ctx);
         if !matches!(action, TraverseAction::Proceed) {
             return action;
         }
