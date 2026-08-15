@@ -120,7 +120,7 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 | Transform | 优先级 | 复杂度 | 设计文档 | 状态 | 说明 |
 |-----------|--------|--------|----------|------|------|
 | class_properties | P1 | 复杂 | `docs/design/class-properties.md` | 待实现 | class fields、private fields、static fields |
-| private_in_object | P1 | 简单 | — | 待实现 | `#x in obj` → `_checkInRHS(obj)` |
+| private_in_object | P1 | 简单 | — | **已实现** | `#x in obj` → `_checkInRHS(obj)` |
 | static_blocks | P1 | 中等 | — | 待实现 | `class A { static {} }` → IIFE |
 
 ### 10. ES3
@@ -301,7 +301,7 @@ TypeScript、React、Module、Proposal 等。
 - [ ] es2020.optional_chaining
 - [ ] es2020.export_namespace_from
 - [x] es2021.logical_assignments
-- [ ] es2022.private_in_object
+- [x] es2022.private_in_object — `#x in obj` → `_checkInRHS(obj)`
 - [ ] es2022.static_blocks
 - [x] es3.member_expr_lits
 - [x] es3.property_literals
