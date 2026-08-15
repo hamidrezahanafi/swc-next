@@ -1,7 +1,7 @@
 use swc_next_ecma_ast::{
-    AssignmentExpression, Ast, BinaryExpression, CatchClause, ObjectExpression, ObjectProperty,
-    Program, RegExpLiteral, Traverse, TraverseAction, TraverseCtx, TraverseWith, UnaryExpression,
-    VariableDeclarator,
+    AssignmentExpression, Ast, BinaryExpression, CatchClause, LogicalExpression, ObjectExpression,
+    ObjectProperty, Program, RegExpLiteral, Traverse, TraverseAction, TraverseCtx, TraverseWith,
+    UnaryExpression, VariableDeclarator,
 };
 use swc_next_ecma_semantic::{Semantic, SemanticFeatureFlags};
 
@@ -14,6 +14,7 @@ pub mod assumptions;
 pub mod es2015;
 pub mod es2016;
 pub mod es2019;
+pub mod es2020;
 mod state;
 
 pub struct Transformer {}
@@ -24,6 +25,7 @@ pub struct TransformerOptions {
     pub es2015: es2015::ES2015Options,
     pub es2016: es2016::ES2016Options,
     pub es2019: es2019::ES2019Options,
+    pub es2020: es2020::ES2020Options,
 }
 
 impl TransformerOptions {
@@ -46,6 +48,7 @@ pub struct TransformerImpl<'semantic, 'ast> {
     x0_es2015: es2015::ES2015,
     x0_es2016: es2016::ES2016,
     x0_es2019: es2019::ES2019,
+    x0_es2020: es2020::ES2020,
 }
 
 impl Transformer {
@@ -60,6 +63,7 @@ impl Transformer {
             x0_es2015: es2015::ES2015::new(options.es2015),
             x0_es2016: es2016::ES2016::new(options.es2016),
             x0_es2019: es2019::ES2019::new(options.es2019),
+            x0_es2020: es2020::ES2020::new(options.es2020),
         };
 
         let state = TransformerState {
@@ -79,6 +83,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
         if self.x0_es2015.needs_node_traversal()
             || self.x0_es2016.needs_node_traversal()
             || self.x0_es2019.needs_node_traversal()
+            || self.x0_es2020.needs_node_traversal()
         {
             TraverseAction::Proceed
         } else {
@@ -105,6 +110,14 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     ) {
         self.x0_es2015.exit_binary_expression(node, ctx);
         self.x0_es2016.exit_binary_expression(node, ctx);
+    }
+
+    fn exit_logical_expression(
+        &mut self,
+        node: LogicalExpression,
+        ctx: &mut TransformerCtx<'_, 'ast>,
+    ) {
+        self.x0_es2020.exit_logical_expression(node, ctx);
     }
 
     fn enter_binary_expression(
@@ -139,6 +152,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     ) {
         self.x0_es2015.exit_assignment_expression(node, ctx);
         self.x0_es2016.exit_assignment_expression(node, ctx);
+        self.x0_es2020.exit_assignment_expression(node, ctx);
     }
 
     fn exit_reg_exp_literal(&mut self, node: RegExpLiteral, ctx: &mut TransformerCtx<'_, 'ast>) {
