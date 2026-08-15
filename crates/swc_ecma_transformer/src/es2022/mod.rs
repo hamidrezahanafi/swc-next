@@ -1,4 +1,4 @@
-use swc_next_ecma_ast::BinaryExpression;
+use swc_next_ecma_ast::{BinaryExpression, Class};
 
 use crate::state::TransformerCtx;
 
@@ -37,6 +37,12 @@ impl ES2022 {
     ) {
         if self.private_in_object {
             private_in_object::PrivateInObject.exit_binary_expression(node, ctx);
+        }
+    }
+
+    pub(crate) fn exit_class(&mut self, node: Class, ctx: &mut TransformerCtx<'_, '_>) {
+        if self.static_blocks {
+            static_blocks::StaticBlocks::new().exit_class(node, ctx);
         }
     }
 }

@@ -1,6 +1,6 @@
 use swc_next_ecma_ast::{
     ArrayExpression, AssignmentExpression, Ast, BinaryExpression, BlockStatement, CallExpression,
-    CatchClause, LogicalExpression, MemberExpression, MetaProperty, NewExpression,
+    CatchClause, Class, LogicalExpression, MemberExpression, MetaProperty, NewExpression,
     ObjectExpression, ObjectProperty, Program, RegExpLiteral, Traverse, TraverseAction,
     TraverseCtx, TraverseWith, UnaryExpression, VariableDeclarator,
 };
@@ -235,5 +235,9 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     ) -> TraverseAction<CatchClause> {
         self.x0_es2019.enter_catch_clause(node, ctx);
         TraverseAction::Proceed
+    }
+
+    fn exit_class(&mut self, node: Class, ctx: &mut TransformerCtx<'_, 'ast>) {
+        self.x0_es2022.exit_class(node, ctx);
     }
 }
