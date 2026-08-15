@@ -325,7 +325,7 @@ TypeScript、React、Module、Proposal 等。
 - [ ] react.jsx_src
 - [x] react.display_name
 - [ ] react.pure_annotations
-- [ ] proposal.export_default_from
+- [x] proposal.export_default_from（stub — parser 尚未支持源语法）
 - [x] proposal.import_attributes
 
 ### P2（远期）
