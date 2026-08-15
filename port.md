@@ -54,9 +54,9 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 | shorthand_properties | P0 | `es2015/shorthand.rs` | **已实现** | `{a}` → `{a: a}` |
 | sticky_regex | P0 | `es2015/sticky_regex.rs` | **已实现** | `/foo/y` → `new RegExp("foo", "y")` |
 | function_name | P0 | `es2015/function_name.rs` | 待实现 | `var f = function() {}` → `var f = function f() {}` |
-| duplicate_keys | P0 | `es2015/duplicate_keys.rs` | 待实现 | `{a: 1, a: 2}` → `{a: 1, ["a"]: 2}` |
-| instanceof | P0 | `es2015/instanceof.rs` | 待实现 | `a instanceof B` → `_instanceof(a, B)` |
-| typeof_symbol | P0 | `es2015/typeof_symbol.rs` | 待实现 | `typeof x` → `_typeof(x)` |
+| duplicate_keys | P0 | `es2015/duplicate_keys.rs` | **已实现** | `{a: 1, a: 2}` → `{a: 1, ["a"]: 2}` |
+| instanceof | P0 | `es2015/instanceof.rs` | **已实现** | `a instanceof B` → `_instanceof(a, B)` |
+| typeof_symbol | P0 | `es2015/typeof_symbol.rs` | **已实现** | `typeof x` → `_typeof(x)` |
 
 ### 2. ES2015 Heavy Transforms（需要语义分析/需要设计文档）
 
@@ -81,7 +81,7 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 
 | Transform | 优先级 | 复杂度 | 设计文档 | 状态 | 说明 |
 |-----------|--------|--------|----------|------|------|
-| exponentiation | P0 | 简单 | — | 待实现 | `a ** b` → `Math.pow(a, b)` |
+| exponentiation | P0 | 简单 | — | **已实现** | `a ** b` → `Math.pow(a, b)` |
 
 ### 4. ES2017
 
@@ -99,13 +99,13 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 
 | Transform | 优先级 | 复杂度 | 设计文档 | 状态 | 说明 |
 |-----------|--------|--------|----------|------|------|
-| optional_catch_binding | P0 | 简单 | — | 待实现 | `try {} catch {}` → `try {} catch (_unused) {}` |
+| optional_catch_binding | P0 | 简单 | — | **已实现** | `try {} catch {}` → `try {} catch (_unused) {}` |
 
 ### 7. ES2020
 
 | Transform | 优先级 | 复杂度 | 设计文档 | 状态 | 说明 |
 |-----------|--------|--------|----------|------|------|
-| nullish_coalescing | P0 | 简单 | — | 待实现 | `a ?? b` → `a !== null && a !== void 0 ? a : b` |
+| nullish_coalescing | P0 | 简单 | — | **已实现** | `a ?? b` → `a !== null && a !== void 0 ? a : b` |
 | optional_chaining | P0 | 中等 | — | 待实现 | `a?.b?.()` → `var _a; (_a = a) == null ? void 0 : _a.b()` |
 | export_namespace_from | P1 | 简单 | — | 待实现 | `export * as ns from "mod"` |
 
@@ -264,14 +264,16 @@ TypeScript、React、Module、Proposal 等。
 - [x] es2015.arrow_functions — `() => {}` → `function() {}`
 - [x] es2015.shorthand_properties — `{a}` → `{a: a}`
 - [x] es2015.sticky_regex — `/foo/y` → `new RegExp("foo", "y")`
+- [x] es2015.function_name — `var f = function() {}` → `var f = function f() {}`
+- [x] es2015.duplicate_keys — `{a: 1, a: 2}` → `{a: 1, ["a"]: 2}`
 - [x] es2015.util.fn_env_hoister — 函数环境提升工具
 
 ### P0（进行中/待实现）
 
-- [ ] es2015.function_name
-- [ ] es2015.duplicate_keys
-- [ ] es2015.instanceof
-- [ ] es2015.typeof_symbol
+- [x] es2015.function_name
+- [x] es2015.duplicate_keys
+- [x] es2015.instanceof
+- [x] es2015.typeof_symbol
 - [ ] es2015.template_literal
 - [ ] es2015.spread
 - [ ] es2015.computed_props
