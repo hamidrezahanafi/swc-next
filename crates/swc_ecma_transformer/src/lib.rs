@@ -1,8 +1,9 @@
 use swc_next_ecma_ast::{
-    ArrayExpression, AssignmentExpression, Ast, BinaryExpression, BlockStatement, CallExpression,
-    CatchClause, Class, LogicalExpression, MemberExpression, MetaProperty, NewExpression,
-    ObjectExpression, ObjectProperty, Program, RegExpLiteral, Traverse, TraverseAction,
-    TraverseCtx, TraverseWith, UnaryExpression, VariableDeclarator,
+    ArrowFunctionExpression, ArrayExpression, AssignmentExpression, Ast, BinaryExpression,
+    BindingProperty, BlockStatement, CallExpression, CatchClause, Class, LogicalExpression,
+    MemberExpression, MetaProperty, NewExpression, ObjectExpression, ObjectProperty, Program,
+    RegExpLiteral, Traverse, TraverseAction, TraverseCtx, TraverseWith, UnaryExpression,
+    VariableDeclarator,
 };
 use swc_next_ecma_semantic::{Semantic, SemanticFeatureFlags};
 
@@ -12,6 +13,7 @@ use crate::{
 };
 
 pub mod assumptions;
+pub mod bugfixes;
 pub mod es2015;
 pub mod es2016;
 pub mod es2019;
@@ -26,6 +28,7 @@ pub struct Transformer {}
 #[derive(Default)]
 pub struct TransformerOptions {
     pub assumptions: Assumptions,
+    pub bugfixes: bugfixes::BugfixesOptions,
     pub es3: es3::ES3Options,
     pub es2015: es2015::ES2015Options,
     pub es2016: es2016::ES2016Options,
@@ -52,6 +55,7 @@ impl TransformerOptions {
 
 pub struct TransformerImpl<'semantic, 'ast> {
     semantic: &'semantic mut Semantic<'ast>,
+    x0_bugfixes: bugfixes::Bugfixes,
     x0_es3: es3::ES3,
     x0_es2015: es2015::ES2015,
     x0_es2016: es2016::ES2016,
@@ -70,6 +74,7 @@ impl Transformer {
     ) {
         let mut transformer = TransformerImpl {
             semantic,
+            x0_bugfixes: bugfixes::Bugfixes::new(options.bugfixes),
             x0_es3: es3::ES3::new(options.es3),
             x0_es2015: es2015::ES2015::new(options.es2015),
             x0_es2016: es2016::ES2016::new(options.es2016),
@@ -95,6 +100,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
         self.x0_es2015.transform(node, self.semantic, ctx);
         self.x0_es2020.transform_program(node, ctx);
         if self.x0_es3.needs_node_traversal()
+            || self.x0_bugfixes.needs_node_traversal()
             || self.x0_es2015.needs_node_traversal()
             || self.x0_es2016.needs_node_traversal()
             || self.x0_es2019.needs_node_traversal()
@@ -239,5 +245,30 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
 
     fn exit_class(&mut self, node: Class, ctx: &mut TransformerCtx<'_, 'ast>) {
         self.x0_es2022.exit_class(node, ctx);
+    }
+
+    fn enter_arrow_function_expression(
+        &mut self,
+        _node: ArrowFunctionExpression,
+        _ctx: &mut TransformerCtx<'_, 'ast>,
+    ) -> TraverseAction<ArrowFunctionExpression> {
+        self.x0_bugfixes.enter_arrow_function_expression();
+        TraverseAction::Proceed
+    }
+
+    fn exit_arrow_function_expression(
+        &mut self,
+        _node: ArrowFunctionExpression,
+        _ctx: &mut TransformerCtx<'_, 'ast>,
+    ) {
+        self.x0_bugfixes.exit_arrow_function_expression();
+    }
+
+    fn exit_binding_property(
+        &mut self,
+        node: BindingProperty,
+        ctx: &mut TransformerCtx<'_, 'ast>,
+    ) {
+        self.x0_bugfixes.exit_binding_property(node, ctx);
     }
 }
