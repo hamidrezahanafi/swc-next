@@ -294,6 +294,29 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                         <#ty_ident as VisitMutWith<'a, Self>>::visit_mut_children_with(node, self)
                     }
                 });
+                // Traverse hooks for this enum type
+                let enter_fn_name = format_ident!("enter_{}", &ast.name.to_case(Case::Snake));
+                let exit_fn_name = format_ident!("exit_{}", &ast.name.to_case(Case::Snake));
+                traverse_functions.extend(quote! {
+                    #[inline]
+                    fn #enter_fn_name(
+                        &mut self,
+                        _node: #ty_ident,
+                        _ctx: &mut TraverseCtx<'_, 'a, State>,
+                    ) -> TraverseAction<#ty_ident> {
+                        TraverseAction::Proceed
+                    }
+
+                    #[inline]
+                    fn #exit_fn_name(
+                        &mut self,
+                        _node: #ty_ident,
+                        _ctx: &mut TraverseCtx<'_, 'a, State>,
+                    ) -> TraverseAction<#ty_ident> {
+                        TraverseAction::Proceed
+                    }
+                });
+
                 // VisitWith/VisitMutWith
                 let mut visit_children_arms = TokenStream::new();
                 let mut visit_mut_children_arms = TokenStream::new();
@@ -335,6 +358,65 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                         },
                     });
                 }
+
+                visit_with_impls.extend(quote! {
+                    impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for #ty_ident {
+                        #[inline]
+                        fn visit_with(self, visitor: &mut V) {
+                            <V as Visit<'a>>::#fn_name(visitor, self)
+                        }
+
+                        #[inline]
+                        fn visit_children_with(self, visitor: &mut V) {
+                            match visitor.ast().#data_fn_name(self) {
+                                #visit_children_arms
+                            }
+                        }
+                    }
+                });
+                visit_mut_with_impls.extend(quote! {
+                    impl<'a, V: ?Sized + VisitMut<'a>> VisitMutWith<'a, V> for #ty_ident {
+                        #[inline]
+                        fn visit_mut_with(self, visitor: &mut V) -> Option<Self> {
+                            <V as VisitMut<'a>>::#fn_mut_name(visitor, self)
+                        }
+
+                        #[inline]
+                        fn visit_mut_children_with(self, visitor: &mut V) -> Option<Self> {
+                            let data = visitor.ast().#data_fn_name(self);
+                            match data {
+                                #visit_mut_children_arms
+                            }
+                        }
+                    }
+                });
+
+                traverse_with_impls.extend(quote! {
+                    impl<'a, State> TraverseWith<'a, State> for #ty_ident {
+                        type Node = #ty_ident;
+
+                        #[inline]
+                        fn traverse_with<T: ?Sized + Traverse<'a, State>>(
+                            self,
+                            traverser: &mut T,
+                            ctx: &mut TraverseCtx<'_, 'a, State>,
+                        ) -> TraverseAction<Self::Node> {
+                            match traverser.#enter_fn_name(self, ctx) {
+                                TraverseAction::Replace(replacement) => return TraverseAction::Replace(replacement),
+                                TraverseAction::Stop => return TraverseAction::Stop,
+                                TraverseAction::Skip => return TraverseAction::Proceed,
+                                TraverseAction::Proceed => {}
+                            }
+                            let action = match ctx.ast.#data_fn_name(self) {
+                                #traverse_arms
+                            };
+                            match action {
+                                TraverseAction::Proceed => traverser.#exit_fn_name(self, ctx),
+                                other => other,
+                            }
+                        }
+                    }
+                });
 
                 visit_with_impls.extend(quote! {
                     impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for #ty_ident {

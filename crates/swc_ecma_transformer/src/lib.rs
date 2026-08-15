@@ -1,9 +1,9 @@
 use swc_next_ecma_ast::{
     ArrowFunctionExpression, ArrayExpression, AssignmentExpression, Ast, BinaryExpression,
-    BindingProperty, BlockStatement, CallExpression, CatchClause, Class, LogicalExpression,
-    MemberExpression, MetaProperty, NewExpression, ObjectExpression, ObjectProperty, Program,
-    RegExpLiteral, Traverse, TraverseAction, TraverseCtx, TraverseWith, UnaryExpression,
-    VariableDeclarator,
+    BindingProperty, BlockStatement, CallExpression, CatchClause, Class, Expr,
+    LogicalExpression, MemberExpression, MetaProperty, NewExpression, ObjectExpression,
+    ObjectProperty, Program, RegExpLiteral, Traverse, TraverseAction, TraverseCtx, TraverseWith,
+    UnaryExpression, VariableDeclarator,
 };
 use swc_next_ecma_semantic::{Semantic, SemanticFeatureFlags};
 
@@ -143,6 +143,18 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
         ctx: &mut TransformerCtx<'_, 'ast>,
     ) {
         self.x0_es2020.exit_logical_expression(node, ctx);
+    }
+
+    fn exit_expression(
+        &mut self,
+        node: Expr,
+        ctx: &mut TransformerCtx<'_, 'ast>,
+    ) -> TraverseAction<Expr> {
+        if let Some(replacement) = self.x0_es2020.exit_expression(node, ctx) {
+            TraverseAction::Replace(replacement)
+        } else {
+            TraverseAction::Proceed
+        }
     }
 
     fn enter_binary_expression(

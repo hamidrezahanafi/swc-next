@@ -13204,6 +13204,22 @@ pub trait Traverse<'a, State = ()> {
     ) {
     }
     #[inline]
+    fn enter_expression(
+        &mut self,
+        _node: Expr,
+        _ctx: &mut TraverseCtx<'_, 'a, State>,
+    ) -> TraverseAction<Expr> {
+        TraverseAction::Proceed
+    }
+    #[inline]
+    fn exit_expression(
+        &mut self,
+        _node: Expr,
+        _ctx: &mut TraverseCtx<'_, 'a, State>,
+    ) -> TraverseAction<Expr> {
+        TraverseAction::Proceed
+    }
+    #[inline]
     fn enter_tagged_template_expression(
         &mut self,
         node: TaggedTemplateExpression,
@@ -15083,7 +15099,13 @@ impl<'a, State> TraverseWith<'a, State> for Expr {
         traverser: &mut T,
         ctx: &mut TraverseCtx<'_, 'a, State>,
     ) -> TraverseAction<Self::Node> {
-        match ctx.ast.expr_data(self) {
+        match traverser.enter_expression(self, ctx) {
+            TraverseAction::Replace(replacement) => return TraverseAction::Replace(replacement),
+            TraverseAction::Stop => return TraverseAction::Stop,
+            TraverseAction::Skip => return TraverseAction::Proceed,
+            TraverseAction::Proceed => {}
+        }
+        let action = match ctx.ast.expr_data(self) {
             ExprData::IdentifierReference(it) => {
                 match <IdentifierReference as TraverseWith<'a, State>>::traverse_with(
                     it, traverser, ctx,
@@ -15541,6 +15563,10 @@ impl<'a, State> TraverseWith<'a, State> for Expr {
                     }
                 }
             }
+        };
+        match action {
+            TraverseAction::Proceed => traverser.exit_expression(self, ctx),
+            other => other,
         }
     }
 }
