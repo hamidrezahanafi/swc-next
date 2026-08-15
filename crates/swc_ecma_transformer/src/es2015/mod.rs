@@ -8,6 +8,7 @@ use crate::state::TransformerCtx;
 
 pub mod arrow;
 pub mod block_scoped_fn;
+pub mod computed_props;
 pub mod duplicate_keys;
 pub mod function_name;
 mod generator;
@@ -21,6 +22,7 @@ pub(crate) mod util;
 pub struct ES2015 {
     arrow: Option<arrow::ArrowFunctions>,
     block_scoped_fns: bool,
+    computed_props: bool,
     duplicate_keys: bool,
     generator: bool,
     function_name: bool,
@@ -37,6 +39,7 @@ pub struct ES2015 {
 pub struct ES2015Options {
     pub arrow_functions: Option<arrow::ArrowFunctionsOptions>,
     pub block_scoped_fns: bool,
+    pub computed_props: bool,
     pub duplicate_keys: bool,
     pub generator: bool,
     pub function_name: bool,
@@ -52,6 +55,7 @@ impl ES2015 {
         Self {
             arrow: options.arrow_functions.map(arrow::ArrowFunctions::new),
             block_scoped_fns: options.block_scoped_fns,
+            computed_props: options.computed_props,
             duplicate_keys: options.duplicate_keys,
             generator: options.generator,
             function_name: options.function_name,
@@ -77,6 +81,7 @@ impl ES2015 {
 impl ES2015 {
     pub(crate) fn needs_node_traversal(&self) -> bool {
         self.block_scoped_fns
+            || self.computed_props
             || self.duplicate_keys
             || self.function_name
             || self.instanceof
@@ -120,6 +125,9 @@ impl ES2015 {
     ) {
         if self.duplicate_keys {
             duplicate_keys::DuplicateKeys.exit_object_expression(node, ctx);
+        }
+        if self.computed_props {
+            computed_props::ComputedProps.exit_object_expression(node, ctx);
         }
     }
 
