@@ -53,7 +53,7 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 |-----------|--------|------|------|------|
 | shorthand_properties | P0 | `es2015/shorthand.rs` | **已实现** | `{a}` → `{a: a}` |
 | sticky_regex | P0 | `es2015/sticky_regex.rs` | **已实现** | `/foo/y` → `new RegExp("foo", "y")` |
-| function_name | P0 | `es2015/function_name.rs` | 待实现 | `var f = function() {}` → `var f = function f() {}` |
+| function_name | P0 | `es2015/function_name.rs` | **已实现** | `var f = function() {}` → `var f = function f() {}` |
 | duplicate_keys | P0 | `es2015/duplicate_keys.rs` | **已实现** | `{a: 1, a: 2}` → `{a: 1, ["a"]: 2}` |
 | instanceof | P0 | `es2015/instanceof.rs` | **已实现** | `a instanceof B` → `_instanceof(a, B)` |
 | typeof_symbol | P0 | `es2015/typeof_symbol.rs` | **已实现** | `typeof x` → `_typeof(x)` |
@@ -64,9 +64,9 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 |-----------|--------|--------|----------|------|------|
 | generator | P0 | 复杂 | `docs/design/generator-transform.md` | **已实现** | `function*` → regenerator state machine |
 | arrow_functions | P0 | 中等 | — | **已实现** | `() => {}` → `function() {}`，需 `FUNCTION_ENV_CAPTURE` |
-| template_literal | P0 | 简单 | — | 待实现 | `` `hello ${name}` `` → `"hello ".concat(name)` |
+| template_literal | P0 | 简单 | — | **已实现** | `` `hello ${name}` `` → `"hello ".concat(name)` |
 | spread | P0 | 中等 | — | 待实现 | `f(...args)` → `f.apply(void 0, args)` |
-| block_scoped_functions | P0 | 简单 | — | 待实现 | 块级函数声明提升到函数作用域 |
+| block_scoped_functions | P0 | 简单 | — | **已实现** | 块级函数声明 → `let` 函数表达式 |
 | block_scoping | P1 | 复杂 | `docs/design/block-scoping.md` | 待实现 | `let`/`const` → `var`，循环闭包捕获 |
 | classes | P1 | 复杂 | `docs/design/class-transform.md` | 待实现 | `class Foo {}` → `function Foo() {}` |
 | computed_props | P0 | 中等 | — | 待实现 | `{ [expr]: val }` → `var _obj; _obj[expr] = val` |
@@ -127,9 +127,9 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 
 | Transform | 优先级 | 复杂度 | 设计文档 | 状态 | 说明 |
 |-----------|--------|--------|----------|------|------|
-| member_expr_lits | P0 | 简单 | — | 待实现 | `obj.const` → `obj["const"]` |
-| property_literals | P0 | 简单 | — | 待实现 | `{ "bar": 1 }` → `{ bar: 1 }` |
-| reserved_words | P0 | 简单 | — | 待实现 | `var abstract = 1` → `var _abstract = 1` |
+| member_expr_lits | P0 | 简单 | — | **已实现** | `obj.const` → `obj["const"]` |
+| property_literals | P0 | 简单 | — | **已实现** | `{ "bar": 1 }` → `{ bar: 1 }` |
+| reserved_words | P0 | 简单 | — | **已实现** | `var abstract = 1` → `var _abstract = 1` |
 
 ### 11. Bugfixes
 

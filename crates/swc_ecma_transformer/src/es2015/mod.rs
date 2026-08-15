@@ -1,6 +1,6 @@
 use swc_next_ecma_ast::{
-    AssignmentExpression, BinaryExpression, BlockStatement, ObjectExpression, ObjectProperty,
-    Program, RegExpLiteral, UnaryExpression, VariableDeclarator,
+    AssignmentExpression, BinaryExpression, BlockStatement, MetaProperty, ObjectExpression,
+    ObjectProperty, Program, RegExpLiteral, UnaryExpression, VariableDeclarator,
 };
 use swc_next_ecma_semantic::Semantic;
 
@@ -12,6 +12,7 @@ pub mod duplicate_keys;
 pub mod function_name;
 mod generator;
 pub mod instanceof;
+pub mod new_target;
 pub mod shorthand;
 pub mod sticky_regex;
 pub mod typeof_symbol;
@@ -24,6 +25,8 @@ pub struct ES2015 {
     generator: bool,
     function_name: bool,
     instanceof: bool,
+    new_target: bool,
+    new_target_state: Option<new_target::NewTarget>,
     shorthand_properties: bool,
     sticky_regex: bool,
     typeof_symbol: bool,
@@ -38,6 +41,7 @@ pub struct ES2015Options {
     pub generator: bool,
     pub function_name: bool,
     pub instanceof: bool,
+    pub new_target: bool,
     pub shorthand_properties: bool,
     pub sticky_regex: bool,
     pub typeof_symbol: bool,
@@ -52,6 +56,12 @@ impl ES2015 {
             generator: options.generator,
             function_name: options.function_name,
             instanceof: options.instanceof,
+            new_target: options.new_target,
+            new_target_state: if options.new_target {
+                Some(new_target::NewTarget::new())
+            } else {
+                None
+            },
             shorthand_properties: options.shorthand_properties,
             sticky_regex: options.sticky_regex,
             typeof_symbol: options.typeof_symbol,
@@ -70,6 +80,7 @@ impl ES2015 {
             || self.duplicate_keys
             || self.function_name
             || self.instanceof
+            || self.new_target
             || self.shorthand_properties
             || self.sticky_regex
             || self.typeof_symbol
@@ -188,6 +199,18 @@ impl ES2015 {
     ) {
         if self.block_scoped_fns {
             block_scoped_fn::BlockScopedFns.exit_block_statement(node, ctx);
+        }
+    }
+
+    pub(crate) fn exit_meta_property(
+        &mut self,
+        node: MetaProperty,
+        ctx: &mut TransformerCtx<'_, '_>,
+    ) {
+        if self.new_target {
+            if let Some(nt) = &mut self.new_target_state {
+                nt.exit_meta_property(node, ctx);
+            }
         }
     }
 }

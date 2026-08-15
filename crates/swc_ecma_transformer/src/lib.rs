@@ -1,7 +1,7 @@
 use swc_next_ecma_ast::{
     AssignmentExpression, Ast, BinaryExpression, BlockStatement, CatchClause, LogicalExpression,
-    MemberExpression, ObjectExpression, ObjectProperty, Program, RegExpLiteral, Traverse,
-    TraverseAction, TraverseCtx, TraverseWith, UnaryExpression, VariableDeclarator,
+    MemberExpression, MetaProperty, ObjectExpression, ObjectProperty, Program, RegExpLiteral,
+    Traverse, TraverseAction, TraverseCtx, TraverseWith, UnaryExpression, VariableDeclarator,
 };
 use swc_next_ecma_semantic::{Semantic, SemanticFeatureFlags};
 
@@ -186,6 +186,14 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
 
     fn exit_reg_exp_literal(&mut self, node: RegExpLiteral, ctx: &mut TransformerCtx<'_, 'ast>) {
         self.x0_es2015.exit_reg_exp_literal(node, ctx);
+    }
+
+    fn exit_meta_property(
+        &mut self,
+        node: MetaProperty,
+        ctx: &mut TransformerCtx<'_, 'ast>,
+    ) {
+        self.x0_es2015.exit_meta_property(node, ctx);
     }
 
     fn enter_catch_clause(
