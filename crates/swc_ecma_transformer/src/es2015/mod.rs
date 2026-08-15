@@ -11,6 +11,7 @@ pub mod arrow;
 pub mod block_scoped_fn;
 pub mod computed_props;
 pub mod duplicate_keys;
+pub mod for_of;
 pub mod function_name;
 mod generator;
 pub mod instanceof;
@@ -26,6 +27,7 @@ pub struct ES2015 {
     block_scoped_fns: bool,
     computed_props: bool,
     duplicate_keys: bool,
+    for_of: bool,
     generator: bool,
     function_name: bool,
     instanceof: bool,
@@ -44,6 +46,7 @@ pub struct ES2015Options {
     pub block_scoped_fns: bool,
     pub computed_props: bool,
     pub duplicate_keys: bool,
+    pub for_of: bool,
     pub generator: bool,
     pub function_name: bool,
     pub instanceof: bool,
@@ -61,6 +64,7 @@ impl ES2015 {
             block_scoped_fns: options.block_scoped_fns,
             computed_props: options.computed_props,
             duplicate_keys: options.duplicate_keys,
+            for_of: options.for_of,
             generator: options.generator,
             function_name: options.function_name,
             instanceof: options.instanceof,
@@ -108,6 +112,9 @@ impl ES2015 {
         }
         if self.generator {
             generator::Generator.transform(ctx.ast, semantic);
+        }
+        if self.for_of {
+            for_of::ForOf::new().transform(node, ctx.ast, semantic);
         }
     }
 
