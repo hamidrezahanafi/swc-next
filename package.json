@@ -1,13 +1,13 @@
 {
   "name": "swc-next",
-  "version": "0.11.0",
+  "version": "0.1.1",
   "private": true,
   "description": "",
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "build": "pnpm --filter './napi/*' build",
-    "test": "pnpm --filter './napi/*' --if-present test"
+    "build": "pnpm --filter \"./napi/*\" --workspace-concurrency=1 build",
+    "test": "pnpm --filter \"./napi/*\" --if-present test"
   },
   "keywords": [],
   "author": "",

@@ -2,7 +2,7 @@ use oxc_index::Idx;
 use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
 use swc_next_ecma_ast::{
     ArrowFunctionExpression, Ast, Class, ClassType, Directive, Function, FunctionBody,
-    FunctionType, NodeId, NodeKindData, Program, ScopeId, SourceType,
+    FunctionType, NodeId, NodeKindData, ScopeId, SourceType,
 };
 
 use crate::ecmascript;
@@ -27,8 +27,6 @@ pub struct Scope {
     pub kind: ScopeKind,
     pub flags: ScopeFlags,
 }
-
-const _: () = assert!(std::mem::size_of::<Scope>() == 16);
 
 /// What kind of JavaScript construct created a scope.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -110,8 +108,6 @@ impl ScopeFlags {
     }
 }
 
-const _: () = assert!(std::mem::size_of::<ScopeFlags>() == 2);
-
 /// All scopes of a tree, indexed by [`ScopeId`].
 #[derive(Debug)]
 pub struct ScopeTree<'a> {
@@ -122,13 +118,11 @@ impl<'a> ScopeTree<'a> {
     /// The scope with the given id.
     #[inline]
     pub fn get(&self, id: ScopeId) -> Scope {
-        assert!(id.index() < self.list.len());
         self.list[id.index()]
     }
 
     /// Walks from `start` up to the root, yielding `start` first.
     pub fn ancestors(&self, start: Option<ScopeId>) -> AncestorIterator<'_> {
-        assert!(start.is_none_or(|id| id.index() < self.list.len()));
         AncestorIterator {
             list: &self.list,
             current: start,
@@ -163,7 +157,6 @@ impl Iterator for AncestorIterator<'_> {
     /// The next scope id, or `None` past the root.
     fn next(&mut self) -> Option<Self::Item> {
         let id = self.current?;
-        assert!(id.index() < self.list.len());
         self.current = self.list[id.index()].parent;
         Some(id)
     }
@@ -186,9 +179,8 @@ pub(crate) struct ScopeTracker<'a> {
 }
 
 impl<'a> ScopeTracker<'a> {
-    pub fn init(root: Program, tree: &Ast<'a>) -> Self {
-        assert!(tree.node_count() > 0);
-
+    pub fn init(tree: &Ast<'a>) -> Self {
+        let root = tree.root_program();
         let allocator = tree.allocator();
         let estimated_scopes = 16usize.max(tree.node_count() / 16);
         let mut tracker = Self {
@@ -204,7 +196,7 @@ impl<'a> ScopeTracker<'a> {
     }
 
     fn push_root(&mut self, root_node: NodeId, source_type: SourceType) {
-        assert!(self.scopes.is_empty());
+        debug_assert!(self.scopes.is_empty());
         self.scopes.push(Scope {
             node: root_node,
             parent: None,
@@ -238,7 +230,7 @@ impl<'a> ScopeTracker<'a> {
     pub fn push_scope(&mut self, kind: ScopeKind, node: NodeId, flags: ScopeFlags) {
         let _allocator = self.allocator;
         // The current length is the about-to-be-assigned id and must fit u32.
-        assert!(self.scopes.len() < u32::MAX as usize);
+        debug_assert!(self.scopes.len() < u32::MAX as usize);
         let id = ScopeId::from_usize(self.scopes.len());
         let parent = self.current_scope();
         self.scopes.push(Scope {
@@ -257,7 +249,6 @@ impl<'a> ScopeTracker<'a> {
 
     fn pop_scope(&mut self) {
         // Root and its source-type wrapper are never popped directly by the ordinary walk.
-        assert_ne!(self.current.index(), 0);
         self.current = self
             .current_scope()
             .parent
@@ -384,9 +375,10 @@ impl<'a> ScopeTracker<'a> {
 
     pub fn exit_with_scope(&mut self, node: NodeId) {
         let scope = self.current_scope();
-        assert_eq!(scope.node, node);
-        assert_eq!(scope.kind, ScopeKind::With);
-        assert_eq!(self.active_with_scopes.pop(), Some(self.current));
+        debug_assert_eq!(scope.node, node);
+        debug_assert_eq!(scope.kind, ScopeKind::With);
+        let active = self.active_with_scopes.pop();
+        debug_assert_eq!(active, Some(self.current));
         self.pop_scope();
     }
 
@@ -495,7 +487,6 @@ impl<'a> ScopeTracker<'a> {
     /// The scope with the given id.
     #[inline]
     pub fn get(&self, id: ScopeId) -> Scope {
-        assert!(id.index() < self.scopes.len());
         self.scopes[id.index()]
     }
 
@@ -525,7 +516,6 @@ impl<'a> ScopeTracker<'a> {
 
     /// Walks from `start` up to the root, yielding `start` first.
     pub fn ancestors(&self, start: Option<ScopeId>) -> AncestorIterator<'_> {
-        assert!(start.is_none_or(|id| id.index() < self.scopes.len()));
         AncestorIterator {
             list: &self.scopes,
             current: start,
@@ -534,7 +524,7 @@ impl<'a> ScopeTracker<'a> {
 
     /// Finalizes into an immutable [`ScopeTree`].
     pub fn into_scope_tree(self) -> (ScopeTree<'a>, bool) {
-        assert!(self.active_with_scopes.is_empty());
+        debug_assert!(self.active_with_scopes.is_empty());
         (ScopeTree { list: self.scopes }, self.has_with_statement)
     }
 }

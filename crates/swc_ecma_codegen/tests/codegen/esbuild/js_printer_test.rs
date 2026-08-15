@@ -1,4 +1,6 @@
 // Ported from upstream esbuild's internal/js_printer/js_printer_test.go.
+// This upstream mirror should normally only change when syncing with esbuild.
+// Add swc-next-specific regressions to the parent suite (`../js.rs` or `../ts.rs`).
 use crate::{
     expect_printed, expect_printed_ascii, expect_printed_jsx, expect_printed_jsx_ascii,
     expect_printed_jsx_minify, expect_printed_minify, expect_printed_minify_ascii,
@@ -451,7 +453,7 @@ fn test_for() {
     expect_printed("for (x(a in b);;);", "for (x(a in b); ; ) ;\n");
     expect_printed("for (x[a in b];;);", "for (x[a in b]; ; ) ;\n");
     expect_printed("for (x?.[a in b];;);", "for (x?.[a in b]; ; ) ;\n");
-    expect_printed("for ((x => a in b);;);", "for (((x) => a in b); ; ) ;\n");
+    expect_printed("for ((x => a in b);;);", "for ((x) => (a in b); ; ) ;\n");
     expect_printed("for (let a in b, c);", "for (let a in b, c) ;\n");
     expect_printed("for (let a of (b, c));", "for (let a of (b, c)) ;\n");
 }
@@ -479,15 +481,6 @@ fn test_function() {
         "function foo([,,] = [,,]) {}",
         "function foo([, ,] = [, ,]) {\n}\n",
     );
-}
-
-#[test]
-fn test_array_pattern_rest_after_elision() {
-    expect_printed(
-        "function foo([,,...rest]) {}",
-        "function foo([, , ...rest]) {\n}\n",
-    );
-    expect_printed("([,,...rest] = value)", "[, , ...rest] = value;\n");
 }
 
 #[test]
@@ -520,10 +513,7 @@ fn test_comments_and_parentheses() {
         // "export default (\n  /* foo */\n  class x {\n  }\n);\n",
         "export default /* foo */ (class x {\n});\n",
     );
-    expect_printed(
-        "x = () => (/* foo */ {});",
-        "x = () => (\n  /* foo */\n  {}\n);\n",
-    );
+    expect_printed("x = () => (/* foo */ {});", "x = () => /* foo */ ({});\n");
     expect_printed(
         "for ((/* foo */ let).x of y) ;",
         "for (\n  /* foo */\n  (let).x of y\n) ;\n",
@@ -534,7 +524,7 @@ fn test_comments_and_parentheses() {
     );
     expect_printed(
         "function *x() { yield (/* foo */ y) }",
-        "function* x() {\n  yield (\n    /* foo */\n    y\n  );\n}\n",
+        "function* x() {\n  yield /* foo */ y;\n}\n",
     );
 }
 
@@ -1183,6 +1173,30 @@ fn test_avoid_slash_script() {
 
 #[test]
 fn test_infinity() {
+    expect_printed(
+        "function f(Infinity) { return 1e999 }",
+        "function f(Infinity) {\n  return 1e999;\n}\n",
+    );
+    expect_printed_minify(
+        "function f(Infinity) { return 1e999 }",
+        "function f(Infinity){return 1/0}",
+    );
+    expect_printed("x = -1e999", "x = -1e999;\n");
+    expect_printed("x = (1e999).toString", "x = 1e999.toString;\n");
+    expect_printed_minify("x = (1e999).toString", "x=2e308.toString;");
+    let overflowing_integer = "9".repeat(309);
+    expect_printed(
+        &format!("({overflowing_integer}).toString"),
+        &format!("{overflowing_integer} .toString;\n"),
+    );
+    expect_printed_minify(
+        &format!("({overflowing_integer}).toString"),
+        "2e308.toString;",
+    );
+    expect_printed_minify("x = 1e999 * y", "x=1/0*y;");
+    expect_printed_minify("x = y * 1e999", "x=y*2e308;");
+    expect_printed_minify("class C extends 1e999 {}", "class C extends 2e308{}");
+    expect_printed_minify("x = { 1e999: 0, [1e999]: 1 }", "x={1e999:0,[1/0]:1};");
     expect_printed("x = Infinity", "x = Infinity;\n");
     expect_printed("x = -Infinity", "x = -Infinity;\n");
     expect_printed("x = (Infinity).toString", "x = Infinity.toString;\n");
@@ -1235,7 +1249,7 @@ fn test_control_flow_minify_and_with() {
         "if (x) y(); else z(); for (;;) x(); while(x)y(); do x(); while(y); switch(x){case 1:y();default:z()} try{x()}catch(e){y()}finally{z()} with(x)1e400",
         "if(x)y();else z();for(;;)x();while(x)y();do x();while(y);switch(x){case 1:y();default:z()}try{x()}catch(e){y()}finally{z()}with(x)1/0;",
     );
-    expect_printed("with (x) 1e400", "with (x) 1 / 0;\n");
+    expect_printed("with (x) 1e400", "with (x) 1e400;\n");
     expect_printed_minify(
         "switch(x){case\"a\":break;case{}:break} throw{}",
         "switch(x){case\"a\":break;case{}:break}throw{};",

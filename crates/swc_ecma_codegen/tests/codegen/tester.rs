@@ -1,5 +1,5 @@
 use swc_next_allocator::Allocator;
-use swc_next_ecma_ast::{Ast, Lang, SourceType};
+use swc_next_ecma_ast::{Lang, SourceType};
 use swc_next_ecma_codegen::{Options as PrintOptions, print};
 use swc_next_ecma_parser::{CommentMode, NoTokenParserConfig, Options as ParseOptions, Parser};
 
@@ -16,6 +16,11 @@ pub fn expect_printed_minify(source: &str, expected: &str) {
 #[track_caller]
 pub fn expect_printed_ts(source: &str, expected: &str) {
     expect_printed_common(source, expected, Lang::Ts, SourceType::Module, false, false);
+}
+
+#[track_caller]
+pub fn expect_printed_ts_minify(source: &str, expected: &str) {
+    expect_printed_common(source, expected, Lang::Ts, SourceType::Module, true, false);
 }
 
 #[track_caller]
@@ -56,6 +61,12 @@ pub fn expect_printed_script(source: &str, expected: &str) {
 }
 
 #[track_caller]
+pub fn expect_stable(source: &str, expected: &str) {
+    expect_printed(source, expected);
+    expect_printed(expected, expected);
+}
+
+#[track_caller]
 fn expect_printed_common(
     source: &str,
     expected: &str,
@@ -65,7 +76,6 @@ fn expect_printed_common(
     ascii_only: bool,
 ) {
     let allocator = Allocator::new();
-    let mut ast = Ast::new(source, &allocator);
     let parse_options = ParseOptions {
         source_type,
         lang,
@@ -73,7 +83,7 @@ fn expect_printed_common(
         comments: CommentMode::Attached,
         ..Default::default()
     };
-    let result = Parser::init(&mut ast, parse_options, NoTokenParserConfig).parse();
+    let result = Parser::init(&allocator, source, parse_options, NoTokenParserConfig).parse();
     let has_errors = result
         .diagnostics
         .iter()
@@ -81,14 +91,12 @@ fn expect_printed_common(
     if has_errors {
         return;
     }
-    let program = result.program;
-
     let print_options = PrintOptions {
         minify,
         ascii_only,
         ..PrintOptions::default()
     };
-    let result = print(&allocator, &ast, program, print_options);
+    let result = print(&allocator, &result.ast, print_options);
 
     assert_eq!(
         result.code, expected,
