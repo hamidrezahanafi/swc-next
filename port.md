@@ -314,7 +314,7 @@ TypeScript、React、Module、Proposal 等。
 - [ ] es2015.destructuring（需设计文档）
 - [ ] es2015.parameters（需设计文档）
 - [x] es2017.async_to_generator — `async function` → `_asyncToGenerator(function*(){...})()`
-- [ ] es2018.object_rest_spread
+- [x] es2018.object_rest_spread（Stub — 需要 helper 基础设施）
 - [ ] es2022.class_properties（需设计文档）
 - [x] bugfixes.safari_id_destructuring_collision_in_function_expression（Stub — 需要 semantic rename 基础设施）
 - [x] bugfixes.template_literal_caching — 模板字面量缓存优化
@@ -324,7 +324,7 @@ TypeScript、React、Module、Proposal 等。
 - [x] react.jsx_self
 - [ ] react.jsx_src
 - [x] react.display_name
-- [ ] react.pure_annotations
+- [x] react.pure_annotations（Stub — 需要 synthetic comment 基础设施）
 - [x] proposal.export_default_from（stub — parser 尚未支持源语法）
 - [x] proposal.import_attributes
 
@@ -380,6 +380,9 @@ crates/swc_ecma_transformer/src/
 │   └── mod.rs                # async to generator
 ├── es2018/
 │   └── mod.rs                # object rest/spread
+├── es2018/
+│   ├── mod.rs                # ES2018 module
+│   └── object_rest_spread.rs # object rest/spread
 ├── es2019/
 │   └── mod.rs                # optional catch binding
 ├── es2020/
