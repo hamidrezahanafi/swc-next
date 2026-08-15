@@ -1,5 +1,6 @@
 use crate::state::TransformerCtx;
 
+mod export_default_from;
 mod import_attributes;
 
 #[derive(Default)]
@@ -14,6 +15,7 @@ pub(super) struct Proposal {
     #[allow(dead_code)]
     export_default_from: bool,
     import_attributes_transformer: Option<import_attributes::ImportAttributes>,
+    export_default_from_transformer: Option<export_default_from::ExportDefaultFrom>,
 }
 
 impl Proposal {
@@ -23,6 +25,11 @@ impl Proposal {
             export_default_from: options.export_default_from,
             import_attributes_transformer: if options.import_attributes {
                 Some(import_attributes::ImportAttributes::new())
+            } else {
+                None
+            },
+            export_default_from_transformer: if options.export_default_from {
+                Some(export_default_from::ExportDefaultFrom::new())
             } else {
                 None
             },
@@ -39,6 +46,9 @@ impl Proposal {
         ctx: &mut TransformerCtx<'_, 'a>,
     ) {
         if let Some(transformer) = &mut self.import_attributes_transformer {
+            transformer.transform_program(program, ctx);
+        }
+        if let Some(transformer) = &mut self.export_default_from_transformer {
             transformer.transform_program(program, ctx);
         }
     }
