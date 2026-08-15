@@ -1,46 +1,45 @@
-//! Safari bugfix: destructuring parameter collision in function expressions.
+//! Bugfix: Safari id destructuring collision in function expression.
 //!
-//! When a function expression has a parameter with the same name as the
-//! function expression itself, the destructured binding shadows the function
-//! name. This transform renames the destructured binding.
+//! Safari 15 has a bug where destructuring parameters in a named function
+//! expression can shadow the function name binding. This transform renames
+//! destructured parameters that collide with the function expression name.
 //!
-//! Input:
 //! ```js
+//! // Input:
 //! (function a([a]) { a });
-//! ```
-//! Output:
-//! ```js
-//! (function a([_a]) { a });
+//! // Output:
+//! (function a([_a]) { _a });
 //! ```
 //!
-//! TODO: This transform requires a rename pass and is non-trivial. It needs
-//! a proper design document.
+//! ## Implementation notes
+//!
+//! This transform requires SyntaxContext/SymbolId tracking to distinguish
+//! references to the function name binding from references to the destructured
+//! parameter. In swc-next, this requires access to the semantic layer's
+//! `rename_symbol()` / `rename_reference()` APIs.
+//!
+//! **Current status**: Stub. The full implementation needs:
+//! 1. Visit each `Function` node (function expressions)
+//! 2. Scan destructured params for bindings matching the function name
+//! 3. Collect all other identifiers in the function body to avoid collisions
+//! 4. Use `semantic.rename_symbol()` to rename the colliding binding
+//! 5. All references to the renamed symbol are automatically updated
 
-#![allow(dead_code)]
-
-use swc_next_ecma_ast::{Expr, TraverseAction};
-
+use swc_next_ecma_ast::Program;
 use crate::state::TransformerCtx;
 
-pub(super) struct SafariIdDestructuringCollisionInFunctionExpression;
+pub(super) struct SafariIdDestructuring;
 
-impl SafariIdDestructuringCollisionInFunctionExpression {
+impl SafariIdDestructuring {
     pub fn new() -> Self {
         Self
     }
 
-    pub fn exit_expression(
-        &self,
-        _node: Expr,
-        _ctx: &mut TransformerCtx<'_, '_>,
-    ) -> TraverseAction<Expr> {
-        // TODO: Implement proper rename of destructured parameters that collide
-        // with the function expression name.
-        // This requires:
-        // 1. Tracking when we're inside a function expression's parameter list
-        // 2. Detecting destructured bindings that match the function name
-        // 3. Renaming them with a unique prefix (e.g., `_` prefix)
-        // 4. Updating all references to the renamed binding
-        TraverseAction::Proceed
+    pub fn transform_program<'a>(
+        &mut self,
+        _program: Program,
+        _ctx: &mut TransformerCtx<'_, 'a>,
+    ) {
+        // TODO: Implement when VisitMut has access to SyntaxContext/semantic renames.
     }
 }
