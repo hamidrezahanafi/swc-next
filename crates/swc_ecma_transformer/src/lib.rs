@@ -1,9 +1,9 @@
 use swc_next_ecma_ast::{
     ArrowFunctionExpression, ArrayExpression, AssignmentExpression, Ast, BinaryExpression,
     BindingProperty, BlockStatement, CallExpression, CatchClause, Class, Expr,
-    LogicalExpression, MemberExpression, MetaProperty, NewExpression, ObjectExpression,
-    ObjectProperty, Program, RegExpLiteral, Traverse, TraverseAction, TraverseCtx, TraverseWith,
-    UnaryExpression, VariableDeclarator,
+    LogicalExpression, MemberExpression, MetaProperty, MethodDefinition, NewExpression,
+    ObjectExpression, ObjectProperty, Program, RegExpLiteral, Traverse, TraverseAction,
+    TraverseCtx, TraverseWith, UnaryExpression, VariableDeclarator,
 };
 use swc_next_ecma_semantic::{Semantic, SemanticFeatureFlags};
 
@@ -150,11 +150,32 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
         node: Expr,
         ctx: &mut TransformerCtx<'_, 'ast>,
     ) -> TraverseAction<Expr> {
+        let action = self.x0_bugfixes.exit_expression(node, ctx);
+        if !matches!(action, TraverseAction::Proceed) {
+            return action;
+        }
         if let Some(replacement) = self.x0_es2020.exit_expression(node, ctx) {
             TraverseAction::Replace(replacement)
         } else {
             TraverseAction::Proceed
         }
+    }
+
+    fn enter_method_definition(
+        &mut self,
+        _node: MethodDefinition,
+        _ctx: &mut TransformerCtx<'_, 'ast>,
+    ) -> TraverseAction<MethodDefinition> {
+        self.x0_bugfixes.enter_method_definition();
+        TraverseAction::Proceed
+    }
+
+    fn exit_method_definition(
+        &mut self,
+        _node: MethodDefinition,
+        _ctx: &mut TransformerCtx<'_, 'ast>,
+    ) {
+        self.x0_bugfixes.exit_method_definition();
     }
 
     fn enter_binary_expression(

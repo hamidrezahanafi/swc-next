@@ -1,30 +1,36 @@
-use swc_next_ecma_ast::BindingProperty;
+use swc_next_ecma_ast::{BindingProperty, Expr, TraverseAction};
 
 use crate::state::TransformerCtx;
 
+mod async_arrows_in_class;
 mod edge_default_param;
 
 #[derive(Default)]
 pub struct BugfixesOptions {
+    pub async_arrows_in_class: bool,
     pub edge_default_param: bool,
 }
 
 pub(super) struct Bugfixes {
+    pub async_arrows_in_class: bool,
     pub edge_default_param: bool,
     /// Whether we're currently inside an arrow function's parameter list.
     in_arrow_params: bool,
+    async_arrows_in_class_state: async_arrows_in_class::AsyncArrowsInClass,
 }
 
 impl Bugfixes {
     pub fn new(options: BugfixesOptions) -> Self {
         Self {
+            async_arrows_in_class: options.async_arrows_in_class,
             edge_default_param: options.edge_default_param,
             in_arrow_params: false,
+            async_arrows_in_class_state: async_arrows_in_class::AsyncArrowsInClass::new(),
         }
     }
 
     pub fn needs_node_traversal(&self) -> bool {
-        self.edge_default_param
+        self.edge_default_param || self.async_arrows_in_class
     }
 
     pub fn enter_arrow_function_expression(&mut self) {
@@ -33,6 +39,30 @@ impl Bugfixes {
 
     pub fn exit_arrow_function_expression(&mut self) {
         self.in_arrow_params = false;
+    }
+
+    pub fn enter_method_definition(&mut self) {
+        if self.async_arrows_in_class {
+            self.async_arrows_in_class_state.enter_method_definition();
+        }
+    }
+
+    pub fn exit_method_definition(&mut self) {
+        if self.async_arrows_in_class {
+            self.async_arrows_in_class_state.exit_method_definition();
+        }
+    }
+
+    pub fn exit_expression(
+        &mut self,
+        node: Expr,
+        ctx: &mut TransformerCtx<'_, '_>,
+    ) -> TraverseAction<Expr> {
+        if self.async_arrows_in_class {
+            self.async_arrows_in_class_state.exit_expression(node, ctx)
+        } else {
+            TraverseAction::Proceed
+        }
     }
 
     pub fn exit_binding_property(
