@@ -1,9 +1,12 @@
-use swc_next_ecma_ast::{ObjectProperty, Program, RegExpLiteral};
+use swc_next_ecma_ast::{
+    AssignmentExpression, ObjectProperty, Program, RegExpLiteral, VariableDeclarator,
+};
 use swc_next_ecma_semantic::Semantic;
 
 use crate::state::TransformerCtx;
 
 pub mod arrow;
+pub mod function_name;
 mod generator;
 pub mod shorthand;
 pub mod sticky_regex;
@@ -12,6 +15,7 @@ pub(crate) mod util;
 pub struct ES2015 {
     arrow: Option<arrow::ArrowFunctions>,
     generator: bool,
+    function_name: bool,
     shorthand_properties: bool,
     sticky_regex: bool,
 }
@@ -20,6 +24,7 @@ pub struct ES2015 {
 pub struct ES2015Options {
     pub arrow_functions: Option<arrow::ArrowFunctionsOptions>,
     pub generator: bool,
+    pub function_name: bool,
     pub shorthand_properties: bool,
     pub sticky_regex: bool,
 }
@@ -29,6 +34,7 @@ impl ES2015 {
         Self {
             arrow: options.arrow_functions.map(arrow::ArrowFunctions::new),
             generator: options.generator,
+            function_name: options.function_name,
             shorthand_properties: options.shorthand_properties,
             sticky_regex: options.sticky_regex,
         }
@@ -37,7 +43,7 @@ impl ES2015 {
 
 impl ES2015 {
     pub(crate) fn needs_node_traversal(&self) -> bool {
-        self.shorthand_properties || self.sticky_regex
+        self.function_name || self.shorthand_properties || self.sticky_regex
     }
 
     pub(crate) fn transform<'a>(
@@ -59,8 +65,31 @@ impl ES2015 {
         node: ObjectProperty,
         ctx: &mut TransformerCtx<'_, '_>,
     ) {
+        if self.function_name {
+            function_name::FunctionName.exit_object_property(node, ctx);
+        }
         if self.shorthand_properties {
             shorthand::Shorthand.exit_object_property(node, ctx);
+        }
+    }
+
+    pub(crate) fn exit_variable_declarator(
+        &mut self,
+        node: VariableDeclarator,
+        ctx: &mut TransformerCtx<'_, '_>,
+    ) {
+        if self.function_name {
+            function_name::FunctionName.exit_variable_declarator(node, ctx);
+        }
+    }
+
+    pub(crate) fn exit_assignment_expression(
+        &mut self,
+        node: AssignmentExpression,
+        ctx: &mut TransformerCtx<'_, '_>,
+    ) {
+        if self.function_name {
+            function_name::FunctionName.exit_assignment_expression(node, ctx);
         }
     }
 
