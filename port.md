@@ -69,10 +69,10 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 | block_scoped_functions | P0 | 简单 | — | **已实现** | 块级函数声明 → `let` 函数表达式 |
 | block_scoping | P1 | 复杂 | `docs/design/block-scoping.md` | 待实现 | `let`/`const` → `var`，循环闭包捕获 |
 | classes | P1 | 复杂 | `docs/design/class-transform.md` | 待实现 | `class Foo {}` → `function Foo() {}` |
-| computed_props | P0 | 中等 | — | 待实现 | `{ [expr]: val }` → `var _obj; _obj[expr] = val` |
+| computed_props | P0 | 中等 | — | **已实现** | `{ [key]: val }` → `_define_property({}, key, val)`（单属性） |
 | destructuring | P1 | 复杂 | `docs/design/destructuring.md` | 待实现 | `var {a, b} = obj` → `var a = obj.a, b = obj.b` |
 | for_of | P1 | 中等 | — | 待实现 | `for (var x of arr)` → iterator loop |
-| new_target | P1 | 中等 | — | 待实现 | `new.target` → `_newTarget` |
+| new_target | P1 | 中等 | — | **已实现** | `new.target` → `this.constructor`/`void 0`/`instanceof` |
 | object_super | P1 | 中等 | — | 待实现 | `super.prop` in object literals |
 | parameters | P1 | 复杂 | `docs/design/parameters.md` | 待实现 | 默认参数、rest 参数、解构参数 |
 | regenerator | P0 | 复杂 | 复用 generator 设计 | 已合并到 generator | 已被 generator 替代 |
@@ -260,12 +260,25 @@ TypeScript、React、Module、Proposal 等。
 
 ### 已完成
 
-- [x] es2015.generator — `function*` → regenerator state machine（编译器 + 表达式 + 语句）
-- [x] es2015.arrow_functions — `() => {}` → `function() {}`
 - [x] es2015.shorthand_properties — `{a}` → `{a: a}`
 - [x] es2015.sticky_regex — `/foo/y` → `new RegExp("foo", "y")`
 - [x] es2015.function_name — `var f = function() {}` → `var f = function f() {}`
 - [x] es2015.duplicate_keys — `{a: 1, a: 2}` → `{a: 1, ["a"]: 2}`
+- [x] es2015.instanceof — `a instanceof B` → `_instanceof(a, B)`
+- [x] es2015.typeof_symbol — `typeof x` → `_typeof(x)`
+- [x] es2015.template_literal — `` `hello ${name}` `` → `"hello ".concat(name)`
+- [x] es2015.block_scoped_functions — 块级函数声明 → `let` 函数表达式
+- [x] es2015.new_target — `new.target` → `this.constructor` / `void 0` / `this instanceof F ? ...`
+- [x] es2015.computed_props — `{ [key]: value }` → `_define_property({}, key, value)`（单属性）
+- [x] es2015.arrow_functions — `() => {}` → `function() {}`
+- [x] es2015.generator — `function*` → regenerator state machine
+- [x] es2016.exponentiation — `a ** b` → `Math.pow(a, b)`
+- [x] es2019.optional_catch_binding — `try {} catch {}` → `try {} catch (_unused) {}`
+- [x] es2020.nullish_coalescing — `a ?? b` → `a !== null && a !== void 0 ? a : b`
+- [x] es2021.logical_assignments — `a ||= b` → `a || (a = b)`
+- [x] es3.member_expr_lits — `obj.const` → `obj["const"]`
+- [x] es3.property_literals — `{ "bar": 1 }` → `{ bar: 1 }`
+- [x] es3.reserved_words — `var abstract = 1` → `var _abstract = 1`
 - [x] es2015.util.fn_env_hoister — 函数环境提升工具
 
 ### P0（进行中/待实现）
@@ -274,25 +287,25 @@ TypeScript、React、Module、Proposal 等。
 - [x] es2015.duplicate_keys
 - [x] es2015.instanceof
 - [x] es2015.typeof_symbol
-- [ ] es2015.template_literal
+- [x] es2015.template_literal
 - [ ] es2015.spread
-- [ ] es2015.computed_props
-- [ ] es2015.block_scoped_functions
+- [x] es2015.computed_props
+- [x] es2015.block_scoped_functions
 - [ ] es2015.for_of
-- [ ] es2015.new_target
+- [x] es2015.new_target
 - [ ] es2015.object_super
-- [ ] es2016.exponentiation
+- [x] es2016.exponentiation
 - [ ] es2017.async_to_generator（需设计文档）
-- [ ] es2019.optional_catch_binding
-- [ ] es2020.nullish_coalescing
+- [x] es2019.optional_catch_binding
+- [x] es2020.nullish_coalescing
 - [ ] es2020.optional_chaining
 - [ ] es2020.export_namespace_from
-- [ ] es2021.logical_assignments
+- [x] es2021.logical_assignments
 - [ ] es2022.private_in_object
 - [ ] es2022.static_blocks
-- [ ] es3.member_expr_lits
-- [ ] es3.property_literals
-- [ ] es3.reserved_words
+- [x] es3.member_expr_lits
+- [x] es3.property_literals
+- [x] es3.reserved_words
 - [ ] bugfixes.async_arrows_in_class
 - [ ] bugfixes.edge_default_param
 - [ ] bugfixes.safari_id_destructuring_collision_in_function_expression
