@@ -141,7 +141,7 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 | async_arrows_in_class | P1 | 简单 | — | **已实现** | class property 中的 async arrow |
 | edge_default_param | P1 | 简单 | — | **已实现** | Edge 默认参数处理 |
 | safari_id_destructuring | P1 | 中等 | — | **Stub（待实现）** | Safari 解构冲突修复 |
-| template_literal_caching | P1 | 中等 | — | **Stub（待实现）** | 模板字面量缓存优化 |
+| template_literal_caching | P1 | 中等 | — | **已实现** | 模板字面量缓存优化 |
 
 ### 12. TypeScript
 
@@ -317,7 +317,7 @@ TypeScript、React、Module、Proposal 等。
 - [ ] es2018.object_rest_spread
 - [ ] es2022.class_properties（需设计文档）
 - [ ] bugfixes.safari_id_destructuring_collision_in_function_expression（Stub 已创建，需完整实现）
-- [ ] bugfixes.template_literal_caching（Stub 已创建，需完整实现）
+- [x] bugfixes.template_literal_caching — 模板字面量缓存优化
 - [ ] typescript.strip（需设计文档）
 - [ ] typescript.enum
 - [ ] react.jsx（需设计文档）
