@@ -2,11 +2,13 @@ use crate::state::TransformerCtx;
 
 mod display_name;
 mod jsx_self;
+mod pure_annotations;
 
 #[derive(Default)]
 pub struct ReactOptions {
     pub jsx_self: bool,
     pub display_name: bool,
+    pub pure_annotations: bool,
 }
 
 pub(super) struct React {
@@ -16,6 +18,9 @@ pub(super) struct React {
     #[allow(dead_code)]
     display_name: bool,
     display_name_transformer: Option<display_name::DisplayName>,
+    #[allow(dead_code)]
+    pure_annotations: bool,
+    pure_annotations_transformer: Option<pure_annotations::PureAnnotations>,
 }
 
 impl React {
@@ -30,6 +35,12 @@ impl React {
             display_name: options.display_name,
             display_name_transformer: if options.display_name {
                 Some(display_name::DisplayName::new())
+            } else {
+                None
+            },
+            pure_annotations: options.pure_annotations,
+            pure_annotations_transformer: if options.pure_annotations {
+                Some(pure_annotations::PureAnnotations::new())
             } else {
                 None
             },
@@ -49,6 +60,9 @@ impl React {
             t.transform_program(program, ctx);
         }
         if let Some(t) = &mut self.display_name_transformer {
+            t.transform_program(program, ctx);
+        }
+        if let Some(t) = &mut self.pure_annotations_transformer {
             t.transform_program(program, ctx);
         }
     }
