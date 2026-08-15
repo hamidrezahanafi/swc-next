@@ -22,6 +22,7 @@ pub mod es2020;
 pub mod es2021;
 pub mod es2022;
 pub mod es3;
+pub mod proposal;
 mod state;
 
 pub struct Transformer {}
@@ -38,6 +39,7 @@ pub struct TransformerOptions {
     pub es2020: es2020::ES2020Options,
     pub es2021: es2021::ES2021Options,
     pub es2022: es2022::ES2022Options,
+    pub proposal: proposal::ProposalOptions,
 }
 
 impl TransformerOptions {
@@ -71,6 +73,7 @@ pub struct TransformerImpl<'semantic, 'ast> {
     x0_es2020: es2020::ES2020,
     x0_es2021: es2021::ES2021,
     x0_es2022: es2022::ES2022,
+    x0_proposal: proposal::Proposal,
 }
 
 impl Transformer {
@@ -91,6 +94,7 @@ impl Transformer {
             x0_es2020: es2020::ES2020::new(options.es2020),
             x0_es2021: es2021::ES2021::new(options.es2021),
             x0_es2022: es2022::ES2022::new(options.es2022),
+            x0_proposal: proposal::Proposal::new(options.proposal),
         };
 
         let state = TransformerState {
@@ -110,6 +114,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
         self.x0_es2015.transform(node, self.semantic, ctx);
         self.x0_es2017.transform_program(node, ctx);
         self.x0_es2020.transform_program(node, ctx);
+        self.x0_proposal.transform_program(node, ctx);
         if self.x0_es3.needs_node_traversal()
             || self.x0_bugfixes.needs_node_traversal()
             || self.x0_es2015.needs_node_traversal()
@@ -119,6 +124,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
             || self.x0_es2020.needs_node_traversal()
             || self.x0_es2021.needs_node_traversal()
             || self.x0_es2022.needs_node_traversal()
+            || self.x0_proposal.needs_node_traversal()
         {
             TraverseAction::Proceed
         } else {
