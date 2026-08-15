@@ -15,6 +15,7 @@ pub mod es2015;
 pub mod es2016;
 pub mod es2019;
 pub mod es2020;
+pub mod es2021;
 mod state;
 
 pub struct Transformer {}
@@ -26,6 +27,7 @@ pub struct TransformerOptions {
     pub es2016: es2016::ES2016Options,
     pub es2019: es2019::ES2019Options,
     pub es2020: es2020::ES2020Options,
+    pub es2021: es2021::ES2021Options,
 }
 
 impl TransformerOptions {
@@ -49,6 +51,7 @@ pub struct TransformerImpl<'semantic, 'ast> {
     x0_es2016: es2016::ES2016,
     x0_es2019: es2019::ES2019,
     x0_es2020: es2020::ES2020,
+    x0_es2021: es2021::ES2021,
 }
 
 impl Transformer {
@@ -64,6 +67,7 @@ impl Transformer {
             x0_es2016: es2016::ES2016::new(options.es2016),
             x0_es2019: es2019::ES2019::new(options.es2019),
             x0_es2020: es2020::ES2020::new(options.es2020),
+            x0_es2021: es2021::ES2021::new(options.es2021),
         };
 
         let state = TransformerState {
@@ -84,6 +88,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
             || self.x0_es2016.needs_node_traversal()
             || self.x0_es2019.needs_node_traversal()
             || self.x0_es2020.needs_node_traversal()
+            || self.x0_es2021.needs_node_traversal()
         {
             TraverseAction::Proceed
         } else {
@@ -153,6 +158,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
         self.x0_es2015.exit_assignment_expression(node, ctx);
         self.x0_es2016.exit_assignment_expression(node, ctx);
         self.x0_es2020.exit_assignment_expression(node, ctx);
+        self.x0_es2021.exit_assignment_expression(node, ctx);
     }
 
     fn exit_reg_exp_literal(&mut self, node: RegExpLiteral, ctx: &mut TransformerCtx<'_, 'ast>) {
