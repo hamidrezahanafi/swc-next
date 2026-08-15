@@ -1,12 +1,13 @@
 use swc_next_ecma_ast::{
-    AssignmentExpression, BinaryExpression, ObjectExpression, ObjectProperty, Program,
-    RegExpLiteral, UnaryExpression, VariableDeclarator,
+    AssignmentExpression, BinaryExpression, BlockStatement, ObjectExpression, ObjectProperty,
+    Program, RegExpLiteral, UnaryExpression, VariableDeclarator,
 };
 use swc_next_ecma_semantic::Semantic;
 
 use crate::state::TransformerCtx;
 
 pub mod arrow;
+pub mod block_scoped_fn;
 pub mod duplicate_keys;
 pub mod function_name;
 mod generator;
@@ -18,6 +19,7 @@ pub(crate) mod util;
 
 pub struct ES2015 {
     arrow: Option<arrow::ArrowFunctions>,
+    block_scoped_fns: bool,
     duplicate_keys: bool,
     generator: bool,
     function_name: bool,
@@ -31,6 +33,7 @@ pub struct ES2015 {
 #[derive(Default)]
 pub struct ES2015Options {
     pub arrow_functions: Option<arrow::ArrowFunctionsOptions>,
+    pub block_scoped_fns: bool,
     pub duplicate_keys: bool,
     pub generator: bool,
     pub function_name: bool,
@@ -44,6 +47,7 @@ impl ES2015 {
     pub fn new(options: ES2015Options) -> Self {
         Self {
             arrow: options.arrow_functions.map(arrow::ArrowFunctions::new),
+            block_scoped_fns: options.block_scoped_fns,
             duplicate_keys: options.duplicate_keys,
             generator: options.generator,
             function_name: options.function_name,
@@ -62,7 +66,8 @@ impl ES2015 {
 
 impl ES2015 {
     pub(crate) fn needs_node_traversal(&self) -> bool {
-        self.duplicate_keys
+        self.block_scoped_fns
+            || self.duplicate_keys
             || self.function_name
             || self.instanceof
             || self.shorthand_properties
@@ -173,6 +178,16 @@ impl ES2015 {
     ) {
         if self.sticky_regex {
             sticky_regex::StickyRegex.exit_reg_exp_literal(node, ctx);
+        }
+    }
+
+    pub(crate) fn exit_block_statement(
+        &mut self,
+        node: BlockStatement,
+        ctx: &mut TransformerCtx<'_, '_>,
+    ) {
+        if self.block_scoped_fns {
+            block_scoped_fn::BlockScopedFns.exit_block_statement(node, ctx);
         }
     }
 }
