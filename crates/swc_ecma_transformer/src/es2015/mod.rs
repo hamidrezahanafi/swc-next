@@ -16,6 +16,7 @@ pub mod function_name;
 mod generator;
 pub mod instanceof;
 pub mod new_target;
+pub mod object_super;
 pub mod shorthand;
 pub mod spread;
 pub mod sticky_regex;
