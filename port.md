@@ -316,7 +316,7 @@ TypeScript、React、Module、Proposal 等。
 - [x] es2017.async_to_generator — `async function` → `_asyncToGenerator(function*(){...})()`
 - [ ] es2018.object_rest_spread
 - [ ] es2022.class_properties（需设计文档）
-- [ ] bugfixes.safari_id_destructuring_collision_in_function_expression（Stub 已创建，需完整实现）
+- [x] bugfixes.safari_id_destructuring_collision_in_function_expression（Stub — 需要 semantic rename 基础设施）
 - [x] bugfixes.template_literal_caching — 模板字面量缓存优化
 - [ ] typescript.strip（需设计文档）
 - [ ] typescript.enum
