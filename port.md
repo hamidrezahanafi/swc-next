@@ -113,7 +113,7 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 
 | Transform | 优先级 | 复杂度 | 设计文档 | 状态 | 说明 |
 |-----------|--------|--------|----------|------|------|
-| logical_assignments | P0 | 简单 | — | 待实现 | `a ||= b` → `a || (a = b)` |
+| logical_assignments | P0 | 简单 | — | **已实现** | `a ||= b` → `a || (a = b)` |
 
 ### 9. ES2022
 
