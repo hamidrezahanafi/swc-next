@@ -1,4 +1,4 @@
-use swc_next_ecma_ast::{BindingProperty, Expr, TraverseAction};
+use swc_next_ecma_ast::{BindingProperty, Expr, Program, TraverseAction};
 
 use crate::state::TransformerCtx;
 
@@ -18,8 +18,11 @@ pub struct BugfixesOptions {
 pub(super) struct Bugfixes {
     pub async_arrows_in_class: bool,
     pub edge_default_param: bool,
+    #[allow(dead_code)]
+    pub template_literal_caching: bool,
     in_arrow_params: bool,
     async_arrows_in_class_state: async_arrows_in_class::AsyncArrowsInClass,
+    template_literal_caching_transformer: Option<template_literal_caching::TemplateLiteralCaching>,
 }
 
 impl Bugfixes {
@@ -27,13 +30,29 @@ impl Bugfixes {
         Self {
             async_arrows_in_class: options.async_arrows_in_class,
             edge_default_param: options.edge_default_param,
+            template_literal_caching: options.template_literal_caching,
             in_arrow_params: false,
             async_arrows_in_class_state: async_arrows_in_class::AsyncArrowsInClass::new(),
+            template_literal_caching_transformer: if options.template_literal_caching {
+                Some(template_literal_caching::TemplateLiteralCaching::new())
+            } else {
+                None
+            },
         }
     }
 
     pub fn needs_node_traversal(&self) -> bool {
         self.edge_default_param || self.async_arrows_in_class
+    }
+
+    pub fn transform_program<'a>(
+        &mut self,
+        program: Program,
+        ctx: &mut TransformerCtx<'_, 'a>,
+    ) {
+        if let Some(transformer) = &mut self.template_literal_caching_transformer {
+            transformer.transform(program, ctx);
+        }
     }
 
     pub fn enter_arrow_function_expression(&mut self) {

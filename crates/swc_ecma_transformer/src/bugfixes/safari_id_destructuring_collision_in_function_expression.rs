@@ -16,6 +16,8 @@
 //! TODO: This transform requires a rename pass and is non-trivial. It needs
 //! a proper design document.
 
+#![allow(dead_code)]
+
 use swc_next_ecma_ast::{Expr, TraverseAction};
 
 use crate::state::TransformerCtx;
