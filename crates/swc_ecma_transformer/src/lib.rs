@@ -1,6 +1,6 @@
 use swc_next_ecma_ast::{
-    AssignmentExpression, Ast, BinaryExpression, ObjectExpression, ObjectProperty, Program,
-    RegExpLiteral, Traverse, TraverseAction, TraverseCtx, TraverseWith, UnaryExpression,
+    AssignmentExpression, Ast, BinaryExpression, CatchClause, ObjectExpression, ObjectProperty,
+    Program, RegExpLiteral, Traverse, TraverseAction, TraverseCtx, TraverseWith, UnaryExpression,
     VariableDeclarator,
 };
 use swc_next_ecma_semantic::{Semantic, SemanticFeatureFlags};
@@ -13,6 +13,7 @@ use crate::{
 pub mod assumptions;
 pub mod es2015;
 pub mod es2016;
+pub mod es2019;
 mod state;
 
 pub struct Transformer {}
@@ -22,6 +23,7 @@ pub struct TransformerOptions {
     pub assumptions: Assumptions,
     pub es2015: es2015::ES2015Options,
     pub es2016: es2016::ES2016Options,
+    pub es2019: es2019::ES2019Options,
 }
 
 impl TransformerOptions {
@@ -43,6 +45,7 @@ pub struct TransformerImpl<'semantic, 'ast> {
     semantic: &'semantic mut Semantic<'ast>,
     x0_es2015: es2015::ES2015,
     x0_es2016: es2016::ES2016,
+    x0_es2019: es2019::ES2019,
 }
 
 impl Transformer {
@@ -56,6 +59,7 @@ impl Transformer {
             semantic,
             x0_es2015: es2015::ES2015::new(options.es2015),
             x0_es2016: es2016::ES2016::new(options.es2016),
+            x0_es2019: es2019::ES2019::new(options.es2019),
         };
 
         let state = TransformerState {
@@ -72,7 +76,10 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
         ctx: &mut TransformerCtx<'_, 'ast>,
     ) -> TraverseAction<Program> {
         self.x0_es2015.transform(node, self.semantic, ctx);
-        if self.x0_es2015.needs_node_traversal() || self.x0_es2016.needs_node_traversal() {
+        if self.x0_es2015.needs_node_traversal()
+            || self.x0_es2016.needs_node_traversal()
+            || self.x0_es2019.needs_node_traversal()
+        {
             TraverseAction::Proceed
         } else {
             TraverseAction::Skip
@@ -136,5 +143,14 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
 
     fn exit_reg_exp_literal(&mut self, node: RegExpLiteral, ctx: &mut TransformerCtx<'_, 'ast>) {
         self.x0_es2015.exit_reg_exp_literal(node, ctx);
+    }
+
+    fn enter_catch_clause(
+        &mut self,
+        node: CatchClause,
+        ctx: &mut TransformerCtx<'_, 'ast>,
+    ) -> TraverseAction<CatchClause> {
+        self.x0_es2019.enter_catch_clause(node, ctx);
+        TraverseAction::Proceed
     }
 }
