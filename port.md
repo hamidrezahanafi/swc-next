@@ -323,7 +323,7 @@ TypeScript、React、Module、Proposal 等。
 - [ ] react.jsx（需设计文档）
 - [x] react.jsx_self
 - [ ] react.jsx_src
-- [ ] react.display_name
+- [x] react.display_name
 - [ ] react.pure_annotations
 - [ ] proposal.export_default_from
 - [x] proposal.import_attributes
