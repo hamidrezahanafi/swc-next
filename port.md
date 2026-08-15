@@ -288,10 +288,10 @@ TypeScript、React、Module、Proposal 等。
 - [x] es2015.instanceof
 - [x] es2015.typeof_symbol
 - [x] es2015.template_literal
-- [ ] es2015.spread
+- [x] es2015.spread
 - [x] es2015.computed_props
 - [x] es2015.block_scoped_functions
-- [ ] es2015.for_of
+- [x] es2015.for_of
 - [x] es2015.new_target
 - [ ] es2015.object_super
 - [x] es2016.exponentiation
@@ -299,10 +299,10 @@ TypeScript、React、Module、Proposal 等。
 - [x] es2019.optional_catch_binding
 - [x] es2020.nullish_coalescing
 - [ ] es2020.optional_chaining
-- [ ] es2020.export_namespace_from
+- [x] es2020.export_namespace_from
 - [x] es2021.logical_assignments
 - [x] es2022.private_in_object — `#x in obj` → `_checkInRHS(obj)`
-- [ ] es2022.static_blocks
+- [x] es2022.static_blocks
 - [x] es3.member_expr_lits
 - [x] es3.property_literals
 - [x] es3.reserved_words
