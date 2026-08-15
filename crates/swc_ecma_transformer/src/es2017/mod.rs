@@ -4,7 +4,7 @@ pub mod async_to_generator;
 
 pub struct ES2017 {
     async_to_generator: bool,
-    pub transformer: Option<async_to_generator::AsyncToGenerator>,
+    transformer: Option<async_to_generator::AsyncToGenerator>,
 }
 
 impl ES2017 {

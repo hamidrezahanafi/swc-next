@@ -17,8 +17,8 @@
 //! See docs/design/async-to-generator.md for full design.
 
 use swc_next_ecma_ast::{
-    ArrowFunctionBody, ArrowFunctionExpression, Ast, AstUtf8, DUMMY_SP, Expr, ExprData, Function,
-    FunctionBody, FunctionType, GetSpan, NodeKind, VisitMut, VisitMutWith,
+    ArrowFunctionBody, ArrowFunctionExpression, Ast, AstUtf8, DUMMY_SP, Expr, Function,
+    FunctionType, GetSpan, NodeKind, VisitMut, VisitMutWith,
 };
 
 use crate::state::TransformerCtx;

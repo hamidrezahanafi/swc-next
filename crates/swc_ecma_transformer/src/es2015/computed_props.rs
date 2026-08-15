@@ -1,5 +1,4 @@
 //! ES2015: computed-props — Transform computed property keys in object literals.
-//!
 //! ```js
 //! // Single computed property:
 //! ({ [key]: value }) → _define_property({}, key, value)
@@ -18,10 +17,6 @@ use crate::state::TransformerCtx;
 pub(super) struct ComputedProps;
 
 impl ComputedProps {
-    pub fn new() -> Self {
-        Self
-    }
-
     pub fn exit_object_expression(
         &mut self,
         node: ObjectExpression,
