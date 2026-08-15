@@ -16,6 +16,7 @@ pub mod es2016;
 pub mod es2019;
 pub mod es2020;
 pub mod es2021;
+pub mod es2022;
 pub mod es3;
 mod state;
 
@@ -30,6 +31,7 @@ pub struct TransformerOptions {
     pub es2019: es2019::ES2019Options,
     pub es2020: es2020::ES2020Options,
     pub es2021: es2021::ES2021Options,
+    pub es2022: es2022::ES2022Options,
 }
 
 impl TransformerOptions {
@@ -55,6 +57,7 @@ pub struct TransformerImpl<'semantic, 'ast> {
     x0_es2019: es2019::ES2019,
     x0_es2020: es2020::ES2020,
     x0_es2021: es2021::ES2021,
+    x0_es2022: es2022::ES2022,
 }
 
 impl Transformer {
@@ -72,6 +75,7 @@ impl Transformer {
             x0_es2019: es2019::ES2019::new(options.es2019),
             x0_es2020: es2020::ES2020::new(options.es2020),
             x0_es2021: es2021::ES2021::new(options.es2021),
+            x0_es2022: es2022::ES2022::new(options.es2022),
         };
 
         let state = TransformerState {
@@ -94,6 +98,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
             || self.x0_es2019.needs_node_traversal()
             || self.x0_es2020.needs_node_traversal()
             || self.x0_es2021.needs_node_traversal()
+            || self.x0_es2022.needs_node_traversal()
         {
             TraverseAction::Proceed
         } else {
@@ -121,6 +126,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     ) {
         self.x0_es2015.exit_binary_expression(node, ctx);
         self.x0_es2016.exit_binary_expression(node, ctx);
+        self.x0_es2022.exit_binary_expression(node, ctx);
     }
 
     fn exit_logical_expression(
