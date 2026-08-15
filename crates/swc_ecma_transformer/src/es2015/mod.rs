@@ -1,6 +1,6 @@
 use swc_next_ecma_ast::{
     AssignmentExpression, BinaryExpression, ObjectExpression, ObjectProperty, Program,
-    RegExpLiteral, VariableDeclarator,
+    RegExpLiteral, UnaryExpression, VariableDeclarator,
 };
 use swc_next_ecma_semantic::Semantic;
 
@@ -13,6 +13,7 @@ mod generator;
 pub mod instanceof;
 pub mod shorthand;
 pub mod sticky_regex;
+pub mod typeof_symbol;
 pub(crate) mod util;
 
 pub struct ES2015 {
@@ -23,6 +24,8 @@ pub struct ES2015 {
     instanceof: bool,
     shorthand_properties: bool,
     sticky_regex: bool,
+    typeof_symbol: bool,
+    typeof_symbol_state: Option<typeof_symbol::TypeofSymbol>,
 }
 
 #[derive(Default)]
@@ -34,6 +37,7 @@ pub struct ES2015Options {
     pub instanceof: bool,
     pub shorthand_properties: bool,
     pub sticky_regex: bool,
+    pub typeof_symbol: bool,
 }
 
 impl ES2015 {
@@ -46,6 +50,12 @@ impl ES2015 {
             instanceof: options.instanceof,
             shorthand_properties: options.shorthand_properties,
             sticky_regex: options.sticky_regex,
+            typeof_symbol: options.typeof_symbol,
+            typeof_symbol_state: if options.typeof_symbol {
+                Some(typeof_symbol::TypeofSymbol::new())
+            } else {
+                None
+            },
         }
     }
 }
@@ -57,6 +67,7 @@ impl ES2015 {
             || self.instanceof
             || self.shorthand_properties
             || self.sticky_regex
+            || self.typeof_symbol
     }
 
     pub(crate) fn transform<'a>(
@@ -96,6 +107,18 @@ impl ES2015 {
         }
     }
 
+    pub(crate) fn enter_binary_expression(
+        &mut self,
+        node: BinaryExpression,
+        ctx: &mut TransformerCtx<'_, '_>,
+    ) {
+        if self.typeof_symbol {
+            if let Some(ts) = &mut self.typeof_symbol_state {
+                ts.enter_binary_expression(node, ctx);
+            }
+        }
+    }
+
     pub(crate) fn exit_binary_expression(
         &mut self,
         node: BinaryExpression,
@@ -103,6 +126,23 @@ impl ES2015 {
     ) {
         if self.instanceof {
             instanceof::InstanceOf.exit_binary_expression(node, ctx);
+        }
+        if self.typeof_symbol {
+            if let Some(ts) = &mut self.typeof_symbol_state {
+                ts.exit_binary_expression(node, ctx);
+            }
+        }
+    }
+
+    pub(crate) fn exit_unary_expression(
+        &mut self,
+        node: UnaryExpression,
+        ctx: &mut TransformerCtx<'_, '_>,
+    ) {
+        if self.typeof_symbol {
+            if let Some(ts) = &mut self.typeof_symbol_state {
+                ts.exit_unary_expression(node, ctx);
+            }
         }
     }
 
