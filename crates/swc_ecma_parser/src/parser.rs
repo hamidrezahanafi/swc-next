@@ -7705,6 +7705,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.advance()?;
         let checkpoint = self.scratch_cover.begin();
         let context = enter_grammar_context![&mut self.context, +In];
+        let allow_arrow_return_type = self.ts_context.allow_arrow_return_type;
+        self.ts_context.allow_arrow_return_type = true;
         let result = (|| {
             let mut end = start + 1;
             let mut has_trailing_comma = false;
@@ -7776,6 +7778,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             })
         })();
         self.context = context;
+        self.ts_context.allow_arrow_return_type = allow_arrow_return_type;
         self.scratch_cover.reset(checkpoint);
         result
     }
