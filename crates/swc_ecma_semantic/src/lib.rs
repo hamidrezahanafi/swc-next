@@ -2395,7 +2395,7 @@ pub fn analyze<'a>(root: Program, ast: &Ast<'a>, options: AnalyzeOptions) -> Sem
 #[cfg(test)]
 mod tests {
     use swc_next_allocator::Allocator;
-    use swc_next_ecma_ast::{Ast, DUMMY_SP, Lang, NodeKindData, ScopeId, SourceType};
+    use swc_next_ecma_ast::{Ast, ClassType, DUMMY_SP, Lang, NodeKindData, ScopeId, SourceType};
     use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
 
     use super::{
@@ -3649,5 +3649,303 @@ mod tests {
 
         assert!(contains_direct_eval(b"direct"));
         assert!(!contains_direct_eval(b"indirect"));
+    }
+
+    #[test]
+    fn class_lowering_off_returns_feature_not_enabled() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("class C {}", &allocator);
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let semantic = analyze(parse.program, &ast, AnalyzeOptions::default()).semantic;
+        assert!(semantic.classes_post_order().is_err());
+    }
+
+    #[test]
+    fn single_pass_collects_declaration_placement() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("class C {}", &allocator);
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let semantic = analyze(
+            parse.program,
+            &ast,
+            AnalyzeOptions {
+                features: SemanticFeatureFlags::CLASS_LOWERING,
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+        let classes = semantic.classes_post_order().unwrap();
+        assert_eq!(classes.len(), 1);
+        let fact = &classes[0];
+        assert!(fact.name_symbol.is_some());
+        assert!(fact.class.id(&ast).is_some());
+        assert_eq!(ast.get_utf8(fact.class.id(&ast).unwrap().name(&ast)), "C");
+        assert_eq!(fact.methods.len(), 0);
+        assert!(!fact.has_properties);
+        assert!(!fact.has_private_elements);
+        assert!(!fact.has_static_blocks);
+        assert!(!fact.has_decorators);
+    }
+
+    #[test]
+    fn single_pass_collects_named_class_expression() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("const v = class Inner {}", &allocator);
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let semantic = analyze(
+            parse.program,
+            &ast,
+            AnalyzeOptions {
+                features: SemanticFeatureFlags::CLASS_LOWERING,
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+        let classes = semantic.classes_post_order().unwrap();
+        assert_eq!(classes.len(), 1);
+        let fact = &classes[0];
+        assert!(fact.name_symbol.is_some());
+        assert_eq!(fact.class.class_type(&ast), ClassType::ClassExpression);
+    }
+
+    #[test]
+    fn single_pass_collects_anonymous_class_expression() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("const v = class {}", &allocator);
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let semantic = analyze(
+            parse.program,
+            &ast,
+            AnalyzeOptions {
+                features: SemanticFeatureFlags::CLASS_LOWERING,
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+        let classes = semantic.classes_post_order().unwrap();
+        assert_eq!(classes.len(), 1);
+        assert!(classes[0].name_symbol.is_none());
+    }
+
+    #[test]
+    fn single_pass_collects_anonymous_default_export() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("export default class {}", &allocator);
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let semantic = analyze(
+            parse.program,
+            &ast,
+            AnalyzeOptions {
+                features: SemanticFeatureFlags::CLASS_LOWERING,
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+        let classes = semantic.classes_post_order().unwrap();
+        assert_eq!(classes.len(), 1);
+        assert!(classes[0].name_symbol.is_none());
+    }
+
+    #[test]
+    fn single_pass_nested_class_post_order() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("class Outer { method() { class Inner {} } }", &allocator);
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let semantic = analyze(
+            parse.program,
+            &ast,
+            AnalyzeOptions {
+                features: SemanticFeatureFlags::CLASS_LOWERING,
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+        let classes = semantic.classes_post_order().unwrap();
+        // Inner appears before Outer in post-order
+        assert_eq!(classes.len(), 2);
+        let inner_name = ast.get_utf8(classes[0].class.id(&ast).unwrap().name(&ast));
+        let outer_name = ast.get_utf8(classes[1].class.id(&ast).unwrap().name(&ast));
+        assert_eq!(inner_name, "Inner");
+        assert_eq!(outer_name, "Outer");
+    }
+
+    #[test]
+    fn single_pass_collects_constructor_and_methods() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new(
+            "class C { constructor(x) { this.x = x; } method() {} get prop() {} set prop(v) {} }",
+            &allocator,
+        );
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let semantic = analyze(
+            parse.program,
+            &ast,
+            AnalyzeOptions {
+                features: SemanticFeatureFlags::CLASS_LOWERING,
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+        let classes = semantic.classes_post_order().unwrap();
+        assert_eq!(classes.len(), 1);
+        let fact = &classes[0];
+        assert!(fact.constructor.is_some());
+        // 4 methods: constructor, method, get prop, set prop
+        assert_eq!(fact.methods.len(), 4);
+        assert!(fact.constructor.is_some());
+    }
+
+    #[test]
+    fn single_pass_collects_super_calls_and_members() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new(
+            "class Derived extends Base { constructor() { super(); super.method(); } }",
+            &allocator,
+        );
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let semantic = analyze(
+            parse.program,
+            &ast,
+            AnalyzeOptions {
+                features: SemanticFeatureFlags::CLASS_LOWERING,
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+        let classes = semantic.classes_post_order().unwrap();
+        assert_eq!(classes.len(), 1);
+        let fact = &classes[0];
+        assert!(fact.heritage.is_some());
+        assert_eq!(fact.super_calls.len(), 1);
+        assert_eq!(fact.super_members.len(), 1);
+    }
+
+    #[test]
+    fn single_pass_collects_this_new_target_and_self_ref() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new(
+            "class C { constructor() { this.x; new.target; C; } }",
+            &allocator,
+        );
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let semantic = analyze(
+            parse.program,
+            &ast,
+            AnalyzeOptions {
+                features: SemanticFeatureFlags::CLASS_LOWERING,
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+        let classes = semantic.classes_post_order().unwrap();
+        assert_eq!(classes.len(), 1);
+        let fact = &classes[0];
+        assert_eq!(fact.this_nodes.len(), 1);
+        assert_eq!(fact.new_targets.len(), 1);
+        assert_eq!(fact.self_references.len(), 1);
+    }
+
+    #[test]
+    fn single_pass_detects_unsupported_features() {
+        let allocator = Allocator::new();
+        // Property, static block, private, and decorator detection
+        let mut ast = Ast::new(
+            "class C { x; static {}; #priv; @dec method() {} }",
+            &allocator,
+        );
+        let parse = Parser::init(
+            &mut ast,
+            Options {
+                lang: Lang::Ts,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+        // TS may have diagnostics for decorators, skip diagnostics check
+        let semantic = analyze(
+            parse.program,
+            &ast,
+            AnalyzeOptions {
+                features: SemanticFeatureFlags::CLASS_LOWERING,
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+        let classes = semantic.classes_post_order().unwrap();
+        assert_eq!(classes.len(), 1);
+        let fact = &classes[0];
+        assert!(fact.has_properties);
+        assert!(fact.has_private_elements);
+        assert!(fact.has_static_blocks);
+    }
+
+    #[test]
+    fn single_pass_collects_computed_keys() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("class C { [key()]() {} }", &allocator);
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let semantic = analyze(
+            parse.program,
+            &ast,
+            AnalyzeOptions {
+                features: SemanticFeatureFlags::CLASS_LOWERING,
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+        let classes = semantic.classes_post_order().unwrap();
+        assert_eq!(classes.len(), 1);
+        assert_eq!(classes[0].computed_keys.len(), 1);
+    }
+
+    #[test]
+    fn single_pass_skips_class_when_lowering_off() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("class C { constructor() { super(); } }", &allocator);
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        // No features enabled
+        let semantic = analyze(parse.program, &ast, AnalyzeOptions::default()).semantic;
+        assert!(semantic.classes_post_order().is_err());
+    }
+
+    #[test]
+    fn single_pass_collects_super_write_in_constructor() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new(
+            "class Derived extends Base { constructor() { super(); super.x = 1; } }",
+            &allocator,
+        );
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let semantic = analyze(
+            parse.program,
+            &ast,
+            AnalyzeOptions {
+                features: SemanticFeatureFlags::CLASS_LOWERING,
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+        let classes = semantic.classes_post_order().unwrap();
+        assert_eq!(classes.len(), 1);
+        let fact = &classes[0];
+        // super_members includes super.x (the member expression), not the assignment
+        // The assignment parent is checked separately
+        assert!(fact.heritage.is_some());
+        // super() call + super.x member access
+        assert_eq!(fact.super_calls.len(), 1);
+        assert_eq!(fact.super_members.len(), 1);
     }
 }
