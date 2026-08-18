@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use swc_next_allocator::{hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec};
 use swc_next_ecma_ast::{
-    ArrowFunctionExpression, Ast, Class, Directive, Function, FunctionBody, NodeId, NodeKind,
-    NodeKindData, Program, ScopeId,
+    ArrowFunctionExpression, Ast, Class, Directive, Function, FunctionBody, MethodDefinition,
+    MethodDefinitionKind, NodeId, NodeKind, NodeKindData, Program, ScopeId,
 };
 
 use crate::{
@@ -68,17 +68,50 @@ struct CaptureCandidates {
     new_targets: Vec<NodeId>,
 }
 
+/// Per-class data collected during the single traversal pass.
+/// Finalize resolves candidates into the finished `ClassLoweringFact`.
+struct ClassInfoBuilder {
+    class: Class,
+    /// Constructor method, if present.
+    constructor: Option<Function>,
+    /// Methods collected during traversal.
+    methods: Vec<CollectedMethod>,
+    /// Computed key node IDs.
+    computed_keys: Vec<NodeId>,
+    has_property: bool,
+    has_private_element: bool,
+    has_static_block: bool,
+    has_decorator: bool,
+    /// Rewrite-site raw node IDs.
+    super_nodes: Vec<NodeId>,
+    this_nodes: Vec<NodeId>,
+    new_target_nodes: Vec<NodeId>,
+    /// Identifier reference nodes for self-reference resolution in finalize.
+    identifier_reference_nodes: Vec<NodeId>,
+}
+
+struct CollectedMethod {
+    definition: MethodDefinition,
+    function: Function,
+    kind: MethodDefinitionKind,
+    is_static: bool,
+    computed: bool,
+}
+
 struct TransformFactsCollector<'a> {
     features: SemanticFeatureFlags,
     effects: Option<ArenaVec<'a, EffectCounts>>,
     effect_owners: Option<ArenaVec<'a, Option<NodeId>>>,
     generator_functions: ArenaVec<'a, Function>,
     async_functions: ArenaVec<'a, NodeId>,
-    classes: ArenaVec<'a, Class>,
     function_boundaries: ArenaVec<'a, NodeId>,
     capture_boundaries: Vec<Option<NodeId>>,
     capture_candidates: HashMap<NodeId, CaptureCandidates>,
     yield_nodes: HashMap<NodeId, Vec<NodeId>>,
+    /// Class stack for single-pass collection.
+    class_stack: Vec<ClassInfoBuilder>,
+    /// Post-order class builders, popped in leave_node.
+    class_infos_post_order: Vec<ClassInfoBuilder>,
 }
 
 impl<'a> TransformFactsCollector<'a> {
@@ -102,11 +135,12 @@ impl<'a> TransformFactsCollector<'a> {
             effect_owners,
             generator_functions: ArenaVec::new_in(allocator),
             async_functions: ArenaVec::new_in(allocator),
-            classes: ArenaVec::new_in(allocator),
             function_boundaries: ArenaVec::new_in(allocator),
             capture_boundaries: Vec::new(),
             capture_candidates: HashMap::new(),
             yield_nodes: HashMap::new(),
+            class_stack: Vec::new(),
+            class_infos_post_order: Vec::new(),
         }
     }
 
@@ -157,6 +191,7 @@ impl<'a> TransformFactsCollector<'a> {
             owners[node.index()] = self.function_boundaries.last().copied();
         }
         let Some(effects) = &mut self.effects else {
+            self.enter_class_node(tree, node);
             return;
         };
         match tree.node_kind(node) {
@@ -168,6 +203,98 @@ impl<'a> TransformFactsCollector<'a> {
             }
             NodeKind::AwaitExpression if self.features.contains(SemanticFeatureFlags::AWAIT) => {
                 effects[node.index()].awaits = 1;
+            }
+            _ => {}
+        }
+        self.enter_class_node(tree, node);
+    }
+
+    /// Records class-related nodes during traversal for single-pass collection.
+    fn enter_class_node(&mut self, tree: &Ast<'_>, node: NodeId) {
+        if !self.features.contains(SemanticFeatureFlags::CLASS_LOWERING) {
+            return;
+        }
+        // Push a new class builder when entering a class node.
+        if let NodeKindData::Class(class) = tree.kind_data(node) {
+            self.class_stack.push(ClassInfoBuilder {
+                class,
+                constructor: None,
+                methods: Vec::new(),
+                computed_keys: Vec::new(),
+                has_property: false,
+                has_private_element: false,
+                has_static_block: false,
+                has_decorator: !class.decorators(tree).is_empty(),
+                super_nodes: Vec::new(),
+                this_nodes: Vec::new(),
+                new_target_nodes: Vec::new(),
+                identifier_reference_nodes: Vec::new(),
+            });
+            return;
+        }
+        // Only record into the current (topmost) class builder.
+        let Some(builder) = self.class_stack.last_mut() else {
+            return;
+        };
+        // Record class body elements.
+        // Class body elements are visited as children of the class node.
+        // We detect them by their NodeKindData.
+        match tree.kind_data(node) {
+            NodeKindData::MethodDefinition(method) => {
+                let function = method.value(tree);
+                let computed = method.computed(tree);
+                if method.kind(tree) == MethodDefinitionKind::Constructor {
+                    builder.constructor = Some(function);
+                }
+                if computed {
+                    builder.computed_keys.push(method.key(tree).node_id());
+                }
+                if method.key(tree).is_private_identifier(tree) {
+                    builder.has_private_element = true;
+                }
+                if !method.decorators(tree).is_empty() {
+                    builder.has_decorator = true;
+                }
+                // Always push to methods, including constructor, matching
+                // the old build_class_lowering_fact behavior.
+                builder.methods.push(CollectedMethod {
+                    definition: method,
+                    function,
+                    kind: method.kind(tree),
+                    is_static: method.r#static(tree),
+                    computed,
+                });
+            }
+            NodeKindData::PropertyDefinition(property) => {
+                builder.has_property = true;
+                if property.key(tree).is_private_identifier(tree) {
+                    builder.has_private_element = true;
+                }
+                if !property.decorators(tree).is_empty() {
+                    builder.has_decorator = true;
+                }
+                if property.computed(tree) {
+                    builder.computed_keys.push(property.key(tree).node_id());
+                }
+            }
+            NodeKindData::StaticBlock(_) => {
+                builder.has_static_block = true;
+            }
+            NodeKindData::Super(_) => {
+                builder.super_nodes.push(node);
+            }
+            NodeKindData::ThisExpression(_) => {
+                builder.this_nodes.push(node);
+            }
+            NodeKindData::MetaProperty(meta) => {
+                if tree.get_utf8(meta.meta(tree).name(tree)) == "new"
+                    && tree.get_utf8(meta.property(tree).name(tree)) == "target"
+                {
+                    builder.new_target_nodes.push(node);
+                }
+            }
+            NodeKindData::IdentifierReference(_) => {
+                builder.identifier_reference_nodes.push(node);
             }
             _ => {}
         }
@@ -191,10 +318,13 @@ impl<'a> TransformFactsCollector<'a> {
                     self.async_functions.push(node);
                 }
             }
-            NodeKindData::Class(class)
+            NodeKindData::Class(_)
                 if self.features.contains(SemanticFeatureFlags::CLASS_LOWERING) =>
             {
-                self.classes.push(class);
+                // Pop the class builder from the stack and push to post-order.
+                if let Some(builder) = self.class_stack.pop() {
+                    self.class_infos_post_order.push(builder);
+                }
             }
             NodeKindData::ArrowFunctionExpression(arrow)
                 if self
@@ -278,10 +408,14 @@ impl<'a> TransformFactsCollector<'a> {
             arena_nodes.extend(nodes);
             yield_nodes.insert(function, arena_nodes);
         }
-        let mut class_lowering = ArenaVec::with_capacity_in(self.classes.len(), allocator);
-        for class in self.classes {
-            class_lowering.push(build_class_lowering_fact(semantic, tree, class));
+
+        // Resolve class builders into ClassLoweringFact using only candidate resolution.
+        let mut class_lowering = ArenaVec::with_capacity_in(self.class_infos_post_order.len(), allocator);
+        for builder in self.class_infos_post_order {
+            let fact = resolve_class_lowering_fact(builder, semantic, tree, allocator);
+            class_lowering.push(fact);
         }
+
         let mut class_counts = ArenaVec::with_capacity_in(tree.node_count(), allocator);
         class_counts.resize(tree.node_count(), 0u32);
         for facts in &class_lowering {
@@ -306,6 +440,97 @@ impl<'a> TransformFactsCollector<'a> {
     }
 }
 
+/// Resolves a collected `ClassInfoBuilder` into a `ClassLoweringFact`.
+/// Only resolves already-recorded candidates — does not re-scan AST or class body.
+fn resolve_class_lowering_fact<'a>(
+    builder: ClassInfoBuilder,
+    semantic: &Semantic<'a>,
+    tree: &Ast<'a>,
+    allocator: &'a swc_next_allocator::Allocator,
+) -> ClassLoweringFact<'a> {
+    let class = builder.class;
+
+    // Resolve name symbol from the class id binding (candidate resolution).
+    let name_symbol = class
+        .id(tree)
+        .and_then(|id| semantic.declaration_of(id.node_id()))
+        .map(|declaration| semantic.declaration(declaration).symbol);
+
+    // Resolve methods with known function scopes.
+    let mut methods = ArenaVec::with_capacity_in(builder.methods.len(), allocator);
+    for m in builder.methods {
+        methods.push(ClassMethodFact {
+            definition: m.definition,
+            function: m.function,
+            function_scope: semantic.scope_of(m.function.node_id()),
+            kind: m.kind,
+            r#static: m.is_static,
+            computed: m.computed,
+        });
+    }
+
+    // Resolve super() calls and super.member accesses from collected super nodes.
+    let mut super_calls = ArenaVec::new_in(allocator);
+    let mut super_members = ArenaVec::new_in(allocator);
+    for super_node in &builder.super_nodes {
+        if let Some(parent) = semantic.parent_of(*super_node) {
+            match tree.kind_data(parent) {
+                NodeKindData::CallExpression(_) => super_calls.push(parent),
+                NodeKindData::MemberExpression(_) => super_members.push(parent),
+                _ => {}
+            }
+        }
+    }
+
+    // Resolve self-references from collected identifier reference nodes.
+    let mut self_references = ArenaVec::new_in(allocator);
+    for id_node in &builder.identifier_reference_nodes {
+        if let Some(reference) = semantic.reference_of(*id_node)
+            && semantic.reference(reference).symbol == name_symbol
+        {
+            self_references.push(reference);
+        }
+    }
+
+    // Resolve this and new.target nodes.
+    let mut this_nodes = ArenaVec::with_capacity_in(builder.this_nodes.len(), allocator);
+    for node in &builder.this_nodes {
+        this_nodes.push(*node);
+    }
+    let mut new_targets = ArenaVec::with_capacity_in(builder.new_target_nodes.len(), allocator);
+    for node in &builder.new_target_nodes {
+        new_targets.push(*node);
+    }
+
+    // Computed keys.
+    let mut computed_keys = ArenaVec::with_capacity_in(builder.computed_keys.len(), allocator);
+    for key in builder.computed_keys {
+        computed_keys.push(key);
+    }
+
+    ClassLoweringFact {
+        class,
+        class_scope: semantic.scope_of(class.node_id()),
+        name_symbol,
+        constructor: builder.constructor,
+        methods,
+        heritage: class.super_class(tree).map(|heritage| heritage.node_id()),
+        computed_keys,
+        super_calls,
+        super_members,
+        self_references,
+        this_nodes,
+        new_targets,
+        has_properties: builder.has_property,
+        has_private_elements: builder.has_private_element,
+        has_static_blocks: builder.has_static_block,
+        has_decorators: builder.has_decorator,
+    }
+}
+
+/// Legacy: builds a `ClassLoweringFact` by re-scanning the class body and
+/// subtree via `Semantic.node_children`. TODO: remove once mutation refresh
+/// uses contribution deltas (Commit 4).
 pub(crate) fn build_class_lowering_fact<'a>(
     semantic: &Semantic<'a>,
     tree: &Ast<'a>,
