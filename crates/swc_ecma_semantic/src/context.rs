@@ -528,9 +528,9 @@ fn resolve_class_lowering_fact<'a>(
     }
 }
 
-/// Legacy: builds a `ClassLoweringFact` by re-scanning the class body and
-/// subtree via `Semantic.node_children`. TODO: remove once mutation refresh
-/// uses contribution deltas (Commit 4).
+/// Builds a `ClassLoweringFact` from a dirty subtree. Used by
+/// `refresh_function_lists` when `set_data` replaces a class payload with a
+/// function payload at the same NodeId without changing `node_kind`.
 pub(crate) fn build_class_lowering_fact<'a>(
     semantic: &Semantic<'a>,
     tree: &Ast<'a>,
