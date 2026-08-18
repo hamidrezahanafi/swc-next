@@ -531,6 +531,7 @@ impl<'a, 'tx, 'ast> AstContext<'a, 'tx, 'ast> {
     }
 
     /// Replace a namespace reexport.
+    #[allow(clippy::too_many_arguments)]
     pub fn replace_namespace_reexport(
         &mut self,
         old_statement: NodeId,
