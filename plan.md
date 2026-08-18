@@ -1,669 +1,625 @@
-# Semantic-aware AST Mutation 与 ES2015 Class Transform 执行计划
+# Class Transform 单遍 Semantic 与 AstContext 执行计划
 
 ## 目标
 
-建立 MutationTransaction，作为 transformer 修改 AST 与 Semantic 的唯一入口。
+修正当前 ES2015 class transform 的职责划分：开启 `classes` 后，class lowering 所需的全部
+结构与语义信息由 semantic 在原有的一次 AST 遍历中按需收集；transform 只消费 semantic
+产出的 class facts 并执行 lowering，不再自行 analysis 或扫描 AST。
 
-最终要求：
+所有 attached AST 的创建、替换、插入、删除、移动和字段修改都通过 AstContext。AstContext
+在同一个操作/事务内更新 AST 与 Semantic，不允许 pass 在修改 AST 后再遍历语法树修补
+Semantic。
 
-1. Semantic 始终描述当前 AST，而不是 parser 产生的原始 AST。
-2. transform 只表达 lowering 意图，不再散落调用 AST setter 和 Semantic mutation API。
-3. NodeId、SymbolId、ReferenceId、ScopeId 在语义身份不变时保持稳定。
-4. transaction commit 后，parent、scope、binding、reference、use-list、transform facts 和
-   module record 全部与 AST 一致。
-5. 不采用生产环境整树重新 analyze 的短期方案。
-6. ES2015 class transform 直接构建在最终 transaction 模型上。
+最终必须满足：
 
-## 最终执行流
+1. `SemanticFeatureFlags::CLASS_LOWERING` 关闭时，不创建 class facts，也不承担 class 收集成本。
+2. 开启后，semantic 的首次 visitor 同时完成 scope/symbol/reference 和 class transform facts
+   收集；finalize 只能解析已记录的 ID/candidate，不能重新遍历 AST 或 Semantic node graph。
+3. class transform 中删除 `analysis.rs`，不再扫描 program body、class body、constructor body、
+   method body或 `semantic.node_children`。
+4. class transform 不再使用 `Visit`/`VisitMut` 查找或改写 class 内部节点；所有 rewrite site
+   都来自 semantic，所有改动都通过 AstContext 的定点 mutation API。
+5. AstContext commit 不再用 dirty-root AST 重扫来同步 transform facts，而是使用 mutation
+   journal 中的 old/new contribution delta 更新 Semantic。
+6. 任意 AstContext 操作返回后，AST/Semantic epoch、parent、scope、binding、reference、
+   use-list、module record 与所有已开启的 transform facts 保持一致。
+
+## 当前问题
+
+### Transformer 仍在做 analysis
+
+`crates/swc_ecma_transformer/src/es2015/classes/mod.rs` 在 `Classes::transform` 中连续调用：
+
+- `analysis::analyze_program`
+- `analysis::analyze_named_expressions`
+- `analysis::analyze_anonymous_expressions`
+- `analysis::analyze_anonymous_default_exports`
+
+`crates/swc_ecma_transformer/src/es2015/classes/analysis.rs` 随后又执行：
+
+- program/statement-list 扫描与 class placement 判断；
+- class member 支持性检查和 getter/setter 分组；
+- named class expression 的 heritage/computed-key TDZ reference DFS；
+- super member parent/use-kind 分析；
+- constructor 内 `super()`/`this` 的 ancestor 过滤；
+- statement-list owner 查找。
+
+这意味着 semantic 虽然已有 `ClassLoweringFact`，transform 仍要重新构造四类
+`*ClassPlan`，而且存在多次线性 `.find` 和重复 ancestor walk。
+
+### Semantic facts 也不是单遍完成
+
+`crates/swc_ecma_semantic/src/context.rs` 当前只在 visitor 中记录 class node。到
+`TransformFactsCollector::finish` 后，再逐个调用 `build_class_lowering_fact`：
+
+- 再遍历 class body 收集 method/property/static block；
+- 再通过 `semantic.node_children` DFS class 子树；
+- finalize 后再沿 ancestors 计算 `class_counts`。
+
+所以当前的 `CLASS_LOWERING` 只是“先记住 class，再二次分析”，没有达到一次遍历收集。
+
+### Lowering 仍包含扫描和裸 AST 改动
+
+`crates/swc_ecma_transformer/src/es2015/classes/lower.rs` 当前还有：
+
+- `ConstructorFlowAuditor` 对 constructor body 的只读遍历；
+- `SuperMemberRewriter`、`DerivedConstructorRewriter` 对 detached clone 的 `VisitMut` 遍历；
+- 为每条顶层 statement 重复调用 `audit_constructor_flow`；
+- 直接调用 typed setter、`set_syntax_context` 和 `&mut Ast` builder；
+- 为匹配 plan 再扫描 program/nested statement lists。
+
+`crates/swc_ecma_transformer/src/es2015/classes/helpers.rs` 还会 parse helper source 后重新调用
+`analyze`，再把生成 program 导入 transaction。这同样绕开“semantic 一次收集、AstContext
+同步更新”的目标模型。
+
+### Mutation commit 仍依赖重扫
+
+`crates/swc_ecma_semantic/src/lib.rs` 的 `prepare_dirty_transform_facts`、
+`refresh_dirty_transform_facts` 和 `refresh_function_lists` 会在 transaction 前后遍历 dirty
+subtree，并重新构建 class facts。即使 class transform 删除自己的 analysis，这条路径仍会
+造成 transform-time 重复遍历。
+
+## 目标执行流
 
 ~~~text
-Transform pass
-  读取旧 AST 与 Semantic facts
+TransformerOptions
+  classes=true -> SemanticFeatureFlags::CLASS_LOWERING
        ↓
-MutationTransaction::begin(root)
-  构造 detached AST
-  声明 binding/reference/scope 意图
-  记录 replace/insert/remove/move
+Semantic 原有 visitor（唯一一次 AST analysis traversal）
+  class stack / method stack / constructor control-flow stack
+  同步收集 placement、scope、member、rewrite site、evaluation order
+  binder 同步记录 declaration/reference ID
        ↓
-preflight
-  校验 identity、scope、parent、binding 冲突
+Semantic finalize
+  只解析已记录的 candidate ID
+  生成 ClassTransformInfo post-order + NodeId 索引
+  不遍历 AST，不遍历 semantic.node_children
        ↓
-commit
-  修改 AST edges
-  更新 Semantic graph
-  更新 effects/captures/module record
+ES2015 Classes
+  semantic.class_transform_infos_post_order()
+  直接按 info 计算 helper 集合并执行 lowering
+  不运行 analysis visitor，不扫描 program/class/function body
+       ↓
+AstContext transaction
+  定点 replace/insert/remove/move/build
+  journal 同时记录 Semantic delta
+       ↓
+AstContext commit
+  原子应用 AST edge + Semantic graph + transform-fact delta
+  不对 dirty subtree 重新 Visit/DFS
        ↓
 AST epoch == Semantic epoch
-       ↓
-后续 pass 读取完全一致的 AST 与 Semantic
 ~~~
 
-## 一、定义 AST 与 Semantic 的同步契约
+## 一、定义 Semantic 提供给 class transform 的完整输入
 
 涉及文件：
 
-- crates/swc_ecma_ast/src/lib.rs
-- crates/swc_ecma_ast/src/visit.rs
-- crates/swc_ecma_semantic/src/lib.rs
-- crates/swc_ecma_semantic/src/scope.rs
-- crates/swc_ecma_transformer/src/state.rs
-- crates/swc_ecma_transformer/src/lib.rs
-
-### 核心不变量
-
-1. 所有可达 AST node 都必须在 Semantic 中处于 active 状态。
-2. 所有不可达 AST node 都不能从 Semantic 的公共 iterator 和 lookup API 返回。
-3. 删除对象不重排 ID，使用 inactive/tombstone 状态。
-4. 新对象只 append，现有 ID 不因 transform 重编号。
-5. replacement 必须显式声明 identity 策略：
-   - Preserve：语义身份不变，只改变 AST 表现。
-   - Replace：旧身份失效，创建新身份。
-   - Move：身份稳定，parent 或 scope 改变。
-6. transaction 外禁止修改已挂载 AST 的结构。
-7. detached node 可以在 transaction 内构造，但 commit 前不能连接到当前树。
-8. transaction 返回前必须完成所有 Semantic side table 和 transform facts 更新。
-9. enabled semantic feature 对应的索引必须保持一致；未启用 feature 不承担额外维护成本。
-
-transform 后的 Semantic 表示当前输出 AST 的语义，而不是源代码语义快照。如果源 class binding
-在输出中仍代表同一个运行时 binding，可以保留 SymbolId，但必须更新 flags、declaration kind、
-scope map 和相关引用。仅保留 NodeId 而继续使用旧 class 语义是不允许的。
-
-## 二、把 Semantic 改造成可变 ID 图
-
-涉及文件：
-
-- crates/swc_ecma_semantic/src/lib.rs
-- crates/swc_ecma_semantic/src/binder.rs
-- crates/swc_ecma_semantic/src/context.rs
-- crates/swc_ecma_semantic/src/scope.rs
-- crates/swc_ecma_semantic/src/module_record.rs
-
-当前 API 主要支持 append 和少量 rename/rebind。class transform 需要完整的对象生命周期管理。
-
-### Node 生命周期
-
-增加内部 API：
-
-~~~rust
-register_node(node, parent, scope);
-retire_node(node);
-reparent_node(node, parent);
-rescope_node(node, scope);
-~~~
-
-要求：
-
-- node state 明确区分 unregistered、active、inactive。
-- node_parents、node_scopes、node_declarations、node_references 同步更新。
-- 重新注册 inactive NodeId 必须被拒绝，除非使用明确的 identity restore 协议。
-
-### Scope 生命周期
-
-增加内部 API：
-
-~~~rust
-create_scope(parent, owner, kind, flags) -> ScopeId;
-retag_scope(scope, kind, flags);
-reparent_scope(scope, parent);
-retire_scope(scope);
-~~~
-
-ScopeTree 增加：
-
-- active state；
-- children adjacency；
-- 可维护的 parent；
-- 可重新计算的 hoist_target；
-- scope owner node 的反向索引。
-
-reparent 或 retag 后，必须更新该 scope 及受影响后代的 hoist_target。
-
-### Symbol、Declaration 和 Reference 生命周期
-
-增加内部 API：
-
-~~~rust
-declare(scope, node, name, flags) -> SymbolId;
-retire_declaration(declaration);
-retire_symbol(symbol);
-update_symbol_flags(symbol, flags);
-move_symbol(symbol, scope);
-
-create_reference(scope, node, name, flags, symbol) -> ReferenceId;
-retire_reference(reference);
-rename_reference(reference, name);
-rebind_reference(reference, symbol);
-rescope_reference(reference, scope);
-~~~
-
-要求：
-
-- symbols、declarations、references 使用稳定 append-only ID。
-- declaration/use-list 支持增删，不依赖不可修改的连续 range。
-- scope_maps 和 hoisting_variables 支持删除、迁移和 retag。
-- dynamic reference、with 和 direct eval 的保守语义不能因迁移被削弱。
-- iterator 和查询 API 自动跳过 inactive entry。
-
-### 名字占用索引
-
-将名字状态拆成两部分：
-
-1. live-name count：精确反映当前 AST 中的名字占用。
-2. generated-name watermark：单调增长，保证跨 transaction、跨 pass 的生成名稳定。
-
-删除或迁移 binding/reference 时更新 live count，但不回退 allocation watermark。
-
-## 三、实现 MutationTransaction
-
-组合层放在 transformer crate，避免 AST crate 依赖 Semantic。
-
-~~~text
-swc_ecma_ast
-  AST storage、NodeId、通用 traversal
-       ↓
-swc_ecma_semantic
-  Semantic graph、受控 mutation primitives
-       ↓
-swc_ecma_transformer
-  MutationTransaction<Ast + Semantic>
-~~~
-
-新增目录：
-
-- crates/swc_ecma_transformer/src/mutation/mod.rs
-- crates/swc_ecma_transformer/src/mutation/journal.rs
-- crates/swc_ecma_transformer/src/mutation/builder.rs
-- crates/swc_ecma_transformer/src/mutation/commit.rs
-- crates/swc_ecma_transformer/src/mutation/verify.rs
-
-### 核心结构
-
-~~~rust
-pub struct MutationTransaction<'tx, 'ast> {
-    ast: &'tx mut Ast<'ast>,
-    semantic: &'tx mut Semantic<'ast>,
-    root: NodeId,
-    journal: MutationJournal,
-    dirty_roots: DirtyRoots,
-    pending_scopes: Vec<PendingScope>,
-    pending_symbols: Vec<PendingSymbol>,
-    pending_references: Vec<PendingReference>,
-}
-~~~
-
-transaction 内使用 PendingScopeId、PendingSymbolId 等本地 handle。commit 时统一分配正式 Semantic
-ID，避免构造 AST 过程中提前暴露半完成的 Semantic。
-
-### 对 transform 暴露的结构操作
-
-~~~rust
-tx.replace(old, new, IdentityPolicy);
-tx.insert_before(anchor, nodes);
-tx.insert_after(anchor, nodes);
-tx.remove_subtree(root);
-tx.move_subtree(root, new_parent, new_scope);
-~~~
-
-禁止 transform 直接修改已挂载节点的 parent edge 或 statement/expression list。
-
-### Semantic-aware builder
-
-~~~rust
-tx.declare_private(scope, "_super", flags) -> PrivateBinding;
-tx.binding_identifier(binding) -> BindingIdentifier;
-tx.reference(binding, flags) -> IdentifierReference;
-tx.unresolved_reference(scope, name, flags) -> IdentifierReference;
-tx.create_scope(parent, kind, owner) -> PendingScopeId;
-tx.retag_scope(scope, kind);
-tx.reparent_scope(scope, parent);
-tx.retire_scope(scope);
-~~~
-
-PrivateBinding 至少包含：
-
-- 输出文本；
-- SyntaxContext；
-- pending 或 existing symbol handle；
-- declaration scope；
-- symbol flags。
-
-SyntaxContext 负责 hygiene identity；SymbolId 和 Semantic indexes 负责语义解析。两者不能互相替代。
-
-## 四、实现原子 commit
-
-commit 固定按以下顺序执行：
-
-~~~text
-normalize dirty roots
-       ↓
-preflight
-  parent/scope/identity/binding 冲突校验
-       ↓
-记录 old subtree summaries
-       ↓
-retire 被删除的 references/declarations/nodes/scopes
-       ↓
-应用 AST edge 修改
-       ↓
-创建、retag、reparent scopes
-       ↓
-递归登记新增或移动的 nodes
-       ↓
-提交 declarations
-       ↓
-提交 references 并解析 pending symbol handles
-       ↓
-更新 binding/hoisting/used-name/module indexes
-       ↓
-重算 dirty roots 的 effects/captures/function-order
-       ↓
-递增并对齐 AST/Semantic epoch
-~~~
-
-### Preflight
-
-所有可能失败的检查在修改 AST 和 Semantic 前完成：
-
-- replacement edge 是否接受新节点类型；
-- old/new identity policy 是否有效；
-- parent 和 scope 是否 active；
-- move 是否跨越不支持的 semantic boundary；
-- binding 是否冲突；
-- scope retag 是否会产生非法 hoist hierarchy；
-- pending reference 的目标 binding 是否存在；
-- 同一个 node 是否被多个 journal operation 修改。
-
-通过 preflight 后，commit 阶段只执行确定性操作。
-
-### Dirty roots
-
-- 如果 dirty root A 包含 dirty root B，只保留 A。
-- moved subtree 同时污染 old parent path 和 new parent path。
-- scope retag/reparent 同时污染 scope subtree 和相关 binding/reference lookup。
-- effect delta 只传播到正确的 function/arrow boundary。
-
-避免每个 leaf mutation 都沿祖先链更新，防止 O(edits × depth)。
-
-## 五、同步 Transform Facts
-
-涉及文件：
-
-- crates/swc_ecma_semantic/src/context.rs
-- crates/swc_ecma_semantic/src/lib.rs
-
-每个 active node 保存本地 contribution，dirty root commit 时重新聚合 subtree summary：
-
-- yield/await effect count；
-- effect owner；
-- generator function post-order；
-- async function post-order；
-- function captures；
-- class lowering facts；
-- module record contribution。
-
-删除旧 subtree 时扣除 old summary，插入新 subtree 时增加 new summary。跨 function boundary 的
-move 必须重新计算 owner，不能仅修改 node_parent。
-
-## 六、接入 TransformerCtx
-
-涉及文件：
-
-- crates/swc_ecma_ast/src/visit.rs
-- crates/swc_ecma_transformer/src/state.rs
-- crates/swc_ecma_transformer/src/lib.rs
-
-目标：
-
-1. Semantic 不再单独存放在 TransformerImpl。
-2. TransformerState/TransformerCtx 同时访问 AST、Semantic、enabled features 和 scope stack。
-3. 新增 ctx.transaction(root, closure)。
-4. 已有节点进入 hook 时，从 semantic.scope_of(node) 初始化并校验 current scope。
-5. 新 scope 只能由 transaction 注册。
-6. Transformer 中不再直接传播带结构修改的 TraverseAction::Replace。
-
-### Mutation epoch
-
-AST 和 Semantic 分别保存 mutation epoch：
-
-~~~rust
-AstMutationEpoch(u64)
-SemanticMutationEpoch(u64)
-~~~
-
-规则：
-
-- transaction begin 时 epoch 必须一致。
-- detached node construction 不增加 attached-tree epoch。
-- commit 完成后同时递增两个 epoch。
-- Semantic 查询、pass 边界和 debug verifier 检查 epoch 一致。
-- 绕过 transaction 的 structural mutation 会在最近的查询或 pass 边界失败。
-
-AST crate 只提供通用 mutation guard/epoch hook，组合逻辑位于 transformer crate。
-
-## 七、迁移 Generator 与 FnEnvHoister
-
-涉及文件：
-
-- crates/swc_ecma_transformer/src/es2015/generator/compiler/mod.rs
-- crates/swc_ecma_transformer/src/es2015/generator/compiler/expression.rs
-- crates/swc_ecma_transformer/src/es2015/generator/compiler/statement.rs
-- crates/swc_ecma_transformer/src/es2015/util/fn_env_hoister.rs
-
-迁移内容：
-
-1. 删除 transform 内零散的 register_node、declare、reference_generated、reparent_node、
-   rename_reference 和 rebind_reference。
-2. 所有 private binding 通过 tx.declare_private 创建。
-3. state function、parameter、helper reference、普通 statement/expression 整棵生成树递归登记。
-4. 捕获 arguments/new.target 时使用 transaction 的 rename/rebind/move 操作。
-5. generator 完成后，通过 transaction 删除旧 yield contribution 和 generator facts。
-6. FnEnvHoister 注入 program/function/block 时使用 insert 和 move API。
-
-完成标准：
-
-- generator transform 后任意可达 node 都能安全查询 scope_of 和 parent_of。
-- 所有生成 reference 都能查询 reference_of 和 symbol_of。
-- 增量 Semantic 与测试环境重新 analyze 的标准化结果一致。
-- transaction commit 不扫描完整 program。
-
-## 八、增加 Class Lowering Semantic Facts
-
-新增聚合 feature：
+- `crates/swc_ecma_semantic/src/lib.rs`
+- `crates/swc_ecma_semantic/src/context.rs`
+- `crates/swc_ecma_semantic/src/checker.rs`
+
+保留一个聚合 feature：
 
 ~~~rust
 SemanticFeatureFlags::CLASS_LOWERING
 ~~~
 
-内部收集：
+不拆成 `CLASS_METHODS`、`SUPER_CALLS` 等多个 flag，避免调用方开启 class transform 时漏配。
 
-- class post-order 列表；
-- class node、name binding、class scope、expression-name scope；
-- constructor 和 method function scope；
-- heritage expression；
-- computed key 的求值顺序；
-- super()；
-- super.prop、super[prop] 的 get/set/call；
-- class self-reference；
-- constructor 中的 this/new.target；
-- nested class boundary；
-- decorators、property definitions、private elements、static blocks 是否已被前置 pass 清理。
+将当前偏原始的 `ClassLoweringFact` 扩展为 transform 可直接消费的
+`ClassTransformInfo`。该结构保持 semantic-neutral：只描述源 AST、语义身份、求值顺序和
+rewrite site，不包含 helper 名称或输出 AST 节点。
 
-不暴露多个容易漏配的 class feature。对 class transform 使用完整的 CLASS_LOWERING feature，内部
-再按需分配 side table。
-
-class 按 post-order lowering，避免外层 transaction 先破坏嵌套 class 的 facts。
-
-## 九、明确 Class Transform Pipeline
-
-涉及文件：
-
-- crates/swc_ecma_transformer/src/lib.rs
-- crates/swc_ecma_transformer/src/es2015/mod.rs
-- crates/swc_ecma_transformer/src/es2022/mod.rs
-- crates/swc_ecma_transformer/src/proposal/mod.rs
-
-把 transform 执行顺序改为显式依赖图，不依赖 enter_program 中的偶然调用顺序。
-
-~~~text
-decorators / TypeScript lowering
-       ↓
-class properties / private methods / static blocks
-       ↓
-arrow、async、generator 等方法体前置要求
-       ↓
-ES2015 class transform
-       ↓
-输出中不再存在 Class AST
-~~~
-
-具体方法体 transform 的前后顺序由语义测试确定并写入 pass prerequisites。任何要求 Class AST
-存在的 pass 必须在 class transform 前执行。
-
-## 十、基于 Transaction 实现 ES2015 Class Transform
-
-新增建议目录：
-
-- crates/swc_ecma_transformer/src/es2015/classes/mod.rs
-- crates/swc_ecma_transformer/src/es2015/classes/analysis.rs
-- crates/swc_ecma_transformer/src/es2015/classes/plan.rs
-- crates/swc_ecma_transformer/src/es2015/classes/lower.rs
-- crates/swc_ecma_transformer/src/es2015/classes/super.rs
-- crates/swc_ecma_transformer/src/es2015/classes/tests.rs
-
-### Class lowering 执行流
-
-~~~text
-Semantic class facts
-  class/name/scope/constructor/method/super/computed keys
-       ↓
-ClassLoweringPlan
-  输出 AST 结构
-  helper/private binding
-  scope transition
-  identity policy
-       ↓
-MutationTransaction
-  构造 detached constructor/method/helper tree
-       ↓
-replace class expression/declaration
-insert helper/init statements
-move preserved method/constructor subtrees
-       ↓
-commit
-  Semantic 与 AST 同步
-~~~
-
-### 基础 Class
-
-实现：
-
-- anonymous/named class expression；
-- class declaration；
-- 默认和显式 constructor；
-- instance/static method；
-- getter/setter；
-- helper 注入；
-- class strict mode。
-
-### ScopeTransitionPlan
-
-每个 class 先构建明确的 scope transition：
+建议结构如下，最终字段名可按 Rust lifetime/arena 约束调整：
 
 ~~~rust
-ClassScopePlan {
-    reuse: Vec<(ScopeId, NewScopeRole)>,
-    reparent: Vec<(ScopeId, ScopeId)>,
-    retire: Vec<ScopeId>,
-    create: Vec<PendingScope>,
+pub struct ClassTransformInfo<'a> {
+    pub class: Class,
+    pub placement: ClassPlacement,
+    pub statement: Option<Stmt>,
+    pub statement_list_owner: Option<NodeId>,
+    pub export: Option<ClassExportPlacement>,
+
+    pub class_scope: ScopeId,
+    pub name_scope: Option<ScopeId>,
+    pub outer_scope: ScopeId,
+    pub binding: Option<BindingIdentifier>,
+    pub declaration: Option<DeclarationId>,
+    pub symbol: Option<SymbolId>,
+
+    pub heritage: Option<Expr>,
+    pub constructor: ConstructorTransformInfo<'a>,
+    pub methods: ArenaVec<'a, MethodGroupInfo>,
+    pub definition_tdz_self_references: ArenaVec<'a, NodeId>,
+    pub super_accesses: ArenaVec<'a, SuperAccessInfo>,
+
+    pub flags: ClassTransformFlags,
+    pub unsupported: Option<ClassUnsupportedReason>,
 }
 ~~~
 
-原则：
+`ClassPlacement` 至少区分：
 
-- method function scope 尽量保留。
-- 显式 constructor 的 function scope 尽量保留。
-- synthetic constructor 创建新 scope。
-- named class expression 的 expression-name scope 根据输出结构复用或迁移。
-- class scope 不能无条件当作 function scope，必须显式 retag。
-- 移动 subtree 时同步更新 root parent、node scopes 和 scope parent。
-- scope role 改变后重新计算 hoist_target 和 strict flags。
+- declaration；
+- named class expression；
+- anonymous class expression；
+- named default export declaration；
+- anonymous default export declaration；
+- named export declaration；
+- 当前 lowering 不支持的 placement。
 
-### Derived Class
+Semantic 只保存 statement-list owner 的 `NodeId`。transform 需要 transaction owner 时，
+通过一次 `ast.kind_data(owner)` 转成 `StatementListOwner`，不能再次搜索 statement list。
 
-实现：
+### Member facts
 
-- heritage expression 只求值一次；
-- _super 等 private binding；
-- inheritance/helper 调用；
-- super()；
-- super property get/set/call；
-- derived constructor 的 this 初始化；
-- constructor return substitution；
-- extends null；
-- new.target。
+`MethodGroupInfo` 直接保存 lowering 所需的最终分组：
 
-不能假设 super() 一定是 constructor 的第一个 statement。lowering 必须支持控制流中的合法 super
-调用，并正确处理 this 初始化状态。
+- constructor 单独保存，重复/非法 constructor 标记 unsupported；
+- data method 保持 source order；
+- 同名 getter/setter 在 semantic 收集期间完成分组；
+- computed getter/setter 不合并，保持当前行为；
+- method key 在 semantic 中归一化为 identifier/string/numeric/computed 四类；
+- 保存 definition、function、function scope、static/kind/computed；
+- 保存 generator/async/TS annotation/decorator/function-body-scope 等支持性结论。
 
-### 求值顺序与语义身份
+transform 不再重新读取整个 class body 来判断 `body.len() == methods.len()`，semantic 直接记录：
 
-覆盖：
+- `has_properties`
+- `has_private_elements`
+- `has_static_blocks`
+- `has_decorators`
+- `has_unsupported_ts_shape`
+- `has_unsupported_method_shape`
 
-- computed method keys 及其 side effect 顺序；
-- heritage 与 computed key 的相对求值顺序；
-- named class expression TDZ；
-- class self-reference；
-- static/instance element 顺序；
-- nested class；
-- export class/export default class；
-- direct eval/with；
-- TypeScript class 与 interface merge 的前置 pipeline。
+### Rewrite-site facts
 
-### Helper 和生成名字
-
-所有 helper alias、super capture 和 computed-key temp 使用 tx.declare_private。
-
-统一 helper registry 必须保证：
-
-- 同一 program 只注入一次；
-- helper declaration/reference 全部进入 Semantic；
-- 与用户 binding 冲突时使用 generated-name allocator；
-- helper 插入位置不破坏 directive、module 和 scope 边界。
-
-## 十一、一致性验证器
-
-新增测试工具：
+Semantic 必须把目前 lowering visitor 运行时才推导的信息提前记录：
 
 ~~~rust
-assert_semantic_matches_reanalysis(program, ast, incremental_semantic);
+pub struct ConstructorTransformInfo<'a> {
+    pub kind: ConstructorKind,
+    pub definition: Option<MethodDefinition>,
+    pub function: Option<Function>,
+    pub scope: Option<ScopeId>,
+    pub super_calls: ArenaVec<'a, NodeId>,
+    pub this_nodes: ArenaVec<'a, NodeId>,
+    pub new_targets: ArenaVec<'a, NodeId>,
+    pub returns: ArenaVec<'a, ConstructorReturnInfo>,
+    pub abrupt_completions: ArenaVec<'a, AbruptCompletionInfo>,
+    pub labels: ArenaVec<'a, AstUtf8>,
+    pub top_level_statements_with_return: ArenaVec<'a, NodeId>,
+}
+
+pub struct SuperAccessInfo {
+    pub member: NodeId,
+    pub parent: NodeId,
+    pub usage: SuperUsage,
+    pub computed: bool,
+    pub optional: bool,
+    pub method: MethodDefinition,
+}
 ~~~
 
-重新 analyze 只作为测试 oracle，不进入生产 transform。
+`SuperUsage` 至少区分 get、call、simple set、compound set、logical set、prefix update、postfix
+update 和 unsupported tagged/optional form。需要哪些 `_super_base/_super_prop/_super_value/
+_super_old` temp 也作为 usage 派生字段记录，`prepare_super_write_temps` 不再查看 parent AST。
 
-标准化比较：
+constructor control-flow 信息在 semantic visitor 已有 control-target/finalizer 路径上同步收集。
+每个 return/break/continue 保存 lowering 所需的 target、label、finalizer depth 和是否跨越
+completion boundary。由此删除 `ConstructorFlowAuditor`，也不需要 lowering 再遍历 constructor。
 
-- 每个可达 node 的 parent 和 scope；
-- scope kind、parent、hoist target、flags；
-- declaration node、name、flags；
-- reference node、name、flags、目标 declaration node；
-- symbol uses；
-- binding/hoisting lookup；
-- live-name index；
-- yield/await effects；
-- captures；
-- generator/async/class post-order；
-- module record；
-- inactive entry 不从公共 API 返回。
+### Support decision
 
-比较不依赖新建对象的绝对 ID 顺序；通过 node identity、declaration node 和 scope path 建立映射。
+所有“当前是否能 lower”的判断集中在 semantic info 中，并保留明确原因，不再在 transform
+里静默 `continue`。`ClassUnsupportedReason` 至少覆盖：
 
-## 十二、Class 测试矩阵
+- decorators/properties/private/static block 未被前置 pass 清理；
+- TS-only class/method shape；
+- generator/async method；
+- optional/tagged super access；
+- direct eval 与 computed key 的当前限制；
+- scope/placement/parent 不变量不满足；
+- TDZ self-reference 出现 write；
+- 不支持的 class element 或 constructor 形态。
 
-至少覆盖：
+公开查询提供：
 
-1. 无 constructor 和显式 constructor。
-2. named/anonymous class expression。
-3. nested class。
-4. base/derived/extends null。
-5. heritage 和 computed key side effects。
-6. constructor/method 中引用 class 名。
-7. conditional super()。
-8. super get/set/call。
-9. derived constructor return object/primitive。
-10. new.target。
-11. helper 同名冲突。
-12. direct eval 和 with。
-13. export class/export default class。
-14. static/instance method、getter/setter。
-15. generator/async method。
-16. arrow 中的 this/arguments/super/new.target。
-17. class properties/private methods/static blocks 的 pipeline 组合。
-18. TypeScript class、decorator 和 interface merge 的前置 pipeline。
-19. Babel fixtures。
-20. 相关 Test262 用例。
+~~~rust
+semantic.class_transform_infos_post_order()
+    -> Result<&[ClassTransformInfo<'_>], FeatureNotEnabled>;
+semantic.class_transform_info(class: NodeId)
+    -> Result<Option<&ClassTransformInfo<'_>>, FeatureNotEnabled>;
+~~~
 
-## 十三、性能验证
+post-order slice 是 transform 的唯一 class worklist；NodeId 索引用于测试和其他 pass 定点查询，
+不允许调用方通过 `.iter().find(...)` 建立二次索引。
 
-增加 benchmark 和统计：
+## 二、在 Semantic 的同一次遍历中完成收集
 
-- transaction commit 时间；
-- dirty root 数量；
-- 新增/失效 node 数量；
-- 新增/迁移/失效 scope 数量；
-- symbol/reference mutation 数量；
-- effect delta 传播长度；
-- class 数量和 nested class 深度扩展曲线；
-- generator/class 组合 transform；
-- transaction 相对 transform 本身的开销。
+涉及文件：
 
-性能约束：
+- `crates/swc_ecma_semantic/src/context.rs`
+- `crates/swc_ecma_semantic/src/checker.rs`
+- `crates/swc_ecma_semantic/src/binder.rs`
 
-1. commit 不扫描完整 program。
-2. 普通 leaf replacement 与受影响 subtree/ancestor path 相关。
-3. 批量 class lowering 对同一 dirty root 只汇总一次。
-4. generated-name allocation 均摊 O(1)。
-5. disabled feature 不创建对应 side table，也不参与 commit 更新。
+### Collector 状态
 
-## 十四、迁移剩余 Transform 并完成架构收口
+当 `CLASS_LOWERING` 开启时，`TransformFactsCollector` 增加：
 
-在 generator 和 class 验证 transaction 后，迁移所有仍修改结构的 transform：
+~~~rust
+class_stack: Vec<ClassInfoBuilder>,
+method_stack: Vec<MethodContext>,
+constructor_control_stack: Vec<ControlContext>,
+class_infos_post_order: ArenaVec<ClassTransformInfo>,
+class_info_by_node: ArenaVec<Option<ClassInfoId>>,
+~~~
 
-- destructuring；
-- block scoping；
-- parameters；
-- async；
-- class properties/private methods；
-- optional chaining；
-- object rest/spread；
-- helper 注入相关 pass；
-- 其他使用 raw builder/setter/TraverseAction::Replace 的 pass。
+收集规则：
 
-最终收口：
+1. enter class 时创建 builder 并压栈，同时记录 parent/placement/scope phase。
+2. enter/leave method、property、static block 时只更新栈顶 class；进入 nested class 后，内部
+   事件只属于 nested builder，天然实现 nested class boundary。
+3. visit `super`、`this`、`new.target`、return、label、break/continue 时，按当前 class、method、
+   arrow/function boundary 和 control stack 直接归属到对应 rewrite-site list。
+4. binding/reference 创建时由 binder 把 `DeclarationId`/`ReferenceId` candidate 回传给
+   collector；不要在 finalize 重新从 AST 查找 identifier。
+5. leave class 时弹出 builder，形成 post-order draft。
 
-1. transformer 内禁止直接调用 AST structural setter。
-2. Semantic 原始 mutation primitives 降为 crate-private。
-3. transform 只能通过 MutationTransaction。
-4. pass 边界强制检查 epoch。
-5. debug/test 模式运行 transaction invariant verifier。
-6. CI 运行 incremental Semantic 与 reanalysis 的标准化对比。
+### Finalize 约束
 
-## 提交拆分
+finalize 可以：
 
-保持每个提交可独立编译，不 amend，不把 Semantic 图重构与 class lowering 塞进同一个提交。
+- 将 candidate `ReferenceId` 解析到最终 `SymbolId`；
+- 过滤 named class 自引用与 TDZ definition reference；
+- 把临时 `Vec` 搬入 allocator-backed `ArenaVec`；
+- 校验已记录的 scope/parent/symbol ID；
+- 根据已记录字段得出 `unsupported` 和 helper requirement flags。
 
-1. feat(semantic): introduce active mutable semantic graph
-2. feat(semantic): add scope lifecycle and rescope APIs
-3. feat(semantic): add symbol reference retirement and migration
-4. feat(semantic): make name indexes mutation aware
-5. feat(transformer): add mutation transaction journal
-6. feat(transformer): add semantic-aware AST builders
-7. feat(transformer): implement atomic transaction commit
-8. feat(semantic): update transform facts from transaction deltas
-9. refactor(transformer): move semantic into transformer context
-10. feat(transformer): add AST and semantic mutation epochs
-11. refactor(transformer): migrate generator transform
-12. refactor(transformer): migrate function environment hoister
-13. test(transformer): compare incremental semantic with reanalysis
-14. feat(semantic): collect class lowering facts
-15. refactor(transformer): make transform ordering dependency driven
-16. feat(transformer): implement base ES2015 class lowering
-17. feat(transformer): implement class scope transition plans
-18. feat(transformer): implement derived classes and super lowering
-19. test(transformer): port Babel class transform fixtures
-20. test(transformer): add class Test262 conformance coverage
-21. perf(transformer): benchmark mutation transactions
-22. refactor(transformer): migrate remaining structural transforms
-23. refactor(transformer): prohibit raw structural AST mutation
+finalize 不可以：
+
+- 调用 `class.body(ast).body(ast)` 遍历 elements；
+- 调用 `semantic.node_children`/`semantic.ancestors` 收集 class 内容；
+- 对每个 class 再运行 visitor；
+- 通过 program body 查找 statement/export/owner；
+- 重新分析 constructor control flow。
+
+删除 `build_class_lowering_fact` 的 AST/semantic DFS 实现。mutation 时如需重建单个 class info，
+也必须由 AstContext journal 中的 typed field/member/rewrite-site delta 更新，不能复用旧函数重扫。
+
+### Post-order 与计数
+
+在 visitor leave class 时自然 append post-order；`class_counts` 使用每个 node 的本地
+contribution 在同一次 leave-node 聚合，不再在 finish 对每个 class 沿 ancestors 累加。
+
+## 三、建立唯一的 AstContext 修改入口
+
+涉及文件：
+
+- `crates/swc_ecma_transformer/src/state.rs`
+- `crates/swc_ecma_transformer/src/mutation/mod.rs`
+- `crates/swc_ecma_transformer/src/mutation/journal.rs`
+- `crates/swc_ecma_transformer/src/mutation/builder.rs`
+- `crates/swc_ecma_transformer/src/mutation/commit.rs`
+- `crates/swc_ecma_ast/src/visit.rs`
+
+组合层仍放在 transformer crate，避免 `swc_ecma_ast` 反向依赖 semantic crate。对 pass 暴露的
+对象统一命名/表达为 AstContext；现有 `MutationTransaction` 可以保留为内部 journal/commit
+实现，但 class lowering 不应再直接取得裸 `&mut Ast`。
+
+建议入口：
+
+~~~rust
+ctx.ast_context().transaction(root, |ast| {
+    ast.build_generated(...);
+    ast.replace_expression(...);
+    ast.replace_statements(...);
+    ast.move_subtree(...);
+    ast.declare_private(...);
+    ast.reference(...);
+});
+~~~
+
+AstContext API 分为：
+
+- 只读查询：node data、span、string pool、Semantic facts；
+- typed builder：创建普通 node/binding/reference/scope，同时记录本地 semantic contribution；
+- attached edit：replace/insert/remove/move/retag/reparent；
+- detached edit：clone/build/rewrite，但 origin、parent、scope、identity 和 contribution 在创建时
+  一并登记；
+- commit：原子应用 journal。
+
+禁止 class transform：
+
+- 直接调用 `tx.build_detached(|ast: &mut Ast| ...)`；
+- 持有 `&mut Ast` 的自定义 `VisitMut`；
+- 直接调用 typed setter 或 `Ast::set_syntax_context`；
+- 创建 identifier 后再单独补 `tx.reference/tx.declare`；
+- 修改 attached edge 后再调用 semantic repair API。
+
+为常用场景增加高层原子 API，例如：
+
+~~~rust
+ast.generated_binding(scope, base, flags) -> PrivateBinding;
+ast.generated_reference(scope, binding, flags) -> IdentifierReference;
+ast.replace_at(node, replacement, IdentityPolicy);
+ast.replace_statement_list(owner, edits);
+ast.clone_with_origins(root) -> DetachedClone;
+ast.rewrite_clone_node(clone, origin, replacement);
+ast.move_preserving_identity(root, parent, scope);
+~~~
+
+`replace_statement_list` 接收按 anchor/NodeId 描述的 edits，不要求调用方先复制并扫描整个
+statement list。AstContext 内部利用 owner 的 edge index 完成 splice，并同步 parent/order facts。
+
+## 四、用 contribution delta 同步 Semantic，删除 commit 重扫
+
+涉及文件：
+
+- `crates/swc_ecma_semantic/src/lib.rs`
+- `crates/swc_ecma_semantic/src/context.rs`
+- `crates/swc_ecma_transformer/src/mutation/journal.rs`
+- `crates/swc_ecma_transformer/src/mutation/commit.rs`
+
+为每个 active node 保存 enabled feature 的本地 contribution/aggregate summary：
+
+- yield/await count 与 effect owner；
+- generator/async/class count；
+- function capture candidates；
+- class-info owner/member/rewrite-site contribution；
+- post-order worklist identity/order metadata。
+
+每个 AstContext operation 在 journal 中同时记录 old/new semantic delta：
+
+~~~rust
+TransformFactEdit::Attach { node, parent, contribution }
+TransformFactEdit::Detach { node, parent, summary }
+TransformFactEdit::Move { node, old_parent, new_parent, summary }
+TransformFactEdit::Retarget { old, new }
+TransformFactEdit::UpdateClassField { class, old, new }
+~~~
+
+commit 使用已保存的 root summary 向 old/new ancestor path 增减计数，并定点更新 worklist/index。
+不能再次收集 dirty subtree。
+
+需要删除或改写以下重扫路径：
+
+- `prepare_dirty_transform_facts`
+- `refresh_dirty_transform_facts`
+- `collect_node_postorder` 在 facts refresh 中的使用
+- `refresh_effect_owners`
+- `refresh_function_lists`
+- mutation 后重新调用 `build_class_lowering_fact`
+
+删除/移动 subtree 为维护 node scope/reference scope 而遍历 Semantic adjacency 是允许的，但不能
+读取 AST 重新做语法分类；后续可用 scope-region summary 进一步批量化。attached AST 不得被
+`Visit/VisitWith` 二次扫描。
+
+## 五、让 class transform 直接消费 Semantic info
+
+涉及文件：
+
+- `crates/swc_ecma_transformer/src/es2015/classes/mod.rs`
+- `crates/swc_ecma_transformer/src/es2015/classes/analysis.rs`
+- `crates/swc_ecma_transformer/src/es2015/classes/plan.rs`
+- `crates/swc_ecma_transformer/src/es2015/classes/lower.rs`
+
+### 删除 analysis 层
+
+`Classes::transform` 改为：
+
+1. 取得 `class_transform_infos_post_order()`；feature 缺失是配置错误，不返回空数组掩盖。
+2. 过滤 `unsupported.is_none()`，unsupported 原因仅用于诊断/debug 统计。
+3. 从 info flags 一次汇总 program helper requirements。
+4. 按 semantic 给出的 post-order 逐个 lower。
+
+删除 `analysis.rs`。`plan.rs` 只保留真正的输出/transaction plan；若某结构与
+`ClassTransformInfo` 一一对应，则删除重复 plan 类型，lower 直接借用 semantic info。
+
+不能再出现：
+
+- `program.body(...).iter()` 用于找 class；
+- `classes.iter().find(...)`；
+- `statement_list(...).find(...)`；
+- `references_to_symbol_in_subtrees`；
+- `supported_super_members`/`has_super_writes`；
+- `supported_expression_members`；
+- `constructor_nodes` ancestor 过滤；
+- 用 ancestor depth 重新排序 expression plan。
+
+post-order 已保证 nested class 先于 outer class。placement/owner index 已保证声明替换定点发生，
+不需要重新扫描 program 或 nested owner。
+
+### 删除 lowering 中的 analysis visitor
+
+用 semantic rewrite sites 替代：
+
+- `ConstructorFlowAuditor`
+- `audit_constructor_flow`
+- `SuperMemberRewriter`
+- `DerivedConstructorRewriter` 的全子树 `VisitMut`
+
+lowering 根据 `SuperAccessInfo`、constructor returns、abrupt completions、this/super/new.target
+列表，调用 AstContext 定点替换。需要包裹 statement/control-flow 时，由 semantic info 直接
+给出 owner/anchor/finalizer context，AstContext 完成 edge splice。
+
+保留 lowering 的代码生成逻辑，例如 super get/set 表达式、completion wrapper、helper call
+和 scope transition；删除其中“为了找到改写位置而遍历”的部分。
+
+### Scope 与 identity
+
+每个 info 预先包含 class/name/outer/method/constructor scope。lowering 仍显式声明：
+
+- 哪个 class scope retag/reparent/retire；
+- synthetic constructor 创建哪个 scope；
+- existing method/function scope 如何复用；
+- moved key/body 保留还是替换 NodeId；
+- binding 的 class flags 如何改为 function flags；
+- export/module record 如何 retarget。
+
+这些意图只提交给 AstContext，不允许 lower 直接调用 Semantic mutation primitive。
+
+## 六、移除 helper 的 runtime parse + analyze
+
+涉及文件：
+
+- `crates/swc_ecma_transformer/src/es2015/classes/helpers.rs`
+- `crates/swc_ecma_transformer/build.rs`（如采用 build-time template）
+- `crates/swc_ecma_transformer/src/mutation/builder.rs`
+
+当前 `publish_source` 每次 parse helper，再单独 `analyze` helper program。改为 build-time 生成或
+显式定义的 `HelperTemplate`：
+
+- template 包含 AST construction recipe；
+- binding/reference/scope role 在 template 中明确标注；
+- 实例化时由 AstContext 分配私有名字、SyntaxContext、SymbolId、DeclarationId、ReferenceId；
+- helper statements 通过 program statement-list edit 插入；
+- 同一 program 的 helper registry 去重。
+
+运行时不再对 helper 调用 `analyze`，也不再通过 `import_generated_program` 扫描生成 AST 来猜测
+semantic identity。
+
+如果 build-time template 作为独立提交过大，可以先手写现有 class helper 的 construction
+recipe；不能以保留 runtime reanalysis 作为最终状态。
+
+## 七、测试与防回归
+
+### Semantic 单遍收集测试
+
+在 `crates/swc_ecma_semantic/src/lib.rs` 扩展现有 class facts 测试，覆盖：
+
+- declaration/named expression/anonymous expression/export placement 与 owner；
+- nested class post-order 与 outer class boundary；
+- constructor/method/accessor grouping 和 source order；
+- heritage/computed key TDZ self-reference；
+- super get/call/set/compound/logical/update/unsupported usage；
+- constructor `this`、`super()`、`new.target`、return、label、break/continue/finally context；
+- decorator/property/private/static/TS/async/generator unsupported reason；
+- `CLASS_LOWERING` 关闭时返回 `FeatureNotEnabled` 且不创建 side table。
+
+增加 test-only traversal instrumentation：开启 `CLASS_LOWERING` 后，每个 AST node 的 semantic
+enter/leave 只发生一次；finalize 的 class facts 路径不得读取 children/运行 visitor。
+
+### AstContext 同步测试
+
+在 `crates/swc_ecma_transformer/src/mutation` 覆盖：
+
+- attach/detach/move/replace class 或含 nested class 的 subtree；
+- class member字段定点替换；
+- transform facts post-order/index/count 的 delta；
+- generated binding/reference/scope 即时可查询；
+- commit 后 `assert_semantic_matches_reanalysis` 一致；
+- transaction 失败时 AST 与 Semantic 都不变。
+
+测试 oracle 可以重新 analyze，生产代码不能。
+
+### Class transform 回归
+
+保留 `crates/swc_ecma_transformer/src/es2015/classes/mod.rs` 的现有 runtime、Babel 与 Test262
+覆盖，并增加架构断言：
+
+- classes 模块不包含 `mod analysis`；
+- classes 生产代码不调用 `Visit`、`VisitMut`、`visit_with`、`visit_mut_with`；
+- classes 生产代码不调用 `analyze`；
+- classes 生产代码不接收裸 `&mut Ast` 或调用 attached typed setter；
+- transform facts commit 路径不调用 AST visitor/`build_class_lowering_fact`。
+
+建议验证命令：
+
+~~~bash
+cargo test -p swc_next_ecma_semantic class_lowering
+cargo test -p swc_next_ecma_transformer es2015::classes
+cargo test -p swc_next_ecma_transformer mutation
+cargo clippy -p swc_next_ecma_semantic -p swc_next_ecma_transformer --all-targets -- -D warnings
+~~~
+
+按仓库约定，不运行会卡住的 storage/native watcher 测试。
+
+## 八、性能验收
+
+增加 class transform 分阶段统计或 benchmark，至少覆盖 1、32、128 个 class，以及深层 nested
+class：
+
+- semantic 首次遍历；
+- class facts finalize；
+- class lowering；
+- AstContext commit；
+- helper 实例化。
+
+验收条件：
+
+1. semantic 对 AST node 只做一次 analysis visitor traversal。
+2. facts finalize 与 candidate/reference 数量相关，不与 class subtree 总节点数再次线性相关。
+3. class transform 不出现 AST analysis/visitor traversal。
+4. commit 成本与 journal edit 数量、受影响 ancestor path 和必须 rescope 的 semantic entries
+   相关，不重新扫描 dirty AST subtree。
+5. 多 class 场景不再有 `facts.iter().find`、statement-list `.find`、重复 ancestors 导致的
+   O(C²) 或 O(C × subtree) 增长。
+6. helper 不再产生 runtime parse + semantic analyze 成本。
+
+## 实施顺序与提交拆分
+
+每个提交独立编译，不 rebase，不 amend：
+
+1. `refactor(semantic): collect complete class transform info in one traversal`
+   - 引入 builder stacks、placement/member/rewrite-site/control-flow facts；
+   - finalize 只解析 candidates；
+   - 删除 `build_class_lowering_fact` 重扫。
+2. `test(semantic): cover class transform info and single-pass collection`
+   - 完整 facts 矩阵与 traversal instrumentation。
+3. `refactor(transformer): expose semantic-aware ast context mutations`
+   - class 所需 typed builder、定点 rewrite、statement-list edit API；
+   - pass 不再获得裸 `&mut Ast`。
+4. `refactor(semantic): update transform facts from ast context deltas`
+   - journal contribution；
+   - 删除 dirty-root facts refresh 重扫。
+5. `refactor(transformer): consume semantic class transform info`
+   - 删除 `classes/analysis.rs`；
+   - 合并/精简 `plan.rs`；
+   - 直接消费 post-order infos。
+6. `refactor(transformer): replace class visitors with targeted ast context rewrites`
+   - 删除 constructor audit 与两个 rewriter visitor；
+   - 所有生成和改动通过 AstContext。
+7. `refactor(transformer): instantiate class helpers without reanalysis`
+   - helper template/recipe 与 registry；
+   - 删除 runtime `analyze`/generated program semantic import。
+8. `test(transformer): enforce class semantic and ast context architecture`
+   - 架构断言、incremental-vs-reanalysis、现有 fixtures。
+9. `perf(transformer): benchmark single-pass class lowering`
+   - 记录 semantic/finalize/lower/commit/helper 分项与规模曲线。
 
 ## 最终完成标准
 
-1. 所有 transformer structural mutation 都通过 MutationTransaction。
-2. 任意 pass 完成后，Semantic 可以完整查询当前 AST。
-3. class transform 后不存在 stale class scope、declaration、reference 或 transform facts。
-4. 任意生成 node 都有正确 parent 和 scope。
-5. 任意生成 binding/reference 都进入 scope map、declaration/use-list 和名字索引。
-6. stable ID 在语义身份保留时不变化。
-7. transaction commit 不触发完整 AST/Semantic rebuild。
-8. incremental Semantic 与测试 oracle 的重新 analyze 结果一致。
-9. Babel class fixtures 和相关 Test262 用例通过。
-10. benchmark 证明 transaction 成本与实际 dirty subtree 规模相关。
+- [ ] `CLASS_LOWERING` facts 在 semantic 原有的一次 AST 遍历内收集完成。
+- [ ] semantic finalize 不遍历 AST/class subtree/Semantic node graph。
+- [ ] `crates/swc_ecma_transformer/src/es2015/classes/analysis.rs` 已删除。
+- [ ] class transform 只迭代 semantic post-order info，不扫描 program/class/constructor/method。
+- [ ] class transform 生产代码没有 `Visit`/`VisitMut` 和裸 attached AST setter。
+- [ ] helper 发布不运行 parser + semantic analyze。
+- [ ] 所有 class lowering mutation 经过 AstContext，并在同一 commit 同步 Semantic。
+- [ ] transform facts 使用 journal delta 更新，不执行 dirty AST subtree refresh。
+- [ ] commit 后增量 Semantic 与测试 oracle 的重新 analyze 结果一致。
+- [ ] 现有 class Rust tests、Babel fixtures、相关 Test262 和 clippy 通过。
+- [ ] benchmark 显示 class 数量增长时 semantic 只遍历一次，transform/commit 不引入重复
+      AST 扫描。
