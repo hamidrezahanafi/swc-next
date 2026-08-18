@@ -29,7 +29,7 @@ impl OptionalChaining {
             let chain = clone.root.as_chain_expression(tx.ast()).unwrap();
             let cloned_inner = chain.expression(tx.ast());
             let mut copies = Vec::new();
-            let result = self.lower_chain(source_inner, cloned_inner, tx, span, &mut copies);
+            let result = self.lower_chain(source_inner, cloned_inner, tx.inner(), span, &mut copies);
             clone.replace_root(result);
             let layout = tx.replace_expression_from_transformed_clone(node, clone, scope, &[]);
             for copy in &copies {

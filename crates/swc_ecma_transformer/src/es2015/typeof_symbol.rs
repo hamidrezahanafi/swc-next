@@ -170,9 +170,9 @@ impl TypeofSymbol {
             });
             clone.replace_root(replacement);
             tx.replace_expression_from_transformed_clone(old, clone, scope, &[]);
-            register_value_reference(tx, scope, helper);
+            register_value_reference(tx.inner(), scope, helper);
             if let Some(reference) = value_reference {
-                register_value_reference(tx, scope, reference);
+                register_value_reference(tx.inner(), scope, reference);
             }
         })
         .expect("typeof-symbol mutation must pass preflight");

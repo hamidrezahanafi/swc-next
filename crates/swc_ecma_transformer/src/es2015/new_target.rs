@@ -104,7 +104,7 @@ impl NewTarget {
             clone.replace_root(replacement);
             tx.replace_expression_from_transformed_clone(old, clone, scope, &[]);
             if let Some(reference) = reference {
-                register_reference(tx, scope, reference);
+                register_reference(tx.inner(), scope, reference);
             }
         })
         .expect("new-target mutation must pass preflight");

@@ -122,7 +122,7 @@ pub(super) fn lower_program<'ast>(
                 needs_super_get,
                 needs_super_set,
                 needs_class_name_tdz,
-                tx,
+                tx.inner(),
             )
         });
         let class_helpers = published_helpers.as_ref().map(|helpers| helpers.bindings);
@@ -134,13 +134,13 @@ pub(super) fn lower_program<'ast>(
                 class_helpers,
                 evaluation_scope,
                 &evaluation_scopes,
-                tx,
+                tx.inner(),
             );
             evaluation_scopes.insert(class_scope, nested_evaluation_scope);
         }
         for plan in anonymous_expression_plans {
             let evaluation_scope = remapped_evaluation_scope(plan.outer_scope, &evaluation_scopes);
-            lower_anonymous_expression(plan, class_helpers, evaluation_scope, tx);
+            lower_anonymous_expression(plan, class_helpers, evaluation_scope, tx.inner());
         }
         let mut output = Vec::with_capacity(statements.len());
         for statement in statements {
@@ -149,7 +149,7 @@ pub(super) fn lower_program<'ast>(
                 .find(|plan| plan.statement.node_id() == statement.node_id())
                 .cloned()
             {
-                output.extend(lower_anonymous_default_export(plan, class_helpers, tx));
+                output.extend(lower_anonymous_default_export(plan, class_helpers, tx.inner()));
                 continue;
             }
             let Some(plan) = plans
@@ -160,7 +160,7 @@ pub(super) fn lower_program<'ast>(
                 output.push(statement);
                 continue;
             };
-            output.extend(lower_declaration(plan, class_helpers, tx));
+            output.extend(lower_declaration(plan, class_helpers, tx.inner()));
         }
 
         if let Some(published) = published_helpers {
@@ -182,7 +182,7 @@ pub(super) fn lower_program<'ast>(
                     })
                     .cloned()
                 {
-                    output.extend(lower_declaration(plan, class_helpers, tx));
+                    output.extend(lower_declaration(plan, class_helpers, tx.inner()));
                 } else {
                     output.push(statement);
                 }

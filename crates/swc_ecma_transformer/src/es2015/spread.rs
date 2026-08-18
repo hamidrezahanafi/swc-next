@@ -33,7 +33,7 @@ impl Spread {
             let built = tx.build_detached(|ast| build_array_spread(span, elements, ast));
             clone.replace_root(built.expression);
             tx.replace_expression_from_transformed_clone(old, clone, scope, &[]);
-            register_helpers(tx, scope, &built.helpers);
+            register_helpers(tx.inner(), scope, &built.helpers);
         })
         .expect("array spread mutation must pass preflight");
     }
@@ -72,7 +72,7 @@ impl Spread {
             if let Some(receiver) = &receiver {
                 tx.duplicate_semantics_from_detached_clone(receiver, &layout);
             }
-            register_helpers(tx, scope, &built.helpers);
+            register_helpers(tx.inner(), scope, &built.helpers);
         })
         .expect("call spread mutation must pass preflight");
     }
@@ -96,7 +96,7 @@ impl Spread {
             let built = tx.build_detached(|ast| build_new_spread(span, callee, args, ast));
             clone.replace_root(built.expression);
             tx.replace_expression_from_transformed_clone(old, clone, scope, &[]);
-            register_helpers(tx, scope, &built.helpers);
+            register_helpers(tx.inner(), scope, &built.helpers);
         })
         .expect("new spread mutation must pass preflight");
     }

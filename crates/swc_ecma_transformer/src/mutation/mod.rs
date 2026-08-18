@@ -1,4 +1,4 @@
-mod builder;
+pub(crate) mod builder;
 mod commit;
 mod journal;
 mod verify;
