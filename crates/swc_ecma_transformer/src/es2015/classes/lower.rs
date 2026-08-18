@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
 use swc_next_ecma_ast::{
-    Argument, AssignmentOperator, AssignmentTarget, Ast, AstUtf8, BinaryOperator, BindingPattern,
-    Decl, ExportDefaultDeclarationKind, Expr, FormalParameterKind, Function, FunctionBody,
-    FunctionType, IdentifierReference, IfStatement, LogicalOperator, MethodDefinitionKind, NodeId,
-    ObjectPropertyKind, Program, PropertyKind, SimpleAssignmentTarget, Stmt, SyntaxContext,
-    TypedSubRange, UnaryOperator, VariableKind, VisitMut, VisitMutWith,
+    Argument, ArrowFunctionBody, AssignmentOperator, AssignmentTarget, Ast, AstUtf8,
+    BinaryOperator, BindingPattern, BlockStatement, Decl, ExportDefaultDeclarationKind, Expr,
+    FormalParameterKind, Function, FunctionBody, FunctionType, IdentifierReference, IfStatement,
+    LogicalOperator, MethodDefinitionKind, NodeId, NodeKindData, ObjectPropertyKind, Program,
+    PropertyKind, SimpleAssignmentTarget, Stmt, SyntaxContext, TypedSubRange, UnaryOperator,
+    VariableKind,
 };
 use swc_next_ecma_semantic::{
     ReferenceFlags, SymbolFlags,
@@ -2735,8 +2736,8 @@ fn prepend_private_declarations(
     body.set_body(ast, statements);
 }
 
-struct SuperMemberRewriter<'visit, 'ast> {
-    ast: &'visit mut Ast<'ast>,
+struct SuperMemberRewriteCtx<'a, 'ast> {
+    ast: &'a mut Ast<'ast>,
     members: HashSet<NodeId>,
     class_name: AstUtf8,
     class_context: SyntaxContext,
@@ -2746,53 +2747,506 @@ struct SuperMemberRewriter<'visit, 'ast> {
     references: Vec<GeneratedSuperReference>,
 }
 
-impl<'ast> VisitMut<'ast> for SuperMemberRewriter<'_, 'ast> {
-    fn ast(&mut self) -> &mut Ast<'ast> {
-        self.ast
-    }
-
-    fn visit_mut_function(&mut self, _node: Function) -> Option<Function> {
-        None
-    }
-
-    fn visit_mut_expr(&mut self, node: Expr) -> Option<Expr> {
-        if let Some(assignment) = node.as_assignment_expression(self.ast)
+impl<'a, 'ast> SuperMemberRewriteCtx<'a, 'ast> {
+    fn rewrite_expr(&mut self, expr: Expr) -> Expr {
+        // Check if this expression itself is a super member rewrite target
+        if let Some(assignment) = expr.as_assignment_expression(self.ast)
             && let Some(member) = assignment
                 .left(self.ast)
                 .as_simple_assignment_target(self.ast)
                 .and_then(|target| target.as_member_expression(self.ast))
             && self.members.contains(&member.node_id())
         {
-            return Some(
-                if assignment.operator(self.ast) == AssignmentOperator::Assign {
-                    self.lower_set(member, assignment.right(self.ast))
-                } else {
-                    self.lower_compound_assignment(assignment, member)
-                },
-            );
+            return if assignment.operator(self.ast) == AssignmentOperator::Assign {
+                self.lower_set(member, assignment.right(self.ast))
+            } else {
+                self.lower_compound_assignment(assignment, member)
+            };
         }
-        if let Some(update) = node.as_update_expression(self.ast)
+        if let Some(update) = expr.as_update_expression(self.ast)
             && let Some(member) = update.argument(self.ast).as_member_expression(self.ast)
             && self.members.contains(&member.node_id())
         {
-            return Some(self.lower_update(update, member));
+            return self.lower_update(update, member);
         }
-        if let Some(call) = node.as_call_expression(self.ast)
+        if let Some(call) = expr.as_call_expression(self.ast)
             && self.members.contains(&call.callee(self.ast).node_id())
         {
-            return Some(self.lower_call(call));
+            return self.lower_call(call);
         }
-        if self.members.contains(&node.node_id()) {
-            let member = node
+        if self.members.contains(&expr.node_id()) {
+            let member = expr
                 .as_member_expression(self.ast)
                 .expect("class fact super member must remain a member expression");
-            return Some(self.lower_get(member));
+            return self.lower_get(member);
         }
-        node.visit_mut_children_with(self)
+        self.walk_expr_children(expr)
+    }
+
+    fn walk_expr_children(&mut self, expr: Expr) -> Expr {
+        use swc_next_ecma_ast::{
+            ArrowFunctionBodyData, ObjectPropertyKindData,
+        };
+        let kind = self.ast.kind_data(expr.node_id());
+        match kind {
+            NodeKindData::BinaryExpression(node) => {
+                let left = self.rewrite_expr(node.left(self.ast));
+                node.set_left(self.ast, left);
+                let right = self.rewrite_expr(node.right(self.ast));
+                node.set_right(self.ast, right);
+                Expr::BinaryExpression(node)
+            }
+            NodeKindData::LogicalExpression(node) => {
+                let left = self.rewrite_expr(node.left(self.ast));
+                node.set_left(self.ast, left);
+                let right = self.rewrite_expr(node.right(self.ast));
+                node.set_right(self.ast, right);
+                Expr::LogicalExpression(node)
+            }
+            NodeKindData::UnaryExpression(node) => {
+                let argument = self.rewrite_expr(node.argument(self.ast));
+                node.set_argument(self.ast, argument);
+                Expr::UnaryExpression(node)
+            }
+            NodeKindData::UpdateExpression(node) => Expr::UpdateExpression(node),
+            NodeKindData::AssignmentExpression(node) => {
+                let left = self.rewrite_assignment_target(node.left(self.ast));
+                node.set_left(self.ast, left);
+                let right = self.rewrite_expr(node.right(self.ast));
+                node.set_right(self.ast, right);
+                Expr::AssignmentExpression(node)
+            }
+            NodeKindData::ConditionalExpression(node) => {
+                let test = self.rewrite_expr(node.test(self.ast));
+                node.set_test(self.ast, test);
+                let consequent = self.rewrite_expr(node.consequent(self.ast));
+                node.set_consequent(self.ast, consequent);
+                let alternate = self.rewrite_expr(node.alternate(self.ast));
+                node.set_alternate(self.ast, alternate);
+                Expr::ConditionalExpression(node)
+            }
+            NodeKindData::SequenceExpression(node) => {
+                let rewritten: Vec<_> = node
+                    .expressions(self.ast)
+                    .iter()
+                    .map(|id| self.rewrite_expr(self.ast.get_node_in_sub_range(id)))
+                    .collect();
+                let range = self.ast.add_typed_sub_range(rewritten);
+                node.set_expressions(self.ast, range);
+                Expr::SequenceExpression(node)
+            }
+            NodeKindData::MemberExpression(node) => {
+                let object = self.rewrite_expr(node.object(self.ast));
+                node.set_object(self.ast, object);
+                Expr::MemberExpression(node)
+            }
+            NodeKindData::CallExpression(node) => {
+                let callee = self.rewrite_expr(node.callee(self.ast));
+                node.set_callee(self.ast, callee);
+                let rewritten_args: Vec<_> = node
+                    .arguments(self.ast)
+                    .iter()
+                    .map(|id| self.rewrite_argument(self.ast.get_node_in_sub_range(id)))
+                    .collect();
+                let range = self.ast.add_typed_sub_range(rewritten_args);
+                node.set_arguments(self.ast, range);
+                Expr::CallExpression(node)
+            }
+            NodeKindData::ChainExpression(node) => {
+                let expression = self.rewrite_expr(node.expression(self.ast));
+                node.set_expression(self.ast, expression);
+                Expr::ChainExpression(node)
+            }
+            NodeKindData::NewExpression(node) => {
+                let callee = self.rewrite_expr(node.callee(self.ast));
+                node.set_callee(self.ast, callee);
+                let rewritten_args: Vec<_> = node
+                    .arguments(self.ast)
+                    .iter()
+                    .map(|id| self.rewrite_argument(self.ast.get_node_in_sub_range(id)))
+                    .collect();
+                let range = self.ast.add_typed_sub_range(rewritten_args);
+                node.set_arguments(self.ast, range);
+                Expr::NewExpression(node)
+            }
+            NodeKindData::TaggedTemplateExpression(node) => {
+                let tag = self.rewrite_expr(node.tag(self.ast));
+                node.set_tag(self.ast, tag);
+                Expr::TaggedTemplateExpression(node)
+            }
+            NodeKindData::ArrowFunctionExpression(node) => {
+                let body = node.body(self.ast);
+                match self.ast.arrow_function_body_data(body) {
+                    ArrowFunctionBodyData::FunctionBody(body) => {
+                        self.walk_body(body);
+                    }
+                    ArrowFunctionBodyData::Expr(_) => {
+                        let rewritten = self.rewrite_expr(body.as_expr(self.ast).unwrap());
+                        node.set_body(self.ast, ArrowFunctionBody::Expr(rewritten));
+                    }
+                }
+                Expr::ArrowFunctionExpression(node)
+            }
+            NodeKindData::ArrayExpression(node) => {
+                let rewritten: Vec<_> = node
+                    .elements(self.ast)
+                    .iter()
+                    .map(|id| {
+                        let elem = self.ast.get_node_in_sub_range(id);
+                        elem.map(|e| self.rewrite_argument(e))
+                    })
+                    .collect();
+                let range = self.ast.add_typed_sub_range(rewritten);
+                node.set_elements(self.ast, range);
+                Expr::ArrayExpression(node)
+            }
+            NodeKindData::ObjectExpression(node) => {
+                let rewritten: Vec<_> = node
+                    .properties(self.ast)
+                    .iter()
+                    .map(|id| {
+                        let prop = self.ast.get_node_in_sub_range(id);
+                        match self.ast.object_property_kind_data(prop) {
+                            ObjectPropertyKindData::ObjectProperty(p) => {
+                                let value = self.rewrite_expr(p.value(self.ast));
+                                p.set_value(self.ast, value);
+                                prop
+                            }
+                            ObjectPropertyKindData::SpreadElement(spread) => {
+                                let argument = self.rewrite_expr(spread.argument(self.ast));
+                                spread.set_argument(self.ast, argument);
+                                prop
+                            }
+                        }
+                    })
+                    .collect();
+                let range = self.ast.add_typed_sub_range(rewritten);
+                node.set_properties(self.ast, range);
+                Expr::ObjectExpression(node)
+            }
+            NodeKindData::ParenthesizedExpression(node) => {
+                let expression = self.rewrite_expr(node.expression(self.ast));
+                node.set_expression(self.ast, expression);
+                Expr::ParenthesizedExpression(node)
+            }
+            NodeKindData::AwaitExpression(node) => {
+                let argument = self.rewrite_expr(node.argument(self.ast));
+                node.set_argument(self.ast, argument);
+                Expr::AwaitExpression(node)
+            }
+            NodeKindData::YieldExpression(node) => {
+                if let Some(argument) = node.argument(self.ast) {
+                    let argument = self.rewrite_expr(argument);
+                    node.set_argument(self.ast, Some(argument));
+                }
+                Expr::YieldExpression(node)
+            }
+            NodeKindData::TemplateLiteral(node) => {
+                let rewritten: Vec<_> = node
+                    .expressions(self.ast)
+                    .iter()
+                    .map(|id| self.rewrite_expr(self.ast.get_node_in_sub_range(id)))
+                    .collect();
+                let range = self.ast.add_typed_sub_range(rewritten);
+                node.set_expressions(self.ast, range);
+                Expr::TemplateLiteral(node)
+            }
+            NodeKindData::ImportExpression(node) => {
+                let source = self.rewrite_expr(node.source(self.ast));
+                node.set_source(self.ast, source);
+                Expr::ImportExpression(node)
+            }
+            // TS type expressions
+            NodeKindData::TsAsExpression(node) => {
+                let expression = self.rewrite_expr(node.expression(self.ast));
+                node.set_expression(self.ast, expression);
+                Expr::TsAsExpression(node)
+            }
+            NodeKindData::TsSatisfiesExpression(node) => {
+                let expression = self.rewrite_expr(node.expression(self.ast));
+                node.set_expression(self.ast, expression);
+                Expr::TsSatisfiesExpression(node)
+            }
+            NodeKindData::TsTypeAssertion(node) => {
+                let expression = self.rewrite_expr(node.expression(self.ast));
+                node.set_expression(self.ast, expression);
+                Expr::TsTypeAssertion(node)
+            }
+            NodeKindData::TsNonNullExpression(node) => {
+                let expression = self.rewrite_expr(node.expression(self.ast));
+                node.set_expression(self.ast, expression);
+                Expr::TsNonNullExpression(node)
+            }
+            NodeKindData::TsInstantiationExpression(node) => {
+                let expression = self.rewrite_expr(node.expression(self.ast));
+                node.set_expression(self.ast, expression);
+                Expr::TsInstantiationExpression(node)
+            }
+            // JSX and leaf nodes
+            NodeKindData::JsxElement(_) | NodeKindData::JsxFragment(_) => expr,
+            _ => expr,
+        }
+    }
+
+    fn rewrite_assignment_target(&mut self, target: AssignmentTarget) -> AssignmentTarget {
+        if let Some(simple) = target.as_simple_assignment_target(self.ast) {
+            use swc_next_ecma_ast::SimpleAssignmentTargetData;
+            match self.ast.simple_assignment_target_data(simple) {
+                SimpleAssignmentTargetData::MemberExpression(member) => {
+                    let object = self.rewrite_expr(member.object(self.ast));
+                    member.set_object(self.ast, object);
+                }
+                SimpleAssignmentTargetData::TsAsExpression(node) => {
+                    let expression = self.rewrite_expr(node.expression(self.ast));
+                    node.set_expression(self.ast, expression);
+                }
+                SimpleAssignmentTargetData::TsSatisfiesExpression(node) => {
+                    let expression = self.rewrite_expr(node.expression(self.ast));
+                    node.set_expression(self.ast, expression);
+                }
+                SimpleAssignmentTargetData::TsTypeAssertion(node) => {
+                    let expression = self.rewrite_expr(node.expression(self.ast));
+                    node.set_expression(self.ast, expression);
+                }
+                SimpleAssignmentTargetData::TsNonNullExpression(node) => {
+                    let expression = self.rewrite_expr(node.expression(self.ast));
+                    node.set_expression(self.ast, expression);
+                }
+                _ => {}
+            }
+            target
+        } else {
+            target
+        }
+    }
+
+    fn rewrite_argument(&mut self, argument: Argument) -> Argument {
+        use swc_next_ecma_ast::ArgumentData;
+        match self.ast.argument_data(argument) {
+            ArgumentData::Expr(expr) => Argument::Expr(self.rewrite_expr(expr)),
+            ArgumentData::SpreadElement(spread) => {
+                let argument = self.rewrite_expr(spread.argument(self.ast));
+                spread.set_argument(self.ast, argument);
+                Argument::SpreadElement(spread)
+            }
+        }
+    }
+
+    fn walk_body(&mut self, body: FunctionBody) {
+        let statements: Vec<_> = body
+            .body(self.ast)
+            .iter()
+            .map(|id| self.ast.get_node_in_sub_range(id))
+            .collect();
+        let rewritten: Vec<_> = statements
+            .into_iter()
+            .map(|stmt| self.rewrite_stmt(stmt))
+            .collect();
+        let body_range = self.ast.add_typed_sub_range(rewritten);
+        body.set_body(self.ast, body_range);
+    }
+
+    fn walk_block_statement(&mut self, block: BlockStatement) {
+        let statements: Vec<_> = block
+            .body(self.ast)
+            .iter()
+            .map(|id| self.ast.get_node_in_sub_range(id))
+            .collect();
+        let rewritten: Vec<_> = statements
+            .into_iter()
+            .map(|stmt| self.rewrite_stmt(stmt))
+            .collect();
+        let body_range = self.ast.add_typed_sub_range(rewritten);
+        block.set_body(self.ast, body_range);
+    }
+
+    fn rewrite_stmt(&mut self, stmt: Stmt) -> Stmt {
+        if let Some(node) = stmt.as_expression_statement(self.ast) {
+            let expression = self.rewrite_expr(node.expression(self.ast));
+            node.set_expression(self.ast, expression);
+            return Stmt::ExpressionStatement(node);
+        }
+        if let Some(node) = stmt.as_return_statement(self.ast) {
+            if let Some(argument) = node.argument(self.ast) {
+                let argument = self.rewrite_expr(argument);
+                node.set_argument(self.ast, Some(argument));
+            }
+            return Stmt::ReturnStatement(node);
+        }
+        if let Some(node) = stmt.as_if_statement(self.ast) {
+            let test = self.rewrite_expr(node.test(self.ast));
+            node.set_test(self.ast, test);
+            let consequent = self.rewrite_stmt(node.consequent(self.ast));
+            node.set_consequent(self.ast, consequent);
+            if let Some(alt) = node.alternate(self.ast) {
+                let rewritten = self.rewrite_stmt(alt);
+                node.set_alternate(self.ast, Some(rewritten));
+            }
+            return Stmt::IfStatement(node);
+        }
+        if let Some(node) = stmt.as_switch_statement(self.ast) {
+            let discriminant = self.rewrite_expr(node.discriminant(self.ast));
+            node.set_discriminant(self.ast, discriminant);
+            let rewritten_cases: Vec<_> = node
+                .cases(self.ast)
+                .iter()
+                .map(|id| {
+                    let case = self.ast.get_node_in_sub_range(id);
+                    if let Some(test) = case.test(self.ast) {
+                        let rewritten = self.rewrite_expr(test);
+                        case.set_test(self.ast, Some(rewritten));
+                    }
+                    let rewritten: Vec<_> = case
+                        .consequent(self.ast)
+                        .iter()
+                        .map(|cid| self.rewrite_stmt(self.ast.get_node_in_sub_range(cid)))
+                        .collect();
+                    let range = self.ast.add_typed_sub_range(rewritten);
+                    case.set_consequent(self.ast, range);
+                    case
+                })
+                .collect();
+            let range = self.ast.add_typed_sub_range(rewritten_cases);
+            node.set_cases(self.ast, range);
+            return Stmt::SwitchStatement(node);
+        }
+        if let Some(node) = stmt.as_for_statement(self.ast) {
+            use swc_next_ecma_ast::ForStatementInitData;
+            if let Some(init) = node.init(self.ast) {
+                match self.ast.for_statement_init_data(init) {
+                    ForStatementInitData::Expr(expr) => {
+                        self.walk_expr_children(expr);
+                    }
+                    ForStatementInitData::VariableDeclaration(decl) => {
+                        self.rewrite_variable_declaration(decl);
+                    }
+                }
+            }
+            if let Some(test) = node.test(self.ast) {
+                let rewritten = self.rewrite_expr(test);
+                node.set_test(self.ast, Some(rewritten));
+            }
+            if let Some(update) = node.update(self.ast) {
+                let rewritten = self.rewrite_expr(update);
+                node.set_update(self.ast, Some(rewritten));
+            }
+            let body = self.rewrite_stmt(node.body(self.ast));
+            node.set_body(self.ast, body);
+            return Stmt::ForStatement(node);
+        }
+        if let Some(node) = stmt.as_for_in_statement(self.ast) {
+            use swc_next_ecma_ast::ForStatementLeftData;
+            match self.ast.for_statement_left_data(node.left(self.ast)) {
+                ForStatementLeftData::AssignmentTarget(target) => {
+                    self.rewrite_assignment_target(target);
+                }
+                ForStatementLeftData::VariableDeclaration(decl) => {
+                    self.rewrite_variable_declaration(decl);
+                }
+            }
+            let right = self.rewrite_expr(node.right(self.ast));
+            node.set_right(self.ast, right);
+            let body = self.rewrite_stmt(node.body(self.ast));
+            node.set_body(self.ast, body);
+            return Stmt::ForInStatement(node);
+        }
+        if let Some(node) = stmt.as_for_of_statement(self.ast) {
+            use swc_next_ecma_ast::ForStatementLeftData;
+            match self.ast.for_statement_left_data(node.left(self.ast)) {
+                ForStatementLeftData::AssignmentTarget(target) => {
+                    self.rewrite_assignment_target(target);
+                }
+                ForStatementLeftData::VariableDeclaration(decl) => {
+                    self.rewrite_variable_declaration(decl);
+                }
+            }
+            let right = self.rewrite_expr(node.right(self.ast));
+            node.set_right(self.ast, right);
+            let body = self.rewrite_stmt(node.body(self.ast));
+            node.set_body(self.ast, body);
+            return Stmt::ForOfStatement(node);
+        }
+        if let Some(node) = stmt.as_while_statement(self.ast) {
+            let test = self.rewrite_expr(node.test(self.ast));
+            node.set_test(self.ast, test);
+            let body = self.rewrite_stmt(node.body(self.ast));
+            node.set_body(self.ast, body);
+            return Stmt::WhileStatement(node);
+        }
+        if let Some(node) = stmt.as_do_while_statement(self.ast) {
+            let test = self.rewrite_expr(node.test(self.ast));
+            node.set_test(self.ast, test);
+            let body = self.rewrite_stmt(node.body(self.ast));
+            node.set_body(self.ast, body);
+            return Stmt::DoWhileStatement(node);
+        }
+        if let Some(node) = stmt.as_labeled_statement(self.ast) {
+            let body = self.rewrite_stmt(node.body(self.ast));
+            node.set_body(self.ast, body);
+            return Stmt::LabeledStatement(node);
+        }
+        if let Some(node) = stmt.as_try_statement(self.ast) {
+            self.walk_block_statement(node.block(self.ast));
+            if let Some(handler) = node.handler(self.ast) {
+                self.walk_block_statement(handler.body(self.ast));
+            }
+            if let Some(finalizer) = node.finalizer(self.ast) {
+                self.walk_block_statement(finalizer);
+            }
+            return Stmt::TryStatement(node);
+        }
+        if let Some(node) = stmt.as_throw_statement(self.ast) {
+            let argument = self.rewrite_expr(node.argument(self.ast));
+            node.set_argument(self.ast, argument);
+            return Stmt::ThrowStatement(node);
+        }
+        if let Some(node) = stmt.as_with_statement(self.ast) {
+            let object = self.rewrite_expr(node.object(self.ast));
+            node.set_object(self.ast, object);
+            let body = self.rewrite_stmt(node.body(self.ast));
+            node.set_body(self.ast, body);
+            return Stmt::WithStatement(node);
+        }
+        if let Some(node) = stmt.as_block_statement(self.ast) {
+            self.walk_block_statement(node);
+            return Stmt::BlockStatement(node);
+        }
+        // VariableDeclaration
+        if let Some(decl) = stmt.as_declaration(self.ast)
+            && let Some(var_decl) = decl.as_variable_declaration(self.ast)
+        {
+            return Stmt::Declaration(Decl::VariableDeclaration(
+                self.rewrite_variable_declaration(var_decl),
+            ));
+        }
+        // BreakStatement, ContinueStatement, DebuggerStatement, EmptyStatement,
+        // Declaration(Function/Class/TS): no expression children to rewrite
+        stmt
+    }
+
+    fn rewrite_variable_declaration(
+        &mut self,
+        node: swc_next_ecma_ast::VariableDeclaration,
+    ) -> swc_next_ecma_ast::VariableDeclaration {
+        let rewritten: Vec<_> = node
+            .declarators(self.ast)
+            .iter()
+            .map(|id| {
+                let decl = self.ast.get_node_in_sub_range(id);
+                if let Some(init) = decl.init(self.ast) {
+                    let rewritten = self.rewrite_expr(init);
+                    decl.set_init(self.ast, Some(rewritten));
+                }
+                decl
+            })
+            .collect();
+        let range = self.ast.add_typed_sub_range(rewritten);
+        node.set_declarators(self.ast, range);
+        node
     }
 }
 
-impl SuperMemberRewriter<'_, '_> {
+impl<'a, 'ast> SuperMemberRewriteCtx<'a, 'ast> {
     fn private_reference_with_flags(
         &mut self,
         binding: PrivateBinding,
@@ -2835,7 +3289,7 @@ impl SuperMemberRewriter<'_, '_> {
             let expression = key
                 .as_expr(self.ast)
                 .expect("computed super property must be an expression");
-            expression.visit_mut_with(self).unwrap_or(expression)
+            self.rewrite_expr(expression)
         } else {
             let identifier = key
                 .as_identifier_name(self.ast)
@@ -2932,7 +3386,7 @@ impl SuperMemberRewriter<'_, '_> {
         arguments.extend(
             original_arguments
                 .into_iter()
-                .map(|argument| argument.visit_mut_with(self).unwrap_or(argument)),
+                .map(|argument| self.rewrite_argument(argument)),
         );
         let arguments = self.ast.add_typed_sub_range(arguments);
         self.ast.expr_call_expression(
@@ -2946,7 +3400,7 @@ impl SuperMemberRewriter<'_, '_> {
 
     fn lower_set(&mut self, member: swc_next_ecma_ast::MemberExpression, value: Expr) -> Expr {
         let property = self.property_expression(member);
-        let value = value.visit_mut_with(self).unwrap_or(value);
+        let value = self.rewrite_expr(value);
         let prototype = self.prototype_expression();
         self.build_set(prototype, property, value)
     }
@@ -3050,10 +3504,7 @@ impl SuperMemberRewriter<'_, '_> {
     ) -> Expr {
         let mut access = self.repeated_access(member);
         let get = self.build_get(access.get_base, access.get_property);
-        let right = assignment
-            .right(self.ast)
-            .visit_mut_with(self)
-            .unwrap_or(assignment.right(self.ast));
+        let right = self.rewrite_expr(assignment.right(self.ast));
         let operator = assignment.operator(self.ast);
         if let Some(operator) = compound_binary_operator(operator) {
             let value =
@@ -3308,7 +3759,7 @@ impl LoweredMethod {
             let write_temps = prepare_super_write_temps(tx, &clone, super_members, method.scope);
             let temp_declarations = write_temps.declarations;
             let references = tx.build_detached(|ast| {
-                let mut rewriter = SuperMemberRewriter {
+                let mut rewriter = SuperMemberRewriteCtx {
                     ast,
                     members,
                     class_name,
@@ -3318,7 +3769,7 @@ impl LoweredMethod {
                     write_temps: write_temps.by_member,
                     references: Vec::new(),
                 };
-                clone.root.visit_mut_children_with(&mut rewriter);
+                rewriter.walk_body(clone.root);
                 let directives: Vec<_> = clone
                     .root
                     .directives(rewriter.ast)
@@ -3541,8 +3992,8 @@ struct ConstructorControlTarget {
     finalizer_depth: usize,
 }
 
-struct DerivedConstructorRewriter<'visit, 'ast> {
-    ast: &'visit mut Ast<'ast>,
+struct DerivedConstructorRewriteCtx<'a, 'ast> {
+    ast: &'a mut Ast<'ast>,
     super_calls: HashSet<NodeId>,
     super_members: HashSet<NodeId>,
     this_nodes: HashSet<NodeId>,
@@ -3560,195 +4011,559 @@ struct DerivedConstructorRewriter<'visit, 'ast> {
     references: Vec<GeneratedConstructorReference>,
 }
 
-impl<'ast> VisitMut<'ast> for DerivedConstructorRewriter<'_, 'ast> {
-    fn ast(&mut self) -> &mut Ast<'ast> {
-        self.ast
-    }
-
-    fn visit_mut_stmt(&mut self, node: Stmt) -> Option<Stmt> {
+impl<'a, 'ast> DerivedConstructorRewriteCtx<'a, 'ast> {
+    fn rewrite_stmt(&mut self, stmt: Stmt) -> Stmt {
         if self.arrow_depth == 0 && self.completion_boundary_active {
-            if let Some(statement) = node.as_return_statement(self.ast) {
-                let argument = statement
-                    .argument(self.ast)
-                    .map(|argument| argument.visit_mut_with(self).unwrap_or(argument));
-                return Some(self.lower_constructor_return(argument));
+            if let Some(statement) = stmt.as_return_statement(self.ast) {
+                let argument = statement.argument(self.ast);
+                return self.lower_constructor_return(argument);
             }
-            if let Some(statement) = node.as_break_statement(self.ast)
+            if let Some(statement) = stmt.as_break_statement(self.ast)
                 && self.abrupt_control_crosses_finalizer(statement.label(self.ast), false)
             {
-                return Some(self.clear_pending_before(node));
+                return self.clear_pending_before(stmt);
             }
-            if let Some(statement) = node.as_continue_statement(self.ast)
+            if let Some(statement) = stmt.as_continue_statement(self.ast)
                 && self.abrupt_control_crosses_finalizer(statement.label(self.ast), true)
             {
-                return Some(self.clear_pending_before(node));
+                return self.clear_pending_before(stmt);
             }
         }
-        node.visit_mut_children_with(self)
+        self.walk_stmt_children(stmt)
     }
 
-    fn visit_mut_function(&mut self, _node: Function) -> Option<Function> {
-        None
-    }
-
-    fn visit_mut_arrow_function_expression(
-        &mut self,
-        node: swc_next_ecma_ast::ArrowFunctionExpression,
-    ) -> Option<swc_next_ecma_ast::ArrowFunctionExpression> {
-        self.arrow_depth += 1;
-        node.visit_mut_children_with(self);
-        self.arrow_depth -= 1;
-        None
-    }
-
-    fn visit_mut_switch_statement(
-        &mut self,
-        node: swc_next_ecma_ast::SwitchStatement,
-    ) -> Option<swc_next_ecma_ast::SwitchStatement> {
-        self.push_control_target(None, true, false);
-        node.visit_mut_children_with(self);
-        self.control_targets.pop();
-        None
-    }
-
-    fn visit_mut_for_statement(
-        &mut self,
-        node: swc_next_ecma_ast::ForStatement,
-    ) -> Option<swc_next_ecma_ast::ForStatement> {
-        self.push_control_target(None, true, true);
-        node.visit_mut_children_with(self);
-        self.control_targets.pop();
-        None
-    }
-
-    fn visit_mut_for_in_statement(
-        &mut self,
-        node: swc_next_ecma_ast::ForInStatement,
-    ) -> Option<swc_next_ecma_ast::ForInStatement> {
-        self.push_control_target(None, true, true);
-        node.visit_mut_children_with(self);
-        self.control_targets.pop();
-        None
-    }
-
-    fn visit_mut_for_of_statement(
-        &mut self,
-        node: swc_next_ecma_ast::ForOfStatement,
-    ) -> Option<swc_next_ecma_ast::ForOfStatement> {
-        self.push_control_target(None, true, true);
-        node.visit_mut_children_with(self);
-        self.control_targets.pop();
-        None
-    }
-
-    fn visit_mut_while_statement(
-        &mut self,
-        node: swc_next_ecma_ast::WhileStatement,
-    ) -> Option<swc_next_ecma_ast::WhileStatement> {
-        self.push_control_target(None, true, true);
-        node.visit_mut_children_with(self);
-        self.control_targets.pop();
-        None
-    }
-
-    fn visit_mut_do_while_statement(
-        &mut self,
-        node: swc_next_ecma_ast::DoWhileStatement,
-    ) -> Option<swc_next_ecma_ast::DoWhileStatement> {
-        self.push_control_target(None, true, true);
-        node.visit_mut_children_with(self);
-        self.control_targets.pop();
-        None
-    }
-
-    fn visit_mut_labeled_statement(
-        &mut self,
-        node: swc_next_ecma_ast::LabeledStatement,
-    ) -> Option<swc_next_ecma_ast::LabeledStatement> {
-        let label = node.label(self.ast).name(self.ast);
-        let allows_continue = self.labeled_statement_targets_iteration(node);
-        self.push_control_target(Some(label), false, allows_continue);
-        node.visit_mut_children_with(self);
-        self.control_targets.pop();
-        None
-    }
-
-    fn visit_mut_try_statement(
-        &mut self,
-        node: swc_next_ecma_ast::TryStatement,
-    ) -> Option<swc_next_ecma_ast::TryStatement> {
-        let block = node.block(self.ast);
-        if let Some(replacement) = block.visit_mut_with(self) {
-            node.set_block(self.ast, replacement);
-        }
-        if let Some(handler) = node.handler(self.ast)
-            && let Some(replacement) = handler.visit_mut_with(self)
-        {
-            node.set_handler(self.ast, Some(replacement));
-        }
-        if let Some(finalizer) = node.finalizer(self.ast) {
-            self.finalizer_depth += 1;
-            if let Some(replacement) = finalizer.visit_mut_with(self) {
-                node.set_finalizer(self.ast, Some(replacement));
-            }
-            self.finalizer_depth -= 1;
-        }
-        None
-    }
-
-    fn visit_mut_expr(&mut self, node: Expr) -> Option<Expr> {
-        if self.this_nodes.contains(&node.node_id()) {
-            return Some(self.assert_this_initialized());
+    fn rewrite_expr(&mut self, expr: Expr) -> Expr {
+        if self.this_nodes.contains(&expr.node_id()) {
+            return self.assert_this_initialized();
         }
 
-        if let Some(assignment) = node.as_assignment_expression(self.ast)
+        if let Some(assignment) = expr.as_assignment_expression(self.ast)
             && let Some(member) = assignment
                 .left(self.ast)
                 .as_simple_assignment_target(self.ast)
                 .and_then(|target| target.as_member_expression(self.ast))
             && self.super_members.contains(&member.node_id())
         {
-            return Some(
-                if assignment.operator(self.ast) == AssignmentOperator::Assign {
-                    self.lower_super_member_set(member, assignment.right(self.ast))
-                } else {
-                    self.lower_super_member_compound_assignment(assignment, member)
-                },
-            );
+            return if assignment.operator(self.ast) == AssignmentOperator::Assign {
+                self.lower_super_member_set(member, assignment.right(self.ast))
+            } else {
+                self.lower_super_member_compound_assignment(assignment, member)
+            };
         }
-        if let Some(update) = node.as_update_expression(self.ast)
+        if let Some(update) = expr.as_update_expression(self.ast)
             && let Some(member) = update.argument(self.ast).as_member_expression(self.ast)
             && self.super_members.contains(&member.node_id())
         {
-            return Some(self.lower_super_member_update(update, member));
+            return self.lower_super_member_update(update, member);
         }
 
-        if let Some(call) = node.as_call_expression(self.ast)
+        if let Some(call) = expr.as_call_expression(self.ast)
             && self
                 .super_members
                 .contains(&call.callee(self.ast).node_id())
         {
-            return Some(self.lower_super_member_call(call));
+            return self.lower_super_member_call(call);
         }
 
-        node.visit_mut_children_with(self);
-        if self.super_calls.contains(&node.node_id()) {
-            let call = node
+        let result = self.walk_expr_children(expr);
+        if self.super_calls.contains(&result.node_id()) {
+            let call = result
                 .as_call_expression(self.ast)
                 .expect("class fact super call must remain a call expression");
-            return Some(self.lower_super_call(call));
+            return self.lower_super_call(call);
         }
-        if self.super_members.contains(&node.node_id()) {
-            let member = node
+        if self.super_members.contains(&result.node_id()) {
+            let member = result
                 .as_member_expression(self.ast)
                 .expect("class fact super member must remain a member expression");
-            return Some(self.lower_super_member_get(member));
+            return self.lower_super_member_get(member);
         }
-        None
+        result
+    }
+
+    fn walk_stmt_children(&mut self, stmt: Stmt) -> Stmt {
+        if let Some(node) = stmt.as_expression_statement(self.ast) {
+            let expression = self.rewrite_expr(node.expression(self.ast));
+            node.set_expression(self.ast, expression);
+            return Stmt::ExpressionStatement(node);
+        }
+        if let Some(node) = stmt.as_return_statement(self.ast) {
+            if let Some(argument) = node.argument(self.ast) {
+                let argument = self.rewrite_expr(argument);
+                node.set_argument(self.ast, Some(argument));
+            }
+            return Stmt::ReturnStatement(node);
+        }
+        if let Some(node) = stmt.as_if_statement(self.ast) {
+            let test = self.rewrite_expr(node.test(self.ast));
+            node.set_test(self.ast, test);
+            let consequent = self.rewrite_stmt(node.consequent(self.ast));
+            node.set_consequent(self.ast, consequent);
+            if let Some(alt) = node.alternate(self.ast) {
+                let rewritten = self.rewrite_stmt(alt);
+                node.set_alternate(self.ast, Some(rewritten));
+            }
+            return Stmt::IfStatement(node);
+        }
+        if let Some(node) = stmt.as_switch_statement(self.ast) {
+            self.push_control_target(None, true, false);
+            let discriminant = self.rewrite_expr(node.discriminant(self.ast));
+            node.set_discriminant(self.ast, discriminant);
+            let rewritten_cases: Vec<_> = node
+                .cases(self.ast)
+                .iter()
+                .map(|id| {
+                    let case = self.ast.get_node_in_sub_range(id);
+                    if let Some(test) = case.test(self.ast) {
+                        let rewritten = self.rewrite_expr(test);
+                        case.set_test(self.ast, Some(rewritten));
+                    }
+                    let rewritten: Vec<_> = case
+                        .consequent(self.ast)
+                        .iter()
+                        .map(|cid| self.rewrite_stmt(self.ast.get_node_in_sub_range(cid)))
+                        .collect();
+                    let range = self.ast.add_typed_sub_range(rewritten);
+                    case.set_consequent(self.ast, range);
+                    case
+                })
+                .collect();
+            let range = self.ast.add_typed_sub_range(rewritten_cases);
+            node.set_cases(self.ast, range);
+            self.control_targets.pop();
+            return Stmt::SwitchStatement(node);
+        }
+        if let Some(node) = stmt.as_for_statement(self.ast) {
+            self.push_control_target(None, true, true);
+            use swc_next_ecma_ast::ForStatementInitData;
+            if let Some(init) = node.init(self.ast) {
+                match self.ast.for_statement_init_data(init) {
+                    ForStatementInitData::Expr(expr) => {
+                        self.rewrite_expr(expr);
+                    }
+                    ForStatementInitData::VariableDeclaration(decl) => {
+                        self.rewrite_variable_declaration(decl);
+                    }
+                }
+            }
+            if let Some(test) = node.test(self.ast) {
+                let rewritten = self.rewrite_expr(test);
+                node.set_test(self.ast, Some(rewritten));
+            }
+            if let Some(update) = node.update(self.ast) {
+                let rewritten = self.rewrite_expr(update);
+                node.set_update(self.ast, Some(rewritten));
+            }
+            let body = self.rewrite_stmt(node.body(self.ast));
+            node.set_body(self.ast, body);
+            self.control_targets.pop();
+            return Stmt::ForStatement(node);
+        }
+        if let Some(node) = stmt.as_for_in_statement(self.ast) {
+            self.push_control_target(None, true, true);
+            use swc_next_ecma_ast::ForStatementLeftData;
+            match self.ast.for_statement_left_data(node.left(self.ast)) {
+                ForStatementLeftData::AssignmentTarget(target) => {
+                    self.rewrite_assignment_target(target);
+                }
+                ForStatementLeftData::VariableDeclaration(decl) => {
+                    self.rewrite_variable_declaration(decl);
+                }
+            }
+            let right = self.rewrite_expr(node.right(self.ast));
+            node.set_right(self.ast, right);
+            let body = self.rewrite_stmt(node.body(self.ast));
+            node.set_body(self.ast, body);
+            self.control_targets.pop();
+            return Stmt::ForInStatement(node);
+        }
+        if let Some(node) = stmt.as_for_of_statement(self.ast) {
+            self.push_control_target(None, true, true);
+            use swc_next_ecma_ast::ForStatementLeftData;
+            match self.ast.for_statement_left_data(node.left(self.ast)) {
+                ForStatementLeftData::AssignmentTarget(target) => {
+                    self.rewrite_assignment_target(target);
+                }
+                ForStatementLeftData::VariableDeclaration(decl) => {
+                    self.rewrite_variable_declaration(decl);
+                }
+            }
+            let right = self.rewrite_expr(node.right(self.ast));
+            node.set_right(self.ast, right);
+            let body = self.rewrite_stmt(node.body(self.ast));
+            node.set_body(self.ast, body);
+            self.control_targets.pop();
+            return Stmt::ForOfStatement(node);
+        }
+        if let Some(node) = stmt.as_while_statement(self.ast) {
+            self.push_control_target(None, true, true);
+            let test = self.rewrite_expr(node.test(self.ast));
+            node.set_test(self.ast, test);
+            let body = self.rewrite_stmt(node.body(self.ast));
+            node.set_body(self.ast, body);
+            self.control_targets.pop();
+            return Stmt::WhileStatement(node);
+        }
+        if let Some(node) = stmt.as_do_while_statement(self.ast) {
+            self.push_control_target(None, true, true);
+            let test = self.rewrite_expr(node.test(self.ast));
+            node.set_test(self.ast, test);
+            let body = self.rewrite_stmt(node.body(self.ast));
+            node.set_body(self.ast, body);
+            self.control_targets.pop();
+            return Stmt::DoWhileStatement(node);
+        }
+        if let Some(node) = stmt.as_labeled_statement(self.ast) {
+            let label = node.label(self.ast).name(self.ast);
+            let allows_continue = self.labeled_statement_targets_iteration(node);
+            self.push_control_target(Some(label), false, allows_continue);
+            let body = self.rewrite_stmt(node.body(self.ast));
+            node.set_body(self.ast, body);
+            self.control_targets.pop();
+            return Stmt::LabeledStatement(node);
+        }
+        if let Some(node) = stmt.as_try_statement(self.ast) {
+            self.walk_block_statement(node.block(self.ast));
+            if let Some(handler) = node.handler(self.ast) {
+                self.walk_block_statement(handler.body(self.ast));
+            }
+            if let Some(finalizer) = node.finalizer(self.ast) {
+                self.finalizer_depth += 1;
+                self.walk_block_statement(finalizer);
+                self.finalizer_depth -= 1;
+            }
+            return Stmt::TryStatement(node);
+        }
+        if let Some(node) = stmt.as_throw_statement(self.ast) {
+            let argument = self.rewrite_expr(node.argument(self.ast));
+            node.set_argument(self.ast, argument);
+            return Stmt::ThrowStatement(node);
+        }
+        if let Some(node) = stmt.as_with_statement(self.ast) {
+            let object = self.rewrite_expr(node.object(self.ast));
+            node.set_object(self.ast, object);
+            let body = self.rewrite_stmt(node.body(self.ast));
+            node.set_body(self.ast, body);
+            return Stmt::WithStatement(node);
+        }
+        if let Some(node) = stmt.as_block_statement(self.ast) {
+            self.walk_block_statement(node);
+            return Stmt::BlockStatement(node);
+        }
+        // VariableDeclaration
+        if let Some(decl) = stmt.as_declaration(self.ast)
+            && let Some(var_decl) = decl.as_variable_declaration(self.ast)
+        {
+            return Stmt::Declaration(Decl::VariableDeclaration(
+                self.rewrite_variable_declaration(var_decl),
+            ));
+        }
+        // BreakStatement, ContinueStatement, DebuggerStatement, EmptyStatement,
+        // Declaration(Function/Class/TS): no expression children to rewrite
+        stmt
+    }
+
+    fn walk_expr_children(&mut self, expr: Expr) -> Expr {
+        use swc_next_ecma_ast::{ArrowFunctionBodyData, ObjectPropertyKindData};
+        let kind = self.ast.kind_data(expr.node_id());
+        match kind {
+            NodeKindData::BinaryExpression(node) => {
+                let left = self.rewrite_expr(node.left(self.ast));
+                node.set_left(self.ast, left);
+                let right = self.rewrite_expr(node.right(self.ast));
+                node.set_right(self.ast, right);
+                Expr::BinaryExpression(node)
+            }
+            NodeKindData::LogicalExpression(node) => {
+                let left = self.rewrite_expr(node.left(self.ast));
+                node.set_left(self.ast, left);
+                let right = self.rewrite_expr(node.right(self.ast));
+                node.set_right(self.ast, right);
+                Expr::LogicalExpression(node)
+            }
+            NodeKindData::UnaryExpression(node) => {
+                let argument = self.rewrite_expr(node.argument(self.ast));
+                node.set_argument(self.ast, argument);
+                Expr::UnaryExpression(node)
+            }
+            NodeKindData::UpdateExpression(node) => Expr::UpdateExpression(node),
+            NodeKindData::AssignmentExpression(node) => {
+                let left = self.rewrite_assignment_target(node.left(self.ast));
+                node.set_left(self.ast, left);
+                let right = self.rewrite_expr(node.right(self.ast));
+                node.set_right(self.ast, right);
+                Expr::AssignmentExpression(node)
+            }
+            NodeKindData::ConditionalExpression(node) => {
+                let test = self.rewrite_expr(node.test(self.ast));
+                node.set_test(self.ast, test);
+                let consequent = self.rewrite_expr(node.consequent(self.ast));
+                node.set_consequent(self.ast, consequent);
+                let alternate = self.rewrite_expr(node.alternate(self.ast));
+                node.set_alternate(self.ast, alternate);
+                Expr::ConditionalExpression(node)
+            }
+            NodeKindData::SequenceExpression(node) => {
+                let rewritten: Vec<_> = node
+                    .expressions(self.ast)
+                    .iter()
+                    .map(|id| self.rewrite_expr(self.ast.get_node_in_sub_range(id)))
+                    .collect();
+                let range = self.ast.add_typed_sub_range(rewritten);
+                node.set_expressions(self.ast, range);
+                Expr::SequenceExpression(node)
+            }
+            NodeKindData::MemberExpression(node) => {
+                let object = self.rewrite_expr(node.object(self.ast));
+                node.set_object(self.ast, object);
+                Expr::MemberExpression(node)
+            }
+            NodeKindData::CallExpression(node) => {
+                let callee = self.rewrite_expr(node.callee(self.ast));
+                node.set_callee(self.ast, callee);
+                let rewritten_args: Vec<_> = node
+                    .arguments(self.ast)
+                    .iter()
+                    .map(|id| self.rewrite_argument(self.ast.get_node_in_sub_range(id)))
+                    .collect();
+                let range = self.ast.add_typed_sub_range(rewritten_args);
+                node.set_arguments(self.ast, range);
+                Expr::CallExpression(node)
+            }
+            NodeKindData::ChainExpression(node) => {
+                let expression = self.rewrite_expr(node.expression(self.ast));
+                node.set_expression(self.ast, expression);
+                Expr::ChainExpression(node)
+            }
+            NodeKindData::NewExpression(node) => {
+                let callee = self.rewrite_expr(node.callee(self.ast));
+                node.set_callee(self.ast, callee);
+                let rewritten_args: Vec<_> = node
+                    .arguments(self.ast)
+                    .iter()
+                    .map(|id| self.rewrite_argument(self.ast.get_node_in_sub_range(id)))
+                    .collect();
+                let range = self.ast.add_typed_sub_range(rewritten_args);
+                node.set_arguments(self.ast, range);
+                Expr::NewExpression(node)
+            }
+            NodeKindData::TaggedTemplateExpression(node) => {
+                let tag = self.rewrite_expr(node.tag(self.ast));
+                node.set_tag(self.ast, tag);
+                Expr::TaggedTemplateExpression(node)
+            }
+            NodeKindData::ArrowFunctionExpression(node) => {
+                self.arrow_depth += 1;
+                let body = node.body(self.ast);
+                match self.ast.arrow_function_body_data(body) {
+                    ArrowFunctionBodyData::FunctionBody(body) => {
+                        self.walk_body(body);
+                    }
+                    ArrowFunctionBodyData::Expr(_) => {
+                        let rewritten = self.rewrite_expr(body.as_expr(self.ast).unwrap());
+                        node.set_body(self.ast, ArrowFunctionBody::Expr(rewritten));
+                    }
+                }
+                self.arrow_depth -= 1;
+                Expr::ArrowFunctionExpression(node)
+            }
+            NodeKindData::Function(_) => expr,
+            NodeKindData::ArrayExpression(node) => {
+                let rewritten: Vec<_> = node
+                    .elements(self.ast)
+                    .iter()
+                    .map(|id| {
+                        let elem = self.ast.get_node_in_sub_range(id);
+                        elem.map(|e| self.rewrite_argument(e))
+                    })
+                    .collect();
+                let range = self.ast.add_typed_sub_range(rewritten);
+                node.set_elements(self.ast, range);
+                Expr::ArrayExpression(node)
+            }
+            NodeKindData::ObjectExpression(node) => {
+                let rewritten: Vec<_> = node
+                    .properties(self.ast)
+                    .iter()
+                    .map(|id| {
+                        let prop = self.ast.get_node_in_sub_range(id);
+                        match self.ast.object_property_kind_data(prop) {
+                            ObjectPropertyKindData::ObjectProperty(p) => {
+                                let value = self.rewrite_expr(p.value(self.ast));
+                                p.set_value(self.ast, value);
+                                prop
+                            }
+                            ObjectPropertyKindData::SpreadElement(spread) => {
+                                let argument = self.rewrite_expr(spread.argument(self.ast));
+                                spread.set_argument(self.ast, argument);
+                                prop
+                            }
+                        }
+                    })
+                    .collect();
+                let range = self.ast.add_typed_sub_range(rewritten);
+                node.set_properties(self.ast, range);
+                Expr::ObjectExpression(node)
+            }
+            NodeKindData::ParenthesizedExpression(node) => {
+                let expression = self.rewrite_expr(node.expression(self.ast));
+                node.set_expression(self.ast, expression);
+                Expr::ParenthesizedExpression(node)
+            }
+            NodeKindData::AwaitExpression(node) => {
+                let argument = self.rewrite_expr(node.argument(self.ast));
+                node.set_argument(self.ast, argument);
+                Expr::AwaitExpression(node)
+            }
+            NodeKindData::YieldExpression(node) => {
+                if let Some(argument) = node.argument(self.ast) {
+                    let argument = self.rewrite_expr(argument);
+                    node.set_argument(self.ast, Some(argument));
+                }
+                Expr::YieldExpression(node)
+            }
+            NodeKindData::TemplateLiteral(node) => {
+                let rewritten: Vec<_> = node
+                    .expressions(self.ast)
+                    .iter()
+                    .map(|id| self.rewrite_expr(self.ast.get_node_in_sub_range(id)))
+                    .collect();
+                let range = self.ast.add_typed_sub_range(rewritten);
+                node.set_expressions(self.ast, range);
+                Expr::TemplateLiteral(node)
+            }
+            NodeKindData::ImportExpression(node) => {
+                let source = self.rewrite_expr(node.source(self.ast));
+                node.set_source(self.ast, source);
+                Expr::ImportExpression(node)
+            }
+            // TS type expressions
+            NodeKindData::TsAsExpression(node) => {
+                let expression = self.rewrite_expr(node.expression(self.ast));
+                node.set_expression(self.ast, expression);
+                Expr::TsAsExpression(node)
+            }
+            NodeKindData::TsSatisfiesExpression(node) => {
+                let expression = self.rewrite_expr(node.expression(self.ast));
+                node.set_expression(self.ast, expression);
+                Expr::TsSatisfiesExpression(node)
+            }
+            NodeKindData::TsTypeAssertion(node) => {
+                let expression = self.rewrite_expr(node.expression(self.ast));
+                node.set_expression(self.ast, expression);
+                Expr::TsTypeAssertion(node)
+            }
+            NodeKindData::TsNonNullExpression(node) => {
+                let expression = self.rewrite_expr(node.expression(self.ast));
+                node.set_expression(self.ast, expression);
+                Expr::TsNonNullExpression(node)
+            }
+            NodeKindData::TsInstantiationExpression(node) => {
+                let expression = self.rewrite_expr(node.expression(self.ast));
+                node.set_expression(self.ast, expression);
+                Expr::TsInstantiationExpression(node)
+            }
+            // JSX and leaf nodes
+            NodeKindData::JsxElement(_) | NodeKindData::JsxFragment(_) => expr,
+            _ => expr,
+        }
+    }
+
+    fn walk_body(&mut self, body: FunctionBody) {
+        let statements: Vec<_> = body
+            .body(self.ast)
+            .iter()
+            .map(|id| self.ast.get_node_in_sub_range(id))
+            .collect();
+        let rewritten: Vec<_> = statements
+            .into_iter()
+            .map(|stmt| self.rewrite_stmt(stmt))
+            .collect();
+        let body_range = self.ast.add_typed_sub_range(rewritten);
+        body.set_body(self.ast, body_range);
+    }
+
+    fn walk_block_statement(&mut self, block: BlockStatement) {
+        let statements: Vec<_> = block
+            .body(self.ast)
+            .iter()
+            .map(|id| self.ast.get_node_in_sub_range(id))
+            .collect();
+        let rewritten: Vec<_> = statements
+            .into_iter()
+            .map(|stmt| self.rewrite_stmt(stmt))
+            .collect();
+        let body_range = self.ast.add_typed_sub_range(rewritten);
+        block.set_body(self.ast, body_range);
+    }
+
+    fn rewrite_assignment_target(&mut self, target: AssignmentTarget) -> AssignmentTarget {
+        if let Some(simple) = target.as_simple_assignment_target(self.ast) {
+            use swc_next_ecma_ast::SimpleAssignmentTargetData;
+            match self.ast.simple_assignment_target_data(simple) {
+                SimpleAssignmentTargetData::MemberExpression(member) => {
+                    let object = self.rewrite_expr(member.object(self.ast));
+                    member.set_object(self.ast, object);
+                }
+                SimpleAssignmentTargetData::TsAsExpression(node) => {
+                    let expression = self.rewrite_expr(node.expression(self.ast));
+                    node.set_expression(self.ast, expression);
+                }
+                SimpleAssignmentTargetData::TsSatisfiesExpression(node) => {
+                    let expression = self.rewrite_expr(node.expression(self.ast));
+                    node.set_expression(self.ast, expression);
+                }
+                SimpleAssignmentTargetData::TsTypeAssertion(node) => {
+                    let expression = self.rewrite_expr(node.expression(self.ast));
+                    node.set_expression(self.ast, expression);
+                }
+                SimpleAssignmentTargetData::TsNonNullExpression(node) => {
+                    let expression = self.rewrite_expr(node.expression(self.ast));
+                    node.set_expression(self.ast, expression);
+                }
+                _ => {}
+            }
+            target
+        } else {
+            target
+        }
+    }
+
+    fn rewrite_argument(&mut self, argument: Argument) -> Argument {
+        use swc_next_ecma_ast::ArgumentData;
+        match self.ast.argument_data(argument) {
+            ArgumentData::Expr(expr) => Argument::Expr(self.rewrite_expr(expr)),
+            ArgumentData::SpreadElement(spread) => {
+                let argument = self.rewrite_expr(spread.argument(self.ast));
+                spread.set_argument(self.ast, argument);
+                Argument::SpreadElement(spread)
+            }
+        }
+    }
+
+    fn rewrite_variable_declaration(
+        &mut self,
+        node: swc_next_ecma_ast::VariableDeclaration,
+    ) -> swc_next_ecma_ast::VariableDeclaration {
+        let rewritten: Vec<_> = node
+            .declarators(self.ast)
+            .iter()
+            .map(|id| {
+                let decl = self.ast.get_node_in_sub_range(id);
+                if let Some(init) = decl.init(self.ast) {
+                    let rewritten = self.rewrite_expr(init);
+                    decl.set_init(self.ast, Some(rewritten));
+                }
+                decl
+            })
+            .collect();
+        let range = self.ast.add_typed_sub_range(rewritten);
+        node.set_declarators(self.ast, range);
+        node
     }
 }
 
-impl DerivedConstructorRewriter<'_, '_> {
+impl<'a, 'ast> DerivedConstructorRewriteCtx<'a, 'ast> {
     fn push_control_target(
         &mut self,
         label: Option<AstUtf8>,
@@ -4013,7 +4828,7 @@ impl DerivedConstructorRewriter<'_, '_> {
             let expression = key
                 .as_expr(self.ast)
                 .expect("computed super property must be an expression");
-            expression.visit_mut_with(self).unwrap_or(expression)
+            self.rewrite_expr(expression)
         } else {
             let identifier = key
                 .as_identifier_name(self.ast)
@@ -4095,7 +4910,7 @@ impl DerivedConstructorRewriter<'_, '_> {
         arguments.extend(
             original_arguments
                 .into_iter()
-                .map(|argument| argument.visit_mut_with(self).unwrap_or(argument)),
+                .map(|argument| self.rewrite_argument(argument)),
         );
         let arguments = self.ast.add_typed_sub_range(arguments);
         self.ast.expr_call_expression(
@@ -4113,7 +4928,7 @@ impl DerivedConstructorRewriter<'_, '_> {
         value: Expr,
     ) -> Expr {
         let property = self.super_property_expression(member);
-        let value = value.visit_mut_with(self).unwrap_or(value);
+        let value = self.rewrite_expr(value);
         let prototype = self.super_prototype_expression();
         self.build_super_member_set(prototype, property, value)
     }
@@ -4223,10 +5038,7 @@ impl DerivedConstructorRewriter<'_, '_> {
     ) -> Expr {
         let mut access = self.repeated_constructor_super_access(member);
         let get = self.build_super_member_get(access.get_base, access.get_property);
-        let right = assignment
-            .right(self.ast)
-            .visit_mut_with(self)
-            .unwrap_or(assignment.right(self.ast));
+        let right = self.rewrite_expr(assignment.right(self.ast));
         let operator = assignment.operator(self.ast);
         if let Some(operator) = compound_binary_operator(operator) {
             let value =
@@ -4329,7 +5141,7 @@ fn lower_base_constructor_body(
     let write_temps = prepare_super_write_temps(tx, &clone, super_members, scope);
     let temp_declarations = write_temps.declarations;
     let (prelude, references) = tx.build_detached(|ast| {
-        let mut rewriter = SuperMemberRewriter {
+        let mut rewriter = SuperMemberRewriteCtx {
             ast,
             members,
             class_name,
@@ -4339,7 +5151,7 @@ fn lower_base_constructor_body(
             write_temps: write_temps.by_member,
             references: Vec::new(),
         };
-        clone.root.visit_mut_children_with(&mut rewriter);
+        rewriter.walk_body(clone.root);
         let prelude = ConstructorPrelude::build(
             rewriter.ast,
             swc_next_ecma_ast::DUMMY_SP,
@@ -4472,7 +5284,7 @@ fn lower_explicit_derived_constructor_body(
                 audit.has_return
             })
             .collect();
-        let mut rewriter = DerivedConstructorRewriter {
+        let mut rewriter = DerivedConstructorRewriteCtx {
             ast,
             super_calls: cloned_super_calls,
             super_members: cloned_super_members,
@@ -4493,7 +5305,7 @@ fn lower_explicit_derived_constructor_body(
         let mut rewritten_statements = Vec::with_capacity(statements.len() * 2);
         for (statement, has_return) in statements.into_iter().zip(statement_returns) {
             rewriter.completion_boundary_active = has_return;
-            let statement = statement.visit_mut_with(&mut rewriter).unwrap_or(statement);
+            let statement = rewriter.rewrite_stmt(statement);
             rewriter.completion_boundary_active = false;
             debug_assert_eq!(rewriter.finalizer_depth, 0);
             debug_assert!(rewriter.control_targets.is_empty());
