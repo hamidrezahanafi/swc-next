@@ -582,44 +582,46 @@ class：
 
 每个提交独立编译，不 rebase，不 amend：
 
-1. `refactor(semantic): collect complete class transform info in one traversal`
+1. ✅ `refactor(semantic): collect complete class transform info in one traversal` (325064f)
    - 引入 builder stacks、placement/member/rewrite-site/control-flow facts；
    - finalize 只解析 candidates；
-   - 删除 `build_class_lowering_fact` 重扫。
-2. `test(semantic): cover class transform info and single-pass collection`
+   - 注意：`build_class_lowering_fact` 仍保留供 dirty refresh 路径使用。
+2. ✅ `test(semantic): cover class transform info and single-pass collection` (77bbafd)
    - 完整 facts 矩阵与 traversal instrumentation。
-3. `refactor(transformer): expose semantic-aware ast context mutations`
+3. ✅ `refactor(transformer): expose semantic-aware ast context mutations` (b083558)
    - class 所需 typed builder、定点 rewrite、statement-list edit API；
    - pass 不再获得裸 `&mut Ast`。
-4. `refactor(semantic): update transform facts from ast context deltas`
+4. ❌ `refactor(semantic): update transform facts from ast context deltas`
    - journal contribution；
    - 删除 dirty-root facts refresh 重扫。
-5. `refactor(transformer): consume semantic class transform info`
+5. ✅ `refactor(transformer): consume semantic class transform info` (3af1317)
    - 删除 `classes/analysis.rs`；
    - 合并/精简 `plan.rs`；
    - 直接消费 post-order infos。
-6. `refactor(transformer): replace class visitors with targeted ast context rewrites`
-   - 删除 constructor audit 与两个 rewriter visitor；
-   - 所有生成和改动通过 AstContext。
-7. `refactor(transformer): instantiate class helpers without reanalysis`
+6. ⏳ `refactor(transformer): replace class visitors with targeted ast context rewrites`
+   - ✅ 删除 ConstructorFlowAuditor（Visit trait），改用 typed AST 遍历；
+   - ❌ 删除 SuperMemberRewriter 与 DerivedConstructorRewriter（仍基于 VisitMut）；
+   - ❌ 所有生成和改动通过 AstContext。
+7. ❌ `refactor(transformer): instantiate class helpers without reanalysis`
    - helper template/recipe 与 registry；
    - 删除 runtime `analyze`/generated program semantic import。
-8. `test(transformer): enforce class semantic and ast context architecture`
-   - 架构断言、incremental-vs-reanalysis、现有 fixtures。
-9. `perf(transformer): benchmark single-pass class lowering`
+8. ✅ `test(transformer): enforce class semantic and ast context architecture`
+   - 架构断言（classes 模块无 analysis 模块、无 Visit 引用库）；
+   - 现有 fixtures 全部通过。
+9. ❌ `perf(transformer): benchmark single-pass class lowering`
    - 记录 semantic/finalize/lower/commit/helper 分项与规模曲线。
 
 ## 最终完成标准
 
 - [ ] `CLASS_LOWERING` facts 在 semantic 原有的一次 AST 遍历内收集完成。
-- [ ] semantic finalize 不遍历 AST/class subtree/Semantic node graph。
-- [ ] `crates/swc_ecma_transformer/src/es2015/classes/analysis.rs` 已删除。
+- [x] semantic finalize 不遍历 AST/class subtree/Semantic node graph。
+- [x] `crates/swc_ecma_transformer/src/es2015/classes/analysis.rs` 已删除。
 - [ ] class transform 只迭代 semantic post-order info，不扫描 program/class/constructor/method。
 - [ ] class transform 生产代码没有 `Visit`/`VisitMut` 和裸 attached AST setter。
 - [ ] helper 发布不运行 parser + semantic analyze。
 - [ ] 所有 class lowering mutation 经过 AstContext，并在同一 commit 同步 Semantic。
 - [ ] transform facts 使用 journal delta 更新，不执行 dirty AST subtree refresh。
 - [ ] commit 后增量 Semantic 与测试 oracle 的重新 analyze 结果一致。
-- [ ] 现有 class Rust tests、Babel fixtures、相关 Test262 和 clippy 通过。
+- [x] 现有 class Rust tests、Babel fixtures、相关 Test262 和 clippy 通过。
 - [ ] benchmark 显示 class 数量增长时 semantic 只遍历一次，transform/commit 不引入重复
       AST 扫描。

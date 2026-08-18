@@ -310,7 +310,7 @@ TypeScript、React、Module、Proposal 等。
 
 - [x] es2015.object_super — `super` in object literals, 使用 `_get`/`_set` helper
 - [ ] es2015.block_scoping（需设计文档）
-- [ ] es2015.classes（需设计文档）
+- [x] es2015.classes — 已实现完整 lowering（54 个测试 + Babel/Test262 fixtures）；plan.md 的 9 步重构已完成 5 步（单遍收集、AstContext、analysis 删除、架构断言），剩余 4 步（替换 lowering visitor、helper 模板化、dirty refresh 删除、benchmark）
 - [ ] es2015.destructuring（需设计文档）
 - [ ] es2015.parameters（需设计文档）
 - [x] es2017.async_to_generator — `async function` → `_asyncToGenerator(function*(){...})()`

@@ -5,7 +5,7 @@ use swc_next_ecma_ast::{
     Decl, ExportDefaultDeclarationKind, Expr, FormalParameterKind, Function, FunctionBody,
     FunctionType, IdentifierReference, IfStatement, LogicalOperator, MethodDefinitionKind, NodeId,
     ObjectPropertyKind, Program, PropertyKind, SimpleAssignmentTarget, Stmt, SyntaxContext,
-    TypedSubRange, UnaryOperator, VariableKind, Visit, VisitMut, VisitMutWith, VisitWith,
+    TypedSubRange, UnaryOperator, VariableKind, VisitMut, VisitMutWith,
 };
 use swc_next_ecma_semantic::{
     ReferenceFlags, SymbolFlags,
@@ -3439,44 +3439,91 @@ struct ConstructorFlowAudit {
     labels: Vec<AstUtf8>,
 }
 
-struct ConstructorFlowAuditor<'visit, 'ast> {
-    ast: &'visit Ast<'ast>,
-    result: ConstructorFlowAudit,
+/// Walks a function body looking for ReturnStatement and LabeledStatement
+/// nodes using only typed AST accessors (no Visit/VisitMut trait).
+fn audit_constructor_flow(ast: &Ast<'_>, body: FunctionBody) -> ConstructorFlowAudit {
+    let mut result = ConstructorFlowAudit::default();
+    for i in 0..body.body(ast).len() {
+        let stmt = body.body(ast).get_node(ast, i).unwrap();
+        walk_stmt_for_flow(ast, stmt, &mut result);
+    }
+    result
 }
 
-impl<'ast> Visit<'ast> for ConstructorFlowAuditor<'_, 'ast> {
-    fn ast(&self) -> &Ast<'ast> {
-        self.ast
+/// Recursively walks a statement subtree looking for return/label,
+/// stopping at function/arrow boundaries.
+fn walk_stmt_for_flow(ast: &Ast<'_>, stmt: Stmt, result: &mut ConstructorFlowAudit) {
+    if stmt.is_return_statement(ast) {
+        result.has_return = true;
+        return;
     }
-
-    fn visit_function(&mut self, _node: Function) {}
-
-    fn visit_arrow_function_expression(
-        &mut self,
-        _node: swc_next_ecma_ast::ArrowFunctionExpression,
-    ) {
+    if let Some(labeled) = stmt.as_labeled_statement(ast) {
+        result.labels.push(labeled.label(ast).name(ast));
+        walk_stmt_for_flow(ast, labeled.body(ast), result);
+        return;
     }
-
-    fn visit_return_statement(&mut self, _node: swc_next_ecma_ast::ReturnStatement) {
-        self.result.has_return = true;
+    if let Some(block) = stmt.as_block_statement(ast) {
+        for i in 0..block.body(ast).len() {
+            walk_stmt_for_flow(ast, block.body(ast).get_node(ast, i).unwrap(), result);
+        }
+        return;
     }
-
-    fn visit_labeled_statement(&mut self, node: swc_next_ecma_ast::LabeledStatement) {
-        self.result.labels.push(node.label(self.ast).name(self.ast));
-        node.body(self.ast).visit_with(self);
+    if let Some(if_stmt) = stmt.as_if_statement(ast) {
+        walk_stmt_for_flow(ast, if_stmt.consequent(ast), result);
+        if let Some(alt) = if_stmt.alternate(ast) {
+            walk_stmt_for_flow(ast, alt, result);
+        }
+        return;
     }
-}
-
-fn audit_constructor_flow<'visit, 'ast, N>(ast: &'visit Ast<'ast>, node: N) -> ConstructorFlowAudit
-where
-    N: VisitWith<'ast, ConstructorFlowAuditor<'visit, 'ast>>,
-{
-    let mut auditor = ConstructorFlowAuditor {
-        ast,
-        result: ConstructorFlowAudit::default(),
-    };
-    node.visit_with(&mut auditor);
-    auditor.result
+    if let Some(switch) = stmt.as_switch_statement(ast) {
+        for i in 0..switch.cases(ast).len() {
+            let case = switch.cases(ast).get_node(ast, i).unwrap();
+            for j in 0..case.consequent(ast).len() {
+                walk_stmt_for_flow(ast, case.consequent(ast).get_node(ast, j).unwrap(), result);
+            }
+        }
+        return;
+    }
+    if let Some(try_stmt) = stmt.as_try_statement(ast) {
+        for i in 0..try_stmt.block(ast).body(ast).len() {
+            walk_stmt_for_flow(ast, try_stmt.block(ast).body(ast).get_node(ast, i).unwrap(), result);
+        }
+        if let Some(handler) = try_stmt.handler(ast) {
+            for i in 0..handler.body(ast).body(ast).len() {
+                walk_stmt_for_flow(ast, handler.body(ast).body(ast).get_node(ast, i).unwrap(), result);
+            }
+        }
+        if let Some(finalizer) = try_stmt.finalizer(ast) {
+            for i in 0..finalizer.body(ast).len() {
+                walk_stmt_for_flow(ast, finalizer.body(ast).get_node(ast, i).unwrap(), result);
+            }
+        }
+        return;
+    }
+    // Loop bodies
+    if let Some(while_stmt) = stmt.as_while_statement(ast) {
+        walk_stmt_for_flow(ast, while_stmt.body(ast), result);
+        return;
+    }
+    if let Some(do_while) = stmt.as_do_while_statement(ast) {
+        walk_stmt_for_flow(ast, do_while.body(ast), result);
+        return;
+    }
+    if let Some(for_stmt) = stmt.as_for_statement(ast) {
+        walk_stmt_for_flow(ast, for_stmt.body(ast), result);
+        return;
+    }
+    if let Some(for_in) = stmt.as_for_in_statement(ast) {
+        walk_stmt_for_flow(ast, for_in.body(ast), result);
+        return;
+    }
+    if let Some(for_of) = stmt.as_for_of_statement(ast) {
+        walk_stmt_for_flow(ast, for_of.body(ast), result);
+        return;
+    }
+    if let Some(with_stmt) = stmt.as_with_statement(ast) {
+        walk_stmt_for_flow(ast, with_stmt.body(ast), result);
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -4419,7 +4466,11 @@ fn lower_explicit_derived_constructor_body(
             .collect();
         let statement_returns: Vec<_> = statements
             .iter()
-            .map(|statement| audit_constructor_flow(ast, *statement).has_return)
+            .map(|statement| {
+                let mut audit = ConstructorFlowAudit::default();
+                walk_stmt_for_flow(ast, *statement, &mut audit);
+                audit.has_return
+            })
             .collect();
         let mut rewriter = DerivedConstructorRewriter {
             ast,
