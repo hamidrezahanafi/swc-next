@@ -36,7 +36,7 @@ impl ES2020 {
         self.nullish_coalescing || self.export_namespace_from || self.optional_chaining
     }
 
-    pub(crate) fn transform_program(&self, node: Program, ctx: &mut TransformerCtx<'_, '_>) {
+    pub(crate) fn transform_program(&self, node: Program, ctx: &mut TransformerCtx<'_, '_, '_>) {
         if self.export_namespace_from {
             export_namespace_from::ExportNamespaceFrom::new().transform_program(node, ctx);
         }
@@ -45,7 +45,7 @@ impl ES2020 {
     pub(crate) fn exit_logical_expression(
         &mut self,
         node: LogicalExpression,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.nullish_coalescing {
             nullish_coalescing::NullishCoalescing.exit_logical_expression(node, ctx);
@@ -55,22 +55,16 @@ impl ES2020 {
     pub(crate) fn exit_assignment_expression(
         &mut self,
         node: AssignmentExpression,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.nullish_coalescing {
             nullish_coalescing::NullishCoalescing.exit_assignment_expression(node, ctx);
         }
     }
 
-    pub(crate) fn exit_expression(
-        &mut self,
-        node: Expr,
-        ctx: &mut TransformerCtx<'_, '_>,
-    ) -> Option<Expr> {
+    pub(crate) fn exit_expression(&mut self, node: Expr, ctx: &mut TransformerCtx<'_, '_, '_>) {
         if self.optional_chaining {
-            optional_chaining::OptionalChaining::new().exit_expression(node, ctx)
-        } else {
-            None
+            optional_chaining::OptionalChaining::new().exit_expression(node, ctx);
         }
     }
 }

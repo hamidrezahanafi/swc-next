@@ -28,8 +28,8 @@
 //! 6. Assumptions: `noSymbol`, `setProperty`, `pureGetters`
 //! 7. Semantic: `FUNCTION_ENV_CAPTURE` for computed property access in destructuring
 
-use swc_next_ecma_ast::Program;
 use crate::state::TransformerCtx;
+use swc_next_ecma_ast::Program;
 
 pub(super) struct ObjectRestSpread;
 
@@ -41,7 +41,7 @@ impl ObjectRestSpread {
     pub fn transform_program<'a>(
         &mut self,
         _program: Program,
-        _ctx: &mut TransformerCtx<'_, 'a>,
+        _ctx: &mut TransformerCtx<'_, '_, 'a>,
     ) {
         // TODO: Implement when helper infrastructure is available.
     }

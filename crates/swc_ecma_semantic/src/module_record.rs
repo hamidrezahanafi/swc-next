@@ -6,7 +6,7 @@ use swc_next_ecma_ast::{
     ExportSpecifier, ImportOrExportKind, NodeId, NodeKindData, ReferenceId, SymbolId,
 };
 
-use crate::{Declaration, DeclarationId};
+use crate::{Declaration, DeclarationId, NamespaceReexportReplacement};
 
 /// The ECMAScript export occurrences of a source text module, in source
 /// order. TypeScript's CommonJS-style `export =` and UMD
@@ -24,6 +24,86 @@ impl ModuleRecord<'_> {
     /// Every export occurrence in source order.
     pub fn exports(&self) -> &[ExportEntry] {
         &self.exports
+    }
+
+    pub(crate) fn retarget_default_local(
+        &mut self,
+        statement: NodeId,
+        symbol: SymbolId,
+        declaration: DeclarationId,
+    ) -> bool {
+        let Some(entry) = self.exports.iter_mut().find(|entry| {
+            entry.statement == statement && entry.origin == ExportOrigin::DefaultDeclaration
+        }) else {
+            return false;
+        };
+        entry.target = ExportTarget::Local {
+            symbol,
+            declaration: Some(declaration),
+            reference: None,
+        };
+        true
+    }
+
+    pub(crate) fn retarget_node(&mut self, old: NodeId, new: NodeId) {
+        fn replace(node: &mut NodeId, old: NodeId, new: NodeId) {
+            if *node == old {
+                *node = new;
+            }
+        }
+
+        fn retarget_name(name: &mut ModuleName, old: NodeId, new: NodeId) {
+            replace(&mut name.node, old, new);
+        }
+
+        for entry in &mut self.exports {
+            replace(&mut entry.node, old, new);
+            replace(&mut entry.statement, old, new);
+            if let Some(exported) = &mut entry.exported {
+                match exported {
+                    ExportName::Named(name) => retarget_name(name, old, new),
+                    ExportName::Default { node } => replace(node, old, new),
+                }
+            }
+            match &mut entry.target {
+                ExportTarget::Local { .. } => {}
+                ExportTarget::External { source, imported } => {
+                    retarget_name(source, old, new);
+                    if let ExternalExportName::Named(name) = imported {
+                        retarget_name(name, old, new);
+                    }
+                }
+                ExportTarget::AnonymousDeclaration { node }
+                | ExportTarget::Expression { node, .. } => replace(node, old, new),
+                ExportTarget::UnresolvedLocal { name, .. } => retarget_name(name, old, new),
+            }
+        }
+    }
+
+    pub(crate) fn replace_namespace_reexport(
+        &mut self,
+        tree: &Ast,
+        replacement: NamespaceReexportReplacement,
+    ) -> bool {
+        let Some(entry) = self.exports.iter_mut().find(|entry| {
+            entry.statement == replacement.old_statement
+                && entry.origin == ExportOrigin::NamespaceReExport
+        }) else {
+            return false;
+        };
+        *entry = ExportEntry {
+            node: replacement.specifier,
+            statement: replacement.statement,
+            exported: Some(ExportName::Named(module_name(tree, replacement.exported))),
+            origin: ExportOrigin::LocalSpecifier,
+            target: ExportTarget::Local {
+                symbol: replacement.symbol,
+                declaration: None,
+                reference: Some(replacement.reference),
+            },
+            type_only: false,
+        };
+        true
     }
 }
 

@@ -11,7 +11,8 @@ use swc_next_ecma_ast::{
 };
 
 use crate::{
-    DeclarationId, ScopeMap, Semantic, SemanticFeatureFlags, UsedNameMap, UsedNameState,
+    DeclarationId, ScopeMap, Semantic, SemanticFeatureFlags, SemanticNodeState, UsedNameMap,
+    UsedNameState,
     module_record::ModuleRecordBuilder,
     scope::{self, ScopeKind, ScopeTracker, ScopeTree},
 };
@@ -434,7 +435,10 @@ impl ReferenceFlags {
         self.properties.contains(ReferenceProperties::DYNAMIC)
     }
 
-    pub(crate) fn with_space(mut self, space: ReferenceSpace) -> Self {
+    /// Returns these access flags in a different declaration namespace.
+    /// Structural transforms use this when generating alias positions such
+    /// as local export specifiers, which resolve across all declaration spaces.
+    pub fn with_space(mut self, space: ReferenceSpace) -> Self {
         self.space = space;
         if space.in_type_position() {
             self.properties = ReferenceProperties::empty();
@@ -442,22 +446,22 @@ impl ReferenceFlags {
         self
     }
 
-    pub(crate) fn write_only(mut self) -> Self {
+    pub fn write_only(mut self) -> Self {
         self.properties = ReferenceProperties::WRITE;
         self
     }
 
-    pub(crate) fn read_write(mut self) -> Self {
+    pub fn read_write(mut self) -> Self {
         self.properties = ReferenceProperties::READ | ReferenceProperties::WRITE;
         self
     }
 
-    pub(crate) fn no_access(mut self) -> Self {
+    pub fn no_access(mut self) -> Self {
         self.properties = ReferenceProperties::empty();
         self
     }
 
-    fn with_dynamic(mut self) -> Self {
+    pub fn dynamic(mut self) -> Self {
         self.properties.insert(ReferenceProperties::DYNAMIC);
         self
     }
@@ -1555,7 +1559,7 @@ impl<'a> SymbolTracker<'a> {
                     None
                 };
                 if target_with != Some(reference_with) {
-                    self.references[reference_index].flags = reference.flags.with_dynamic();
+                    self.references[reference_index].flags = reference.flags.dynamic();
                 }
             }
         }
@@ -1588,7 +1592,9 @@ impl<'a> SymbolTracker<'a> {
 
         let mut used_names = ArenaVec::new_in(self.allocator);
         let mut direct_symbol_names = ArenaVec::new_in(self.allocator);
-        if features.contains(SemanticFeatureFlags::FUNCTION_ENV_CAPTURE) {
+        if features.intersects(
+            SemanticFeatureFlags::FUNCTION_ENV_CAPTURE | SemanticFeatureFlags::GENERATED_NAMES,
+        ) {
             let scope_count = scopes.list.len();
             used_names.reserve(scope_count);
             direct_symbol_names.reserve(scope_count);
@@ -1629,8 +1635,22 @@ impl<'a> SymbolTracker<'a> {
             use_lists.push(list);
         }
 
-        let mut node_registered = ArenaVec::with_capacity_in(node_count, self.allocator);
-        node_registered.resize(node_count, true);
+        let root_node = scopes.get(ScopeId::ROOT).node;
+        let mut node_states = ArenaVec::with_capacity_in(node_count, self.allocator);
+        node_states.extend(node_parents.iter().enumerate().map(|(index, parent)| {
+            if NodeId::from_usize(index) == root_node || parent.is_some() {
+                SemanticNodeState::Active
+            } else {
+                SemanticNodeState::Unregistered
+            }
+        }));
+        let mut symbol_active = ArenaVec::with_capacity_in(symbol_count, self.allocator);
+        symbol_active.resize(symbol_count, true);
+        let mut reference_active =
+            ArenaVec::with_capacity_in(self.references.len(), self.allocator);
+        reference_active.resize(self.references.len(), true);
+        let mut declaration_active = ArenaVec::with_capacity_in(declarations.len(), self.allocator);
+        declaration_active.resize(declarations.len(), true);
 
         let module_record = module_record.finalize(
             &declarations,
@@ -1639,11 +1659,22 @@ impl<'a> SymbolTracker<'a> {
             &node_references,
         );
 
+        let mut node_children = vec![Vec::new(); node_parents.len()];
+        for (index, parent) in node_parents.iter().copied().enumerate() {
+            if let Some(parent) = parent {
+                node_children[parent.index()].push(NodeId::from_usize(index));
+            }
+        }
+
         Semantic {
+            mutation_epoch: 0,
             scopes,
             symbols: self.symbols,
+            symbol_active,
             references: self.references,
+            reference_active,
             declarations,
+            declaration_active,
             declaration_lists,
             module_record,
             use_lists,
@@ -1651,7 +1682,8 @@ impl<'a> SymbolTracker<'a> {
             hoisting_variables: self.hoisting_variables,
             node_scopes,
             node_parents,
-            node_registered,
+            node_children,
+            node_states,
             node_declarations,
             node_references,
             features,
@@ -1663,7 +1695,11 @@ impl<'a> SymbolTracker<'a> {
 }
 
 pub(crate) fn observe_used_name(tree: &Ast<'_>, names: &mut UsedNameMap<'_>, name: AstStr) {
-    names.entry(name).or_default().bare_used = true;
+    let state = names.entry(name).or_default();
+    state.occupancy_count = state
+        .occupancy_count
+        .checked_add(1)
+        .expect("name occupancy count overflow");
 
     let text = tree.get_ast_str_bytes(name);
     let digit_start = text
@@ -1683,10 +1719,45 @@ pub(crate) fn observe_used_name(tree: &Ast<'_>, names: &mut UsedNameMap<'_>, nam
     };
     let base = tree.canonicalize_ast_str_prefix(name, digit_start);
     let state = names.entry(base).or_insert(UsedNameState {
-        bare_used: false,
+        occupancy_count: 0,
         next_suffix,
+        reserved: false,
     });
     state.next_suffix = state.next_suffix.max(next_suffix);
+}
+
+pub(crate) fn reserve_used_name(tree: &Ast<'_>, names: &mut UsedNameMap<'_>, name: AstStr) {
+    names.entry(name).or_default().reserved = true;
+
+    let text = tree.get_ast_str_bytes(name);
+    let digit_start = text
+        .iter()
+        .rposition(|byte| !byte.is_ascii_digit())
+        .map_or(0, |index| index + 1);
+    if digit_start == text.len() {
+        return;
+    }
+    let Some(suffix) = text[digit_start..].iter().try_fold(0u64, |value, digit| {
+        value.checked_mul(10)?.checked_add(u64::from(digit - b'0'))
+    }) else {
+        return;
+    };
+    let Some(next_suffix) = suffix.checked_add(1) else {
+        return;
+    };
+    let base = tree.canonicalize_ast_str_prefix(name, digit_start);
+    let state = names.entry(base).or_default();
+    state.next_suffix = state.next_suffix.max(next_suffix);
+}
+
+pub(crate) fn unobserve_used_name(names: &mut UsedNameMap<'_>, name: AstStr) {
+    let state = names
+        .get_mut(&name)
+        .expect("name occupancy index contains active name");
+    state.occupancy_count = state
+        .occupancy_count
+        .checked_sub(1)
+        .expect("name occupancy count underflow");
 }
 
 #[derive(Clone, Copy, Default)]

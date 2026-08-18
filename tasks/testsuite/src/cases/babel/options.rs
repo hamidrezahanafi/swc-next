@@ -85,7 +85,9 @@ impl From<BabelOptions> for TransformerOptions {
                 generator: plugins.generator,
                 shorthand_properties: plugins.shorthand_properties,
                 sticky_regex: plugins.sticky_regex,
+                ..ES2015Options::default()
             },
+            ..TransformerOptions::default()
         }
     }
 }

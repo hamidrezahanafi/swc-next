@@ -4,9 +4,12 @@ use swc_next_ecma_ast::{
     IdentifierReference, MethodDefinition, MethodDefinitionKind, Program, StaticBlock, Stmt,
     TypedSubRange, VisitMut, VisitMutWith,
 };
-use swc_next_ecma_semantic::Semantic;
+use swc_next_ecma_semantic::{Semantic, SymbolFlags};
 
-use crate::es2015::util::fn_env_hoister::FnEnvHoister;
+use crate::{
+    es2015::util::fn_env_hoister::FnEnvHoister,
+    mutation::{MutationTransaction, SymbolHandle},
+};
 
 #[derive(Debug, Default, Clone, Copy, Deserialize)]
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
@@ -30,12 +33,51 @@ impl ArrowFunctions {
         ast: &mut Ast<'a>,
         semantic: &mut Semantic<'a>,
     ) {
-        let mut visitor = ArrowVisitor::new(program, ast, semantic);
-        program.visit_mut_children_with(&mut visitor);
-        let frame = visitor.hoister.take_frame();
-        visitor
-            .hoister
-            .inject_into_program(program, frame, visitor.ast);
+        let root_scope = semantic.scope_of(program.node_id());
+        let mut tx = MutationTransaction::begin(ast, semantic, program.node_id())
+            .expect("arrow lowering requires synchronized AST and Semantic epochs");
+        let clone = tx.clone_detached(program);
+        let manifest = tx.build_detached_with_semantic(|ast, semantic| {
+            let cloned_program = clone.root;
+            let mut visitor = ArrowVisitor::new(ast, semantic, &clone, root_scope);
+            cloned_program.visit_mut_children_with(&mut visitor);
+            let frame = visitor.hoister.take_frame();
+            visitor
+                .hoister
+                .inject_into_program(cloned_program, frame, visitor.ast);
+            visitor.hoister.into_manifest()
+        });
+        for &(scope, name) in &manifest.reserved_names {
+            tx.reserve_generated_name_exact(scope, name);
+        }
+        let scope_layout = tx.replace_from_transformed_clone(program, clone, root_scope, &[]);
+        let mut symbols = Vec::with_capacity(manifest.bindings.len());
+        for binding in &manifest.bindings {
+            symbols.push(tx.declare(
+                binding.scope,
+                binding.declaration,
+                binding.name,
+                SymbolFlags::FUNCTION_SCOPED_VAR,
+            ));
+        }
+        for reference in &manifest.references {
+            let symbol = reference
+                .binding
+                .map(|binding| SymbolHandle::Pending(symbols[binding]));
+            tx.reference(
+                scope_layout.scope_of(reference.node),
+                reference.node,
+                reference.name,
+                reference.flags,
+                symbol,
+            );
+        }
+        for edit in &manifest.reference_edits {
+            tx.rename_reference(edit.reference, edit.name);
+            tx.rebind_reference(edit.reference, Some(symbols[edit.binding]));
+        }
+        tx.commit()
+            .expect("arrow lowering mutation must pass preflight");
     }
 }
 
@@ -48,13 +90,13 @@ struct ArrowVisitor<'visit, 'ast> {
 
 impl<'visit, 'ast> ArrowVisitor<'visit, 'ast> {
     fn new(
-        program: Program,
         ast: &'visit mut Ast<'ast>,
-        semantic: &'visit mut Semantic<'ast>,
+        semantic: &'visit Semantic<'ast>,
+        clone: &'visit crate::mutation::DetachedClone<Program>,
+        scope: swc_next_ecma_ast::ScopeId,
     ) -> Self {
-        let scope = semantic.scope_of(program.node_id());
         let scope = semantic.scope(scope).hoist_target;
-        let hoister = FnEnvHoister::new(semantic, scope);
+        let hoister = FnEnvHoister::new(semantic, clone, scope);
         Self {
             ast,
             hoister,
@@ -112,11 +154,27 @@ impl<'ast> VisitMut<'ast> for ArrowVisitor<'_, 'ast> {
 
     fn visit_mut_expr(&mut self, node: Expr) -> Option<Expr> {
         if let Some(arrow) = node.as_arrow_function_expression(self.ast) {
-            Some(Expr::Function(self.convert_arrow(arrow)))
+            let function = self.convert_arrow(arrow);
+            unsafe {
+                self.ast.replace_data(arrow, function);
+            }
+            None
         } else if let Some(this) = node.as_this_expression(self.ast) {
-            Some(self.hoister.transform_this_expression(this, self.ast))
+            let replacement = self.hoister.transform_this_expression(this, self.ast);
+            if let Some(replacement) = replacement.as_identifier_reference(self.ast) {
+                unsafe {
+                    self.ast.replace_data(this, replacement);
+                }
+            }
+            None
         } else if let Some(meta) = node.as_meta_property(self.ast) {
-            Some(self.hoister.transform_meta_property(meta, self.ast))
+            let replacement = self.hoister.transform_meta_property(meta, self.ast);
+            if let Some(replacement) = replacement.as_identifier_reference(self.ast) {
+                unsafe {
+                    self.ast.replace_data(meta, replacement);
+                }
+            }
+            None
         } else {
             node.visit_mut_children_with(self)
         }
@@ -183,5 +241,65 @@ impl<'ast> VisitMut<'ast> for ArrowVisitor<'_, 'ast> {
         self.hoister.inject_into_static_block(node, frame, self.ast);
         self.hoister.set_in_arrow(old_in_arrow);
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use swc_next_allocator::Allocator;
+    use swc_next_ecma_ast::Ast;
+    use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
+    use swc_next_ecma_semantic::{AnalyzeOptions, analyze};
+
+    use crate::{
+        Transformer, TransformerOptions,
+        mutation::{assert_semantic_matches_reanalysis, verify_program},
+    };
+
+    fn lower_and_assert(source: &str) {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new(source, &allocator);
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let mut options = TransformerOptions::default();
+        options.es2015.arrow_functions = Some(super::ArrowFunctionsOptions::default());
+        let mut semantic = analyze(
+            parse.program,
+            &ast,
+            AnalyzeOptions {
+                features: options.semantic_features(),
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+
+        Transformer::transform(parse.program, &mut ast, &mut semantic, options);
+
+        verify_program(parse.program, &ast, &semantic).unwrap();
+        assert_semantic_matches_reanalysis(parse.program, &ast, &semantic);
+    }
+
+    #[test]
+    fn lowers_expression_arrow_with_consistent_semantics() {
+        lower_and_assert("const arrow = value => value;");
+    }
+
+    #[test]
+    fn lowers_arrow_environment_captures_with_consistent_semantics() {
+        lower_and_assert(
+            "function outer(value) { return () => this.value + arguments[0] + new.target; }",
+        );
+    }
+
+    #[test]
+    fn lowers_nested_arrows_with_consistent_semantics() {
+        lower_and_assert("function outer(value) { return () => () => value + this.value; }");
+    }
+
+    #[test]
+    fn lowers_derived_constructor_arrow_with_consistent_semantics() {
+        lower_and_assert(
+            "class Derived extends Base { constructor() { const get = () => this; super(); return get(); } }",
+        );
     }
 }

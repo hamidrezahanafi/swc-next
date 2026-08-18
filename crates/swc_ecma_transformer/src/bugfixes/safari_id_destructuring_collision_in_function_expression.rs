@@ -25,8 +25,8 @@
 //! 4. Use `semantic.rename_symbol()` to rename the colliding binding
 //! 5. All references to the renamed symbol are automatically updated
 
-use swc_next_ecma_ast::Program;
 use crate::state::TransformerCtx;
+use swc_next_ecma_ast::Program;
 
 pub(super) struct SafariIdDestructuring;
 
@@ -38,7 +38,7 @@ impl SafariIdDestructuring {
     pub fn transform_program<'a>(
         &mut self,
         _program: Program,
-        _ctx: &mut TransformerCtx<'_, 'a>,
+        _ctx: &mut TransformerCtx<'_, '_, 'a>,
     ) {
         // TODO: Implement when VisitMut has access to SyntaxContext/semantic renames.
     }

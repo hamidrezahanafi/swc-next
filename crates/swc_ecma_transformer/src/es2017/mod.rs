@@ -29,7 +29,7 @@ impl ES2017 {
     pub(crate) fn transform_program<'a>(
         &mut self,
         node: swc_next_ecma_ast::Program,
-        ctx: &mut TransformerCtx<'_, 'a>,
+        ctx: &mut TransformerCtx<'_, '_, 'a>,
     ) {
         if let Some(transformer) = &mut self.transformer {
             transformer.transform(node, ctx);

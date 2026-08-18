@@ -46,7 +46,7 @@ impl AsyncToGenerator {
     pub fn transform<'a>(
         &mut self,
         program: swc_next_ecma_ast::Program,
-        ctx: &mut TransformerCtx<'_, 'a>,
+        ctx: &mut TransformerCtx<'_, '_, 'a>,
     ) {
         let helper_name = ctx.ast.add_utf8("_asyncToGenerator");
         self.helper_name = Some(helper_name);
@@ -109,7 +109,9 @@ impl<'ast> VisitMut<'ast> for AsyncToGeneratorVisitor<'_, 'ast> {
         let return_stmt = self.ast.stmt_return_statement(DUMMY_SP, Some(result));
         let empty_directives = self.ast.add_typed_sub_range(Vec::new());
         let body_stmts = self.ast.add_typed_sub_range(vec![return_stmt]);
-        let new_body = self.ast.function_body(DUMMY_SP, empty_directives, body_stmts);
+        let new_body = self
+            .ast
+            .function_body(DUMMY_SP, empty_directives, body_stmts);
 
         let id = node.id(self.ast);
         let type_params = node.type_parameters(self.ast);
@@ -202,7 +204,9 @@ impl<'ast> VisitMut<'ast> for AsyncToGeneratorVisitor<'_, 'ast> {
             let return_stmt = self.ast.stmt_return_statement(DUMMY_SP, Some(result));
             let block_body = self.ast.add_typed_sub_range(vec![return_stmt]);
             let empty_directives = self.ast.add_typed_sub_range(Vec::new());
-            let fb = self.ast.function_body(DUMMY_SP, empty_directives, block_body);
+            let fb = self
+                .ast
+                .function_body(DUMMY_SP, empty_directives, block_body);
             ArrowFunctionBody::FunctionBody(fb)
         } else {
             ArrowFunctionBody::Expr(result)
@@ -272,14 +276,18 @@ impl AsyncToGeneratorVisitor<'_, '_> {
         fn_state: &FnState,
         body_stmts: swc_next_ecma_ast::TypedSubRange<swc_next_ecma_ast::Stmt>,
     ) -> Expr {
-        let helper = self.ast.expr_identifier_reference(DUMMY_SP, self.helper_name);
+        let helper = self
+            .ast
+            .expr_identifier_reference(DUMMY_SP, self.helper_name);
 
         // Pre-compute temporaries to avoid borrow conflicts
         let empty_directives = self.ast.add_typed_sub_range(Vec::new());
         let empty_params = self.ast.add_typed_sub_range(Vec::new());
 
         // Create the inner generator function
-        let inner_fn_body = self.ast.function_body(DUMMY_SP, empty_directives, body_stmts);
+        let inner_fn_body = self
+            .ast
+            .function_body(DUMMY_SP, empty_directives, body_stmts);
         let inner_fn_params = self.ast.formal_parameters(
             DUMMY_SP,
             empty_params,
@@ -299,18 +307,20 @@ impl AsyncToGeneratorVisitor<'_, '_> {
         );
 
         // _asyncToGenerator(function*() { ... })
-        let call_args =
-            self.ast
-                .add_typed_sub_range(vec![swc_next_ecma_ast::Argument::Expr(inner_fn)]);
-        let call_expr = self.ast.expr_call_expression(DUMMY_SP, helper, call_args, false, None);
+        let call_args = self
+            .ast
+            .add_typed_sub_range(vec![swc_next_ecma_ast::Argument::Expr(inner_fn)]);
+        let call_expr = self
+            .ast
+            .expr_call_expression(DUMMY_SP, helper, call_args, false, None);
 
         if fn_state.use_arguments {
             // .apply(this, arguments)
             let apply_name = self.ast.add_utf8("apply");
             let apply_key = self.ast.property_key_identifier_name(DUMMY_SP, apply_name);
-            let member =
-                self.ast
-                    .expr_member_expression(DUMMY_SP, call_expr, apply_key, false, false);
+            let member = self
+                .ast
+                .expr_member_expression(DUMMY_SP, call_expr, apply_key, false, false);
             let this_expr = self.ast.expr_this_expression(DUMMY_SP);
             let arguments_name = self.ast.add_utf8("arguments");
             let arguments_ref = self.ast.expr_identifier_reference(DUMMY_SP, arguments_name);
@@ -318,19 +328,21 @@ impl AsyncToGeneratorVisitor<'_, '_> {
                 swc_next_ecma_ast::Argument::Expr(this_expr),
                 swc_next_ecma_ast::Argument::Expr(arguments_ref),
             ]);
-            self.ast.expr_call_expression(DUMMY_SP, member, apply_args, false, None)
+            self.ast
+                .expr_call_expression(DUMMY_SP, member, apply_args, false, None)
         } else if fn_state.use_this && !fn_state.in_constructor {
             // .call(this)
             let call_name = self.ast.add_utf8("call");
             let call_key = self.ast.property_key_identifier_name(DUMMY_SP, call_name);
-            let member =
-                self.ast
-                    .expr_member_expression(DUMMY_SP, call_expr, call_key, false, false);
+            let member = self
+                .ast
+                .expr_member_expression(DUMMY_SP, call_expr, call_key, false, false);
             let this_expr = self.ast.expr_this_expression(DUMMY_SP);
-            let call_args = self.ast.add_typed_sub_range(vec![
-                swc_next_ecma_ast::Argument::Expr(this_expr),
-            ]);
-            self.ast.expr_call_expression(DUMMY_SP, member, call_args, false, None)
+            let call_args = self
+                .ast
+                .add_typed_sub_range(vec![swc_next_ecma_ast::Argument::Expr(this_expr)]);
+            self.ast
+                .expr_call_expression(DUMMY_SP, member, call_args, false, None)
         } else {
             // () — just call
             call_expr

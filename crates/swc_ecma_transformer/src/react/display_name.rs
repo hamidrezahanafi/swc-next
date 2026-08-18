@@ -12,13 +12,15 @@
 //! - `{ foo: React.createClass({...}) }` (object properties)
 //! - `export default createReactClass({...})` (default exports)
 
+use std::collections::HashSet;
+
 use swc_next_ecma_ast::{
-    Ast, AstUtf8, DUMMY_SP, Expr, NodeKind, VisitMut, VisitMutWith, AssignmentExpression,
-    AssignmentOperator, AssignmentTarget, ExportDefaultDeclaration, ObjectProperty,
-    ObjectPropertyKind, PropertyKey, PropertyKind, VariableDeclarator,
+    AssignmentExpression, AssignmentOperator, AssignmentTarget, Ast, AstUtf8, DUMMY_SP,
+    ExportDefaultDeclaration, Expr, NodeId, NodeKind, ObjectExpression, ObjectProperty,
+    ObjectPropertyKind, PropertyKey, PropertyKind, VariableDeclarator, Visit, VisitWith,
 };
 
-use crate::state::TransformerCtx;
+use crate::state::{TransformerCtx, TransformerCtxExt};
 
 pub(super) struct DisplayName;
 
@@ -30,78 +32,85 @@ impl DisplayName {
     pub fn transform_program<'a>(
         &mut self,
         program: swc_next_ecma_ast::Program,
-        ctx: &mut TransformerCtx<'_, 'a>,
+        ctx: &mut TransformerCtx<'_, '_, 'a>,
     ) {
-        let mut visitor = DisplayNameVisitor { ast: ctx.ast };
-        program.visit_mut_children_with(&mut visitor);
+        let mut collector = DisplayNameCollector {
+            ast: &*ctx.ast,
+            targets: Vec::new(),
+            seen: HashSet::new(),
+        };
+        program.visit_children_with(&mut collector);
+
+        for (object, name) in collector.targets {
+            let scope = ctx.semantic().scope_of(object.node_id());
+            ctx.transaction(object.node_id(), |tx| {
+                let clone = tx.clone_detached(object);
+                tx.build_detached(|ast| append_display_name(ast, clone.root, &name));
+                tx.replace_from_transformed_clone(object, clone, scope, &[]);
+            })
+            .expect("display-name mutation must pass preflight");
+        }
     }
 }
 
-struct DisplayNameVisitor<'visit, 'ast> {
-    ast: &'visit mut Ast<'ast>,
+struct DisplayNameCollector<'visit, 'ast> {
+    ast: &'visit Ast<'ast>,
+    targets: Vec<(ObjectExpression, String)>,
+    seen: HashSet<NodeId>,
 }
 
-impl<'ast> VisitMut<'ast> for DisplayNameVisitor<'_, 'ast> {
-    fn ast(&mut self) -> &mut Ast<'ast> {
+impl DisplayNameCollector<'_, '_> {
+    fn collect(&mut self, expression: Expr, name: String) {
+        let Some(object) = display_name_target(self.ast, expression) else {
+            return;
+        };
+        if self.seen.insert(object.node_id()) {
+            self.targets.push((object, name));
+        }
+    }
+}
+
+impl<'ast> Visit<'ast> for DisplayNameCollector<'_, 'ast> {
+    fn ast(&self) -> &Ast<'ast> {
         self.ast
     }
 
-    fn visit_mut_object_property(
-        &mut self,
-        node: ObjectProperty,
-    ) -> Option<ObjectProperty> {
-        let node = node.visit_mut_children_with(self).unwrap_or(node);
+    fn visit_object_property(&mut self, node: ObjectProperty) {
+        node.visit_children_with(self);
         let value = node.value(self.ast);
         if let Some(name) = key_to_utf8(self.ast, node.key(self.ast)) {
-            inject_display_name(self.ast, value, name);
+            self.collect(value, self.ast.get_utf8(name).to_owned());
         }
-        Some(node)
     }
 
-    fn visit_mut_variable_declarator(
-        &mut self,
-        node: VariableDeclarator,
-    ) -> Option<VariableDeclarator> {
-        let node = node.visit_mut_children_with(self).unwrap_or(node);
+    fn visit_variable_declarator(&mut self, node: VariableDeclarator) {
+        node.visit_children_with(self);
         if let Some(init) = node.init(self.ast) {
             let id = node.id(self.ast);
             if id.is_binding_identifier(self.ast) {
-                let name = id
-                    .as_binding_identifier(self.ast)
-                    .unwrap()
-                    .name(self.ast);
-                inject_display_name(self.ast, init, name);
+                let name = id.as_binding_identifier(self.ast).unwrap().name(self.ast);
+                self.collect(init, self.ast.get_utf8(name).to_owned());
             }
         }
-        Some(node)
     }
 
-    fn visit_mut_export_default_declaration(
-        &mut self,
-        node: ExportDefaultDeclaration,
-    ) -> Option<ExportDefaultDeclaration> {
-        let node = node.visit_mut_children_with(self).unwrap_or(node);
+    fn visit_export_default_declaration(&mut self, node: ExportDefaultDeclaration) {
+        node.visit_children_with(self);
         let decl = node.declaration(self.ast);
         if let Some(expr) = decl.as_expr(self.ast) {
-            let name = self.ast.add_utf8("input");
-            inject_display_name(self.ast, expr, name);
+            self.collect(expr, "input".to_owned());
         }
-        Some(node)
     }
 
-    fn visit_mut_assignment_expression(
-        &mut self,
-        node: AssignmentExpression,
-    ) -> Option<AssignmentExpression> {
-        let node = node.visit_mut_children_with(self).unwrap_or(node);
+    fn visit_assignment_expression(&mut self, node: AssignmentExpression) {
+        node.visit_children_with(self);
         if node.operator(self.ast) == AssignmentOperator::Assign {
             let right = node.right(self.ast);
             let left = node.left(self.ast);
             if let Some(name) = assign_target_to_utf8(self.ast, left) {
-                inject_display_name(self.ast, right, name);
+                self.collect(right, self.ast.get_utf8(name).to_owned());
             }
         }
-        Some(node)
     }
 }
 
@@ -199,48 +208,42 @@ fn prop_has_display_name(ast: &Ast, prop: ObjectPropertyKind) -> bool {
     is_display_name_key(ast, obj.key(ast))
 }
 
-/// Add `displayName: "name"` to the first argument of a createClass call.
-fn inject_display_name(ast: &mut Ast, expr: Expr, name: AstUtf8) {
+fn display_name_target(ast: &Ast, expr: Expr) -> Option<ObjectExpression> {
     if !is_create_class_call(ast, expr) {
-        return;
+        return None;
     }
 
     let call = expr.as_call_expression(ast).unwrap();
     let args = call.arguments(ast);
 
     // Get the first argument (the object literal)
-    let first_arg = match args.get(0).and_then(|id| id.get_node(ast)) {
-        Some(arg) => arg,
-        None => return,
-    };
-    let obj = match first_arg.as_object_expression(ast) {
-        Some(obj) => obj,
-        None => return,
-    };
+    let first_arg = args.get_node(ast, 0)?;
+    let obj = first_arg
+        .as_expr(ast)
+        .and_then(|expr| expr.as_object_expression(ast))?;
 
     // Check if displayName already exists
     let props = obj.properties(ast);
-    let mut new_props: Vec<ObjectPropertyKind> = Vec::new();
-    let mut has_display_name = false;
     for i in 0..props.len() {
         let prop = props.get_node(ast, i).unwrap();
         if prop_has_display_name(ast, prop) {
-            has_display_name = true;
+            return None;
         }
-        new_props.push(prop);
     }
+    Some(obj)
+}
 
-    if has_display_name {
-        return;
-    }
+/// Add `displayName: "name"` to a detached createClass configuration object.
+fn append_display_name(ast: &mut Ast, obj: ObjectExpression, name: &str) {
+    let props = obj.properties(ast);
+    let mut new_props: Vec<ObjectPropertyKind> = (0..props.len())
+        .map(|index| props.get_node(ast, index).unwrap())
+        .collect();
 
     // Create displayName: "name" property
-    let display_name_key = ast.property_key_identifier_name(
-        DUMMY_SP,
-        ast.add_utf8("displayName"),
-    );
-    let name_str = ast.get_utf8(name).to_owned();
-    let value = ast.add_wtf8((&*name_str).into());
+    let display_name = ast.add_utf8("displayName");
+    let display_name_key = ast.property_key_identifier_name(DUMMY_SP, display_name);
+    let value = ast.add_wtf8(name.into());
     let display_name_value = ast.expr_string_literal(DUMMY_SP, value, ast.empty_utf8());
     let new_prop = ast.object_property_kind_object_property(
         DUMMY_SP,
@@ -255,4 +258,87 @@ fn inject_display_name(ast: &mut Ast, expr: Expr, name: AstUtf8) {
 
     let new_range = ast.add_typed_sub_range(new_props);
     obj.set_properties(ast, new_range);
+}
+
+#[cfg(test)]
+mod tests {
+    use swc_next_allocator::Allocator;
+    use swc_next_ecma_ast::{Ast, ObjectExpression, Visit, VisitWith};
+    use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
+    use swc_next_ecma_semantic::{AnalyzeOptions, analyze};
+
+    use super::is_display_name_key;
+    use crate::{
+        Transformer, TransformerOptions,
+        mutation::{assert_semantic_matches_reanalysis, verify_program},
+    };
+
+    struct ObjectCollector<'visit, 'ast> {
+        ast: &'visit Ast<'ast>,
+        objects: Vec<ObjectExpression>,
+    }
+
+    impl<'ast> Visit<'ast> for ObjectCollector<'_, 'ast> {
+        fn ast(&self) -> &Ast<'ast> {
+            self.ast
+        }
+
+        fn visit_object_expression(&mut self, node: ObjectExpression) {
+            node.visit_children_with(self);
+            self.objects.push(node);
+        }
+    }
+
+    #[test]
+    fn nested_create_class_objects_are_published_postorder() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new(
+            "var Foo = React.createClass({ child: React.createClass({}) });",
+            &allocator,
+        );
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let mut options = TransformerOptions::default();
+        options.react.display_name = true;
+        let mut semantic = analyze(
+            parse.program,
+            &ast,
+            AnalyzeOptions {
+                features: options.semantic_features(),
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+
+        Transformer::transform(parse.program, &mut ast, &mut semantic, options);
+
+        let mut collector = ObjectCollector {
+            ast: &ast,
+            objects: Vec::new(),
+        };
+        parse.program.visit_children_with(&mut collector);
+        let display_names: Vec<_> = collector
+            .objects
+            .into_iter()
+            .map(|object| {
+                object
+                    .properties(&ast)
+                    .iter()
+                    .map(|property| ast.get_node_in_sub_range(property))
+                    .find_map(|property| {
+                        let property = property.as_object_property(&ast)?;
+                        is_display_name_key(&ast, property.key(&ast)).then(|| {
+                            let value = property.value(&ast).as_string_literal(&ast).unwrap();
+                            ast.get_wtf8(value.value(&ast))
+                                .to_string_lossy()
+                                .into_owned()
+                        })
+                    })
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(display_names, ["child", "Foo"]);
+        verify_program(parse.program, &ast, &semantic).unwrap();
+        assert_semantic_matches_reanalysis(parse.program, &ast, &semantic);
+    }
 }

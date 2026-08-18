@@ -604,6 +604,7 @@ impl From<MethodDefinitionKind> for PropertyOrMethodKind {
 pub struct Parser<'parser, 'a, C: ParserConfig = NoTokenParserConfig> {
     ast: &'parser mut Ast<'a>,
     source: &'a str,
+    generated_source: bool,
     source_type: SourceType,
     /// Whether the source contains syntax which is only valid in a module.
     has_module_syntax: bool,
@@ -734,8 +735,35 @@ fn estimate_ast_capacity(source_len: usize) -> (usize, usize) {
 impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     pub fn init(ast: &'parser mut Ast<'a>, options: Options, config: C) -> Self {
         let source = ast.source();
+        Self::init_with_source(ast, source, false, options, config)
+    }
+
+    /// Parses generated source directly into an existing AST's detached
+    /// storage. Strings are interned into the AST string pool instead of
+    /// being interpreted as slices of the original user source.
+    ///
+    /// Callers must attach the returned tree through a semantic-aware
+    /// mutation. Parsing alone does not change the attached program.
+    pub fn init_generated(
+        ast: &'parser mut Ast<'a>,
+        source: &'a str,
+        options: Options,
+        config: C,
+    ) -> Self {
+        Self::init_with_source(ast, source, true, options, config)
+    }
+
+    fn init_with_source(
+        ast: &'parser mut Ast<'a>,
+        source: &'a str,
+        generated_source: bool,
+        options: Options,
+        config: C,
+    ) -> Self {
         assert!(source.len() <= u32::MAX as usize);
-        ast.set_source_metadata(options.source_type, options.lang);
+        if !generated_source {
+            ast.set_source_metadata(options.source_type, options.lang);
+        }
         let allow_html_like_comments = options.source_type != SourceType::Module;
         let lexer = Lexer::init(
             ast.allocator(),
@@ -748,6 +776,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         Self {
             ast,
             source,
+            generated_source,
             source_type: options.source_type,
             has_module_syntax: false,
             lang: options.lang,
@@ -773,6 +802,25 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         }
     }
 
+    #[inline]
+    fn source_utf8(&mut self, start: u32, end: u32) -> AstUtf8 {
+        if self.generated_source {
+            self.ast
+                .add_utf8(&self.source[start as usize..end as usize])
+        } else {
+            self.ast.source_slice(start, end)
+        }
+    }
+
+    #[inline]
+    fn source_wtf8(&mut self, start: u32, end: u32) -> AstWtf8 {
+        if self.generated_source {
+            self.source_utf8(start, end).into()
+        } else {
+            self.ast.source_slice_wtf8(start, end)
+        }
+    }
+
     pub fn parse(mut self) -> ParseReturn<'a> {
         self.context = self.source_type.into();
         self.context.r#return |= self.allow_return_outside_function;
@@ -785,7 +833,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         let hashbang = self.lexer.hashbang.map(|hashbang| {
             let start = hashbang.start;
             let end = start + u32::from(hashbang.len);
-            let value = self.ast.source_slice(start, end);
+            let value = self.source_utf8(start, end);
             self.ast.hashbang(Span::new(0, end), value)
         });
         if self.source_type == SourceType::Unambiguous {
@@ -794,7 +842,9 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             } else {
                 SourceType::Script
             };
-            self.ast.set_source_metadata(self.source_type, self.lang);
+            if !self.generated_source {
+                self.ast.set_source_metadata(self.source_type, self.lang);
+            }
         }
         let program = self.ast.program(
             Span::new(0, end),
@@ -807,7 +857,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             strip_parenthesized_nodes(self.ast, &mut self.lexer.comments);
         }
 
-        if self.comment_mode == CommentMode::Attached {
+        if self.comment_mode == CommentMode::Attached && !self.generated_source {
             self.ast.set_attached_comments(self.lexer.comments);
         }
 
@@ -842,7 +892,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                     strip_parenthesized_nodes(self.ast, &mut self.lexer.comments);
                 }
 
-                if self.comment_mode == CommentMode::Attached {
+                if self.comment_mode == CommentMode::Attached && !self.generated_source {
                     self.ast.set_attached_comments(self.lexer.comments);
                 }
                 Ok(expr)
@@ -857,7 +907,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     #[inline]
     fn identifier_name(&mut self, token: Token) -> AstUtf8 {
         if token.tag != TokenTag::PrivateIdentifier && !token.is_escaped() {
-            return self.ast.source_slice(token.span.start, token.span.end);
+            return self.source_utf8(token.span.start, token.span.end);
         }
 
         self.identifier_name_slow(token)
@@ -871,7 +921,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             return self.decode_escaped_identifier(start, token.span.end);
         }
 
-        self.ast.source_slice(start, token.span.end)
+        self.source_utf8(start, token.span.end)
     }
 
     /// Returns the decoded string value without the surrounding quotes.
@@ -879,14 +929,13 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         if token.is_escaped() {
             return self.decode_escaped_string(token.span.start + 1, token.span.end - 1);
         }
-        self.ast
-            .source_slice_wtf8(token.span.start + 1, token.span.end - 1)
+        self.source_wtf8(token.span.start + 1, token.span.end - 1)
     }
 
     /// Returns the decoded content of a template quasi span.
     fn template_element_value(&mut self, token: Token, span: Span) -> AstWtf8 {
         if !token.is_escaped() {
-            return self.ast.source_slice_wtf8(span.start, span.end);
+            return self.source_wtf8(span.start, span.end);
         }
         self.decode_escaped_string(span.start, span.end)
     }
@@ -1694,7 +1743,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
     }
 
     fn parse_directive(&mut self, string_literal: StringLiteral, span: Span) -> Option<Directive> {
-        let raw_value = self.ast.source_slice(span.start + 1, span.end - 1);
+        let raw_value = self.source_utf8(span.start + 1, span.end - 1);
         let end = self.eat_semicolon(span.end)?;
         Some(
             self.ast
@@ -7458,13 +7507,13 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             TokenTag::BinaryLiteral => NumericLiteralKind::Binary,
             TokenTag::BigIntLiteral => {
                 self.advance()?;
-                let raw = self.ast.source_slice(token.span.start, token.span.end - 1);
+                let raw = self.source_utf8(token.span.start, token.span.end - 1);
                 return Some(self.ast.expr_big_int_literal(token.span, raw));
             }
             _ => unreachable!(),
         };
         self.advance()?;
-        let raw = self.ast.source_slice(token.span.start, token.span.end);
+        let raw = self.source_utf8(token.span.start, token.span.end);
         Some(self.ast.expr_numeric_literal(token.span, kind, raw))
     }
 
@@ -7480,7 +7529,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
         }
         self.advance()?;
         let value = self.string_value(token);
-        let raw = self.ast.source_slice(token.span.start, token.span.end);
+        let raw = self.source_utf8(token.span.start, token.span.end);
         Some(self.ast.string_literal(token.span, value, raw))
     }
 
@@ -7508,10 +7557,8 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
             self.lexer
                 .create_token(TokenTag::RegexLiteral, result.span.start, result.span.end);
         self.advance_with_rescanned_token(regex_token)?;
-        let pattern = self
-            .ast
-            .source_slice(result.pattern.start, result.pattern.end);
-        let flags = self.ast.source_slice(result.flags.start, result.flags.end);
+        let pattern = self.source_utf8(result.pattern.start, result.pattern.end);
+        let flags = self.source_utf8(result.flags.start, result.flags.end);
         Some(self.ast.expr_reg_exp_literal(result.span, pattern, flags))
     }
 
@@ -7612,7 +7659,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
 
     fn add_template_element(&mut self, token: Token, tail: bool, tagged: bool) -> TemplateElement {
         let span = self.get_template_element_span(token);
-        let raw = self.ast.source_slice(span.start, span.end);
+        let raw = self.source_utf8(span.start, span.end);
         let is_cooked_undefined = token.has_invalid_escape();
         if is_cooked_undefined && !tagged {
             self.report(
@@ -10264,7 +10311,7 @@ impl<'parser, 'a, C: ParserConfig> Parser<'parser, 'a, C> {
                 self.current_token = token;
                 match token.tag {
                     TokenTag::JsxText => {
-                        let value = self.ast.source_slice(token.span.start, token.span.end);
+                        let value = self.source_utf8(token.span.start, token.span.end);
                         let jsx_text = self.ast.jsx_child_jsx_text(token.span, value);
                         self.scratch_b.append(jsx_text);
                     }
@@ -11846,6 +11893,34 @@ mod tests {
             ast.expr_data(expr),
             swc_next_ecma_ast::ExprData::BinaryExpression(_)
         ));
+    }
+
+    #[test]
+    fn generated_source_interns_strings_without_replacing_user_metadata() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("const user = 1;", &allocator);
+        let result = Parser::init_generated(
+            &mut ast,
+            "function helper(value) { return value; }",
+            Options {
+                source_type: SourceType::Script,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+
+        assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+        let statement = result.program.body(&ast).get_node(&ast, 0).unwrap();
+        let function = statement
+            .as_declaration(&ast)
+            .and_then(|declaration| declaration.as_function(&ast))
+            .unwrap();
+        let binding = function.id(&ast).unwrap();
+        assert_eq!(ast.get_utf8(binding.name(&ast)), "helper");
+        assert_eq!(result.program.source_type(&ast), SourceType::Script);
+        assert_eq!(ast.source_type(), SourceType::Module);
+        assert_eq!(ast.source(), "const user = 1;");
     }
 
     #[test]

@@ -1,14 +1,13 @@
+use crate::state::TransformerCtx;
 use swc_next_ecma_ast::{
     ArrayExpression, AssignmentExpression, BinaryExpression, BlockStatement, CallExpression,
-    Expr, MetaProperty, NewExpression, ObjectExpression, ObjectProperty, Program, RegExpLiteral,
-    TraverseAction, UnaryExpression, VariableDeclarator,
+    ForOfStatement, MetaProperty, NewExpression, ObjectExpression, ObjectProperty, Program,
+    RegExpLiteral, UnaryExpression, VariableDeclarator,
 };
-use swc_next_ecma_semantic::Semantic;
-
-use crate::state::TransformerCtx;
 
 pub mod arrow;
 pub mod block_scoped_fn;
+mod classes;
 pub mod computed_props;
 pub mod duplicate_keys;
 pub mod for_of;
@@ -26,6 +25,7 @@ pub(crate) mod util;
 pub struct ES2015 {
     arrow: Option<arrow::ArrowFunctions>,
     block_scoped_fns: bool,
+    classes: bool,
     computed_props: bool,
     duplicate_keys: bool,
     for_of: bool,
@@ -46,6 +46,7 @@ pub struct ES2015 {
 pub struct ES2015Options {
     pub arrow_functions: Option<arrow::ArrowFunctionsOptions>,
     pub block_scoped_fns: bool,
+    pub classes: bool,
     pub computed_props: bool,
     pub duplicate_keys: bool,
     pub for_of: bool,
@@ -65,6 +66,7 @@ impl ES2015 {
         Self {
             arrow: options.arrow_functions.map(arrow::ArrowFunctions::new),
             block_scoped_fns: options.block_scoped_fns,
+            classes: options.classes,
             computed_props: options.computed_props,
             duplicate_keys: options.duplicate_keys,
             for_of: options.for_of,
@@ -98,39 +100,45 @@ impl ES2015 {
 impl ES2015 {
     pub(crate) fn needs_node_traversal(&self) -> bool {
         self.block_scoped_fns
+            || self.classes
             || self.computed_props
             || self.duplicate_keys
             || self.function_name
+            || self.for_of
             || self.instanceof
             || self.new_target
-            || self.object_super.is_some()
             || self.shorthand_properties
             || self.spread
             || self.sticky_regex
             || self.typeof_symbol
     }
 
-    pub(crate) fn transform<'a>(
-        &mut self,
-        node: Program,
-        semantic: &mut Semantic<'a>,
-        ctx: &mut TransformerCtx<'_, 'a>,
-    ) {
+    pub(crate) fn transform<'a>(&mut self, node: Program, ctx: &mut TransformerCtx<'_, '_, 'a>) {
         if let Some(arrow) = &mut self.arrow {
-            arrow.transform(node, ctx.ast, semantic);
+            arrow.transform(node, ctx.ast, ctx.state.semantic);
         }
         if self.generator {
-            generator::Generator.transform(ctx.ast, semantic);
+            generator::Generator.transform(ctx.ast, ctx.state.semantic);
         }
+        if let Some(object_super) = &mut self.object_super {
+            object_super.transform(node, ctx);
+        }
+    }
+
+    pub(crate) fn exit_for_of_statement(
+        &mut self,
+        node: ForOfStatement,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
+    ) {
         if self.for_of {
-            for_of::ForOf::new().transform(node, ctx.ast, semantic);
+            for_of::ForOf::new().exit_for_of_statement(node, ctx);
         }
     }
 
     pub(crate) fn exit_object_property(
         &mut self,
         node: ObjectProperty,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.function_name {
             function_name::FunctionName.exit_object_property(node, ctx);
@@ -140,20 +148,10 @@ impl ES2015 {
         }
     }
 
-    pub(crate) fn enter_object_expression(
-        &mut self,
-        node: ObjectExpression,
-        ctx: &mut TransformerCtx<'_, '_>,
-    ) {
-        if let Some(os) = &mut self.object_super {
-            os.enter_object_expression(node, ctx);
-        }
-    }
-
     pub(crate) fn exit_object_expression(
         &mut self,
         node: ObjectExpression,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.duplicate_keys {
             duplicate_keys::DuplicateKeys.exit_object_expression(node, ctx);
@@ -161,78 +159,60 @@ impl ES2015 {
         if self.computed_props {
             computed_props::ComputedProps.exit_object_expression(node, ctx);
         }
-        if let Some(os) = &mut self.object_super {
-            os.exit_object_expression(node, ctx);
-        }
     }
 
-    pub(crate) fn exit_expression(
-        &mut self,
-        node: Expr,
-        ctx: &mut TransformerCtx<'_, '_>,
-    ) -> TraverseAction<Expr> {
-        if let Some(os) = &mut self.object_super {
-            let action = os.exit_expression(node, ctx);
-            if !matches!(action, TraverseAction::Proceed) {
-                return action;
-            }
-        }
-        TraverseAction::Proceed
-    }
-
-    pub(crate) fn exit_program(
-        &mut self,
-        node: Program,
-        ctx: &mut TransformerCtx<'_, '_>,
-    ) {
-        if let Some(os) = &mut self.object_super {
-            os.exit_program(node, ctx);
+    pub(crate) fn exit_program(&mut self, node: Program, ctx: &mut TransformerCtx<'_, '_, '_>) {
+        // Class lowering is a structural terminal for Class AST. Run it only
+        // after program-level arrow/generator lowering and all per-node
+        // prerequisites have processed method bodies.
+        if self.classes {
+            classes::Classes.transform(node, ctx);
         }
     }
 
     pub(crate) fn enter_binary_expression(
         &mut self,
         node: BinaryExpression,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
-        if self.typeof_symbol {
-            if let Some(ts) = &mut self.typeof_symbol_state {
-                ts.enter_binary_expression(node, ctx);
-            }
+        if self.typeof_symbol
+            && let Some(ts) = &mut self.typeof_symbol_state
+        {
+            ts.enter_binary_expression(node, ctx);
         }
     }
 
     pub(crate) fn exit_binary_expression(
         &mut self,
         node: BinaryExpression,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.instanceof {
             instanceof::InstanceOf.exit_binary_expression(node, ctx);
         }
-        if self.typeof_symbol {
-            if let Some(ts) = &mut self.typeof_symbol_state {
-                ts.exit_binary_expression(node, ctx);
-            }
+        if self.typeof_symbol
+            && let Some(ts) = &mut self.typeof_symbol_state
+        {
+            ts.exit_binary_expression(node, ctx);
         }
     }
 
     pub(crate) fn exit_unary_expression(
         &mut self,
         node: UnaryExpression,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
-        if self.typeof_symbol {
-            if let Some(ts) = &mut self.typeof_symbol_state {
-                ts.exit_unary_expression(node, ctx);
-            }
+        if self.typeof_symbol
+            && let Some(ts) = &mut self.typeof_symbol_state
+        {
+            ts.exit_unary_expression(node, ctx);
         }
     }
 
     pub(crate) fn exit_variable_declarator(
         &mut self,
         node: VariableDeclarator,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.function_name {
             function_name::FunctionName.exit_variable_declarator(node, ctx);
@@ -242,7 +222,7 @@ impl ES2015 {
     pub(crate) fn exit_assignment_expression(
         &mut self,
         node: AssignmentExpression,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.function_name {
             function_name::FunctionName.exit_assignment_expression(node, ctx);
@@ -252,7 +232,7 @@ impl ES2015 {
     pub(crate) fn exit_reg_exp_literal(
         &mut self,
         node: RegExpLiteral,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.sticky_regex {
             sticky_regex::StickyRegex.exit_reg_exp_literal(node, ctx);
@@ -262,7 +242,7 @@ impl ES2015 {
     pub(crate) fn exit_block_statement(
         &mut self,
         node: BlockStatement,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.block_scoped_fns {
             block_scoped_fn::BlockScopedFns.exit_block_statement(node, ctx);
@@ -272,19 +252,19 @@ impl ES2015 {
     pub(crate) fn exit_meta_property(
         &mut self,
         node: MetaProperty,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
-        if self.new_target {
-            if let Some(nt) = &mut self.new_target_state {
-                nt.exit_meta_property(node, ctx);
-            }
+        if self.new_target
+            && let Some(nt) = &mut self.new_target_state
+        {
+            nt.exit_meta_property(node, ctx);
         }
     }
 
     pub(crate) fn exit_array_expression(
         &mut self,
         node: ArrayExpression,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.spread {
             spread::Spread::new().exit_array_expression(node, ctx);
@@ -294,7 +274,7 @@ impl ES2015 {
     pub(crate) fn exit_call_expression(
         &mut self,
         node: CallExpression,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.spread {
             spread::Spread::new().exit_call_expression(node, ctx);
@@ -304,7 +284,7 @@ impl ES2015 {
     pub(crate) fn exit_new_expression(
         &mut self,
         node: NewExpression,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.spread {
             spread::Spread::new().exit_new_expression(node, ctx);

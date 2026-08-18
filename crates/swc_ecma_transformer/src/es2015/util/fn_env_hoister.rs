@@ -1,20 +1,48 @@
 use swc_next_ecma_ast::{
-    AssignmentOperator, Ast, AstUtf8, Class, DUMMY_SP, Decl, Expr, Function, FunctionBody, GetSpan,
-    IdentifierReference, NodeId, Program, ReferenceId, ScopeId, StaticBlock, Stmt, SymbolId,
-    TypedSubRange, VariableKind, VisitMut, VisitMutWith,
+    AssignmentOperator, Ast, AstStr, Class, DUMMY_SP, Decl, Expr, Function, FunctionBody, GetSpan,
+    IdentifierReference, Mark, NodeId, Program, ReferenceId, ScopeId, StaticBlock, Stmt,
+    SyntaxContext, TypedSubRange, VariableKind, VisitMut, VisitMutWith,
 };
-use swc_next_ecma_semantic::{ReferenceFlags, ReferenceSpace, Semantic, SymbolFlags};
+use swc_next_ecma_semantic::{ReferenceFlags, ReferenceSpace, Semantic};
+
+use crate::mutation::{DetachedClone, ReservedPrivateName};
 
 #[derive(Default)]
 pub struct CaptureFrame {
-    this: Option<AstUtf8>,
-    arguments: Option<AstUtf8>,
-    new_target: Option<AstUtf8>,
+    this: Option<ReservedPrivateName>,
+    arguments: Option<ReservedPrivateName>,
+    new_target: Option<ReservedPrivateName>,
     scope: Option<ScopeId>,
-    owner: Option<NodeId>,
-    this_references: Vec<NodeId>,
+    this_references: Vec<(NodeId, ReferenceFlags)>,
     argument_references: Vec<ReferenceId>,
     new_target_references: Vec<(NodeId, NodeId)>,
+}
+
+pub struct CaptureBinding {
+    pub scope: ScopeId,
+    pub declaration: NodeId,
+    pub name: AstStr,
+}
+
+pub struct CaptureReference {
+    pub node: NodeId,
+    pub name: AstStr,
+    pub flags: ReferenceFlags,
+    pub binding: Option<usize>,
+}
+
+pub struct CaptureReferenceEdit {
+    pub reference: ReferenceId,
+    pub name: AstStr,
+    pub binding: usize,
+}
+
+#[derive(Default)]
+pub struct FnEnvMutationManifest {
+    pub bindings: Vec<CaptureBinding>,
+    pub references: Vec<CaptureReference>,
+    pub reference_edits: Vec<CaptureReferenceEdit>,
+    pub reserved_names: Vec<(ScopeId, AstStr)>,
 }
 
 impl CaptureFrame {
@@ -25,24 +53,37 @@ impl CaptureFrame {
 
 /// Hoists the lexical function environment used by converted arrow functions.
 pub struct FnEnvHoister<'semantic, 'ast> {
-    semantic: &'semantic mut Semantic<'ast>,
+    semantic: &'semantic Semantic<'ast>,
+    clone: &'semantic DetachedClone<Program>,
     frames: Vec<CaptureFrame>,
     in_arrow: bool,
+    manifest: FnEnvMutationManifest,
 }
 
 impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
-    pub fn new(semantic: &'semantic mut Semantic<'ast>, scope: ScopeId) -> Self {
+    pub fn new(
+        semantic: &'semantic Semantic<'ast>,
+        clone: &'semantic DetachedClone<Program>,
+        scope: ScopeId,
+    ) -> Self {
         Self {
             semantic,
+            clone,
             frames: vec![CaptureFrame {
                 scope: Some(scope),
                 ..CaptureFrame::default()
             }],
             in_arrow: false,
+            manifest: FnEnvMutationManifest::default(),
         }
     }
 
+    pub fn into_manifest(self) -> FnEnvMutationManifest {
+        self.manifest
+    }
+
     pub fn hoist_scope_of(&self, node: NodeId) -> ScopeId {
+        let node = self.clone.origin_of(node).unwrap_or(node);
         let scope = self.semantic.scope_of(node);
         self.semantic.scope(scope).hoist_target
     }
@@ -51,10 +92,9 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
         std::mem::replace(&mut self.in_arrow, in_arrow)
     }
 
-    pub fn push_frame(&mut self, scope: ScopeId, owner: Option<NodeId>) {
+    pub fn push_frame(&mut self, scope: ScopeId, _owner: Option<NodeId>) {
         self.frames.push(CaptureFrame {
             scope: Some(scope),
-            owner,
             ..CaptureFrame::default()
         });
     }
@@ -65,17 +105,50 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
             .expect("a function environment frame exists")
     }
 
-    fn fresh_name(&mut self, base: &str, ast: &mut Ast<'ast>) -> AstUtf8 {
+    fn fresh_name(&mut self, base: &str, ast: &mut Ast<'ast>) -> ReservedPrivateName {
         let scope = self
             .frames
             .last()
             .and_then(|frame| frame.scope)
             .expect("a capture scope exists");
-        self.semantic
-            .reserve_generated_name_with_min_suffix(ast, scope, base, 2)
+        let base_text = ast.add_utf8(base);
+        let base_name = ast.canonicalize_utf8(base_text);
+        let state = self.semantic.name_allocation_state(scope, base_name);
+        let locally_reserved = |name| {
+            self.manifest
+                .reserved_names
+                .iter()
+                .any(|&(reserved_scope, reserved)| reserved_scope == scope && reserved == name)
+        };
+        let text = if state.occupancy_count == 0 && !state.reserved && !locally_reserved(base_name)
+        {
+            base_text
+        } else {
+            let mut suffix = state.next_suffix.max(2);
+            loop {
+                let candidate = ast.add_utf8(&format!("{base}{suffix}"));
+                let name = ast.canonicalize_utf8(candidate);
+                let candidate_state = self.semantic.name_allocation_state(scope, name);
+                if candidate_state.occupancy_count == 0
+                    && !candidate_state.reserved
+                    && !locally_reserved(name)
+                {
+                    break candidate;
+                }
+                suffix = suffix
+                    .checked_add(1)
+                    .expect("generated name suffix overflow");
+            }
+        };
+        self.manifest
+            .reserved_names
+            .push((scope, ast.canonicalize_utf8(text)));
+        let mark = ast.fresh_mark(Mark::root());
+        let context = ast.apply_mark(SyntaxContext::empty(), mark);
+        ReservedPrivateName { text, context }
     }
 
-    fn capture_this(&mut self, ast: &mut Ast<'ast>) -> AstUtf8 {
+    fn capture_this(&mut self, ast: &mut Ast<'ast>) -> ReservedPrivateName {
         if let Some(name) = self.frames.last().and_then(|frame| frame.this) {
             return name;
         }
@@ -84,7 +157,7 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
         name
     }
 
-    fn capture_arguments(&mut self, ast: &mut Ast<'ast>) -> AstUtf8 {
+    fn capture_arguments(&mut self, ast: &mut Ast<'ast>) -> ReservedPrivateName {
         if let Some(name) = self.frames.last().and_then(|frame| frame.arguments) {
             return name;
         }
@@ -96,7 +169,7 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
         name
     }
 
-    fn capture_new_target(&mut self, ast: &mut Ast<'ast>) -> AstUtf8 {
+    fn capture_new_target(&mut self, ast: &mut Ast<'ast>) -> ReservedPrivateName {
         if let Some(name) = self.frames.last().and_then(|frame| frame.new_target) {
             return name;
         }
@@ -112,7 +185,10 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
         if ast.get_utf8(node.name(ast)) != "arguments" {
             return false;
         }
-        let Some(reference_id) = self.semantic.reference_of(node.node_id()) else {
+        let Some(origin) = self.clone.origin_of(node.node_id()) else {
+            return false;
+        };
+        let Some(reference_id) = self.semantic.reference_of(origin) else {
             return false;
         };
         let reference = self.semantic.reference(reference_id);
@@ -134,23 +210,29 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
             return Expr::ThisExpression(node);
         }
         let name = self.capture_this(ast);
-        let replacement = ast.identifier_reference(node.span(ast), name);
+        let replacement = ast.identifier_reference(node.span(ast), name.text);
+        ast.set_syntax_context(replacement.node_id(), name.context);
         self.frames
             .last_mut()
             .expect("a capture frame exists")
             .this_references
-            .push(replacement.node_id());
+            .push((node.node_id(), ReferenceFlags::default()));
         Expr::IdentifierReference(replacement)
     }
 
     pub fn visit_identifier_reference(&mut self, node: IdentifierReference, ast: &mut Ast<'ast>) {
         if self.in_arrow && self.is_unresolved_arguments(node, ast) {
+            let origin = self
+                .clone
+                .origin_of(node.node_id())
+                .expect("captured arguments belongs to the detached clone");
             let reference = self
                 .semantic
-                .reference_of(node.node_id())
+                .reference_of(origin)
                 .expect("captured arguments has a semantic reference");
             let name = self.capture_arguments(ast);
-            node.set_name(ast, name);
+            node.set_name(ast, name.text);
+            ast.set_syntax_context(node.node_id(), name.context);
             self.frames
                 .last_mut()
                 .expect("a capture frame exists")
@@ -166,49 +248,44 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
     ) -> Expr {
         if self.in_arrow && self.is_new_target(node, ast) {
             let name = self.capture_new_target(ast);
-            let replacement = ast.identifier_reference(node.span(ast), name);
+            let replacement = ast.identifier_reference(node.span(ast), name.text);
+            ast.set_syntax_context(replacement.node_id(), name.context);
             self.frames
                 .last_mut()
                 .expect("a capture frame exists")
                 .new_target_references
-                .push((node.node_id(), replacement.node_id()));
+                .push((node.node_id(), node.node_id()));
             Expr::IdentifierReference(replacement)
         } else {
             Expr::MetaProperty(node)
         }
     }
 
-    fn register_capture_binding(
+    fn record_capture_binding(
         &mut self,
         scope: ScopeId,
         declarator: swc_next_ecma_ast::VariableDeclarator,
-        name: AstUtf8,
-        ast: &Ast<'ast>,
-    ) -> SymbolId {
-        self.semantic
-            .register_node(declarator.node_id(), None, scope);
+        name: ReservedPrivateName,
+        ast: &mut Ast<'ast>,
+    ) -> usize {
         let identifier = declarator
             .id(ast)
             .as_binding_identifier(ast)
             .expect("capture binding is an identifier");
-        if identifier.node_id() != declarator.node_id() {
-            self.semantic
-                .register_node(identifier.node_id(), Some(declarator.node_id()), scope);
-        }
-        self.semantic.declare(
-            ast,
+        ast.set_syntax_context(identifier.node_id(), name.context);
+        let binding = self.manifest.bindings.len();
+        self.manifest.bindings.push(CaptureBinding {
             scope,
-            identifier.node_id(),
-            ast.canonicalize_utf8(name),
-            SymbolFlags::FUNCTION_SCOPED_VAR,
-        )
+            declaration: identifier.node_id(),
+            name: ast.canonicalize_utf8(name.text),
+        });
+        binding
     }
 
     fn build_capture_declaration(
         &mut self,
         frame: CaptureFrame,
         derived_constructor: bool,
-        parent: NodeId,
         ast: &mut Ast<'ast>,
     ) -> Option<swc_next_ecma_ast::VariableDeclaration> {
         if frame.is_empty() {
@@ -219,7 +296,6 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
             arguments,
             new_target,
             scope,
-            owner,
             this_references,
             argument_references,
             new_target_references,
@@ -230,29 +306,22 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
         if let Some(name) = this {
             let id = ast.binding_pattern_binding_identifier(
                 DUMMY_SP,
-                name,
+                name.text,
                 TypedSubRange::empty(),
                 None,
                 false,
             );
             let init = (!derived_constructor).then(|| ast.expr_this_expression(DUMMY_SP));
             let declarator = ast.variable_declarator(DUMMY_SP, id, init, false);
-            let symbol = self.register_capture_binding(scope, declarator, name, ast);
-            if let Some(init) = init {
-                self.semantic
-                    .register_node(init.node_id(), Some(declarator.node_id()), scope);
-            }
-            let generated_name = ast.canonicalize_utf8(name);
-            for reference in this_references {
-                self.semantic.register_node(reference, None, scope);
-                self.semantic.reference_generated(
-                    ast,
-                    scope,
-                    reference,
-                    generated_name,
-                    ReferenceFlags::default(),
-                    Some(symbol),
-                );
+            let binding = self.record_capture_binding(scope, declarator, name, ast);
+            let generated_name = ast.canonicalize_utf8(name.text);
+            for (reference, flags) in this_references {
+                self.manifest.references.push(CaptureReference {
+                    node: reference,
+                    name: generated_name,
+                    flags,
+                    binding: Some(binding),
+                });
             }
             declarators.push(declarator);
         }
@@ -260,7 +329,7 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
         if let Some(name) = arguments {
             let id = ast.binding_pattern_binding_identifier(
                 DUMMY_SP,
-                name,
+                name.text,
                 TypedSubRange::empty(),
                 None,
                 false,
@@ -268,29 +337,20 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
             let arguments_name = ast.add_utf8("arguments");
             let init = ast.expr_identifier_reference(DUMMY_SP, arguments_name);
             let declarator = ast.variable_declarator(DUMMY_SP, id, Some(init), false);
-            let symbol = self.register_capture_binding(scope, declarator, name, ast);
-            self.semantic
-                .register_node(init.node_id(), Some(declarator.node_id()), scope);
-            let initializer_reference = self.semantic.reference_generated(
-                ast,
-                scope,
-                init.node_id(),
-                ast.canonicalize_utf8(arguments_name),
-                ReferenceFlags::default(),
-                None,
-            );
-            let generated_name = ast.canonicalize_utf8(name);
-            for reference in &argument_references {
-                self.semantic
-                    .rename_reference(ast, *reference, generated_name);
-                self.semantic.rebind_reference(*reference, Some(symbol));
-            }
-            if let Some(owner) = owner {
-                self.semantic.retarget_function_capture_arguments(
-                    owner,
-                    &argument_references,
-                    initializer_reference,
-                );
+            let binding = self.record_capture_binding(scope, declarator, name, ast);
+            self.manifest.references.push(CaptureReference {
+                node: init.node_id(),
+                name: ast.canonicalize_utf8(arguments_name),
+                flags: ReferenceFlags::default(),
+                binding: None,
+            });
+            let generated_name = ast.canonicalize_utf8(name.text);
+            for reference in argument_references {
+                self.manifest.reference_edits.push(CaptureReferenceEdit {
+                    reference,
+                    name: generated_name,
+                    binding,
+                });
             }
             declarators.push(declarator);
         }
@@ -298,7 +358,7 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
         if let Some(name) = new_target {
             let id = ast.binding_pattern_binding_identifier(
                 DUMMY_SP,
-                name,
+                name.text,
                 TypedSubRange::empty(),
                 None,
                 false,
@@ -309,42 +369,21 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
             let property = ast.identifier_name(DUMMY_SP, target_name);
             let init = ast.expr_meta_property(DUMMY_SP, meta, property);
             let declarator = ast.variable_declarator(DUMMY_SP, id, Some(init), false);
-            let symbol = self.register_capture_binding(scope, declarator, name, ast);
-            self.semantic
-                .register_node(init.node_id(), Some(declarator.node_id()), scope);
-            let generated_name = ast.canonicalize_utf8(name);
-            let mut old_targets = Vec::with_capacity(new_target_references.len());
-            for (old, reference) in new_target_references {
-                old_targets.push(old);
-                self.semantic.register_node(reference, None, scope);
-                self.semantic.reference_generated(
-                    ast,
-                    scope,
-                    reference,
-                    generated_name,
-                    ReferenceFlags::default(),
-                    Some(symbol),
-                );
-            }
-            if let Some(owner) = owner {
-                self.semantic.retarget_function_capture_new_targets(
-                    owner,
-                    &old_targets,
-                    init.node_id(),
-                );
+            let binding = self.record_capture_binding(scope, declarator, name, ast);
+            let generated_name = ast.canonicalize_utf8(name.text);
+            for (_, reference) in new_target_references {
+                self.manifest.references.push(CaptureReference {
+                    node: reference,
+                    name: generated_name,
+                    flags: ReferenceFlags::default(),
+                    binding: Some(binding),
+                });
             }
             declarators.push(declarator);
         }
 
-        let declarator_nodes: Vec<_> = declarators.iter().map(|node| node.node_id()).collect();
         let declarators = ast.add_typed_sub_range(declarators);
         let declaration = ast.variable_declaration(DUMMY_SP, VariableKind::Var, declarators, false);
-        self.semantic
-            .register_node(declaration.node_id(), Some(parent), scope);
-        for declarator in declarator_nodes {
-            self.semantic
-                .reparent_node(declarator, Some(declaration.node_id()));
-        }
         Some(declaration)
     }
 
@@ -354,9 +393,7 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
         frame: CaptureFrame,
         ast: &mut Ast<'ast>,
     ) {
-        let Some(declaration) =
-            self.build_capture_declaration(frame, false, program.node_id(), ast)
-        else {
+        let Some(declaration) = self.build_capture_declaration(frame, false, ast) else {
             return;
         };
         let statement = Stmt::Declaration(Decl::VariableDeclaration(declaration));
@@ -367,18 +404,21 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
     pub fn inject_into_function(
         &mut self,
         function: Function,
-        frame: CaptureFrame,
+        mut frame: CaptureFrame,
         derived_constructor: bool,
         ast: &mut Ast<'ast>,
     ) {
         let body = function.body(ast);
 
         if derived_constructor && let Some(this_name) = frame.this {
-            rewrite_derived_super_calls(body, this_name, ast);
+            frame.this_references.extend(
+                rewrite_derived_super_calls(body, this_name, ast)
+                    .into_iter()
+                    .map(|node| (node, ReferenceFlags::default().write_only())),
+            );
         }
 
-        let Some(declaration) =
-            self.build_capture_declaration(frame, derived_constructor, body.node_id(), ast)
+        let Some(declaration) = self.build_capture_declaration(frame, derived_constructor, ast)
         else {
             return;
         };
@@ -393,8 +433,7 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
         frame: CaptureFrame,
         ast: &mut Ast<'ast>,
     ) {
-        let Some(declaration) = self.build_capture_declaration(frame, false, block.node_id(), ast)
-        else {
+        let Some(declaration) = self.build_capture_declaration(frame, false, ast) else {
             return;
         };
         let statement = Stmt::Declaration(Decl::VariableDeclaration(declaration));
@@ -414,10 +453,15 @@ fn prepend_statement<'ast>(
     ast.add_typed_sub_range(items)
 }
 
-fn rewrite_derived_super_calls<'ast>(body: FunctionBody, this_name: AstUtf8, ast: &mut Ast<'ast>) {
+fn rewrite_derived_super_calls<'ast>(
+    body: FunctionBody,
+    this_name: ReservedPrivateName,
+    ast: &mut Ast<'ast>,
+) -> Vec<NodeId> {
     struct InitThis<'visit, 'ast> {
         ast: &'visit mut Ast<'ast>,
-        this_name: AstUtf8,
+        this_name: ReservedPrivateName,
+        references: Vec<NodeId>,
     }
 
     impl<'ast> VisitMut<'ast> for InitThis<'_, 'ast> {
@@ -455,8 +499,11 @@ fn rewrite_derived_super_calls<'ast>(body: FunctionBody, this_name: AstUtf8, ast
                 .ast
                 .assignment_target_simple_assignment_target_identifier_reference(
                     DUMMY_SP,
-                    self.this_name,
+                    self.this_name.text,
                 );
+            self.ast
+                .set_syntax_context(left.node_id(), self.this_name.context);
+            self.references.push(left.node_id());
             let this = self.ast.expr_this_expression(DUMMY_SP);
             let assignment = self.ast.expr_assignment_expression(
                 DUMMY_SP,
@@ -472,5 +519,11 @@ fn rewrite_derived_super_calls<'ast>(body: FunctionBody, this_name: AstUtf8, ast
         }
     }
 
-    body.visit_mut_with(&mut InitThis { ast, this_name });
+    let mut visitor = InitThis {
+        ast,
+        this_name,
+        references: Vec::new(),
+    };
+    body.visit_mut_with(&mut visitor);
+    visitor.references
 }

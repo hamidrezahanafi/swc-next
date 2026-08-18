@@ -31,7 +31,7 @@ impl ES2021 {
     pub(crate) fn exit_assignment_expression(
         &mut self,
         node: AssignmentExpression,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.logical_assignment {
             logical_assignment::LogicalAssignment.exit_assignment_expression(node, ctx);

@@ -54,7 +54,7 @@ impl React {
     pub fn transform_program<'a>(
         &mut self,
         program: swc_next_ecma_ast::Program,
-        ctx: &mut TransformerCtx<'_, 'a>,
+        ctx: &mut TransformerCtx<'_, '_, 'a>,
     ) {
         if let Some(t) = &mut self.jsx_self_transformer {
             t.transform_program(program, ctx);

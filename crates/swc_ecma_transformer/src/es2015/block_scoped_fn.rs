@@ -1,204 +1,189 @@
-//! ES2015: block-scoped-functions — Convert block-scoped function declarations
-//! to `let`-bound function expressions.
-//!
-//! ```js
-//! {
-//!   function foo() {}
-//!   bar();
-//! }
-//! // →
-//! {
-//!   let foo = function foo() {};
-//!   bar();
-//! }
-//! ```
+//! ES2015 block-scoped functions — lower declarations to `let`-bound named
+//! function expressions while preserving the outer binding identity.
 
 use swc_next_ecma_ast::{
-    BlockStatement, FunctionBody, FunctionType, GetSpan, Stmt, VariableKind,
+    BindingPattern, BlockStatement, Expr, FunctionType, GetSpan, NodeId, Stmt, VariableKind,
 };
+use swc_next_ecma_semantic::{DeclarationId, ReferenceId, SymbolFlags, scope};
 
-use crate::state::TransformerCtx;
+use crate::state::{TransformerCtx, TransformerCtxExt};
 
 pub(super) struct BlockScopedFns;
 
 impl BlockScopedFns {
     pub fn exit_block_statement(
         &mut self,
-        node: BlockStatement,
-        ctx: &mut TransformerCtx<'_, '_>,
+        block: BlockStatement,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
-        let body = node.body(ctx.ast);
-        if body.is_empty() {
+        let plans = collect_plans(block, ctx);
+        if plans.is_empty() {
             return;
         }
-
-        let stmts: Vec<Stmt> = body.iter().map(|id| ctx.ast.get_node_in_sub_range(id)).collect();
-        let has_fn_decl = stmts.iter().any(|s| {
-            s.as_declaration(ctx.ast)
-                .is_some_and(|d| d.is_function(ctx.ast))
-        });
-        if !has_fn_decl {
-            return;
-        }
-
-        let mut fns: Vec<(Stmt, FunctionBody)> = Vec::new();
-        let mut other_stmts: Vec<Stmt> = Vec::new();
-
-        for stmt in stmts {
-            if let Some(decl) = stmt.as_declaration(ctx.ast) {
-                if let Some(func) = decl.as_function(ctx.ast) {
-                    let fn_body = func.body(ctx.ast);
-                    fns.push((stmt, fn_body));
+        let block_scope = ctx.semantic().scope_of(block.node_id());
+        ctx.transaction(block.node_id(), |tx| {
+            let clone = tx.clone_detached(block);
+            let mut statements = Vec::with_capacity(block.body(tx.ast()).len());
+            let mut transitions = Vec::with_capacity(plans.len());
+            for statement in clone.root.body(tx.ast()).iter() {
+                let statement: Stmt = tx.ast().get_node_in_sub_range(statement);
+                let Some(function) = statement
+                    .as_declaration(tx.ast())
+                    .and_then(|declaration| declaration.as_function(tx.ast()))
+                else {
+                    statements.push(statement);
                     continue;
-                }
-            }
-            other_stmts.push(stmt);
-        }
-
-        if fns.is_empty() {
-            return;
-        }
-
-        let mut new_stmts: Vec<Stmt> = Vec::new();
-
-        for (fn_stmt, _fn_body) in fns {
-            let decl = fn_stmt.as_declaration(ctx.ast).unwrap();
-            let func = decl.as_function(ctx.ast).unwrap();
-            let span = func.span(ctx.ast);
-            let id = func.id(ctx.ast);
-            let params = func.params(ctx.ast);
-            let generator = func.generator(ctx.ast);
-            let async_flag = func.r#async(ctx.ast);
-            let type_params = func.type_parameters(ctx.ast);
-            let return_type = func.return_type(ctx.ast);
-            let fn_body = func.body(ctx.ast);
-
-            if let Some(binding_id) = id {
-                let name = ctx.ast.get_utf8(binding_id.name(ctx.ast)).to_owned();
-                let name_utf8 = ctx.ast.add_utf8(&name);
-
-                // Check if the function body references its own name (self-referencing)
-                let is_self_ref = {
-                    let body_stmts = fn_body.body(ctx.ast);
-                    let mut found = false;
-                    for stmt_id in body_stmts.iter() {
-                        let stmt: Stmt = ctx.ast.get_node_in_sub_range(stmt_id);
-                        if contains_ident_ref(stmt, &name, ctx) {
-                            found = true;
-                            break;
-                        }
-                    }
-                    found
                 };
+                let origin = clone
+                    .origin_of(function.node_id())
+                    .expect("cloned function has an attached origin");
+                let plan = plans
+                    .iter()
+                    .find(|plan| plan.function == origin)
+                    .expect("every direct function declaration has a lowering plan");
+                let binding = function.id(tx.ast()).unwrap();
+                let span = function.span(tx.ast());
+                let name = binding.name(tx.ast());
+                let context = tx.ast().syntax_context(binding.node_id());
+                let inner = tx.build_detached(|ast| {
+                    let inner = ast.binding_identifier(
+                        span,
+                        name,
+                        swc_next_ecma_ast::TypedSubRange::empty(),
+                        None,
+                        false,
+                    );
+                    let mark = ast.fresh_mark(swc_next_ecma_ast::Mark::root());
+                    let inner_context = ast.apply_mark(context, mark);
+                    ast.set_syntax_context(inner.node_id(), inner_context);
+                    function.set_function_type(ast, FunctionType::FunctionExpression);
+                    function.set_id(ast, Some(inner));
+                    inner
+                });
+                let replacement = tx.build_detached(|ast| {
+                    let declarator = ast.variable_declarator(
+                        span,
+                        BindingPattern::BindingIdentifier(binding),
+                        Some(Expr::Function(function)),
+                        false,
+                    );
+                    let declarators = ast.add_typed_sub_range([declarator]);
+                    let declaration =
+                        ast.variable_declaration(span, VariableKind::Let, declarators, false);
+                    Stmt::Declaration(swc_next_ecma_ast::Decl::VariableDeclaration(declaration))
+                });
+                statements.push(replacement);
 
-                // Create function expression
-                let fn_expr = ctx.ast.expr_function(
-                    span,
-                    FunctionType::FunctionExpression,
-                    Some(binding_id),
-                    generator,
-                    async_flag,
-                    params,
-                    fn_body,
-                    type_params,
-                    return_type,
+                let expression_name_scope = tx.create_scope(
+                    block_scope,
+                    function.node_id(),
+                    scope::ScopeKind::ExpressionName,
+                    tx.semantic().scope(plan.function_scope).flags,
                 );
-
-                let binding_pat = ctx.ast.binding_pattern_binding_identifier(
-                    span,
-                    name_utf8,
-                    swc_next_ecma_ast::TypedSubRange::empty(),
-                    None,
-                    false,
+                tx.reparent_scope(plan.function_scope, expression_name_scope);
+                let inner_symbol = tx.declare(
+                    expression_name_scope,
+                    inner.node_id(),
+                    tx.ast().canonicalize_utf8(name),
+                    SymbolFlags::FUNCTION,
                 );
+                transitions.push((plan, inner_symbol));
+            }
+            let statements = tx.build_detached(|ast| ast.add_typed_sub_range(statements));
+            tx.build_detached(|ast| clone.root.set_body(ast, statements));
+            tx.replace_from_transformed_clone(block, clone, block_scope, &[]);
 
-                let declarator = ctx.ast.variable_declarator(span, binding_pat, Some(fn_expr), false);
-                let declarators = ctx.ast.add_typed_sub_range([declarator]);
-                let decl = ctx.ast.decl_variable_declaration(
-                    span,
-                    VariableKind::Let,
-                    declarators,
-                    false,
-                );
-                let new_stmt = Stmt::Declaration(decl);
-
-                if is_self_ref {
-                    other_stmts.push(new_stmt);
-                } else {
-                    new_stmts.push(new_stmt);
+            for (plan, inner_symbol) in transitions {
+                tx.update_declaration_flags(plan.declaration, SymbolFlags::BLOCK_SCOPED_VAR);
+                tx.update_symbol_flags(plan.symbol, SymbolFlags::BLOCK_SCOPED_VAR);
+                for &reference in &plan.self_references {
+                    tx.rebind_reference(reference, Some(inner_symbol));
                 }
             }
-        }
-
-        new_stmts.extend(other_stmts);
-
-        let new_body = ctx.ast.add_typed_sub_range(new_stmts);
-        node.set_body(ctx.ast, new_body);
+        })
+        .expect("block-scoped function mutation must pass preflight");
     }
 }
 
-fn contains_ident_ref(stmt: Stmt, name: &str, ctx: &TransformerCtx<'_, '_>) -> bool {
-    if let Some(expr_stmt) = stmt.as_expression_statement(ctx.ast) {
-        return expr_contains_ident(expr_stmt.expression(ctx.ast), name, ctx);
-    }
-    if let Some(ret) = stmt.as_return_statement(ctx.ast) {
-        if let Some(expr) = ret.argument(ctx.ast) {
-            return expr_contains_ident(expr, name, ctx);
-        }
-    }
-    if let Some(decl) = stmt.as_declaration(ctx.ast) {
-        if let Some(func) = decl.as_function(ctx.ast) {
-            let body = func.body(ctx.ast);
-            for stmt_id in body.body(ctx.ast).iter() {
-                let s: Stmt = ctx.ast.get_node_in_sub_range(stmt_id);
-                if contains_ident_ref(s, name, ctx) {
-                    return true;
-                }
-            }
-        }
-    }
-    false
+struct FunctionPlan {
+    function: NodeId,
+    declaration: DeclarationId,
+    symbol: swc_next_ecma_ast::SymbolId,
+    function_scope: swc_next_ecma_ast::ScopeId,
+    self_references: Vec<ReferenceId>,
 }
 
-fn expr_contains_ident(expr: swc_next_ecma_ast::Expr, name: &str, ctx: &TransformerCtx<'_, '_>) -> bool {
-    if let Some(ident) = expr.as_identifier_reference(ctx.ast) {
-        return ctx.ast.get_utf8(ident.name(ctx.ast)) == name;
+fn collect_plans(block: BlockStatement, ctx: &TransformerCtx<'_, '_, '_>) -> Vec<FunctionPlan> {
+    block
+        .body(ctx.ast)
+        .iter()
+        .filter_map(|statement| {
+            let statement: Stmt = ctx.ast.get_node_in_sub_range(statement);
+            let function = statement
+                .as_declaration(ctx.ast)
+                .and_then(|declaration| declaration.as_function(ctx.ast))?;
+            let binding = function.id(ctx.ast)?;
+            let declaration = ctx.semantic().declaration_of(binding.node_id())?;
+            let symbol = ctx.semantic().declaration(declaration).symbol;
+            let self_references = ctx
+                .semantic()
+                .uses(symbol)
+                .iter()
+                .filter(|reference| {
+                    let node = ctx.semantic().reference(**reference).node;
+                    ctx.semantic()
+                        .ancestors(Some(node))
+                        .any(|ancestor| ancestor == function.node_id())
+                })
+                .copied()
+                .collect();
+            Some(FunctionPlan {
+                function: function.node_id(),
+                declaration,
+                symbol,
+                function_scope: ctx.semantic().scope_of(function.node_id()),
+                self_references,
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use swc_next_allocator::Allocator;
+    use swc_next_ecma_ast::Ast;
+    use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
+    use swc_next_ecma_semantic::{AnalyzeOptions, analyze};
+
+    use crate::{
+        Transformer, TransformerOptions,
+        mutation::{assert_semantic_matches_reanalysis, verify_program},
+    };
+
+    #[test]
+    fn outer_binding_and_recursive_expression_name_are_updated_atomically() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new(
+            "'use strict'; { function recurse(n) { return n ? recurse(n - 1) : 0; } use(recurse); }",
+            &allocator,
+        );
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let mut options = TransformerOptions::default();
+        options.es2015.block_scoped_fns = true;
+        let mut semantic = analyze(
+            parse.program,
+            &ast,
+            AnalyzeOptions {
+                features: options.semantic_features(),
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+
+        Transformer::transform(parse.program, &mut ast, &mut semantic, options);
+
+        verify_program(parse.program, &ast, &semantic).unwrap();
+        assert_semantic_matches_reanalysis(parse.program, &ast, &semantic);
     }
-    if let Some(call) = expr.as_call_expression(ctx.ast) {
-        if expr_contains_ident(call.callee(ctx.ast), name, ctx) {
-            return true;
-        }
-        for arg_id in call.arguments(ctx.ast).iter() {
-            let arg: swc_next_ecma_ast::Argument = ctx.ast.get_node_in_sub_range(arg_id);
-            if let Some(e) = arg.as_expr(ctx.ast) {
-                if expr_contains_ident(e, name, ctx) {
-                    return true;
-                }
-            }
-        }
-    }
-    if let Some(bin) = expr.as_binary_expression(ctx.ast) {
-        return expr_contains_ident(bin.left(ctx.ast), name, ctx)
-            || expr_contains_ident(bin.right(ctx.ast), name, ctx);
-    }
-    if let Some(unary) = expr.as_unary_expression(ctx.ast) {
-        return expr_contains_ident(unary.argument(ctx.ast), name, ctx);
-    }
-    if let Some(member) = expr.as_member_expression(ctx.ast) {
-        return expr_contains_ident(member.object(ctx.ast), name, ctx);
-    }
-    if let Some(cond) = expr.as_conditional_expression(ctx.ast) {
-        return expr_contains_ident(cond.test(ctx.ast), name, ctx)
-            || expr_contains_ident(cond.consequent(ctx.ast), name, ctx)
-            || expr_contains_ident(cond.alternate(ctx.ast), name, ctx);
-    }
-    if let Some(seq) = expr.as_sequence_expression(ctx.ast) {
-        for e_id in seq.expressions(ctx.ast).iter() {
-            let e: swc_next_ecma_ast::Expr = ctx.ast.get_node_in_sub_range(e_id);
-            if expr_contains_ident(e, name, ctx) {
-                return true;
-            }
-        }
-    }
-    false
 }

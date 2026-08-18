@@ -1,4 +1,4 @@
-use swc_next_ecma_ast::{BindingProperty, Expr, Program, TraverseAction};
+use swc_next_ecma_ast::{BindingProperty, Expr, Program};
 
 use crate::state::TransformerCtx;
 
@@ -18,13 +18,13 @@ pub struct BugfixesOptions {
 pub(super) struct Bugfixes {
     pub async_arrows_in_class: bool,
     pub edge_default_param: bool,
-    pub template_literal_caching: bool,
     #[allow(dead_code)]
     pub safari_id_destructuring: bool,
     in_arrow_params: bool,
     async_arrows_in_class_state: async_arrows_in_class::AsyncArrowsInClass,
     template_literal_caching_transformer: Option<template_literal_caching::TemplateLiteralCaching>,
-    safari_id_destructuring_transformer: Option<safari_id_destructuring_collision_in_function_expression::SafariIdDestructuring>,
+    safari_id_destructuring_transformer:
+        Option<safari_id_destructuring_collision_in_function_expression::SafariIdDestructuring>,
 }
 
 impl Bugfixes {
@@ -32,8 +32,8 @@ impl Bugfixes {
         Self {
             async_arrows_in_class: options.async_arrows_in_class,
             edge_default_param: options.edge_default_param,
-            template_literal_caching: options.template_literal_caching,
-            safari_id_destructuring: options.safari_id_destructuring_collision_in_function_expression,
+            safari_id_destructuring: options
+                .safari_id_destructuring_collision_in_function_expression,
             in_arrow_params: false,
             async_arrows_in_class_state: async_arrows_in_class::AsyncArrowsInClass::new(),
             template_literal_caching_transformer: if options.template_literal_caching {
@@ -41,7 +41,9 @@ impl Bugfixes {
             } else {
                 None
             },
-            safari_id_destructuring_transformer: if options.safari_id_destructuring_collision_in_function_expression {
+            safari_id_destructuring_transformer: if options
+                .safari_id_destructuring_collision_in_function_expression
+            {
                 Some(safari_id_destructuring_collision_in_function_expression::SafariIdDestructuring::new())
             } else {
                 None
@@ -56,7 +58,7 @@ impl Bugfixes {
     pub fn transform_program<'a>(
         &mut self,
         program: Program,
-        ctx: &mut TransformerCtx<'_, 'a>,
+        ctx: &mut TransformerCtx<'_, '_, 'a>,
     ) {
         if let Some(transformer) = &mut self.template_literal_caching_transformer {
             transformer.transform(program, ctx);
@@ -86,28 +88,19 @@ impl Bugfixes {
         }
     }
 
-    pub fn exit_expression(
-        &mut self,
-        node: Expr,
-        ctx: &mut TransformerCtx<'_, '_>,
-    ) -> TraverseAction<Expr> {
+    pub fn exit_expression(&mut self, node: Expr, ctx: &mut TransformerCtx<'_, '_, '_>) {
         if self.async_arrows_in_class {
-            let action = self.async_arrows_in_class_state.exit_expression(node, ctx);
-            if !matches!(action, TraverseAction::Proceed) {
-                return action;
-            }
+            self.async_arrows_in_class_state.exit_expression(node, ctx);
         }
-        TraverseAction::Proceed
     }
 
     pub fn exit_binding_property(
         &self,
         node: BindingProperty,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.edge_default_param && self.in_arrow_params {
-            edge_default_param::EdgeDefaultParam::new()
-                .exit_binding_property(node, ctx);
+            edge_default_param::EdgeDefaultParam::new().exit_binding_property(node, ctx);
         }
     }
 }

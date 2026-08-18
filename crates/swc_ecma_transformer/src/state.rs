@@ -1,27 +1,52 @@
-use crate::assumptions::Assumptions;
-use swc_next_ecma_ast::{Ast, AstUtf8, Mark, ScopeId, SyntaxContext, TraverseCtx};
+use crate::{
+    assumptions::Assumptions,
+    mutation::{MutationCommit, MutationError, MutationTransaction, ReservedPrivateName},
+};
+use swc_next_ecma_ast::{NodeId, ScopeId, TraverseCtx};
 use swc_next_ecma_semantic::Semantic;
 
-pub type TransformerCtx<'t, 'a> = TraverseCtx<'t, 'a, TransformerState>;
+pub type TransformerCtx<'traverse, 'semantic, 'ast> =
+    TraverseCtx<'traverse, 'ast, TransformerState<'semantic, 'ast>>;
 
-pub struct TransformerState {
+pub struct TransformerState<'semantic, 'ast> {
     pub assumptions: Assumptions,
+    pub semantic: &'semantic mut Semantic<'ast>,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct PrivateName {
-    pub(crate) text: AstUtf8,
-    pub(crate) context: SyntaxContext,
+pub(crate) trait TransformerCtxExt<'ast> {
+    fn semantic(&self) -> &Semantic<'ast>;
+
+    fn current_scope(&self) -> Option<ScopeId>;
+
+    fn transaction<T>(
+        &mut self,
+        root: NodeId,
+        build: impl FnOnce(&mut MutationTransaction<'_, 'ast>) -> T,
+    ) -> Result<(T, MutationCommit), MutationError>;
 }
 
-pub(crate) fn reserve_private_name(
-    ast: &mut Ast<'_>,
-    semantic: &mut Semantic<'_>,
-    scope: ScopeId,
-    base: &str,
-) -> PrivateName {
-    let text = semantic.reserve_generated_name(ast, scope, base);
-    let mark = ast.fresh_mark(Mark::root());
-    let context = ast.apply_mark(SyntaxContext::empty(), mark);
-    PrivateName { text, context }
+impl<'traverse, 'semantic, 'ast> TransformerCtxExt<'ast>
+    for TransformerCtx<'traverse, 'semantic, 'ast>
+{
+    fn semantic(&self) -> &Semantic<'ast> {
+        self.state.semantic
+    }
+
+    fn current_scope(&self) -> Option<ScopeId> {
+        self.current_node()
+            .map(|node| self.state.semantic.scope_of(node))
+    }
+
+    fn transaction<T>(
+        &mut self,
+        root: NodeId,
+        build: impl FnOnce(&mut MutationTransaction<'_, 'ast>) -> T,
+    ) -> Result<(T, MutationCommit), MutationError> {
+        let mut transaction = MutationTransaction::begin(self.ast, self.state.semantic, root)?;
+        let value = build(&mut transaction);
+        let commit = transaction.commit()?;
+        Ok((value, commit))
+    }
 }
+
+pub(crate) type PrivateName = ReservedPrivateName;

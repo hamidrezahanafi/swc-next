@@ -31,7 +31,7 @@ impl ES2016 {
     pub(crate) fn exit_binary_expression(
         &mut self,
         node: BinaryExpression,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.exponentiation {
             exponentiation::Exponentiation.exit_binary_expression(node, ctx);
@@ -41,7 +41,7 @@ impl ES2016 {
     pub(crate) fn exit_assignment_expression(
         &mut self,
         node: AssignmentExpression,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.exponentiation {
             exponentiation::Exponentiation.exit_assignment_expression(node, ctx);

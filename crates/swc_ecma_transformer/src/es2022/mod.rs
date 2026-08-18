@@ -33,14 +33,14 @@ impl ES2022 {
     pub(crate) fn exit_binary_expression(
         &mut self,
         node: BinaryExpression,
-        ctx: &mut TransformerCtx<'_, '_>,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
         if self.private_in_object {
             private_in_object::PrivateInObject.exit_binary_expression(node, ctx);
         }
     }
 
-    pub(crate) fn exit_class(&mut self, node: Class, ctx: &mut TransformerCtx<'_, '_>) {
+    pub(crate) fn exit_class(&mut self, node: Class, ctx: &mut TransformerCtx<'_, '_, '_>) {
         if self.static_blocks {
             static_blocks::StaticBlocks::new().exit_class(node, ctx);
         }

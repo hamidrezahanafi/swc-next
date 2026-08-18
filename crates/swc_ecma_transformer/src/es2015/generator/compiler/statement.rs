@@ -51,13 +51,8 @@ impl<'names, 'ast> GeneratorCompiler<'names, 'ast> {
             NodeKindData::TryStatement(try_statement) => self.compile_try(try_statement),
             NodeKindData::WithStatement(with_statement) => {
                 let object = self.compile_expr(with_statement.object(self.ast));
-                let object = self.cache(object);
-                let NodeKindData::IdentifierReference(object) =
-                    self.ast.kind_data(object.node_id())
-                else {
-                    unreachable!("cached with object is an identifier")
-                };
-                self.with_stack.push(object.name(self.ast));
+                let object = self.cache_name(object);
+                self.with_stack.push(object);
                 self.compile_stmt(with_statement.body(self.ast));
                 self.with_stack.pop();
             }
@@ -317,6 +312,11 @@ impl<'names, 'ast> GeneratorCompiler<'names, 'ast> {
             );
         self.ast
             .set_syntax_context(collection_left.node_id(), key.context);
+        self.record_private_reference(
+            collection_left.node_id(),
+            key,
+            ReferenceFlags::default().write_only(),
+        );
         let collection = self
             .ast
             .stmt_for_in_statement(DUMMY_SP, collection_left, right, push);
@@ -527,12 +527,34 @@ impl<'names, 'ast> GeneratorCompiler<'names, 'ast> {
 
     fn binding_to_assignment(&mut self, pattern: BindingPattern) -> AssignmentTarget {
         match self.ast.kind_data(pattern.node_id()) {
-            NodeKindData::BindingIdentifier(identifier) => self
-                .ast
-                .assignment_target_simple_assignment_target_identifier_reference(
-                    DUMMY_SP,
-                    identifier.name(self.ast),
-                ),
+            NodeKindData::BindingIdentifier(identifier) => {
+                let target = self
+                    .ast
+                    .assignment_target_simple_assignment_target_identifier_reference(
+                        DUMMY_SP,
+                        identifier.name(self.ast),
+                    );
+                self.ast.set_syntax_context(
+                    target.node_id(),
+                    self.ast.syntax_context(identifier.node_id()),
+                );
+                let origin = self
+                    .clone
+                    .origin_of(identifier.node_id())
+                    .expect("hoisted binding belongs to the cloned generator body");
+                let declaration = self
+                    .semantic
+                    .declaration_of(origin)
+                    .expect("generator binding has a semantic declaration");
+                let symbol = self.semantic.declaration(declaration).symbol;
+                self.references.push(GeneratorReference {
+                    node: target.node_id(),
+                    name: self.ast.canonicalize_utf8(identifier.name(self.ast)),
+                    flags: ReferenceFlags::default().write_only(),
+                    target: GeneratorReferenceTarget::Existing(symbol),
+                });
+                target
+            }
             _ => panic!("destructuring must run before generator lowering"),
         }
     }

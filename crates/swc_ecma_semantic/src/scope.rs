@@ -16,7 +16,7 @@ use crate::ecmascript;
 /// //             ^ creates a block scope where `b` lives,
 /// //               while `a` hoists to the function scope
 /// ```
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Scope {
     /// The AST node that created this scope.
     pub node: NodeId,
@@ -94,7 +94,7 @@ impl ScopeKind {
 }
 
 /// Scope-level flags.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
 pub struct ScopeFlags {
     /// Whether this scope is in strict mode.
     pub strict: bool,
@@ -116,6 +116,8 @@ const _: () = assert!(std::mem::size_of::<ScopeFlags>() == 2);
 #[derive(Debug)]
 pub struct ScopeTree<'a> {
     pub(crate) list: ArenaVec<'a, Scope>,
+    active: ArenaVec<'a, bool>,
+    children: ArenaVec<'a, ArenaVec<'a, ScopeId>>,
 }
 
 impl<'a> ScopeTree<'a> {
@@ -123,7 +125,128 @@ impl<'a> ScopeTree<'a> {
     #[inline]
     pub fn get(&self, id: ScopeId) -> Scope {
         assert!(id.index() < self.list.len());
+        assert!(self.active[id.index()], "scope is inactive");
         self.list[id.index()]
+    }
+
+    #[inline]
+    pub(crate) fn is_active(&self, id: ScopeId) -> bool {
+        self.active.get(id.index()).copied().unwrap_or(false)
+    }
+
+    pub(crate) fn create(
+        &mut self,
+        allocator: &'a Allocator,
+        parent: ScopeId,
+        node: NodeId,
+        kind: ScopeKind,
+        flags: ScopeFlags,
+    ) -> ScopeId {
+        assert!(self.is_active(parent), "parent scope is inactive");
+        assert!(self.list.len() < u32::MAX as usize);
+        let id = ScopeId::from_usize(self.list.len());
+        let hoist_target = if kind.is_hoist_target() {
+            id
+        } else {
+            self.get(parent).hoist_target
+        };
+        self.list.push(Scope {
+            node,
+            parent: Some(parent),
+            hoist_target,
+            kind,
+            flags,
+        });
+        self.active.push(true);
+        self.children.push(ArenaVec::new_in(allocator));
+        self.children[parent.index()].push(id);
+        id
+    }
+
+    pub(crate) fn retag(&mut self, id: ScopeId, kind: ScopeKind, flags: ScopeFlags) {
+        assert!(self.is_active(id), "scope is inactive");
+        self.list[id.index()].kind = kind;
+        self.list[id.index()].flags = flags;
+        self.recompute_hoist_targets(id);
+    }
+
+    pub(crate) fn reowner(&mut self, id: ScopeId, node: NodeId) {
+        assert_ne!(id, ScopeId::ROOT, "root scope cannot be reowned");
+        assert!(self.is_active(id), "scope is inactive");
+        self.list[id.index()].node = node;
+    }
+
+    pub(crate) fn reparent(&mut self, id: ScopeId, parent: ScopeId) {
+        assert_ne!(id, ScopeId::ROOT, "root scope cannot be reparented");
+        assert!(self.is_active(id), "scope is inactive");
+        assert!(self.is_active(parent), "parent scope is inactive");
+        assert!(
+            !self.ancestors(Some(parent)).any(|ancestor| ancestor == id),
+            "scope reparenting would create a cycle"
+        );
+        let old_parent = self.list[id.index()]
+            .parent
+            .expect("non-root active scope has a parent");
+        let index = self.children[old_parent.index()]
+            .iter()
+            .position(|candidate| *candidate == id)
+            .expect("old parent contains child scope");
+        self.children[old_parent.index()].remove(index);
+        self.children[parent.index()].push(id);
+        self.list[id.index()].parent = Some(parent);
+        self.recompute_hoist_targets(id);
+    }
+
+    pub(crate) fn retire(&mut self, id: ScopeId) {
+        assert_ne!(id, ScopeId::ROOT, "root scope cannot be retired");
+        assert!(self.is_active(id), "scope is inactive");
+        assert!(
+            self.children[id.index()]
+                .iter()
+                .all(|child| !self.is_active(*child)),
+            "scope with active children cannot be retired"
+        );
+        let parent = self.list[id.index()]
+            .parent
+            .expect("non-root active scope has a parent");
+        let index = self.children[parent.index()]
+            .iter()
+            .position(|candidate| *candidate == id)
+            .expect("parent contains child scope");
+        self.children[parent.index()].remove(index);
+        self.active[id.index()] = false;
+    }
+
+    pub(crate) fn active(&self) -> &[bool] {
+        &self.active
+    }
+
+    pub(crate) fn children(&self, id: ScopeId) -> &[ScopeId] {
+        assert!(self.is_active(id), "scope is inactive");
+        &self.children[id.index()]
+    }
+
+    fn recompute_hoist_targets(&mut self, root: ScopeId) {
+        let mut pending = vec![root];
+        while let Some(id) = pending.pop() {
+            if !self.is_active(id) {
+                continue;
+            }
+            let scope = self.list[id.index()];
+            self.list[id.index()].hoist_target = if scope.kind.is_hoist_target() {
+                id
+            } else {
+                scope.parent.map_or(ScopeId::ROOT, |parent| {
+                    self.list[parent.index()].hoist_target
+                })
+            };
+            pending.extend(
+                self.children[id.index()]
+                    .iter()
+                    .copied()
+                    .filter(|child| self.is_active(*child)),
+            );
+        }
     }
 
     /// Walks from `start` up to the root, yielding `start` first.
@@ -131,6 +254,7 @@ impl<'a> ScopeTree<'a> {
         assert!(start.is_none_or(|id| id.index() < self.list.len()));
         AncestorIterator {
             list: &self.list,
+            active: Some(&self.active),
             current: start,
         }
     }
@@ -154,6 +278,7 @@ impl<'a> ScopeTree<'a> {
 /// Yields each scope id from a starting scope up to the root.
 pub struct AncestorIterator<'a> {
     list: &'a [Scope],
+    active: Option<&'a [bool]>,
     current: Option<ScopeId>,
 }
 
@@ -164,6 +289,10 @@ impl Iterator for AncestorIterator<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         let id = self.current?;
         assert!(id.index() < self.list.len());
+        assert!(
+            self.active.is_none_or(|active| active[id.index()]),
+            "scope is inactive"
+        );
         self.current = self.list[id.index()].parent;
         Some(id)
     }
@@ -528,6 +657,7 @@ impl<'a> ScopeTracker<'a> {
         assert!(start.is_none_or(|id| id.index() < self.scopes.len()));
         AncestorIterator {
             list: &self.scopes,
+            active: None,
             current: start,
         }
     }
@@ -535,7 +665,25 @@ impl<'a> ScopeTracker<'a> {
     /// Finalizes into an immutable [`ScopeTree`].
     pub fn into_scope_tree(self) -> (ScopeTree<'a>, bool) {
         assert!(self.active_with_scopes.is_empty());
-        (ScopeTree { list: self.scopes }, self.has_with_statement)
+        let mut active = ArenaVec::with_capacity_in(self.scopes.len(), self.allocator);
+        active.resize(self.scopes.len(), true);
+        let mut children = ArenaVec::with_capacity_in(self.scopes.len(), self.allocator);
+        for _ in 0..self.scopes.len() {
+            children.push(ArenaVec::new_in(self.allocator));
+        }
+        for (index, scope) in self.scopes.iter().enumerate() {
+            if let Some(parent) = scope.parent {
+                children[parent.index()].push(ScopeId::from_usize(index));
+            }
+        }
+        (
+            ScopeTree {
+                list: self.scopes,
+                active,
+                children,
+            },
+            self.has_with_statement,
+        )
     }
 }
 

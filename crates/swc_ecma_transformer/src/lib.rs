@@ -1,6 +1,6 @@
 use swc_next_ecma_ast::{
-    ArrowFunctionExpression, ArrayExpression, AssignmentExpression, Ast, BinaryExpression,
-    BindingProperty, BlockStatement, CallExpression, CatchClause, Class, Expr,
+    ArrayExpression, ArrowFunctionExpression, AssignmentExpression, Ast, BinaryExpression,
+    BindingProperty, BlockStatement, CallExpression, CatchClause, Class, Expr, ForOfStatement,
     LogicalExpression, MemberExpression, MetaProperty, MethodDefinition, NewExpression,
     ObjectExpression, ObjectProperty, Program, RegExpLiteral, Traverse, TraverseAction,
     TraverseCtx, TraverseWith, UnaryExpression, VariableDeclarator,
@@ -23,6 +23,7 @@ pub mod es2020;
 pub mod es2021;
 pub mod es2022;
 pub mod es3;
+pub mod mutation;
 pub mod proposal;
 pub mod react;
 mod state;
@@ -48,7 +49,7 @@ pub struct TransformerOptions {
 
 impl TransformerOptions {
     pub fn semantic_features(&self) -> SemanticFeatureFlags {
-        let mut features = SemanticFeatureFlags::empty();
+        let mut features = SemanticFeatureFlags::GENERATED_NAMES;
         if self.es2015.arrow_functions.is_some() {
             features |= SemanticFeatureFlags::FUNCTION_ENV_CAPTURE;
         }
@@ -56,6 +57,9 @@ impl TransformerOptions {
             features |= SemanticFeatureFlags::YIELD
                 | SemanticFeatureFlags::GENERATOR_FUNCTIONS
                 | SemanticFeatureFlags::FUNCTION_ENV_CAPTURE;
+        }
+        if self.es2015.classes {
+            features |= SemanticFeatureFlags::CLASS_LOWERING;
         }
         if self.es2017.async_to_generator {
             features |= SemanticFeatureFlags::ASYNC_FUNCTIONS
@@ -66,8 +70,7 @@ impl TransformerOptions {
     }
 }
 
-pub struct TransformerImpl<'semantic, 'ast> {
-    semantic: &'semantic mut Semantic<'ast>,
+pub struct TransformerImpl {
     x0_bugfixes: bugfixes::Bugfixes,
     x0_es3: es3::ES3,
     x0_es2015: es2015::ES2015,
@@ -89,8 +92,12 @@ impl Transformer {
         semantic: &mut Semantic<'a>,
         options: TransformerOptions,
     ) {
+        assert_eq!(
+            ast.mutation_epoch(),
+            semantic.mutation_epoch(),
+            "transform requires synchronized AST and Semantic epochs"
+        );
         let mut transformer = TransformerImpl {
-            semantic,
             x0_bugfixes: bugfixes::Bugfixes::new(options.bugfixes),
             x0_es3: es3::ES3::new(options.es3),
             x0_es2015: es2015::ES2015::new(options.es2015),
@@ -107,19 +114,29 @@ impl Transformer {
 
         let state = TransformerState {
             assumptions: options.assumptions,
+            semantic,
         };
         let _ = program.traverse_with(&mut transformer, &mut TraverseCtx::new(ast, state));
+        assert_eq!(
+            ast.mutation_epoch(),
+            semantic.mutation_epoch(),
+            "transform returned with divergent AST and Semantic epochs"
+        );
+        #[cfg(debug_assertions)]
+        if let Err(violation) = mutation::verify_program(program, ast, semantic) {
+            panic!("transform returned an inconsistent Semantic graph: {violation:#?}");
+        }
     }
 }
 
-impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
+impl<'semantic, 'ast> Traverse<'ast, TransformerState<'semantic, 'ast>> for TransformerImpl {
     fn enter_program(
         &mut self,
         node: Program,
-        ctx: &mut TransformerCtx<'_, 'ast>,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) -> TraverseAction<Program> {
         self.x0_bugfixes.transform_program(node, ctx);
-        self.x0_es2015.transform(node, self.semantic, ctx);
+        self.x0_es2015.transform(node, ctx);
         self.x0_es2017.transform_program(node, ctx);
         self.x0_es2018.transform_program(node, ctx);
         self.x0_es2020.transform_program(node, ctx);
@@ -144,32 +161,23 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
         }
     }
 
-    fn exit_program(
-        &mut self,
-        node: Program,
-        ctx: &mut TransformerCtx<'_, 'ast>,
-    ) {
+    fn exit_program(&mut self, node: Program, ctx: &mut TransformerCtx<'_, '_, 'ast>) {
         self.x0_es2015.exit_program(node, ctx);
     }
 
-    fn exit_object_property(&mut self, node: ObjectProperty, ctx: &mut TransformerCtx<'_, 'ast>) {
+    fn exit_object_property(
+        &mut self,
+        node: ObjectProperty,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
+    ) {
         self.x0_es3.exit_object_property(node, ctx);
         self.x0_es2015.exit_object_property(node, ctx);
-    }
-
-    fn enter_object_expression(
-        &mut self,
-        node: ObjectExpression,
-        ctx: &mut TransformerCtx<'_, 'ast>,
-    ) -> TraverseAction<ObjectExpression> {
-        self.x0_es2015.enter_object_expression(node, ctx);
-        TraverseAction::Proceed
     }
 
     fn exit_object_expression(
         &mut self,
         node: ObjectExpression,
-        ctx: &mut TransformerCtx<'_, 'ast>,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) {
         self.x0_es2015.exit_object_expression(node, ctx);
     }
@@ -177,7 +185,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     fn exit_binary_expression(
         &mut self,
         node: BinaryExpression,
-        ctx: &mut TransformerCtx<'_, 'ast>,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) {
         self.x0_es2015.exit_binary_expression(node, ctx);
         self.x0_es2016.exit_binary_expression(node, ctx);
@@ -187,35 +195,33 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     fn exit_logical_expression(
         &mut self,
         node: LogicalExpression,
-        ctx: &mut TransformerCtx<'_, 'ast>,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) {
         self.x0_es2020.exit_logical_expression(node, ctx);
+    }
+
+    fn exit_for_of_statement(
+        &mut self,
+        node: ForOfStatement,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
+    ) {
+        self.x0_es2015.exit_for_of_statement(node, ctx);
     }
 
     fn exit_expression(
         &mut self,
         node: Expr,
-        ctx: &mut TransformerCtx<'_, 'ast>,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) -> TraverseAction<Expr> {
-        let action = self.x0_bugfixes.exit_expression(node, ctx);
-        if !matches!(action, TraverseAction::Proceed) {
-            return action;
-        }
-        let action = self.x0_es2015.exit_expression(node, ctx);
-        if !matches!(action, TraverseAction::Proceed) {
-            return action;
-        }
-        if let Some(replacement) = self.x0_es2020.exit_expression(node, ctx) {
-            TraverseAction::Replace(replacement)
-        } else {
-            TraverseAction::Proceed
-        }
+        self.x0_bugfixes.exit_expression(node, ctx);
+        self.x0_es2020.exit_expression(node, ctx);
+        TraverseAction::Proceed
     }
 
     fn enter_method_definition(
         &mut self,
         _node: MethodDefinition,
-        _ctx: &mut TransformerCtx<'_, 'ast>,
+        _ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) -> TraverseAction<MethodDefinition> {
         self.x0_bugfixes.enter_method_definition();
         TraverseAction::Proceed
@@ -224,7 +230,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     fn exit_method_definition(
         &mut self,
         _node: MethodDefinition,
-        _ctx: &mut TransformerCtx<'_, 'ast>,
+        _ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) {
         self.x0_bugfixes.exit_method_definition();
     }
@@ -232,7 +238,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     fn enter_binary_expression(
         &mut self,
         node: BinaryExpression,
-        ctx: &mut TransformerCtx<'_, 'ast>,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) -> TraverseAction<BinaryExpression> {
         self.x0_es2015.enter_binary_expression(node, ctx);
         TraverseAction::Proceed
@@ -241,7 +247,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     fn exit_unary_expression(
         &mut self,
         node: UnaryExpression,
-        ctx: &mut TransformerCtx<'_, 'ast>,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) {
         self.x0_es2015.exit_unary_expression(node, ctx);
     }
@@ -249,7 +255,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     fn exit_variable_declarator(
         &mut self,
         node: VariableDeclarator,
-        ctx: &mut TransformerCtx<'_, 'ast>,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) {
         self.x0_es2015.exit_variable_declarator(node, ctx);
     }
@@ -257,7 +263,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     fn exit_assignment_expression(
         &mut self,
         node: AssignmentExpression,
-        ctx: &mut TransformerCtx<'_, 'ast>,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) {
         self.x0_es3.exit_assignment_expression(node, ctx);
         self.x0_es2015.exit_assignment_expression(node, ctx);
@@ -269,7 +275,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     fn exit_member_expression(
         &mut self,
         node: MemberExpression,
-        ctx: &mut TransformerCtx<'_, 'ast>,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) {
         self.x0_es3.exit_member_expression(node, ctx);
     }
@@ -277,27 +283,27 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     fn exit_block_statement(
         &mut self,
         node: BlockStatement,
-        ctx: &mut TransformerCtx<'_, 'ast>,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) {
         self.x0_es2015.exit_block_statement(node, ctx);
     }
 
-    fn exit_reg_exp_literal(&mut self, node: RegExpLiteral, ctx: &mut TransformerCtx<'_, 'ast>) {
+    fn exit_reg_exp_literal(
+        &mut self,
+        node: RegExpLiteral,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
+    ) {
         self.x0_es2015.exit_reg_exp_literal(node, ctx);
     }
 
-    fn exit_meta_property(
-        &mut self,
-        node: MetaProperty,
-        ctx: &mut TransformerCtx<'_, 'ast>,
-    ) {
+    fn exit_meta_property(&mut self, node: MetaProperty, ctx: &mut TransformerCtx<'_, '_, 'ast>) {
         self.x0_es2015.exit_meta_property(node, ctx);
     }
 
     fn exit_array_expression(
         &mut self,
         node: ArrayExpression,
-        ctx: &mut TransformerCtx<'_, 'ast>,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) {
         self.x0_es2015.exit_array_expression(node, ctx);
     }
@@ -305,36 +311,32 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     fn exit_call_expression(
         &mut self,
         node: CallExpression,
-        ctx: &mut TransformerCtx<'_, 'ast>,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) {
         self.x0_es2015.exit_call_expression(node, ctx);
     }
 
-    fn exit_new_expression(
-        &mut self,
-        node: NewExpression,
-        ctx: &mut TransformerCtx<'_, 'ast>,
-    ) {
+    fn exit_new_expression(&mut self, node: NewExpression, ctx: &mut TransformerCtx<'_, '_, 'ast>) {
         self.x0_es2015.exit_new_expression(node, ctx);
     }
 
     fn enter_catch_clause(
         &mut self,
         node: CatchClause,
-        ctx: &mut TransformerCtx<'_, 'ast>,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) -> TraverseAction<CatchClause> {
         self.x0_es2019.enter_catch_clause(node, ctx);
         TraverseAction::Proceed
     }
 
-    fn exit_class(&mut self, node: Class, ctx: &mut TransformerCtx<'_, 'ast>) {
+    fn exit_class(&mut self, node: Class, ctx: &mut TransformerCtx<'_, '_, 'ast>) {
         self.x0_es2022.exit_class(node, ctx);
     }
 
     fn enter_arrow_function_expression(
         &mut self,
         _node: ArrowFunctionExpression,
-        _ctx: &mut TransformerCtx<'_, 'ast>,
+        _ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) -> TraverseAction<ArrowFunctionExpression> {
         self.x0_bugfixes.enter_arrow_function_expression();
         TraverseAction::Proceed
@@ -343,7 +345,7 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     fn exit_arrow_function_expression(
         &mut self,
         _node: ArrowFunctionExpression,
-        _ctx: &mut TransformerCtx<'_, 'ast>,
+        _ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) {
         self.x0_bugfixes.exit_arrow_function_expression();
     }
@@ -351,8 +353,82 @@ impl<'ast> Traverse<'ast, TransformerState> for TransformerImpl<'_, 'ast> {
     fn exit_binding_property(
         &mut self,
         node: BindingProperty,
-        ctx: &mut TransformerCtx<'_, 'ast>,
+        ctx: &mut TransformerCtx<'_, '_, 'ast>,
     ) {
         self.x0_bugfixes.exit_binding_property(node, ctx);
+    }
+}
+
+#[cfg(test)]
+mod architecture_tests {
+    use std::{fs, path::Path};
+
+    #[test]
+    fn structural_mutation_cannot_bypass_transactions() {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files = Vec::new();
+        collect_rust_files(&source, &mut files);
+        let forbidden = [
+            concat!("TraverseAction", "::Replace"),
+            concat!("ctx.ast", ".replace_data"),
+            concat!("ctx.ast", ".set_data"),
+            concat!(".set_body(", "ctx.ast"),
+            concat!(".set_left(", "ctx.ast"),
+            concat!(".set_right(", "ctx.ast"),
+            concat!(".set_expression(", "ctx.ast"),
+            concat!(".set_properties(", "ctx.ast"),
+            concat!(".set_arguments(", "ctx.ast"),
+        ];
+        for file in files {
+            let text = fs::read_to_string(&file).unwrap();
+            for pattern in forbidden {
+                assert!(
+                    !text.contains(pattern),
+                    "{} bypasses MutationTransaction with `{pattern}`",
+                    file.display()
+                );
+            }
+            let is_mutation_module = file
+                .components()
+                .any(|component| component.as_os_str() == "mutation");
+            if !is_mutation_module {
+                assert!(
+                    !text.contains(concat!(".", "mutation()")),
+                    "{} opens a raw Semantic mutation capability",
+                    file.display()
+                );
+            }
+            if is_mutation_module {
+                continue;
+            }
+            for primitive in [
+                ".register_node(",
+                ".retire_node(",
+                ".create_scope(",
+                ".retag_scope(",
+                ".reparent_scope(",
+                ".retire_scope(",
+                ".reference_generated(",
+                ".advance_mutation_epoch(",
+            ] {
+                assert!(
+                    !text.contains(&format!("semantic{primitive}"))
+                        && !text.contains(&format!("semantic(){primitive}")),
+                    "{} calls a raw Semantic mutation primitive `{primitive}`",
+                    file.display()
+                );
+            }
+        }
+    }
+
+    fn collect_rust_files(directory: &Path, output: &mut Vec<std::path::PathBuf>) {
+        for entry in fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                collect_rust_files(&path, output);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                output.push(path);
+            }
+        }
     }
 }

@@ -22,8 +22,8 @@
 //! 2. In `visit_mut_call_expression`, check if the callee is a known pure call
 //! 3. Add a `/* @__PURE__ */` comment attached to the call expression
 
-use swc_next_ecma_ast::Program;
 use crate::state::TransformerCtx;
+use swc_next_ecma_ast::Program;
 
 pub(super) struct PureAnnotations;
 
@@ -35,7 +35,7 @@ impl PureAnnotations {
     pub fn transform_program<'a>(
         &mut self,
         _program: Program,
-        _ctx: &mut TransformerCtx<'_, 'a>,
+        _ctx: &mut TransformerCtx<'_, '_, 'a>,
     ) {
         // TODO: Implement when synthetic comment attachment is available.
     }

@@ -7,12 +7,16 @@ use gungraun::prelude::*;
 use gungraun::{Callgrind, EventKind};
 use swc_next_allocator::Allocator;
 use swc_next_ecma_ast::{
-    Ast, BindingIdentifier, IdentifierName, IdentifierReference, LabelIdentifier, Lang,
+    Ast, BindingIdentifier, IdentifierName, IdentifierReference, LabelIdentifier, Lang, NodeId,
     PrivateIdentifier, Program, Traverse, TraverseAction, TraverseCtx, TraverseWith, Visit,
     VisitMut, VisitMutWith, VisitWith,
 };
 use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
-use swc_next_ecma_semantic::{AnalyzeOptions, analyze};
+use swc_next_ecma_semantic::{AnalyzeOptions, Semantic, analyze};
+use swc_next_ecma_transformer::{
+    Transformer, TransformerOptions,
+    mutation::{IdentityPolicy, MutationTransaction},
+};
 
 const ANGULAR: &str = include_str!("../files/angular-1.2.5.js");
 const BACKBONE: &str = include_str!("../files/backbone-1.1.0.js");
@@ -98,6 +102,136 @@ fn bench_semantic_with_syntax_check(parsed: ParsedProgram) {
             ..AnalyzeOptions::default()
         },
     ));
+}
+
+struct ClassTransformProgram {
+    ast: Ast<'static>,
+    program: Program,
+    semantic: Semantic<'static>,
+    options: TransformerOptions,
+}
+
+fn class_source(class_count: usize, derived: bool, nested_depth: usize) -> &'static str {
+    let mut source = String::new();
+    if derived {
+        source.push_str(
+            "class Base { method(value) { return value; } static make(value) { return value; } }\n",
+        );
+    }
+    for index in 0..class_count {
+        if derived {
+            source.push_str(&format!(
+                "class C{index} extends Base {{ constructor(value) {{ try {{ if (value) super(value); else super(); return {{ value }}; }} finally {{ value += 1; }} }} method(value) {{ return super.method(value); }} static make(value) {{ return super.make(value); }} }}\n"
+            ));
+        } else {
+            source.push_str(&format!(
+                "class C{index} {{ constructor(value) {{ this.value = value; }} method(value) {{ return value; }} static make(value) {{ return new C{index}(value); }} }}\n"
+            ));
+        }
+    }
+    if nested_depth > 0 {
+        source.push_str("function nested() {\n");
+        for depth in 0..nested_depth {
+            source.push_str(&format!("class Nested{depth} {{ method() {{\n"));
+        }
+        source.push_str("return 1;\n");
+        for _ in 0..nested_depth {
+            source.push_str("} }\n");
+        }
+        source.push_str("return Nested0;\n}\n");
+    }
+    Box::leak(source.into_boxed_str())
+}
+
+fn setup_class_transform(
+    class_count: usize,
+    derived: bool,
+    nested_depth: usize,
+) -> ClassTransformProgram {
+    let allocator = Box::leak(Box::new(Allocator::new()));
+    let source = class_source(class_count, derived, nested_depth);
+    let mut ast = Ast::new(source, allocator);
+    let result = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+    assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+    let program = result.program;
+    let mut options = TransformerOptions::default();
+    options.es2015.classes = true;
+    let semantic = analyze(
+        program,
+        &ast,
+        AnalyzeOptions {
+            features: options.semantic_features(),
+            ..AnalyzeOptions::default()
+        },
+    )
+    .semantic;
+    ClassTransformProgram {
+        ast,
+        program,
+        semantic,
+        options,
+    }
+}
+
+#[library_benchmark]
+#[bench::base_1(setup_class_transform(1, false, 0))]
+#[bench::base_32(setup_class_transform(32, false, 0))]
+#[bench::derived_32(setup_class_transform(32, true, 0))]
+#[bench::nested_8(setup_class_transform(0, false, 8))]
+fn bench_class_transform(mut parsed: ClassTransformProgram) {
+    Transformer::transform(
+        parsed.program,
+        &mut parsed.ast,
+        &mut parsed.semantic,
+        parsed.options,
+    );
+    black_box(parsed.ast.mutation_epoch());
+    black_box(parsed.semantic.mutation_epoch());
+}
+
+struct LeafMutationProgram {
+    ast: Ast<'static>,
+    program: Program,
+    semantic: Semantic<'static>,
+    target: NodeId,
+}
+
+fn setup_leaf_mutation(sibling_count: usize) -> LeafMutationProgram {
+    let allocator = Box::leak(Box::new(Allocator::new()));
+    let source = Box::leak(";".repeat(sibling_count).into_boxed_str());
+    let mut ast = Ast::new(source, allocator);
+    let result = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+    assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+    let program = result.program;
+    let target = program.body(&ast).get_node(&ast, 0).unwrap().node_id();
+    let semantic = analyze(program, &ast, AnalyzeOptions::default()).semantic;
+    LeafMutationProgram {
+        ast,
+        program,
+        semantic,
+        target,
+    }
+}
+
+// Replacing one leaf should cost the same order of work regardless of how
+// many unrelated sibling statements are present in the program.
+#[library_benchmark]
+#[bench::one_sibling(setup_leaf_mutation(1))]
+#[bench::four_thousand_siblings(setup_leaf_mutation(4096))]
+fn bench_leaf_mutation(mut parsed: LeafMutationProgram) {
+    let mut transaction = MutationTransaction::begin(
+        &mut parsed.ast,
+        &mut parsed.semantic,
+        parsed.program.node_id(),
+    )
+    .unwrap();
+    let replacement = transaction.build_detached(|ast| ast.empty_statement(Default::default()));
+    transaction.replace(
+        parsed.target,
+        replacement.node_id(),
+        IdentityPolicy::Preserve,
+    );
+    black_box(transaction.commit().unwrap());
 }
 
 struct VisitCounter<'visit, 'ast> {
@@ -274,10 +408,15 @@ library_benchmark_group!(
     benchmarks = [bench_visit, bench_visit_mut, bench_traverse]
 );
 
+library_benchmark_group!(
+    name = transform,
+    benchmarks = [bench_class_transform, bench_leaf_mutation]
+);
+
 main!(
     config =
         LibraryBenchmarkConfig::default().tool(
             Callgrind::with_args(["--branch-sim=no", "--cache-sim=no",]).format([EventKind::Ir]),
         ),
-    library_benchmark_groups = [parser, semantic, visit]
+    library_benchmark_groups = [parser, semantic, visit, transform]
 );

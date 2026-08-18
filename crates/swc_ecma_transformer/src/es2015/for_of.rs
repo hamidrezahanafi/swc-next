@@ -1,25 +1,17 @@
-//! ES2015: for_of — Transform `for-of` loops into standard `for` loops.
-//!
-//! ```js
-//! // Input:
-//! for (var i of arr) { body }
-//!
-//! // Output (array case):
-//! for (var _i = 0; _i < arr.length; _i++) {
-//!   var i = arr[_i];
-//!   body
-//! }
-//! ```
-//!
-//! TODO: Support the full iterator protocol with try/catch/finally.
-//! TODO: Support `for await...of`.
+//! ES2015 `for..of` lowering for the array fast path.
+
+use std::collections::HashSet;
 
 use swc_next_ecma_ast::{
-    Ast, BinaryOperator, Expr, ForStatementLeft, GetSpan, Program, SimpleAssignmentTarget, Stmt,
-    UpdateOperator, VariableKind,
+    BinaryOperator, BindingPattern, Expr, ForOfStatement, ForStatementLeft, GetSpan,
+    NumericLiteralKind, PropertyKey, SimpleAssignmentTarget, Stmt, UpdateOperator, VariableKind,
 };
+use swc_next_ecma_semantic::{ReferenceFlags, SymbolFlags, scope};
 
-use swc_next_ecma_semantic::Semantic;
+use crate::{
+    mutation::{DetachedScopeRegion, ScopeHandle},
+    state::{TransformerCtx, TransformerCtxExt},
+};
 
 pub(super) struct ForOf;
 
@@ -28,175 +20,298 @@ impl ForOf {
         Self
     }
 
-    /// Program-level transform: walk all statements and replace `for-of` loops.
-    pub fn transform<'a>(
+    pub fn exit_for_of_statement(
         &mut self,
-        program: Program,
-        ast: &mut Ast<'a>,
-        _semantic: &mut Semantic<'a>,
+        node: ForOfStatement,
+        ctx: &mut TransformerCtx<'_, '_, '_>,
     ) {
-        walk_stmts_for_of(program, ast);
+        if node.r#await(ctx.ast) {
+            return;
+        }
+
+        let old = Stmt::ForOfStatement(node);
+        let source_right = node.right(ctx.ast);
+        let existing_body_scope = node
+            .body(ctx.ast)
+            .as_block_statement(ctx.ast)
+            .map(|body| ctx.semantic().scope_of(body.node_id()));
+        let for_scope = ctx.semantic().scope_of(node.node_id());
+        let hoist_scope = ctx.semantic().scope(for_scope).hoist_target;
+        let lexical_symbols = lexical_left_symbols(node.left(ctx.ast), ctx);
+        ctx.transaction(node.node_id(), |tx| {
+            let mut clone = tx.clone_detached(old);
+            let for_of = clone.root.as_for_of_statement(tx.ast()).unwrap();
+            let span = for_of.span(tx.ast());
+            let left = for_of.left(tx.ast());
+            let right = for_of.right(tx.ast());
+            let source_body = for_of.body(tx.ast());
+            let right_copy = tx.clone_detached(source_right);
+            let iterator = tx.declare_private(hoist_scope, "_i", SymbolFlags::FUNCTION_SCOPED_VAR);
+
+            let built = tx.build_detached(|ast| {
+                build_for_statement(
+                    span,
+                    left,
+                    right,
+                    right_copy.root,
+                    source_body,
+                    iterator,
+                    ast,
+                )
+            });
+            clone.replace_root(built.statement);
+
+            let mut regions = Vec::new();
+            let body_scope = if built.generated_body {
+                let flags = scope::ScopeFlags {
+                    strict: tx.semantic().scope(for_scope).flags.strict,
+                    ..scope::ScopeFlags::default()
+                };
+                let pending = tx.create_scope(
+                    for_scope,
+                    built.body.node_id(),
+                    scope::ScopeKind::Block,
+                    flags,
+                );
+                regions.push(DetachedScopeRegion {
+                    root: built.body.node_id(),
+                    scope: ScopeHandle::Pending(pending),
+                });
+                ScopeHandle::Pending(pending)
+            } else {
+                ScopeHandle::Existing(
+                    existing_body_scope.expect("an existing block body has a scope"),
+                )
+            };
+
+            let layout =
+                tx.replace_statement_from_transformed_clone(old, clone, for_scope, &regions);
+            tx.duplicate_semantics_from_detached_clone(&right_copy, &layout);
+            for symbol in lexical_symbols {
+                tx.move_symbol(symbol, body_scope, std::iter::empty());
+            }
+            for &(reference, flags, in_body) in &built.references {
+                tx.reference(
+                    if in_body {
+                        body_scope
+                    } else {
+                        ScopeHandle::Existing(for_scope)
+                    },
+                    reference.node_id(),
+                    tx.ast().canonicalize_utf8(reference.name(tx.ast())),
+                    flags,
+                    Some(iterator.symbol),
+                );
+            }
+        })
+        .expect("for-of mutation must pass preflight");
     }
 }
 
-fn walk_stmts_for_of(program: Program, ast: &mut Ast) {
-    let body = program.body(ast);
-    let len = body.len();
-    let mut new_body: Vec<Stmt> = Vec::new();
-    for i in 0..len {
-        let stmt = body.get_node(ast, i).unwrap();
-        process_stmt(stmt, ast, &mut new_body);
-    }
-    let new_range = ast.add_typed_sub_range(new_body);
-    program.set_body(ast, new_range);
+struct BuiltForOf {
+    statement: Stmt,
+    body: swc_next_ecma_ast::BlockStatement,
+    generated_body: bool,
+    references: Vec<(swc_next_ecma_ast::IdentifierReference, ReferenceFlags, bool)>,
 }
 
-fn process_stmt(stmt: Stmt, ast: &mut Ast, out: &mut Vec<Stmt>) {
-    if stmt.is_for_of_statement(ast) {
-        let for_of = stmt.as_for_of_statement(ast).unwrap();
-        let span = for_of.span(ast);
-        let left = for_of.left(ast);
-        let right = for_of.right(ast);
-        let body = for_of.body(ast);
-        let is_await = for_of.r#await(ast);
-
-        if is_await {
-            out.push(stmt);
-        } else {
-            let replacement = fold_for_of_stmt(span, left, right, body, ast);
-            out.push(replacement);
-        }
-    } else {
-        // Recurse into block statements
-        if stmt.is_block_statement(ast) {
-            let block = stmt.as_block_statement(ast).unwrap();
-            let body = block.body(ast);
-            let len = body.len();
-            let mut new_stmts: Vec<Stmt> = Vec::new();
-            for i in 0..len {
-                let inner = body.get_node(ast, i).unwrap();
-                process_stmt(inner, ast, &mut new_stmts);
-            }
-            let new_range = ast.add_typed_sub_range(new_stmts);
-            block.set_body(ast, new_range);
-        }
-        // For statement with body
-        if stmt.is_for_statement(ast) {
-            let for_stmt = stmt.as_for_statement(ast).unwrap();
-            let body = for_stmt.body(ast);
-            let mut new_body: Vec<Stmt> = Vec::new();
-            process_stmt(body, ast, &mut new_body);
-            if new_body.len() == 1 {
-                for_stmt.set_body(ast, new_body.into_iter().next().unwrap());
-            }
-        }
-        // Labeled statement
-        if stmt.is_labeled_statement(ast) {
-            let labeled = stmt.as_labeled_statement(ast).unwrap();
-            let body = labeled.body(ast);
-            let mut new_body: Vec<Stmt> = Vec::new();
-            process_stmt(body, ast, &mut new_body);
-            if new_body.len() == 1 {
-                labeled.set_body(ast, new_body.into_iter().next().unwrap());
-            }
-        }
-        out.push(stmt);
-    }
-}
-
-fn fold_for_of_stmt(
+fn build_for_statement(
     span: swc_next_ecma_ast::Span,
     left: ForStatementLeft,
     right: Expr,
-    body: Stmt,
-    ast: &mut Ast,
-) -> Stmt {
-    let d = swc_next_ecma_ast::DUMMY_SP;
+    right_copy: Expr,
+    source_body: Stmt,
+    iterator: crate::mutation::PrivateBinding,
+    ast: &mut swc_next_ecma_ast::Ast<'_>,
+) -> BuiltForOf {
+    let zero = ast.add_utf8("0");
+    let zero = ast.expr_numeric_literal(
+        swc_next_ecma_ast::DUMMY_SP,
+        NumericLiteralKind::Decimal,
+        zero,
+    );
+    let iterator_declarator = ast.variable_declarator(
+        swc_next_ecma_ast::DUMMY_SP,
+        BindingPattern::BindingIdentifier(iterator.declaration),
+        Some(zero),
+        false,
+    );
 
-    // Ensure body is a block statement
-    let body = if body.is_block_statement(ast) {
-        body.as_block_statement(ast).unwrap()
+    let test_reference = generated_reference(ast, iterator);
+    let length = ast.add_utf8("length");
+    let length = ast.property_key_identifier_name(swc_next_ecma_ast::DUMMY_SP, length);
+    let length =
+        ast.expr_member_expression(swc_next_ecma_ast::DUMMY_SP, right, length, false, false);
+    let test = ast.expr_binary_expression(
+        swc_next_ecma_ast::DUMMY_SP,
+        Expr::IdentifierReference(test_reference),
+        length,
+        BinaryOperator::LessThan,
+    );
+
+    let update_reference = generated_reference(ast, iterator);
+    let update_target = SimpleAssignmentTarget::IdentifierReference(update_reference);
+    let update = ast.expr_update_expression(
+        swc_next_ecma_ast::DUMMY_SP,
+        update_target,
+        UpdateOperator::Increment,
+        false,
+    );
+
+    let element_reference = generated_reference(ast, iterator);
+    let element = ast.expr_member_expression(
+        swc_next_ecma_ast::DUMMY_SP,
+        right_copy,
+        PropertyKey::Expr(Expr::IdentifierReference(element_reference)),
+        true,
+        false,
+    );
+    let assignment = make_assignment(left, element, ast);
+
+    let (body, generated_body) = if let Some(body) = source_body.as_block_statement(ast) {
+        let statements = std::iter::once(assignment)
+            .chain(
+                body.body(ast)
+                    .iter()
+                    .map(|id| ast.get_node_in_sub_range(id)),
+            )
+            .collect::<Vec<_>>();
+        let statements = ast.add_typed_sub_range(statements);
+        body.set_body(ast, statements);
+        (body, false)
     } else {
-        let stmts = ast.add_typed_sub_range([body]);
-        ast.block_statement(span, stmts)
+        let statements = ast.add_typed_sub_range([assignment, source_body]);
+        (ast.block_statement(span, statements), true)
     };
 
-    // Create iterator variable: _i
-    let i_name = ast.add_utf8("_i");
-    let i_binding = ast.binding_pattern_simple_assignment_target_identifier_reference(d, i_name);
-    let zero_str = ast.add_utf8("0");
-    let zero = ast.expr_numeric_literal(d, NumericLiteralKind::Decimal, zero_str);
-
-    // var _i = 0
-    let i_declarator = ast.variable_declarator(d, i_binding, Some(zero), false);
-
-    // test: _i < arr.length
-    let length_name = ast.add_utf8("length");
-    let length_key = ast.property_key_identifier_name(d, length_name);
-    let right_len = ast.expr_member_expression(d, right.clone(), length_key, false, false);
-    let i_ref = ast.expr_identifier_reference(d, i_name);
-    let test = ast.expr_binary_expression(d, i_ref, right_len, BinaryOperator::LessThan);
-
-    // update: _i++
-    let i_id = ast.identifier_reference(d, i_name);
-    let i_target = SimpleAssignmentTarget::IdentifierReference(i_id.into());
-    let update = ast.expr_update_expression(d, i_target, UpdateOperator::Increment, false);
-
-    // elem: arr[_i]
-    let computed_key = ast.property_key_expr_identifier_reference(d, i_name);
-    let elem = ast.expr_member_expression(d, right, computed_key, true, false);
-
-    // Build body with assignment prepended
-    let body_stmts = body.body(ast);
-    let mut new_stmts: Vec<Stmt> = Vec::new();
-    for i in 0..body_stmts.len() {
-        new_stmts.push(body_stmts.get_node(ast, i).unwrap());
-    }
-
-    let assign_stmt = make_assign_stmt(left, elem, ast);
-    new_stmts.insert(0, assign_stmt);
-
-    let new_body_stmts = ast.add_typed_sub_range(new_stmts);
-    let new_body = ast.block_statement(span, new_body_stmts);
-
-    // Build the for statement
-    let i_declarators = ast.add_typed_sub_range([i_declarator]);
+    let declarators = ast.add_typed_sub_range([iterator_declarator]);
     let init = ast.for_statement_init_variable_declaration(
-        d, VariableKind::Var, i_declarators, false,
+        swc_next_ecma_ast::DUMMY_SP,
+        VariableKind::Var,
+        declarators,
+        false,
     );
-    ast.stmt_for_statement(
+    let statement = ast.stmt_for_statement(
         span,
         Some(init),
         Some(test),
         Some(update),
-        Stmt::BlockStatement(new_body.into()),
-    )
-}
-
-fn make_assign_stmt(
-    left: ForStatementLeft,
-    elem: Expr,
-    ast: &mut Ast,
-) -> Stmt {
-    let d = swc_next_ecma_ast::DUMMY_SP;
-    if left.is_variable_declaration(ast) {
-        let var_decl = left.as_variable_declaration(ast).unwrap();
-        let kind = var_decl.kind(ast);
-        let decls = var_decl.declarators(ast);
-        let decl = decls.get_node(ast, 0).unwrap();
-        let id = decl.id(ast);
-
-        let new_decl = ast.variable_declarator(d, id, Some(elem), false);
-        let new_decls = ast.add_typed_sub_range([new_decl]);
-        ast.stmt_decl_variable_declaration(d, kind, new_decls, false)
-    } else {
-        let target = left.as_assignment_target(ast).unwrap();
-        let assign = ast.expr_assignment_expression(
-            d, target, elem,
-            swc_next_ecma_ast::AssignmentOperator::Assign,
-        );
-        ast.stmt_expression_statement(d, assign)
+        Stmt::BlockStatement(body),
+    );
+    BuiltForOf {
+        statement,
+        body,
+        generated_body,
+        references: vec![
+            (test_reference, ReferenceFlags::default(), false),
+            (
+                update_reference,
+                ReferenceFlags::default().read_write(),
+                false,
+            ),
+            (element_reference, ReferenceFlags::default(), true),
+        ],
     }
 }
 
-use swc_next_ecma_ast::NumericLiteralKind;
+fn generated_reference(
+    ast: &mut swc_next_ecma_ast::Ast<'_>,
+    binding: crate::mutation::PrivateBinding,
+) -> swc_next_ecma_ast::IdentifierReference {
+    let reference = ast.identifier_reference(swc_next_ecma_ast::DUMMY_SP, binding.text);
+    ast.set_syntax_context(reference.node_id(), binding.context);
+    reference
+}
+
+fn make_assignment(
+    left: ForStatementLeft,
+    element: Expr,
+    ast: &mut swc_next_ecma_ast::Ast<'_>,
+) -> Stmt {
+    if let Some(declaration) = left.as_variable_declaration(ast) {
+        let declarator = declaration.declarators(ast).get_node(ast, 0).unwrap();
+        let declarator = ast.variable_declarator(
+            swc_next_ecma_ast::DUMMY_SP,
+            declarator.id(ast),
+            Some(element),
+            false,
+        );
+        let declarators = ast.add_typed_sub_range([declarator]);
+        ast.stmt_decl_variable_declaration(
+            swc_next_ecma_ast::DUMMY_SP,
+            declaration.kind(ast),
+            declarators,
+            false,
+        )
+    } else {
+        let assignment = ast.expr_assignment_expression(
+            swc_next_ecma_ast::DUMMY_SP,
+            left.as_assignment_target(ast).unwrap(),
+            element,
+            swc_next_ecma_ast::AssignmentOperator::Assign,
+        );
+        ast.stmt_expression_statement(swc_next_ecma_ast::DUMMY_SP, assignment)
+    }
+}
+
+fn lexical_left_symbols(
+    left: ForStatementLeft,
+    ctx: &TransformerCtx<'_, '_, '_>,
+) -> Vec<swc_next_ecma_ast::SymbolId> {
+    let Some(declaration) = left.as_variable_declaration(ctx.ast) else {
+        return Vec::new();
+    };
+    if declaration.kind(ctx.ast) == VariableKind::Var {
+        return Vec::new();
+    }
+    let mut symbols = HashSet::new();
+    let mut pending = vec![declaration.node_id()];
+    while let Some(node) = pending.pop() {
+        if let Some(declaration) = ctx.semantic().declaration_of(node) {
+            symbols.insert(ctx.semantic().declaration(declaration).symbol);
+        }
+        pending.extend(ctx.semantic().node_children(node));
+    }
+    symbols.into_iter().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use swc_next_allocator::Allocator;
+    use swc_next_ecma_ast::Ast;
+    use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
+    use swc_next_ecma_semantic::{AnalyzeOptions, analyze};
+
+    use crate::{
+        Transformer, TransformerOptions,
+        mutation::{assert_semantic_matches_reanalysis, verify_program},
+    };
+
+    fn lower_and_assert(source: &str) {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new(source, &allocator);
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let mut options = TransformerOptions::default();
+        options.es2015.for_of = true;
+        let mut semantic = analyze(
+            parse.program,
+            &ast,
+            AnalyzeOptions {
+                features: options.semantic_features(),
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+        Transformer::transform(parse.program, &mut ast, &mut semantic, options);
+        verify_program(parse.program, &ast, &semantic).unwrap();
+        assert_semantic_matches_reanalysis(parse.program, &ast, &semantic);
+    }
+
+    #[test]
+    fn lowers_lexical_and_assignment_heads_with_consistent_semantics() {
+        lower_and_assert(
+            "function f(values, target) { for (let value of values) use(value); for (target of values) { use(target); } }",
+        );
+    }
+}

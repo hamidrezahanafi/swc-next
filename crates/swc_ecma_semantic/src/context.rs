@@ -7,7 +7,8 @@ use swc_next_ecma_ast::{
 };
 
 use crate::{
-    EffectCounts, FunctionCaptureData, Semantic, SemanticFeatureFlags, SemanticTransformFacts,
+    ClassLoweringFact, ClassMethodFact, EffectCounts, FunctionCaptureData, Semantic,
+    SemanticFeatureFlags, SemanticTransformFacts,
     binder::{ReferenceFlags, ReferenceSpace, SymbolTracker},
     module_record::ModuleRecordBuilder,
     scope::ScopeTracker,
@@ -73,6 +74,7 @@ struct TransformFactsCollector<'a> {
     effect_owners: Option<ArenaVec<'a, Option<NodeId>>>,
     generator_functions: ArenaVec<'a, Function>,
     async_functions: ArenaVec<'a, NodeId>,
+    classes: ArenaVec<'a, Class>,
     function_boundaries: ArenaVec<'a, NodeId>,
     capture_boundaries: Vec<Option<NodeId>>,
     capture_candidates: HashMap<NodeId, CaptureCandidates>,
@@ -100,6 +102,7 @@ impl<'a> TransformFactsCollector<'a> {
             effect_owners,
             generator_functions: ArenaVec::new_in(allocator),
             async_functions: ArenaVec::new_in(allocator),
+            classes: ArenaVec::new_in(allocator),
             function_boundaries: ArenaVec::new_in(allocator),
             capture_boundaries: Vec::new(),
             capture_candidates: HashMap::new(),
@@ -188,6 +191,11 @@ impl<'a> TransformFactsCollector<'a> {
                     self.async_functions.push(node);
                 }
             }
+            NodeKindData::Class(class)
+                if self.features.contains(SemanticFeatureFlags::CLASS_LOWERING) =>
+            {
+                self.classes.push(class);
+            }
             NodeKindData::ArrowFunctionExpression(arrow)
                 if self
                     .features
@@ -225,6 +233,25 @@ impl<'a> TransformFactsCollector<'a> {
 
     fn finish(self, semantic: &Semantic<'a>, tree: &Ast<'a>) -> SemanticTransformFacts<'a> {
         let allocator = tree.allocator();
+        let mut generator_function_counts =
+            ArenaVec::with_capacity_in(tree.node_count(), allocator);
+        generator_function_counts.resize(tree.node_count(), 0u32);
+        for function in &self.generator_functions {
+            for node in semantic.ancestors(Some(function.node_id())) {
+                generator_function_counts[node.index()] = generator_function_counts[node.index()]
+                    .checked_add(1)
+                    .expect("generator function count overflow");
+            }
+        }
+        let mut async_function_counts = ArenaVec::with_capacity_in(tree.node_count(), allocator);
+        async_function_counts.resize(tree.node_count(), 0u32);
+        for function in &self.async_functions {
+            for node in semantic.ancestors(Some(*function)) {
+                async_function_counts[node.index()] = async_function_counts[node.index()]
+                    .checked_add(1)
+                    .expect("async function count overflow");
+            }
+        }
         let mut function_captures = ArenaHashMap::new_in(allocator);
         for (function, candidates) in self.capture_candidates {
             let mut captures = FunctionCaptureData {
@@ -251,14 +278,140 @@ impl<'a> TransformFactsCollector<'a> {
             arena_nodes.extend(nodes);
             yield_nodes.insert(function, arena_nodes);
         }
+        let mut class_lowering = ArenaVec::with_capacity_in(self.classes.len(), allocator);
+        for class in self.classes {
+            class_lowering.push(build_class_lowering_fact(semantic, tree, class));
+        }
+        let mut class_counts = ArenaVec::with_capacity_in(tree.node_count(), allocator);
+        class_counts.resize(tree.node_count(), 0u32);
+        for facts in &class_lowering {
+            for node in semantic.ancestors(Some(facts.class.node_id())) {
+                class_counts[node.index()] = class_counts[node.index()]
+                    .checked_add(1)
+                    .expect("class count overflow");
+            }
+        }
         SemanticTransformFacts {
             effects: self.effects,
             effect_owners: self.effect_owners,
             generator_functions: self.generator_functions,
             async_functions: self.async_functions,
+            generator_function_counts,
+            async_function_counts,
+            class_counts,
             function_captures,
             yield_nodes,
+            class_lowering,
         }
+    }
+}
+
+pub(crate) fn build_class_lowering_fact<'a>(
+    semantic: &Semantic<'a>,
+    tree: &Ast<'a>,
+    class: Class,
+) -> ClassLoweringFact<'a> {
+    let allocator = tree.allocator();
+    let name_symbol = class
+        .id(tree)
+        .and_then(|id| semantic.declaration_of(id.node_id()))
+        .map(|declaration| semantic.declaration(declaration).symbol);
+    let mut constructor = None;
+    let mut methods = ArenaVec::new_in(allocator);
+    let mut computed_keys = ArenaVec::new_in(allocator);
+    let mut has_properties = false;
+    let mut has_private_elements = false;
+    let mut has_static_blocks = false;
+    let mut has_decorators = !class.decorators(tree).is_empty();
+    let elements = class.body(tree).body(tree);
+    for index in 0..elements.len() {
+        let element = elements.get_node(tree, index).unwrap();
+        if let Some(method) = element.as_method_definition(tree) {
+            let function = method.value(tree);
+            if method.kind(tree) == swc_next_ecma_ast::MethodDefinitionKind::Constructor {
+                constructor = Some(function);
+            }
+            if method.computed(tree) {
+                computed_keys.push(method.key(tree).node_id());
+            }
+            has_private_elements |= method.key(tree).is_private_identifier(tree);
+            has_decorators |= !method.decorators(tree).is_empty();
+            methods.push(ClassMethodFact {
+                definition: method,
+                function,
+                function_scope: semantic.scope_of(function.node_id()),
+                kind: method.kind(tree),
+                r#static: method.r#static(tree),
+                computed: method.computed(tree),
+            });
+        } else if let Some(property) = element.as_property_definition(tree) {
+            has_properties = true;
+            has_private_elements |= property.key(tree).is_private_identifier(tree);
+            has_decorators |= !property.decorators(tree).is_empty();
+            if property.computed(tree) {
+                computed_keys.push(property.key(tree).node_id());
+            }
+        } else if element.is_static_block(tree) {
+            has_static_blocks = true;
+        }
+    }
+
+    let mut super_calls = ArenaVec::new_in(allocator);
+    let mut super_members = ArenaVec::new_in(allocator);
+    let mut self_references = ArenaVec::new_in(allocator);
+    let mut this_nodes = ArenaVec::new_in(allocator);
+    let mut new_targets = ArenaVec::new_in(allocator);
+    let mut pending: Vec<_> = semantic.node_children(class.node_id()).collect();
+    while let Some(node) = pending.pop() {
+        if matches!(tree.kind_data(node), NodeKindData::Class(_)) {
+            continue;
+        }
+        match tree.kind_data(node) {
+            NodeKindData::Super(_) => {
+                if let Some(parent) = semantic.parent_of(node) {
+                    match tree.kind_data(parent) {
+                        NodeKindData::CallExpression(_) => super_calls.push(parent),
+                        NodeKindData::MemberExpression(_) => super_members.push(parent),
+                        _ => {}
+                    }
+                }
+            }
+            NodeKindData::IdentifierReference(_) => {
+                if let Some(reference) = semantic.reference_of(node)
+                    && semantic.reference(reference).symbol == name_symbol
+                {
+                    self_references.push(reference);
+                }
+            }
+            NodeKindData::ThisExpression(_) => this_nodes.push(node),
+            NodeKindData::MetaProperty(meta)
+                if tree.get_utf8(meta.meta(tree).name(tree)) == "new"
+                    && tree.get_utf8(meta.property(tree).name(tree)) == "target" =>
+            {
+                new_targets.push(node);
+            }
+            _ => {}
+        }
+        pending.extend(semantic.node_children(node));
+    }
+
+    ClassLoweringFact {
+        class,
+        class_scope: semantic.scope_of(class.node_id()),
+        name_symbol,
+        constructor,
+        methods,
+        heritage: class.super_class(tree).map(|heritage| heritage.node_id()),
+        computed_keys,
+        super_calls,
+        super_members,
+        self_references,
+        this_nodes,
+        new_targets,
+        has_properties,
+        has_private_elements,
+        has_static_blocks,
+        has_decorators,
     }
 }
 

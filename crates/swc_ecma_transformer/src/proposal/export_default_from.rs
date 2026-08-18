@@ -14,8 +14,8 @@
 //! updated to convert any specifier with `local == "default"` into a named
 //! specifier if needed.
 
-use swc_next_ecma_ast::Program;
 use crate::state::TransformerCtx;
+use swc_next_ecma_ast::Program;
 
 pub(super) struct ExportDefaultFrom;
 
@@ -27,7 +27,7 @@ impl ExportDefaultFrom {
     pub fn transform_program<'a>(
         &mut self,
         _program: Program,
-        _ctx: &mut TransformerCtx<'_, 'a>,
+        _ctx: &mut TransformerCtx<'_, '_, 'a>,
     ) {
         // No-op: parser doesn't support the source syntax yet.
     }

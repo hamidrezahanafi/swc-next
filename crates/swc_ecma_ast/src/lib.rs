@@ -62,6 +62,9 @@ pub struct Ast<'a> {
 
     /// Hygiene marks and per-node syntax contexts.
     hygiene: hygiene::Hygiene<'a>,
+
+    /// Version of the attached tree observed by semantic-aware transforms.
+    mutation_epoch: u64,
 }
 
 multi_index_vec! {
@@ -119,6 +122,7 @@ impl<'a> Ast<'a> {
             extra_data: ArenaVec::with_capacity_in(0, allocator),
             strings: StringPool::new_in(allocator, source),
             hygiene: hygiene::Hygiene::new_in(allocator),
+            mutation_epoch: 0,
         }
     }
 
@@ -297,6 +301,17 @@ impl<'a> Ast<'a> {
         self.strings.source
     }
 
+    /// Updates the span of a node regardless of its concrete AST kind.
+    ///
+    /// Generated-source templates use this to discard offsets from their
+    /// synthetic input before the nodes are attached to a user program.
+    #[doc(hidden)]
+    #[inline]
+    pub fn set_node_span(&mut self, node: NodeId, span: Span) {
+        assert!(node.index() < self.nodes.len());
+        *self.nodes.span_mut(node) = span;
+    }
+
     /// Returns a slice of the source string corresponding to the given start and end offsets.
     /// Actually this function should be unsafe because it does not check if the offsets are valid.
     /// So external crates should be better not use this function directly.
@@ -376,6 +391,21 @@ impl<'a> Ast<'a> {
     #[inline]
     pub fn node_count(&self) -> usize {
         self.nodes.len()
+    }
+
+    #[inline]
+    pub fn mutation_epoch(&self) -> u64 {
+        self.mutation_epoch
+    }
+
+    #[doc(hidden)]
+    #[inline]
+    pub fn advance_mutation_epoch(&mut self) -> u64 {
+        self.mutation_epoch = self
+            .mutation_epoch
+            .checked_add(1)
+            .expect("AST mutation epoch overflow");
+        self.mutation_epoch
     }
 
     /// Returns the hygiene context attached to `node`.

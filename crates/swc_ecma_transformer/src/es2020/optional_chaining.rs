@@ -1,21 +1,14 @@
 //! ES2020: optional-chaining — Transform `?.` to conditional expressions.
-//!
-//! Input:
-//! ```js
-//! a?.b
-//! ```
-//!
-//! Output:
-//! ```js
-//! a === null || a === void 0 ? void 0 : a.b
-//! ```
 
 use swc_next_ecma_ast::{
     BinaryOperator, Expr, ExprData, GetSpan, LogicalOperator, NumericLiteralKind, Span,
     UnaryOperator,
 };
 
-use crate::state::TransformerCtx;
+use crate::{
+    mutation::{DetachedClone, MutationTransaction},
+    state::{TransformerCtx, TransformerCtxExt},
+};
 
 pub(super) struct OptionalChaining;
 
@@ -24,115 +17,160 @@ impl OptionalChaining {
         Self
     }
 
-    /// Called from `exit_expression`. If the expression is a ChainExpression,
-    /// lower it to nested conditional expressions.
-    pub fn exit_expression(
-        &self,
-        node: Expr,
-        ctx: &mut TransformerCtx<'_, '_>,
-    ) -> Option<Expr> {
-        // Only process ChainExpression
-        if !matches!(ctx.ast.expr_data(node), ExprData::ChainExpression(_)) {
-            return None;
-        }
-        let (span, inner) = {
-            let ExprData::ChainExpression(chain) = ctx.ast.expr_data(node) else {
-                unreachable!()
-            };
-            (chain.span(ctx.ast), chain.expression(ctx.ast))
+    pub fn exit_expression(&self, node: Expr, ctx: &mut TransformerCtx<'_, '_, '_>) {
+        let ExprData::ChainExpression(chain) = ctx.ast.expr_data(node) else {
+            return;
         };
-        let result = self.lower_chain(inner, ctx, span);
-        Some(result)
+        let span = chain.span(ctx.ast);
+        let source_inner = chain.expression(ctx.ast);
+        let scope = ctx.semantic().scope_of(node.node_id());
+        ctx.transaction(node.node_id(), |tx| {
+            let mut clone = tx.clone_detached(node);
+            let chain = clone.root.as_chain_expression(tx.ast()).unwrap();
+            let cloned_inner = chain.expression(tx.ast());
+            let mut copies = Vec::new();
+            let result = self.lower_chain(source_inner, cloned_inner, tx, span, &mut copies);
+            clone.replace_root(result);
+            let layout = tx.replace_expression_from_transformed_clone(node, clone, scope, &[]);
+            for copy in &copies {
+                tx.duplicate_semantics_from_detached_clone(copy, &layout);
+            }
+        })
+        .expect("optional-chaining mutation must pass preflight");
     }
 
-    /// Lower a chain expression to nested ternary operators.
-    fn lower_chain(&self, expr: Expr, ctx: &mut TransformerCtx<'_, '_>, span: Span) -> Expr {
-        match ctx.ast.expr_data(expr) {
-            ExprData::MemberExpression(member) => {
-                let (object, property, _computed, optional) = (
-                    member.object(ctx.ast),
-                    member.property(ctx.ast),
-                    member.computed(ctx.ast),
-                    member.optional(ctx.ast),
-                );
-                if optional {
-                    let null_check = self.build_null_check(span, object, ctx);
-                    let void_node = self.build_void_0(span, ctx);
-                    let member_access = ctx.ast.expr_member_expression(
-                        span,
-                        object,
-                        property,
-                        false,
-                        false,
-                    );
-                    ctx.ast.expr_conditional_expression(
-                        span,
-                        null_check,
-                        void_node,
-                        member_access,
-                    )
+    fn lower_chain<'ast>(
+        &self,
+        source: Expr,
+        expr: Expr,
+        tx: &mut MutationTransaction<'_, 'ast>,
+        span: Span,
+        copies: &mut Vec<DetachedClone<Expr>>,
+    ) -> Expr {
+        match (tx.ast().expr_data(source), tx.ast().expr_data(expr)) {
+            (ExprData::MemberExpression(source_member), ExprData::MemberExpression(member)) => {
+                let object = member.object(tx.ast());
+                let property = member.property(tx.ast());
+                if member.optional(tx.ast()) {
+                    let second = tx.clone_detached(source_member.object(tx.ast()));
+                    let third = tx.clone_detached(source_member.object(tx.ast()));
+                    let result = tx.build_detached(|ast| {
+                        let null_check = self.build_null_check(span, object, second.root, ast);
+                        let void_node = self.build_void_0(span, ast);
+                        let member_access = ast.expr_member_expression(
+                            span,
+                            third.root,
+                            property,
+                            member.computed(ast),
+                            false,
+                        );
+                        ast.expr_conditional_expression(span, null_check, void_node, member_access)
+                    });
+                    copies.push(second);
+                    copies.push(third);
+                    result
                 } else {
-                    let lowered = self.lower_chain(object, ctx, span);
-                    ctx.ast.expr_member_expression(span, lowered, property, false, false)
+                    let lowered =
+                        self.lower_chain(source_member.object(tx.ast()), object, tx, span, copies);
+                    tx.build_detached(|ast| {
+                        ast.expr_member_expression(
+                            span,
+                            lowered,
+                            property,
+                            member.computed(ast),
+                            false,
+                        )
+                    })
                 }
             }
-            ExprData::CallExpression(call) => {
-                let (callee, args, optional, type_args) = (
-                    call.callee(ctx.ast),
-                    call.arguments(ctx.ast),
-                    call.optional(ctx.ast),
-                    call.type_arguments(ctx.ast),
-                );
-                if optional {
-                    let null_check = self.build_null_check(span, callee, ctx);
-                    let void_node = self.build_void_0(span, ctx);
-                    let call_expr =
-                        ctx.ast
-                            .expr_call_expression(span, callee, args, false, type_args);
-                    ctx.ast.expr_conditional_expression(
-                        span,
-                        null_check,
-                        void_node,
-                        call_expr,
-                    )
+            (ExprData::CallExpression(source_call), ExprData::CallExpression(call)) => {
+                let callee = call.callee(tx.ast());
+                let args = call.arguments(tx.ast());
+                let type_args = call.type_arguments(tx.ast());
+                if call.optional(tx.ast()) {
+                    let second = tx.clone_detached(source_call.callee(tx.ast()));
+                    let third = tx.clone_detached(source_call.callee(tx.ast()));
+                    let result = tx.build_detached(|ast| {
+                        let null_check = self.build_null_check(span, callee, second.root, ast);
+                        let void_node = self.build_void_0(span, ast);
+                        let call_expr =
+                            ast.expr_call_expression(span, third.root, args, false, type_args);
+                        ast.expr_conditional_expression(span, null_check, void_node, call_expr)
+                    });
+                    copies.push(second);
+                    copies.push(third);
+                    result
                 } else {
-                    let lowered = self.lower_chain(callee, ctx, span);
-                    ctx.ast.expr_call_expression(span, lowered, args, false, type_args)
+                    let lowered =
+                        self.lower_chain(source_call.callee(tx.ast()), callee, tx, span, copies);
+                    tx.build_detached(|ast| {
+                        ast.expr_call_expression(span, lowered, args, false, type_args)
+                    })
                 }
             }
             _ => expr,
         }
     }
 
-    /// Build `void 0`
-    fn build_void_0(&self, span: Span, ctx: &mut TransformerCtx<'_, '_>) -> Expr {
-        let zero_str = ctx.ast.add_utf8("0");
-        let zero = ctx.ast.expr_numeric_literal(span, NumericLiteralKind::Decimal, zero_str);
-        ctx.ast.expr_unary_expression(span, zero, UnaryOperator::Void)
+    fn build_void_0(&self, span: Span, ast: &mut swc_next_ecma_ast::Ast<'_>) -> Expr {
+        let zero_str = ast.add_utf8("0");
+        let zero = ast.expr_numeric_literal(span, NumericLiteralKind::Decimal, zero_str);
+        ast.expr_unary_expression(span, zero, UnaryOperator::Void)
     }
 
-    /// Build `obj === null || obj === void 0`
     fn build_null_check(
         &self,
         span: Span,
-        obj: Expr,
-        ctx: &mut TransformerCtx<'_, '_>,
+        first: Expr,
+        second: Expr,
+        ast: &mut swc_next_ecma_ast::Ast<'_>,
     ) -> Expr {
-        let null_node = ctx.ast.expr_null_literal(span);
-        let void_node = self.build_void_0(span, ctx);
-        let eq_null = ctx.ast.expr_binary_expression(
-            span,
-            obj,
-            null_node,
-            BinaryOperator::StrictEqual,
+        let null_node = ast.expr_null_literal(span);
+        let void_node = self.build_void_0(span, ast);
+        let eq_null =
+            ast.expr_binary_expression(span, first, null_node, BinaryOperator::StrictEqual);
+        let eq_void =
+            ast.expr_binary_expression(span, second, void_node, BinaryOperator::StrictEqual);
+        ast.expr_logical_expression(span, eq_null, eq_void, LogicalOperator::Or)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use swc_next_allocator::Allocator;
+    use swc_next_ecma_ast::Ast;
+    use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
+    use swc_next_ecma_semantic::{AnalyzeOptions, analyze};
+
+    use crate::{
+        Transformer, TransformerOptions,
+        mutation::{assert_semantic_matches_reanalysis, verify_program},
+    };
+
+    #[test]
+    fn chain_replacement_and_copied_occurrences_are_transactional() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new(
+            "function f(value) { return value?.method?.(() => value); }",
+            &allocator,
         );
-        let eq_void = ctx.ast.expr_binary_expression(
-            span,
-            obj,
-            void_node,
-            BinaryOperator::StrictEqual,
-        );
-        ctx.ast
-            .expr_logical_expression(span, eq_null, eq_void, LogicalOperator::Or)
+        let parse = Parser::init(&mut ast, Options::default(), NoTokenParserConfig).parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let mut options = TransformerOptions::default();
+        options.es2020.optional_chaining = true;
+        let mut semantic = analyze(
+            parse.program,
+            &ast,
+            AnalyzeOptions {
+                features: options.semantic_features(),
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+
+        Transformer::transform(parse.program, &mut ast, &mut semantic, options);
+
+        verify_program(parse.program, &ast, &semantic).unwrap();
+        assert_semantic_matches_reanalysis(parse.program, &ast, &semantic);
     }
 }
