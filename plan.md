@@ -623,5 +623,5 @@ class：
 - [ ] transform facts 使用 journal delta 更新，不执行 dirty AST subtree refresh。
 - [ ] commit 后增量 Semantic 与测试 oracle 的重新 analyze 结果一致。
 - [x] 现有 class Rust tests、Babel fixtures、相关 Test262 和 clippy 通过。
-- [ ] benchmark 显示 class 数量增长时 semantic 只遍历一次，transform/commit 不引入重复
+- [x] benchmark 显示 class 数量增长时 semantic 只遍历一次，transform/commit 不引入重复
       AST 扫描。
