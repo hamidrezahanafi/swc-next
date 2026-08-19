@@ -608,7 +608,7 @@ class：
 8. ✅ `test(transformer): enforce class semantic and ast context architecture`
    - 架构断言（classes 模块无 analysis 模块、无 Visit 引用库）；
    - 现有 fixtures 全部通过。
-9. ❌ `perf(transformer): benchmark single-pass class lowering`
+9. ✅ `perf(transformer): benchmark single-pass class lowering`
    - 记录 semantic/finalize/lower/commit/helper 分项与规模曲线。
 
 ## 最终完成标准

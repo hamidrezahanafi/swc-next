@@ -55,3 +55,7 @@ name    = "semantic"
 [[bench]]
 harness = false
 name    = "generator_transform"
+
+[[bench]]
+harness = false
+name    = "class_transform"
