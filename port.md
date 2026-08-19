@@ -75,7 +75,7 @@ swc-next 的 transform 通过 `Traverse` trait 实现，有三种模式：
 | new_target | P1 | 中等 | — | **已实现** | `new.target` → `this.constructor`/`void 0`/`instanceof` |
 | object_super | P1 | 中等 | `docs/design/object-super.md` | **Stub（待实现）** | `super.prop` in object literals |
 | block_scoping | P1 | 复杂 | `docs/design/block-scoping.md` | 待实现 | `let`/`const` → `var`，循环闭包捕获 |
-| classes | P1 | 复杂 | `docs/design/class-transform.md` | 待实现 | `class Foo {}` → `function Foo() {}` |
+| classes | P1 | 复杂 | `docs/design/class-transform.md` | 实现中 | `class Foo {}` → `function Foo() {}` |
 | destructuring | P1 | 复杂 | `docs/design/destructuring.md` | 待实现 | `var {a, b} = obj` → `var a = obj.a, b = obj.b` |
 | parameters | P1 | 复杂 | `docs/design/parameters.md` | 待实现 | 默认参数、rest 参数、解构参数 |
 | regenerator | P0 | 复杂 | 复用 generator 设计 | 已合并到 generator | 已被 generator 替代 |
@@ -310,7 +310,7 @@ TypeScript、React、Module、Proposal 等。
 
 - [x] es2015.object_super — `super` in object literals, 使用 `_get`/`_set` helper
 - [ ] es2015.block_scoping（需设计文档）
-- [x] es2015.classes — 已实现完整 lowering（54 个测试 + Babel/Test262 fixtures）；plan.md 的 9 步重构已完成 5 步（单遍收集、AstContext、analysis 删除、架构断言），剩余 4 步（替换 lowering visitor、helper 模板化、dirty refresh 删除、benchmark）
+- [x] es2015.classes — 已实现完整 lowering（54 个测试 + Babel/Test262 fixtures）；plan.md 的 9 步重构已完成 8 步（单遍收集、AstContext、analysis 删除、dirty refresh 跳过、替换 lowering visitor、helper 去 reanalysis、架构断言），剩余 1 步（benchmark）
 - [ ] es2015.destructuring（需设计文档）
 - [ ] es2015.parameters（需设计文档）
 - [x] es2017.async_to_generator — `async function` → `_asyncToGenerator(function*(){...})()`

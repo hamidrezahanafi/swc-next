@@ -1,6 +1,6 @@
-use swc_next_ecma_ast::{NodeKindData, Program, Stmt};
+use swc_next_ecma_ast::{Ast, Expr, Function, NodeId, NodeKindData, Program, Stmt};
 use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
-use swc_next_ecma_semantic::{AnalyzeOptions, analyze};
+use swc_next_ecma_semantic::SymbolFlags;
 
 use crate::mutation::{MutationTransaction, PrivateBinding};
 
@@ -282,42 +282,22 @@ fn publish_source(
         parsed.diagnostics
     );
 
-    let template = analyze(
-        parsed.program,
-        tx.ast(),
-        AnalyzeOptions {
-            features: tx.semantic().features(),
-            ..AnalyzeOptions::default()
-        },
-    )
-    .semantic;
-    let source_scope = template.scope_of(parsed.program.node_id());
     let target_scope = tx.semantic().scope_of(program.node_id());
     let mut bindings = Vec::with_capacity(specs.len());
     for &(key, base) in specs {
-        let source_symbol = template
-            .binding_text(tx.ast(), source_scope, base)
+        let function = find_helper_function(tx.ast(), parsed.program, base)
             .unwrap_or_else(|| panic!("missing canonical helper declaration {base}"));
-        let source = template.symbol(source_symbol);
-        let declaration = template.declarations(source_symbol)[0];
-        let function = match tx.ast().kind_data(
-            template
-                .parent_of(declaration.node)
-                .expect("helper binding must have a function parent"),
-        ) {
-            NodeKindData::Function(function) => function,
-            _ => panic!("helper declaration must be a function"),
-        };
-        let references: Vec<_> = template
-            .uses(source_symbol)
-            .iter()
-            .map(|reference| template.reference(*reference).node)
-            .collect();
-        let binding = tx.declare_shared_private(target_scope, key, base, source.flags);
+        let references = collect_helper_references(tx.ast(), function, base);
+        let binding = tx.declare_shared_private(
+            target_scope,
+            key,
+            base,
+            SymbolFlags::FUNCTION | SymbolFlags::ANNEX_B_FUNCTION,
+        );
         tx.build_detached(|ast| {
             function.set_id(ast, Some(binding.declaration));
-            for node in references {
-                let NodeKindData::IdentifierReference(reference) = ast.kind_data(node) else {
+            for node in &references {
+                let NodeKindData::IdentifierReference(reference) = ast.kind_data(*node) else {
                     panic!("helper symbol use must be an identifier reference")
                 };
                 reference.set_name(ast, binding.text);
@@ -326,8 +306,160 @@ fn publish_source(
         });
         bindings.push(binding);
     }
-    drop(template);
 
     let imported = tx.import_generated_program(parsed.program, program.node_id(), target_scope);
     (bindings, imported.statements)
+}
+
+/// Finds a top-level function declaration by name in the parsed helper program.
+fn find_helper_function(ast: &Ast<'_>, program: Program, name: &str) -> Option<Function> {
+    for i in 0..program.body(ast).len() {
+        let stmt = program.body(ast).get_node(ast, i).unwrap();
+        if let Some(decl) = stmt.as_declaration(ast)
+            && let Some(function) = decl.as_function(ast)
+            && function.id(ast).is_some_and(|id| ast.get_utf8(id.name(ast)) == name)
+        {
+            return Some(function);
+        }
+    }
+    None
+}
+
+/// Collects all identifier references matching `name` within a function body,
+/// including the function's own name reference (self-call pattern).
+fn collect_helper_references(ast: &Ast<'_>, function: Function, name: &str) -> Vec<NodeId> {
+    let mut references = Vec::new();
+    for i in 0..function.body(ast).body(ast).len() {
+        let stmt = function.body(ast).body(ast).get_node(ast, i).unwrap();
+        walk_stmt_for_identifiers(ast, stmt, name, &mut references);
+    }
+    references
+}
+
+fn walk_stmt_for_identifiers(
+    ast: &Ast<'_>,
+    stmt: Stmt,
+    name: &str,
+    result: &mut Vec<NodeId>,
+) {
+    if let Some(expr) = stmt.as_expression_statement(ast) {
+        walk_expr_for_identifiers(ast, expr.expression(ast), name, result);
+        return;
+    }
+    if let Some(ret) = stmt.as_return_statement(ast) {
+        if let Some(arg) = ret.argument(ast) {
+            walk_expr_for_identifiers(ast, arg, name, result);
+        }
+        return;
+    }
+    if let Some(if_stmt) = stmt.as_if_statement(ast) {
+        walk_expr_for_identifiers(ast, if_stmt.test(ast), name, result);
+        walk_stmt_for_identifiers(ast, if_stmt.consequent(ast), name, result);
+        if let Some(alt) = if_stmt.alternate(ast) {
+            walk_stmt_for_identifiers(ast, alt, name, result);
+        }
+        return;
+    }
+    if let Some(block) = stmt.as_block_statement(ast) {
+        for i in 0..block.body(ast).len() {
+            walk_stmt_for_identifiers(ast, block.body(ast).get_node(ast, i).unwrap(), name, result);
+        }
+        return;
+    }
+    if let Some(var) = stmt.as_declaration(ast).and_then(|d| d.as_variable_declaration(ast)) {
+        for i in 0..var.declarators(ast).len() {
+            let decl = var.declarators(ast).get_node(ast, i).unwrap();
+            if let Some(init) = decl.init(ast) {
+                walk_expr_for_identifiers(ast, init, name, result);
+            }
+        }
+        return;
+    }
+    if let Some(try_stmt) = stmt.as_try_statement(ast) {
+        for i in 0..try_stmt.block(ast).body(ast).len() {
+            walk_stmt_for_identifiers(ast, try_stmt.block(ast).body(ast).get_node(ast, i).unwrap(), name, result);
+        }
+        if let Some(handler) = try_stmt.handler(ast) {
+            for i in 0..handler.body(ast).body(ast).len() {
+                let s = handler.body(ast).body(ast).get_node(ast, i).unwrap();
+                walk_stmt_for_identifiers(ast, s, name, result);
+            }
+        }
+        return;
+    }
+    if let Some(throw) = stmt.as_throw_statement(ast) {
+        walk_expr_for_identifiers(ast, throw.argument(ast), name, result);
+    }
+}
+
+fn walk_expr_for_identifiers(
+    ast: &Ast<'_>,
+    expr: Expr,
+    name: &str,
+    result: &mut Vec<NodeId>,
+) {
+    if let Some(id) = expr.as_identifier_reference(ast) {
+        if ast.get_utf8(id.name(ast)) == name {
+            result.push(id.node_id());
+        }
+        return;
+    }
+    if let Some(assign) = expr.as_assignment_expression(ast) {
+        walk_expr_for_identifiers(ast, assign.right(ast), name, result);
+        return;
+    }
+    if let Some(binary) = expr.as_binary_expression(ast) {
+        walk_expr_for_identifiers(ast, binary.left(ast), name, result);
+        walk_expr_for_identifiers(ast, binary.right(ast), name, result);
+        return;
+    }
+    if let Some(unary) = expr.as_unary_expression(ast) {
+        walk_expr_for_identifiers(ast, unary.argument(ast), name, result);
+        return;
+    }
+    if let Some(call) = expr.as_call_expression(ast) {
+        walk_expr_for_identifiers(ast, call.callee(ast), name, result);
+        for i in 0..call.arguments(ast).len() {
+            let arg = call.arguments(ast).get_node(ast, i).unwrap();
+            if let Some(e) = arg.as_expr(ast) {
+                walk_expr_for_identifiers(ast, e, name, result);
+            }
+        }
+        return;
+    }
+    if let Some(member) = expr.as_member_expression(ast) {
+        walk_expr_for_identifiers(ast, member.object(ast), name, result);
+        return;
+    }
+    if let Some(cond) = expr.as_conditional_expression(ast) {
+        walk_expr_for_identifiers(ast, cond.test(ast), name, result);
+        walk_expr_for_identifiers(ast, cond.consequent(ast), name, result);
+        walk_expr_for_identifiers(ast, cond.alternate(ast), name, result);
+        return;
+    }
+    if let Some(logical) = expr.as_logical_expression(ast) {
+        walk_expr_for_identifiers(ast, logical.left(ast), name, result);
+        walk_expr_for_identifiers(ast, logical.right(ast), name, result);
+        return;
+    }
+    if let Some(seq) = expr.as_sequence_expression(ast) {
+        for i in 0..seq.expressions(ast).len() {
+            let e = seq.expressions(ast).get_node(ast, i).unwrap();
+            walk_expr_for_identifiers(ast, e, name, result);
+        }
+        return;
+    }
+    if let Some(new_expr) = expr.as_new_expression(ast) {
+        walk_expr_for_identifiers(ast, new_expr.callee(ast), name, result);
+        for i in 0..new_expr.arguments(ast).len() {
+            let arg = new_expr.arguments(ast).get_node(ast, i).unwrap();
+            if let Some(e) = arg.as_expr(ast) {
+                walk_expr_for_identifiers(ast, e, name, result);
+            }
+        }
+        return;
+    }
+    if let Some(tagged) = expr.as_tagged_template_expression(ast) {
+        walk_expr_for_identifiers(ast, tagged.tag(ast), name, result);
+    }
 }

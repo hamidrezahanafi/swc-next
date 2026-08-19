@@ -602,7 +602,7 @@ class：
    - ✅ 删除 ConstructorFlowAuditor（Visit trait），改用 typed AST 遍历；
    - ❌ 删除 SuperMemberRewriter 与 DerivedConstructorRewriter（仍基于 VisitMut）；
    - ❌ 所有生成和改动通过 AstContext。
-7. ❌ `refactor(transformer): instantiate class helpers without reanalysis`
+7. ✅ `refactor(transformer): instantiate class helpers without reanalysis`
    - helper template/recipe 与 registry；
    - 删除 runtime `analyze`/generated program semantic import。
 8. ✅ `test(transformer): enforce class semantic and ast context architecture`
@@ -618,7 +618,7 @@ class：
 - [x] `crates/swc_ecma_transformer/src/es2015/classes/analysis.rs` 已删除。
 - [ ] class transform 只迭代 semantic post-order info，不扫描 program/class/constructor/method。
 - [ ] class transform 生产代码没有 `Visit`/`VisitMut` 和裸 attached AST setter。
-- [ ] helper 发布不运行 parser + semantic analyze。
+- [x] helper 发布不运行 parser + semantic analyze。
 - [ ] 所有 class lowering mutation 经过 AstContext，并在同一 commit 同步 Semantic。
 - [ ] transform facts 使用 journal delta 更新，不执行 dirty AST subtree refresh。
 - [ ] commit 后增量 Semantic 与测试 oracle 的重新 analyze 结果一致。
