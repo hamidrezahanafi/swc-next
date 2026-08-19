@@ -600,7 +600,7 @@ class：
    - 直接消费 post-order infos。
 6. ⏳ `refactor(transformer): replace class visitors with targeted ast context rewrites`
    - ✅ 删除 ConstructorFlowAuditor（Visit trait），改用 typed AST 遍历；
-   - ❌ 删除 SuperMemberRewriter 与 DerivedConstructorRewriter（仍基于 VisitMut）；
+   - ✅ 删除 SuperMemberRewriter 与 DerivedConstructorRewriter（改用 typed AST）；
    - ❌ 所有生成和改动通过 AstContext。
 7. ✅ `refactor(transformer): instantiate class helpers without reanalysis`
    - helper template/recipe 与 registry；
