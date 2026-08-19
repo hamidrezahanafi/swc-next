@@ -528,9 +528,14 @@ fn resolve_class_lowering_fact<'a>(
     }
 }
 
-/// Builds a `ClassLoweringFact` from a dirty subtree. Used by
-/// `refresh_function_lists` when `set_data` replaces a class payload with a
-/// function payload at the same NodeId without changing `node_kind`.
+/// Builds a `ClassLoweringFact` from a class node.
+///
+/// Used by the initial semantic pass to collect class facts.  Also called by
+/// `refresh_function_lists` for dirty subtrees whose root is still a class
+/// node (e.g. a class body mutation that didn't change the class to a
+/// function).  When a class has been lowered to a function, the dirty root
+/// is no longer a class node and this function is not called; the old class
+/// entries are removed by range-based deletion in `refresh_function_lists`.
 pub(crate) fn build_class_lowering_fact<'a>(
     semantic: &Semantic<'a>,
     tree: &Ast<'a>,

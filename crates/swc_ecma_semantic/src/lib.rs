@@ -615,17 +615,32 @@ impl<'a> Semantic<'a> {
                     _ => false,
                 })
                 .collect();
-            let classes = postorder
-                .iter()
-                .filter_map(|node| match ast.kind_data(*node) {
-                    swc_next_ecma_ast::NodeKindData::Class(class)
-                        if self.features.contains(SemanticFeatureFlags::CLASS_LOWERING) =>
-                    {
-                        Some(context::build_class_lowering_fact(self, ast, class))
-                    }
-                    _ => None,
-                })
-                .collect();
+            let classes = if self.features.contains(SemanticFeatureFlags::CLASS_LOWERING)
+            {
+                let has_class = postorder.iter().any(|node| {
+                    matches!(
+                        ast.kind_data(*node),
+                        swc_next_ecma_ast::NodeKindData::Class(_)
+                    )
+                });
+                if has_class {
+                    postorder
+                        .iter()
+                        .filter_map(|node| match ast.kind_data(*node) {
+                            swc_next_ecma_ast::NodeKindData::Class(class) => {
+                                Some(context::build_class_lowering_fact(self, ast, class))
+                            }
+                            _ => None,
+                        })
+                        .collect()
+                } else {
+                    // No class nodes in the dirty subtree.  The old class
+                    // entries are removed by the range-based removal below.
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
             updates.push(Update {
                 range,
                 generators,
