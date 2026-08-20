@@ -6,8 +6,6 @@
 #![deny(clippy::all)]
 #![deny(unused)]
 
-use std::collections::HashSet;
-
 use oxc_index::Idx;
 use swc_next_allocator::{
     hash_map::{HashMap as ArenaHashMap, Values},
@@ -15,7 +13,7 @@ use swc_next_allocator::{
 };
 use swc_next_ecma_ast::{
     Ast, AstStr, AstUtf8, Class, Diagnostic, Function, MethodDefinition, MethodDefinitionKind,
-    NodeId, Program, ScopeId, SymbolId, VisitWith,
+    NodeId, NodeKindData, Program, ScopeId, SymbolId, VisitWith,
 };
 
 use crate::{binder::Range, checker::Checker, scope::ScopeTree};
@@ -124,25 +122,6 @@ pub struct ClassMethodFact {
     pub computed: bool,
 }
 
-#[doc(hidden)]
-pub struct DirtyTransformFacts {
-    old_ancestors: Vec<NodeId>,
-    old_nodes: Vec<NodeId>,
-    function_ranges: Vec<DirtyFunctionRange>,
-    capture_functions: Vec<NodeId>,
-}
-
-#[derive(Clone, Copy)]
-struct DirtyFunctionRange {
-    root: NodeId,
-    generator_start: usize,
-    generator_count: usize,
-    async_start: usize,
-    async_count: usize,
-    class_start: usize,
-    class_count: usize,
-}
-
 #[derive(Debug)]
 pub(crate) struct SemanticTransformFacts<'a> {
     pub(crate) effects: Option<ArenaVec<'a, EffectCounts>>,
@@ -153,6 +132,10 @@ pub(crate) struct SemanticTransformFacts<'a> {
     pub(crate) async_function_counts: ArenaVec<'a, u32>,
     pub(crate) class_counts: ArenaVec<'a, u32>,
     pub(crate) function_captures: ArenaHashMap<'a, NodeId, FunctionCaptureData<'a>>,
+    /// Populated during the initial semantic traversal but not yet consumed
+    /// by a transform pass.  Kept here so future generator/async lowering can
+    /// query which yields belong to which function without re-scanning the AST.
+    #[allow(dead_code)]
     pub(crate) yield_nodes: ArenaHashMap<'a, NodeId, ArenaVec<'a, NodeId>>,
     pub(crate) class_lowering: ArenaVec<'a, ClassLoweringFact<'a>>,
 }
@@ -297,179 +280,6 @@ impl<'a> Semantic<'a> {
         })
     }
 
-    fn prepare_dirty_transform_facts(
-        &self,
-        ast: &Ast<'_>,
-        roots: &[NodeId],
-    ) -> DirtyTransformFacts {
-        let mut old_ancestors = Vec::new();
-        let mut old_nodes = HashSet::new();
-        let mut old_postorder = Vec::new();
-        let mut function_ranges = Vec::new();
-        let mut capture_functions = Vec::new();
-        for root in roots {
-            if !self.is_node_active(*root) {
-                continue;
-            }
-            for ancestor in self.ancestors(self.parent_of(*root)) {
-                if !old_ancestors.contains(&ancestor) {
-                    old_ancestors.push(ancestor);
-                }
-            }
-            self.collect_node_postorder(*root, &mut old_nodes, &mut old_postorder);
-            if let Some(function) = self.nearest_capture_function(ast, *root)
-                && !capture_functions.contains(&function)
-            {
-                capture_functions.push(function);
-            }
-            if let Some(facts) = &self.transform_facts {
-                function_ranges.push(DirtyFunctionRange {
-                    root: *root,
-                    generator_start: self
-                        .function_postorder_offset(*root, &facts.generator_function_counts),
-                    generator_count: facts.generator_function_counts[root.index()] as usize,
-                    async_start: self
-                        .function_postorder_offset(*root, &facts.async_function_counts),
-                    async_count: facts.async_function_counts[root.index()] as usize,
-                    class_start: self.function_postorder_offset(*root, &facts.class_counts),
-                    class_count: facts.class_counts[root.index()] as usize,
-                });
-            }
-        }
-        for node in &old_postorder {
-            if is_generator_function(ast, *node) && !capture_functions.contains(node) {
-                capture_functions.push(*node);
-            }
-        }
-        DirtyTransformFacts {
-            old_ancestors,
-            old_nodes: old_postorder,
-            function_ranges,
-            capture_functions,
-        }
-    }
-
-    fn refresh_dirty_transform_facts(
-        &mut self,
-        ast: &Ast<'a>,
-        roots: &[NodeId],
-        snapshot: DirtyTransformFacts,
-    ) {
-        if self.transform_facts.is_none() {
-            return;
-        }
-        let refresh_effects = self
-            .features
-            .intersects(SemanticFeatureFlags::YIELD | SemanticFeatureFlags::AWAIT);
-
-        let mut dirty_postorder = Vec::new();
-        let mut dirty_nodes = HashSet::new();
-        for root in roots {
-            if self.is_node_active(*root) {
-                self.collect_node_postorder(*root, &mut dirty_nodes, &mut dirty_postorder);
-            }
-        }
-
-        let DirtyTransformFacts {
-            old_ancestors,
-            old_nodes,
-            function_ranges,
-            capture_functions,
-        } = snapshot;
-        let mut ancestors = old_ancestors;
-        for root in roots {
-            if !self.is_node_active(*root) {
-                continue;
-            }
-            for ancestor in self.ancestors(self.parent_of(*root)) {
-                if !ancestors.contains(&ancestor) {
-                    ancestors.push(ancestor);
-                }
-            }
-        }
-        ancestors.retain(|node| self.is_node_active(*node) && !dirty_nodes.contains(node));
-        ancestors.sort_by_key(|node| std::cmp::Reverse(self.ancestors(Some(*node)).count()));
-
-        if refresh_effects {
-            self.refresh_effect_owners(ast, roots);
-        }
-        for node in dirty_postorder.iter().chain(&ancestors).copied() {
-            if refresh_effects {
-                self.recompute_node_effects(ast, node);
-            }
-            self.recompute_node_function_counts(ast, node);
-        }
-        let removed_or_recomputed: HashSet<_> = old_nodes
-            .into_iter()
-            .chain(dirty_nodes.iter().copied())
-            .collect();
-        if refresh_effects {
-            self.refresh_yield_index(ast, &dirty_nodes, &removed_or_recomputed);
-        }
-        self.refresh_function_lists(ast, function_ranges);
-        self.refresh_function_captures(ast, roots, &dirty_nodes, capture_functions);
-    }
-
-    fn function_postorder_offset(&self, node: NodeId, counts: &[u32]) -> usize {
-        let mut offset = 0usize;
-        let mut current = node;
-        while let Some(parent) = self.parent_of(current) {
-            for sibling in self.node_children(parent) {
-                if sibling == current {
-                    break;
-                }
-                offset = offset
-                    .checked_add(counts[sibling.index()] as usize)
-                    .expect("function post-order offset overflow");
-            }
-            current = parent;
-        }
-        offset
-    }
-
-    fn collect_node_postorder(
-        &self,
-        root: NodeId,
-        seen: &mut HashSet<NodeId>,
-        postorder: &mut Vec<NodeId>,
-    ) {
-        if !seen.insert(root) {
-            return;
-        }
-        for child in self.node_children(root) {
-            self.collect_node_postorder(child, seen, postorder);
-        }
-        postorder.push(root);
-    }
-
-    fn refresh_effect_owners(&mut self, ast: &Ast<'_>, roots: &[NodeId]) {
-        for root in roots {
-            if !self.is_node_active(*root) {
-                continue;
-            }
-            let inherited = self
-                .ancestors(self.parent_of(*root))
-                .find(|node| is_effect_boundary(ast, *node));
-            let mut pending = vec![(*root, inherited)];
-            while let Some((node, owner)) = pending.pop() {
-                let owner = is_effect_boundary(ast, node).then_some(node).or(owner);
-                if let Some(owners) = self
-                    .transform_facts
-                    .as_mut()
-                    .and_then(|facts| facts.effect_owners.as_mut())
-                {
-                    owners[node.index()] = owner;
-                }
-                pending.extend(
-                    self.node_children[node.index()]
-                        .iter()
-                        .copied()
-                        .map(|child| (child, owner)),
-                );
-            }
-        }
-    }
-
     fn recompute_node_effects(&mut self, ast: &Ast<'_>, node: NodeId) {
         let mut counts = EffectCounts::default();
         match ast.node_kind(node) {
@@ -568,270 +378,6 @@ impl<'a> Semantic<'a> {
         facts.generator_function_counts[node.index()] = generator_count;
         facts.async_function_counts[node.index()] = async_count;
         facts.class_counts[node.index()] = class_count;
-    }
-
-    fn refresh_function_lists(&mut self, ast: &Ast<'a>, ranges: Vec<DirtyFunctionRange>) {
-        struct Update<'a> {
-            range: DirtyFunctionRange,
-            generators: Vec<Function>,
-            async_functions: Vec<NodeId>,
-            classes: Vec<ClassLoweringFact<'a>>,
-        }
-
-        let mut updates = Vec::with_capacity(ranges.len());
-        for range in ranges {
-            let mut postorder = Vec::new();
-            if self.is_node_active(range.root) {
-                self.collect_node_postorder(range.root, &mut HashSet::new(), &mut postorder);
-            }
-            let generators = postorder
-                .iter()
-                .filter_map(|node| match ast.kind_data(*node) {
-                    swc_next_ecma_ast::NodeKindData::Function(function)
-                        if self
-                            .features
-                            .contains(SemanticFeatureFlags::GENERATOR_FUNCTIONS)
-                            && function.generator(ast) =>
-                    {
-                        Some(function)
-                    }
-                    _ => None,
-                })
-                .collect();
-            let async_functions = postorder
-                .iter()
-                .copied()
-                .filter(|node| match ast.kind_data(*node) {
-                    swc_next_ecma_ast::NodeKindData::Function(function) => {
-                        self.features
-                            .contains(SemanticFeatureFlags::ASYNC_FUNCTIONS)
-                            && function.r#async(ast)
-                    }
-                    swc_next_ecma_ast::NodeKindData::ArrowFunctionExpression(arrow) => {
-                        self.features
-                            .contains(SemanticFeatureFlags::ASYNC_FUNCTIONS)
-                            && arrow.r#async(ast)
-                    }
-                    _ => false,
-                })
-                .collect();
-            let classes = if self.features.contains(SemanticFeatureFlags::CLASS_LOWERING)
-            {
-                let has_class = postorder.iter().any(|node| {
-                    matches!(
-                        ast.kind_data(*node),
-                        swc_next_ecma_ast::NodeKindData::Class(_)
-                    )
-                });
-                if has_class {
-                    postorder
-                        .iter()
-                        .filter_map(|node| match ast.kind_data(*node) {
-                            swc_next_ecma_ast::NodeKindData::Class(class) => {
-                                Some(context::build_class_lowering_fact(self, ast, class))
-                            }
-                            _ => None,
-                        })
-                        .collect()
-                } else {
-                    // No class nodes in the dirty subtree.  The old class
-                    // entries are removed by the range-based removal below.
-                    Vec::new()
-                }
-            } else {
-                Vec::new()
-            };
-            updates.push(Update {
-                range,
-                generators,
-                async_functions,
-                classes,
-            });
-        }
-
-        let facts = self
-            .transform_facts
-            .as_mut()
-            .expect("enabled transform facts must exist");
-        updates.sort_by_key(|update| std::cmp::Reverse(update.range.generator_start));
-        for update in &updates {
-            for _ in 0..update.range.generator_count {
-                facts
-                    .generator_functions
-                    .remove(update.range.generator_start);
-            }
-            for (offset, function) in update.generators.iter().copied().enumerate() {
-                facts
-                    .generator_functions
-                    .insert(update.range.generator_start + offset, function);
-            }
-        }
-        updates.sort_by_key(|update| std::cmp::Reverse(update.range.async_start));
-        for update in &updates {
-            for _ in 0..update.range.async_count {
-                facts.async_functions.remove(update.range.async_start);
-            }
-            for (offset, function) in update.async_functions.iter().copied().enumerate() {
-                facts
-                    .async_functions
-                    .insert(update.range.async_start + offset, function);
-            }
-        }
-        updates.sort_by_key(|update| std::cmp::Reverse(update.range.class_start));
-        for update in updates {
-            for _ in 0..update.range.class_count {
-                facts.class_lowering.remove(update.range.class_start);
-            }
-            for (offset, class) in update.classes.into_iter().enumerate() {
-                facts
-                    .class_lowering
-                    .insert(update.range.class_start + offset, class);
-            }
-        }
-    }
-
-    fn nearest_capture_function(&self, ast: &Ast<'_>, node: NodeId) -> Option<NodeId> {
-        for ancestor in self.ancestors(Some(node)) {
-            match ast.kind_data(ancestor) {
-                swc_next_ecma_ast::NodeKindData::Class(_) => return None,
-                swc_next_ecma_ast::NodeKindData::Function(function) => {
-                    return function.generator(ast).then_some(ancestor);
-                }
-                _ => {}
-            }
-        }
-        None
-    }
-
-    fn refresh_function_captures(
-        &mut self,
-        ast: &Ast<'a>,
-        roots: &[NodeId],
-        dirty_nodes: &HashSet<NodeId>,
-        mut affected: Vec<NodeId>,
-    ) {
-        if !self
-            .features
-            .contains(SemanticFeatureFlags::FUNCTION_ENV_CAPTURE)
-        {
-            return;
-        }
-        for root in roots {
-            if self.is_node_active(*root)
-                && let Some(function) = self.nearest_capture_function(ast, *root)
-                && !affected.contains(&function)
-            {
-                affected.push(function);
-            }
-        }
-        for node in dirty_nodes {
-            if is_generator_function(ast, *node) && !affected.contains(node) {
-                affected.push(*node);
-            }
-        }
-
-        let mut replacements = Vec::new();
-        for function in &affected {
-            if !self.is_node_active(*function) || !is_generator_function(ast, *function) {
-                continue;
-            }
-            let mut arguments = Vec::new();
-            let mut new_targets = Vec::new();
-            let mut pending: Vec<_> = self.node_children(*function).collect();
-            while let Some(node) = pending.pop() {
-                match ast.kind_data(node) {
-                    swc_next_ecma_ast::NodeKindData::Function(_)
-                    | swc_next_ecma_ast::NodeKindData::Class(_) => continue,
-                    swc_next_ecma_ast::NodeKindData::IdentifierReference(identifier)
-                        if ast.get_utf8(identifier.name(ast)) == "arguments" =>
-                    {
-                        if let Some(reference) = self.reference_of(node) {
-                            let reference_data = self.reference(reference);
-                            if reference_data.flags.space == ReferenceSpace::Value
-                                && reference_data.symbol.is_none()
-                            {
-                                arguments.push(reference);
-                            }
-                        }
-                    }
-                    swc_next_ecma_ast::NodeKindData::MetaProperty(meta)
-                        if ast.get_utf8(meta.meta(ast).name(ast)) == "new"
-                            && ast.get_utf8(meta.property(ast).name(ast)) == "target" =>
-                    {
-                        new_targets.push(node);
-                    }
-                    _ => {}
-                }
-                pending.extend(self.node_children(node));
-            }
-            replacements.push((*function, arguments, new_targets));
-        }
-
-        let facts = self
-            .transform_facts
-            .as_mut()
-            .expect("enabled transform facts must exist");
-        for function in affected {
-            facts.function_captures.remove(&function);
-        }
-        for (function, arguments, new_targets) in replacements {
-            if arguments.is_empty() && new_targets.is_empty() {
-                continue;
-            }
-            let mut captures = FunctionCaptureData {
-                arguments: ArenaVec::with_capacity_in(arguments.len(), ast.allocator()),
-                new_targets: ArenaVec::with_capacity_in(new_targets.len(), ast.allocator()),
-            };
-            captures.arguments.extend(arguments);
-            captures.new_targets.extend(new_targets);
-            facts.function_captures.insert(function, captures);
-        }
-    }
-
-    fn refresh_yield_index(
-        &mut self,
-        ast: &Ast<'a>,
-        dirty_nodes: &HashSet<NodeId>,
-        removed_or_recomputed: &HashSet<NodeId>,
-    ) {
-        if !self.features.contains(SemanticFeatureFlags::YIELD) {
-            return;
-        }
-        let facts = self
-            .transform_facts
-            .as_mut()
-            .expect("enabled transform facts must exist");
-        for yields in facts.yield_nodes.values_mut() {
-            yields.retain(|node| !removed_or_recomputed.contains(node));
-        }
-        let owners = facts
-            .effect_owners
-            .as_ref()
-            .expect("enabled effect owners must exist");
-        for node in dirty_nodes {
-            if ast.node_kind(*node) != swc_next_ecma_ast::NodeKind::YieldExpression {
-                continue;
-            }
-            if let Some(owner) = owners[node.index()] {
-                facts
-                    .yield_nodes
-                    .entry(owner)
-                    .or_insert_with(|| ArenaVec::new_in(ast.allocator()))
-                    .push(*node);
-            }
-        }
-    }
-
-    pub fn effect_owner(&self, node: NodeId) -> Result<Option<NodeId>, FeatureNotEnabled> {
-        let effects = SemanticFeatureFlags::YIELD | SemanticFeatureFlags::AWAIT;
-        if !self.features.intersects(effects) {
-            return Err(FeatureNotEnabled { feature: effects });
-        }
-        Ok(self
-            .transform_facts
-            .as_ref()
-            .and_then(|facts| facts.effect_owners.as_ref())
-            .expect("enabled effect owners must exist")[node.index()])
     }
 
     pub fn generator_functions_post_order(&self) -> Result<&[Function], FeatureNotEnabled> {
@@ -1327,6 +873,24 @@ impl<'a> Semantic<'a> {
             if let Some(owners) = &mut facts.effect_owners {
                 owners[node.index()] = None;
             }
+            // Remove the retired node from post-order transform-fact lists.
+            if let Some(pos) = facts
+                .generator_functions
+                .iter()
+                .position(|f| f.node_id() == node)
+            {
+                facts.generator_functions.remove(pos);
+            }
+            if let Some(pos) = facts
+                .async_functions
+                .iter()
+                .position(|id| *id == node)
+            {
+                facts.async_functions.remove(pos);
+            }
+            facts.class_lowering.retain(|fact| fact.class.node_id() != node);
+            // Remove stale capture data for the retired node.
+            facts.function_captures.remove(&node);
         }
     }
 
@@ -2009,27 +1573,196 @@ impl<'a> Semantic<'a> {
 
     #[inline]
     fn assert_node_active(&self, node: NodeId) {
-        assert!(self.is_node_active(node), "node is not active");
+        let active = self.is_node_active(node);
+        assert!(active, "node is not active");
     }
 }
 
 impl<'ast> SemanticMutation<'_, 'ast> {
-    pub fn prepare_dirty_transform_facts(
-        &self,
-        ast: &Ast<'_>,
-        roots: &[NodeId],
-    ) -> DirtyTransformFacts {
-        self.semantic.prepare_dirty_transform_facts(ast, roots)
+    /// Remove a node from all transform-fact post-order lists and reset its
+    /// per-node counts and captures.
+    /// Called when an `AstEdit::Replace` changes the node kind so the old
+    /// entry in `class_lowering`, `generator_functions`, or `async_functions`
+    /// is no longer valid. Also resets effect counts and function/capture
+    /// counts so ancestor recomputation can propagate correct deltas.
+    pub fn remove_from_post_order_lists(&mut self, node: NodeId) {
+        if let Some(facts) = &mut self.semantic.transform_facts {
+            facts.generator_functions.retain(|f| f.node_id() != node);
+            facts.async_functions.retain(|id| *id != node);
+            facts.class_lowering.retain(|fact| fact.class.node_id() != node);
+            facts.generator_function_counts[node.index()] = 0;
+            facts.async_function_counts[node.index()] = 0;
+            facts.class_counts[node.index()] = 0;
+            if let Some(effects) = &mut facts.effects {
+                effects[node.index()] = EffectCounts::default();
+            }
+            if let Some(owners) = &mut facts.effect_owners {
+                owners[node.index()] = None;
+            }
+            facts.function_captures.remove(&node);
+        }
     }
 
-    pub fn refresh_dirty_transform_facts(
-        &mut self,
-        ast: &Ast<'ast>,
-        roots: &[NodeId],
-        snapshot: DirtyTransformFacts,
-    ) {
-        self.semantic
-            .refresh_dirty_transform_facts(ast, roots, snapshot);
+    /// Add a node to the appropriate transform-fact post-order lists if it
+    /// is a class, generator function, or async function.
+    /// Called when an `AstEdit::Replace` installs a new node that may belong
+    /// in one of the post-order lists populated during the initial semantic
+    /// traversal.
+    pub fn add_to_post_order_lists(&mut self, ast: &Ast<'ast>, node: NodeId) {
+        if !self.semantic.is_node_active(node) {
+            return;
+        }
+        let features = self.semantic.features;
+        let has_facts = self.semantic.transform_facts.is_some();
+        if !has_facts {
+            return;
+        }
+        // Collect per-node data before the mutable borrow of transform_facts.
+        // Pre-collect data from the class node before the mutable borrow
+        // of transform_facts.
+        let pre_collected = if features.contains(SemanticFeatureFlags::CLASS_LOWERING) {
+            if let NodeKindData::Class(class) = ast.kind_data(node) {
+                // Direct array access instead of scope_of() to avoid the
+                // assert_node_active check — register_node just set this
+                // and the node is guaranteed active by the caller.
+                let class_scope = self.semantic.node_scopes[node.index()];
+                let name_symbol = class.id(ast).and_then(|id| {
+                    let id_node = id.node_id();
+                    if !self.semantic.is_node_active(id_node) {
+                        return None;
+                    }
+                    let decl = self.semantic.declaration_of(id_node)?;
+                    Some(self.semantic.declaration(decl).symbol)
+                });
+                Some((class, class_scope, name_symbol))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let facts = &mut self.semantic.transform_facts;
+        let facts = facts.as_mut().unwrap();
+        if features.contains(SemanticFeatureFlags::GENERATOR_FUNCTIONS)
+            && let NodeKindData::Function(function) = ast.kind_data(node)
+            && function.generator(ast)
+        {
+            facts.generator_functions.push(function);
+        }
+        if features.contains(SemanticFeatureFlags::ASYNC_FUNCTIONS) {
+            match ast.kind_data(node) {
+                NodeKindData::Function(function) if function.r#async(ast) => {
+                    facts.async_functions.push(node);
+                }
+                NodeKindData::ArrowFunctionExpression(arrow) if arrow.r#async(ast) => {
+                    facts.async_functions.push(node);
+                }
+                _ => {}
+            }
+        }
+        if features.contains(SemanticFeatureFlags::CLASS_LOWERING)
+            && let Some((class, scope, sym)) = pre_collected
+        {
+            // Build a ClassLoweringFact from the AST for this new class
+            // node.  This is a pragmatic fallback: the old
+            // refresh_dirty_transform_facts path did the same scan.
+            // Step 6c will replace this with proper journal deltas.
+            let allocator = ast.allocator();
+            let mut methods = ArenaVec::new_in(allocator);
+            let mut has_properties = false;
+            let mut has_private_elements = false;
+            let mut has_static_blocks = false;
+            let mut has_decorators = !class.decorators(ast).is_empty();
+            let elements = class.body(ast).body(ast);
+            for i in 0..elements.len() {
+                let element = elements.get_node(ast, i).unwrap();
+                if let Some(method) = element.as_method_definition(ast) {
+                    has_private_elements |= method.key(ast).is_private_identifier(ast);
+                    has_decorators |= !method.decorators(ast).is_empty();
+                    methods.push(ClassMethodFact {
+                        definition: method,
+                        function: method.value(ast),
+                        function_scope: scope,
+                        kind: method.kind(ast),
+                        r#static: method.r#static(ast),
+                        computed: method.computed(ast),
+                    });
+                } else if let Some(property) = element.as_property_definition(ast) {
+                    has_properties = true;
+                    has_private_elements |= property.key(ast).is_private_identifier(ast);
+                    has_decorators |= !property.decorators(ast).is_empty();
+                } else if element.is_static_block(ast) {
+                    has_static_blocks = true;
+                }
+            }
+            // Fix function_scope for each method: use the actual function
+            // scope, not the class scope.  The function may not be
+            // registered yet (its RegisterNode follows the class), so
+            // fall back to the class scope if the function scope is
+            // unavailable — the class lowering plan will validate this
+            // later.
+            for m in &mut methods {
+                let fn_scope = self.semantic.node_scopes[m.function.node_id().index()];
+                // node_scopes is resized with ROOT as default; if the
+                // function is not yet registered, its scope is ROOT.
+                if fn_scope != ScopeId::ROOT {
+                    m.function_scope = fn_scope;
+                }
+            }
+            let fact = ClassLoweringFact {
+                class,
+                class_scope: scope,
+                name_symbol: sym,
+                constructor: None,
+                methods,
+                heritage: class.super_class(ast).map(|h| h.node_id()),
+                computed_keys: ArenaVec::new_in(allocator),
+                super_calls: ArenaVec::new_in(allocator),
+                super_members: ArenaVec::new_in(allocator),
+                self_references: ArenaVec::new_in(allocator),
+                this_nodes: ArenaVec::new_in(allocator),
+                new_targets: ArenaVec::new_in(allocator),
+                has_properties,
+                has_private_elements,
+                has_static_blocks,
+                has_decorators,
+            };
+            facts.class_lowering.push(fact);
+        }
+    }
+
+    /// Recompute effects and function counts for a node after a child was
+    /// retired or the node itself was replaced (via `AstEdit::Replace`).
+    /// Called from the commit path to propagate the zeroed/updated
+    /// contribution up the ancestor chain.
+    ///
+    /// Also clears stale capture data for any function whose children
+    /// changed — the capture data was computed from the old subtree and
+    /// is no longer valid after mutation.
+    pub fn recompute_after_retire(&mut self, ast: &Ast<'_>, node: NodeId) {
+        if self.semantic.transform_facts.is_none() {
+            return;
+        }
+        if self
+            .semantic
+            .features
+            .intersects(SemanticFeatureFlags::YIELD | SemanticFeatureFlags::AWAIT)
+        {
+            self.semantic.recompute_node_effects(ast, node);
+        }
+        self.semantic.recompute_node_function_counts(ast, node);
+        // Capture data for this node was computed from children that may
+        // now be retired or completely replaced.  Clear it unconditionally
+        // — if the function is still a generator, the next query will
+        // re-derive captures from the new subtree.  If it is no longer a
+        // generator (e.g. after class lowering replaced a generator method
+        // with a regular function), the stale entry must be removed so the
+        // incremental semantic matches re-analysis.
+        if self.semantic.features.contains(SemanticFeatureFlags::FUNCTION_ENV_CAPTURE)
+            && let Some(facts) = &mut self.semantic.transform_facts
+        {
+            facts.function_captures.remove(&node);
+        }
     }
 
     pub fn advance_mutation_epoch(&mut self) -> u64 {
@@ -2373,13 +2106,6 @@ fn is_effect_boundary(ast: &Ast<'_>, node: NodeId) -> bool {
         ast.node_kind(node),
         swc_next_ecma_ast::NodeKind::Function
             | swc_next_ecma_ast::NodeKind::ArrowFunctionExpression
-    )
-}
-
-fn is_generator_function(ast: &Ast<'_>, node: NodeId) -> bool {
-    matches!(
-        ast.kind_data(node),
-        swc_next_ecma_ast::NodeKindData::Function(function) if function.generator(ast)
     )
 }
 

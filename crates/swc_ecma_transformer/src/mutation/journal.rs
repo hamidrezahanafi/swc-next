@@ -138,6 +138,21 @@ pub(super) enum ScopeEdit {
     },
 }
 
+#[derive(Debug, Default)]
+pub(super) struct MutationJournal {
+    pub(super) ast_edits: Vec<AstEdit>,
+    pub(super) semantic_edits: Vec<SemanticEdit>,
+    pub(super) identity_edits: Vec<IdentityEdit>,
+    pub(super) resolution_edits: Vec<ResolutionEdit>,
+    pub(super) module_edits: Vec<ModuleEdit>,
+    pub(super) scope_edits: Vec<ScopeEdit>,
+    pub(super) pending_scopes: Vec<PendingScope>,
+    pub(super) pending_symbols: Vec<PendingSymbol>,
+    pub(super) pending_references: Vec<PendingReference>,
+    pub(super) name_reservations: Vec<PendingNameReservation>,
+    pub(super) shared_private_bindings: Vec<SharedPrivateBinding>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct PendingScope {
     pub(super) parent: ScopeHandle,
@@ -175,21 +190,6 @@ pub(super) struct SharedPrivateBinding {
     pub(super) scope: ScopeId,
     pub(super) flags: SymbolFlags,
     pub(super) binding: PrivateBinding,
-}
-
-#[derive(Debug, Default)]
-pub(super) struct MutationJournal {
-    pub(super) ast_edits: Vec<AstEdit>,
-    pub(super) semantic_edits: Vec<SemanticEdit>,
-    pub(super) identity_edits: Vec<IdentityEdit>,
-    pub(super) resolution_edits: Vec<ResolutionEdit>,
-    pub(super) module_edits: Vec<ModuleEdit>,
-    pub(super) scope_edits: Vec<ScopeEdit>,
-    pub(super) pending_scopes: Vec<PendingScope>,
-    pub(super) pending_symbols: Vec<PendingSymbol>,
-    pub(super) pending_references: Vec<PendingReference>,
-    pub(super) name_reservations: Vec<PendingNameReservation>,
-    pub(super) shared_private_bindings: Vec<SharedPrivateBinding>,
 }
 
 impl MutationJournal {

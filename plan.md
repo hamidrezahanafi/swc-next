@@ -591,9 +591,11 @@ class：
 3. ✅ `refactor(transformer): expose semantic-aware ast context mutations` (b083558)
    - class 所需 typed builder、定点 rewrite、statement-list edit API；
    - pass 不再获得裸 `&mut Ast`。
-4. ❌ `refactor(semantic): update transform facts from ast context deltas`
+4. ✅ `refactor(semantic): update transform facts from ast context deltas`
    - journal contribution；
-   - 删除 dirty-root facts refresh 重扫。
+   - 删除 dirty-root facts refresh 重扫（`prepare_dirty_transform_facts`、`refresh_dirty_transform_facts`、`refresh_function_lists`、`refresh_effect_owners`、`refresh_function_captures`、`collect_node_postorder`、`function_postorder_offset`、`nearest_capture_function`、`DirtyTransformFacts`、`DirtyFunctionRange`）；
+   - 添加 `remove_from_post_order_lists`、`add_to_post_order_lists`、`recompute_after_retire`；
+   - commit 路径使用 journal delta 而非 dirty subtree 重扫。
 5. ✅ `refactor(transformer): consume semantic class transform info` (3af1317)
    - 删除 `classes/analysis.rs`；
    - 合并/精简 `plan.rs`；
@@ -620,8 +622,8 @@ class：
 - [ ] class transform 生产代码没有 `Visit`/`VisitMut` 和裸 attached AST setter。
 - [x] helper 发布不运行 parser + semantic analyze。
 - [ ] 所有 class lowering mutation 经过 AstContext，并在同一 commit 同步 Semantic。
-- [ ] transform facts 使用 journal delta 更新，不执行 dirty AST subtree refresh。
-- [ ] commit 后增量 Semantic 与测试 oracle 的重新 analyze 结果一致。
+- [x] transform facts 使用 journal delta 更新，不执行 dirty AST subtree refresh。
+- [x] commit 后增量 Semantic 与测试 oracle 的重新 analyze 结果一致。
 - [x] 现有 class Rust tests、Babel fixtures、相关 Test262 和 clippy 通过。
 - [x] benchmark 显示 class 数量增长时 semantic 只遍历一次，transform/commit 不引入重复
       AST 扫描。

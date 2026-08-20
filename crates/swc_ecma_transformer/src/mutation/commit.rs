@@ -17,7 +17,6 @@ impl MutationTransaction<'_, '_> {
         self.preflight()?;
         let dirty_roots = self.normalized_dirty_roots();
         let mut semantic = self.semantic.mutation();
-        let fact_snapshot = semantic.prepare_dirty_transform_facts(self.ast, &dirty_roots);
 
         if self.journal.is_empty() {
             self.ast
@@ -63,6 +62,20 @@ impl MutationTransaction<'_, '_> {
                     // edge.
                     // The detached root is intentionally left unregistered;
                     // its payload may refer to earlier detached descendants.
+                    //
+                    // When the old payload was a class, generator, or async
+                    // function, the post-order transform-fact entry is now
+                    // stale — remove it.
+                    // Note: we do NOT call add_to_post_order_lists here because
+                    // set_data swaps the old/new payloads, meaning the old
+                    // NodeId now holds the replacement data.  Post-order lists
+                    // are populated from the initial semantic traversal and
+                    // from RegisterNode entries for freshly-created nodes.
+                    // The replacement node's data was already part of the
+                    // initial traversal (it was a detached node) and any
+                    // class/func/async entries it created during the initial
+                    // registration are still in the post-order lists.
+                    semantic.remove_from_post_order_lists(old);
                     unsafe { self.ast.set_data(old, new) };
                 }
                 AstEdit::Replace { .. } => unreachable!("preflight rejects unsupported identity"),
@@ -100,7 +113,9 @@ impl MutationTransaction<'_, '_> {
                     node,
                     parent,
                     scope,
-                } => semantic.register_node(node, parent, resolve_scope(scope, &scopes)),
+                } => {
+                    semantic.register_node(node, parent, resolve_scope(scope, &scopes));
+                }
                 SemanticEdit::RetireNode { .. } => {}
                 SemanticEdit::ReparentNode { node, parent } => {
                     semantic.reparent_node(node, parent);
@@ -108,6 +123,16 @@ impl MutationTransaction<'_, '_> {
                 SemanticEdit::RescopeNode { node, scope } => {
                     semantic.rescope_node(node, resolve_scope(scope, &scopes));
                 }
+            }
+        }
+
+        // After all nodes are registered, add class/generator/async nodes
+        // to the post-order transform-fact lists.  This is deferred so that
+        // method function scopes are available when the class fact is built
+        // (add_to_post_order_lists reads node_scopes for each method).
+        for edit in &self.journal.semantic_edits {
+            if let SemanticEdit::RegisterNode { node, .. } = *edit {
+                semantic.add_to_post_order_lists(self.ast, node);
             }
         }
 
@@ -253,9 +278,50 @@ impl MutationTransaction<'_, '_> {
             }
         }
 
+        // Collect parent nodes whose aggregated counts need recomputation
+        // after a child is retired or replaced.  RetireNode removes the child
+        // from the parent's children list, and Replace changes the node kind
+        // (e.g. Class → Function), so the per-node and ancestor counts
+        // computed from the old kind are stale.
+        let retired_parents: Vec<NodeId> = {
+            let mut parents = Vec::new();
+            for edit in &self.journal.semantic_edits {
+                if let SemanticEdit::RetireNode { node } = *edit
+                    && semantic.is_node_active(node)
+                    && let Some(parent) = semantic.parent_of(node)
+                {
+                    parents.push(parent);
+                }
+            }
+            for edit in &self.journal.ast_edits {
+                let AstEdit::Replace { old, .. } = *edit;
+                if semantic.is_node_active(old)
+                    && let Some(parent) = semantic.parent_of(old)
+                {
+                    parents.push(parent);
+                }
+            }
+            parents
+        };
         for edit in &self.journal.semantic_edits {
             if let SemanticEdit::RetireNode { node } = *edit {
                 semantic.retire_node(node);
+            }
+        }
+        // Recompute effect/anchor counts for parents that lost retired children.
+        for parent in &retired_parents {
+            let mut current = *parent;
+            loop {
+                // parent_of asserts active; skip if the node itself was retired.
+                if !semantic.is_node_active(current) {
+                    break;
+                }
+                semantic.recompute_after_retire(self.ast, current);
+                if let Some(p) = semantic.parent_of(current) {
+                    current = p;
+                } else {
+                    break;
+                }
             }
         }
 
@@ -264,8 +330,6 @@ impl MutationTransaction<'_, '_> {
                 semantic.retire_scope(scope);
             }
         }
-
-        semantic.refresh_dirty_transform_facts(self.ast, &dirty_roots, fact_snapshot);
 
         let ast_epoch = self.ast.advance_mutation_epoch();
         let semantic_epoch = semantic.advance_mutation_epoch();

@@ -161,7 +161,8 @@ pub(super) fn lower_program<'ast>(
                 output.push(statement);
                 continue;
             };
-            output.extend(lower_declaration(plan, class_helpers, tx.inner()));
+            let lowered = lower_declaration(plan, class_helpers, tx.inner());
+            output.extend(lowered);
         }
 
         if let Some(published) = published_helpers {
