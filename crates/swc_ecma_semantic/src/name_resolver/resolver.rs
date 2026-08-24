@@ -1,5 +1,3 @@
-use std::hash::BuildHasher;
-
 use hashbrown::HashMap;
 use oxc_index::{Idx, IndexVec};
 use rustc_hash::{FxBuildHasher, FxHashSet};
@@ -96,13 +94,13 @@ impl JsNameResolver<'_> {
 }
 
 #[derive(Debug)]
-struct Scope<'ast> {
+struct Scope {
     parent: Option<ScopeId>,
     kind: ScopeKind,
-    declared_symbols: HashMap<&'ast [u8], DeclKind, FxBuildHasher>,
+    declared_symbols: HashMap<AstUtf8, DeclKind, FxBuildHasher>,
 }
 
-impl<'ast> Scope<'ast> {
+impl Scope {
     fn new(kind: ScopeKind, parent: Option<ScopeId>) -> Self {
         Self {
             parent,
@@ -204,7 +202,7 @@ impl ScopeOwner {
 /// resolved while walking the source in order.
 struct Resolver<'ast> {
     ast: &'ast Ast<'ast>,
-    scopes: IndexVec<ScopeId, Scope<'ast>>,
+    scopes: IndexVec<ScopeId, Scope>,
     node_scopes: ArenaVec<'ast, Option<ScopeId>>,
     top_level_scope_id: ScopeId,
     unresolved_scope_id: ScopeId,
@@ -216,15 +214,11 @@ struct Resolver<'ast> {
 }
 
 impl<'ast> Resolver<'ast> {
-    fn name(&self, name: AstUtf8) -> &'ast [u8] {
-        self.ast.get_utf8(name).as_bytes()
-    }
-
-    fn is_declared(&self, name: &[u8], start_scope: ScopeId) -> Option<DeclKind> {
+    fn is_declared(&self, name: AstUtf8, start_scope: ScopeId) -> Option<DeclKind> {
         let mut scope = Some(start_scope);
         while let Some(scope_id) = scope {
             let current = &self.scopes[scope_id];
-            if let Some(kind) = current.declared_symbols.get(name) {
+            if let Some(kind) = current.declared_symbols.get(&name) {
                 return Some(*kind);
             }
             scope = current.parent;
@@ -266,23 +260,13 @@ impl<'ast> Resolver<'ast> {
         self.set_scope_once(owner.node_id(), scope);
     }
 
-    fn scope_of_name(&self, name: &[u8], stop_at_fn_scope: bool) -> Option<ScopeId> {
-        // Every scope uses the same stateless FxBuildHasher, so reuse the hash
-        // instead of hashing the identifier again for each ancestor scope.
-        let hash = self.scopes[self.current]
-            .declared_symbols
-            .hasher()
-            .hash_one(name);
+    fn scope_of_name(&self, name: AstUtf8, stop_at_fn_scope: bool) -> Option<ScopeId> {
         let mut scope = Some(self.current);
         while let Some(scope_id) = scope {
             let current = &self.scopes[scope_id];
-            if current
-                .declared_symbols
-                .raw_entry()
-                .from_hash(hash, |candidate| *candidate == name)
-                .is_some()
-            {
-                return if (name == b"undefined" || name == b"NaN" || name == b"Infinity")
+            if current.declared_symbols.contains_key(&name) {
+                let name = self.ast.get_utf8(name);
+                return if matches!(name, "undefined" | "NaN" | "Infinity")
                     && scope_id == self.top_level_scope_id
                     && !self.is_module
                 {
@@ -305,7 +289,7 @@ impl<'ast> Resolver<'ast> {
             return;
         }
 
-        let name = self.name(identifier.name(self.ast));
+        let name = identifier.name(self.ast);
         self.scopes[self.current]
             .declared_symbols
             .insert(name, kind);
@@ -346,7 +330,7 @@ impl<'ast> Resolver<'ast> {
     fn has_use_strict(&self, directives: TypedSubRange<Directive>) -> bool {
         directives.iter().any(|id| {
             let directive = self.ast.get_node_in_sub_range(id);
-            self.name(directive.value(self.ast)) == b"use strict"
+            self.ast.get_utf8(directive.value(self.ast)) == "use strict"
         })
     }
 
@@ -413,7 +397,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
         if self.node_scopes[node_index].is_some() {
             return;
         }
-        let name = self.name(reference.name(self.ast));
+        let name = reference.name(self.ast);
         let scope = self
             .scope_of_name(name, false)
             .unwrap_or(self.unresolved_scope_id);
@@ -433,8 +417,14 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
     fn visit_jsx_element_name(&mut self, name: JsxElementName) {
         match self.ast.jsx_element_name_data(name) {
             JsxElementNameData::JsxIdentifier(identifier) => {
-                let name = self.name(identifier.name(self.ast));
-                let scope = if name.first().is_some_and(u8::is_ascii_lowercase) {
+                let name = identifier.name(self.ast);
+                let scope = if self
+                    .ast
+                    .get_utf8(name)
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_lowercase)
+                {
                     self.unresolved_scope_id
                 } else {
                     self.scope_of_name(name, false)
@@ -452,7 +442,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
     fn visit_jsx_member_expression_object(&mut self, object: JsxMemberExpressionObject) {
         match self.ast.jsx_member_expression_object_data(object) {
             JsxMemberExpressionObjectData::JsxIdentifier(identifier) => {
-                let name = self.name(identifier.name(self.ast));
+                let name = identifier.name(self.ast);
                 let scope = self
                     .scope_of_name(name, false)
                     .unwrap_or(self.unresolved_scope_id);
@@ -744,7 +734,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
         if let ModuleExportNameData::IdentifierName(identifier) =
             self.ast.module_export_name_data(local)
         {
-            let name = self.name(identifier.name(self.ast));
+            let name = identifier.name(self.ast);
             let scope = self
                 .scope_of_name(name, false)
                 .unwrap_or(self.unresolved_scope_id);
@@ -755,7 +745,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
             && let ModuleExportNameData::IdentifierName(identifier) =
                 self.ast.module_export_name_data(exported)
         {
-            let name = self.name(identifier.name(self.ast));
+            let name = identifier.name(self.ast);
             let scope = self
                 .scope_of_name(name, false)
                 .unwrap_or(self.unresolved_scope_id);
@@ -785,21 +775,22 @@ struct Hoister<'resolver, 'ast> {
     kind: DeclKind,
     in_block: bool,
     in_catch_body: bool,
-    excluded_from_catch: FxHashSet<&'ast [u8]>,
-    catch_param_decls: FxHashSet<&'ast [u8]>,
+    excluded_from_catch: FxHashSet<AstUtf8>,
+    catch_param_decls: FxHashSet<AstUtf8>,
 }
 
 impl<'resolver, 'ast> Hoister<'resolver, 'ast> {
     fn add_binding(&mut self, identifier: BindingIdentifier) {
-        let name = self.resolver.name(identifier.name(self.resolver.ast));
+        let name = identifier.name(self.resolver.ast);
         if self.in_catch_body {
             if self.resolver.scope_of_name(name, true).is_some()
-                && self.catch_param_decls.contains(name)
+                && self.catch_param_decls.contains(&name)
             {
                 return;
             }
             self.excluded_from_catch.insert(name);
-        } else if self.catch_param_decls.contains(name) && !self.excluded_from_catch.contains(name)
+        } else if self.catch_param_decls.contains(&name)
+            && !self.excluded_from_catch.contains(&name)
         {
             return;
         }
@@ -860,8 +851,8 @@ impl<'ast> Visit<'ast> for Hoister<'_, 'ast> {
         let Some(identifier) = function.id(self.resolver.ast) else {
             return;
         };
-        let name = self.resolver.name(identifier.name(self.resolver.ast));
-        if self.catch_param_decls.contains(name) {
+        let name = identifier.name(self.resolver.ast);
+        if self.catch_param_decls.contains(&name) {
             return;
         }
         if self.in_block {
@@ -925,7 +916,7 @@ impl<'ast> Visit<'ast> for Hoister<'_, 'ast> {
         if let Some(param) = catch.param(self.resolver.ast) {
             let ast = self.resolver.ast;
             for_each_binding_id(ast, param, |identifier| {
-                let name = ast.get_utf8(identifier.name(ast)).as_bytes();
+                let name = identifier.name(ast);
                 self.catch_param_decls.insert(name);
             });
         }

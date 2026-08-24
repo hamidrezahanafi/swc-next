@@ -3,7 +3,8 @@ use swc_next_allocator::{
 };
 
 macro_rules! define_ast_string {
-    ($name:ident) => {
+    ($name:ident, $documentation:literal) => {
+        #[doc = $documentation]
         #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
         pub struct $name {
             pub(crate) start: u32,
@@ -40,8 +41,14 @@ macro_rules! define_ast_string {
     };
 }
 
-define_ast_string!(AstUtf8);
-define_ast_string!(AstWtf8);
+define_ast_string!(
+    AstUtf8,
+    "A compact handle to a UTF-8 string in an [`Ast`](crate::Ast)."
+);
+define_ast_string!(
+    AstWtf8,
+    "A compact handle to a WTF-8 string in an [`Ast`](crate::Ast)."
+);
 
 impl From<AstUtf8> for AstWtf8 {
     #[inline]
@@ -84,6 +91,16 @@ impl<'a> StringPool<'a> {
     }
 
     #[inline]
+    pub fn find_utf8(&self, text: &str) -> Option<AstUtf8> {
+        if text.is_empty() {
+            return Some(AstUtf8::EMPTY);
+        }
+        self.dedup
+            .get(text.as_bytes())
+            .map(|&(start, end)| AstUtf8 { start, end })
+    }
+
+    #[inline]
     fn get_bytes(&self, start: u32, end: u32) -> &[u8] {
         debug_assert!(end >= start);
         if start == end {
@@ -100,22 +117,38 @@ impl<'a> StringPool<'a> {
         }
     }
 
-    /// Returns a slice of the source string corresponding to the given start and end offsets.
+    /// Interns the source slice at the given offsets and returns its canonical handle.
+    ///
+    /// The returned handle may point at an earlier equal string. AST node locations are
+    /// represented by spans, not by string handles.
     /// Actually this function should be unsafe because it does not check if the offsets are valid.
     /// So external crates should be better not use this function directly.
     #[inline]
-    pub fn source_slice(&self, start: u32, end: u32) -> AstUtf8 {
+    pub fn source_slice(&mut self, start: u32, end: u32) -> AstUtf8 {
         debug_assert!(self.source.get(start as usize..end as usize).is_some());
+        let (start, end) = self.intern_source_bytes(start, end);
         AstUtf8 { start, end }
     }
 
-    /// Returns a slice of the source string corresponding to the given start and end offsets.
+    /// Interns the source slice at the given offsets and returns its canonical handle.
+    ///
+    /// The returned handle may point at an earlier equal string. AST node locations are
+    /// represented by spans, not by string handles.
     /// Actually this function should be unsafe because it does not check if the offsets are valid.
     /// So external crates should be better not use this function directly.
     #[inline]
-    pub fn source_slice_wtf8(&self, start: u32, end: u32) -> AstWtf8 {
+    pub fn source_slice_wtf8(&mut self, start: u32, end: u32) -> AstWtf8 {
         debug_assert!(self.source.get(start as usize..end as usize).is_some());
+        let (start, end) = self.intern_source_bytes(start, end);
         AstWtf8 { start, end }
+    }
+
+    #[inline]
+    pub fn as_utf8(&self, id: AstWtf8) -> Option<AstUtf8> {
+        self.get_wtf8(id).as_str().map(|_| AstUtf8 {
+            start: id.start,
+            end: id.end,
+        })
     }
 
     #[inline]
@@ -128,6 +161,21 @@ impl<'a> StringPool<'a> {
     pub fn add_wtf8(&mut self, text: &Wtf8) -> AstWtf8 {
         let (start, end) = self.add_bytes(text.as_bytes());
         AstWtf8 { start, end }
+    }
+
+    fn intern_source_bytes(&mut self, start: u32, end: u32) -> (u32, u32) {
+        if start == end {
+            return (0, 0);
+        }
+        let text = &self.source.as_bytes()[start as usize..end as usize];
+        if let Some(&id) = self.dedup.get(text) {
+            return id;
+        }
+
+        let mut key = ArenaVec::with_capacity_in(text.len(), self.allocator);
+        key.extend_from_slice(text);
+        self.dedup.insert(key, (start, end));
+        (start, end)
     }
 
     fn add_bytes(&mut self, text: &[u8]) -> (u32, u32) {
@@ -153,5 +201,27 @@ impl<'a> StringPool<'a> {
         key.extend_from_slice(text);
         self.dedup.insert(key, id);
         id
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use swc_next_allocator::Allocator;
+
+    use super::StringPool;
+
+    #[test]
+    fn interns_strings_by_content() {
+        let allocator = Allocator::new();
+        let mut strings = StringPool::new_in(&allocator, "foo foo");
+
+        let first = strings.source_slice(0, 3);
+        let second = strings.source_slice(4, 7);
+        let added = strings.add_utf8("foo");
+
+        assert_eq!(first, second);
+        assert_eq!(first, added);
+        assert_eq!(strings.find_utf8("foo"), Some(first));
+        assert_eq!(strings.get_utf8(first), "foo");
     }
 }

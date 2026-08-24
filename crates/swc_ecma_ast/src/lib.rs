@@ -334,20 +334,32 @@ impl<'a> Ast<'a> {
         self.strings.source
     }
 
-    /// Returns a slice of the source string corresponding to the given start and end offsets.
+    /// Interns the source slice at the given offsets and returns its canonical handle.
+    ///
+    /// The returned handle may point at an earlier equal string. AST node locations are
+    /// represented by spans, not by string handles.
     /// Actually this function should be unsafe because it does not check if the offsets are valid.
     /// So external crates should be better not use this function directly.
     #[inline]
-    pub fn source_slice(&self, start: u32, end: u32) -> AstUtf8 {
+    pub fn source_slice(&mut self, start: u32, end: u32) -> AstUtf8 {
         self.strings.source_slice(start, end)
     }
 
-    /// Returns a slice of the source string corresponding to the given start and end offsets.
+    /// Interns the source slice at the given offsets and returns its canonical handle.
+    ///
+    /// The returned handle may point at an earlier equal string. AST node locations are
+    /// represented by spans, not by string handles.
     /// Actually this function should be unsafe because it does not check if the offsets are valid.
     /// So external crates should be better not use this function directly.
     #[inline]
-    pub fn source_slice_wtf8(&self, start: u32, end: u32) -> AstWtf8 {
+    pub fn source_slice_wtf8(&mut self, start: u32, end: u32) -> AstWtf8 {
         self.strings.source_slice_wtf8(start, end)
+    }
+
+    /// Returns the UTF-8 handle for a WTF-8 string when it contains no lone surrogates.
+    #[inline]
+    pub fn as_utf8(&self, value: AstWtf8) -> Option<AstUtf8> {
+        self.strings.as_utf8(value)
     }
 
     #[inline]
@@ -368,6 +380,12 @@ impl<'a> Ast<'a> {
     #[inline]
     pub fn get_wtf8(&self, id: AstWtf8) -> &swc_next_allocator::wtf8::Wtf8 {
         self.strings.get_wtf8(id)
+    }
+
+    /// Returns the canonical handle for a UTF-8 string already interned in this AST.
+    #[inline]
+    pub fn find_utf8(&self, value: &str) -> Option<AstUtf8> {
+        self.strings.find_utf8(value)
     }
 
     #[inline]

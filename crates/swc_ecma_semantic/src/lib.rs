@@ -11,7 +11,7 @@ use swc_next_allocator::{
     hash_map::{HashMap as ArenaHashMap, Values},
     vec::Vec as ArenaVec,
 };
-use swc_next_ecma_ast::{Ast, Diagnostic, NodeId, ScopeId, SymbolId, VisitWith};
+use swc_next_ecma_ast::{Ast, AstUtf8, Diagnostic, NodeId, ScopeId, SymbolId, VisitWith};
 
 use crate::{binder::Range, checker::Checker, scope::ScopeTree};
 
@@ -35,7 +35,7 @@ oxc_index::define_nonmax_u32_index_type! {
     pub struct DeclarationId;
 }
 
-type ScopeMap<'a> = ArenaHashMap<'a, &'a [u8], SymbolId>;
+type ScopeMap<'a> = ArenaHashMap<'a, AstUtf8, SymbolId>;
 type Redeclarations<'a> = ArenaHashMap<'a, SymbolId, ArenaVec<'a, DeclarationId>>;
 
 /// The complete semantic model of a tree, with every scope, symbol,
@@ -166,11 +166,15 @@ impl<'a> Semantic<'a> {
     /// //             ^ binding here finds `a`, whose symbol
     /// //               lives in the function scope
     /// ```
-    pub fn binding(&self, scope_id: ScopeId, name: &[u8]) -> Option<SymbolId> {
+    pub fn binding(&self, scope_id: ScopeId, name: AstUtf8) -> Option<SymbolId> {
         self.scope_maps[scope_id.index()]
-            .get(name)
+            .get(&name)
             .copied()
-            .or_else(|| self.hoisting_variables[scope_id.index()].get(name).copied())
+            .or_else(|| {
+                self.hoisting_variables[scope_id.index()]
+                    .get(&name)
+                    .copied()
+            })
     }
 
     /// Every symbol declared directly in `scope`. A hoisting `var`
@@ -197,11 +201,11 @@ impl<'a> Semantic<'a> {
     pub fn lookup(
         &self,
         scope_id: ScopeId,
-        name: &[u8],
+        name: AstUtf8,
         space: ReferenceSpace,
     ) -> Option<SymbolId> {
         for ancestor in self.scopes.ancestors(Some(scope_id)) {
-            let Some(&id) = self.scope_maps[ancestor.index()].get(name) else {
+            let Some(&id) = self.scope_maps[ancestor.index()].get(&name) else {
                 continue;
             };
             if self.symbol(id).flags.visible_in(space) {
@@ -322,7 +326,7 @@ impl Iterator for ScopeIterator<'_> {
 }
 
 pub struct BindingIterator<'a> {
-    inner: Values<'a, &'a [u8], SymbolId>,
+    inner: Values<'a, AstUtf8, SymbolId>,
 }
 
 impl Iterator for BindingIterator<'_> {
@@ -484,12 +488,16 @@ mod tests {
         let allocator = Allocator::new();
         let (ast, semantic) = analyze_source(
             &allocator,
-            "interface A {} interface B {} interface A {} interface A {}",
+            "interface A {} interface B {} interface A {} interface \\u0041 {}",
             Lang::Ts,
             SourceType::Script,
         );
-        let a = semantic.binding(ScopeId::ROOT, b"A").unwrap();
-        let b = semantic.binding(ScopeId::ROOT, b"B").unwrap();
+        let a = semantic
+            .binding(ScopeId::ROOT, ast.find_utf8("A").unwrap())
+            .unwrap();
+        let b = semantic
+            .binding(ScopeId::ROOT, ast.find_utf8("B").unwrap())
+            .unwrap();
         let mut a_declarations = semantic.declaration_ids(a);
         assert_eq!(a_declarations.len(), 3);
         let first_a = a_declarations.next().unwrap();
@@ -684,7 +692,9 @@ mod tests {
             Lang::Js,
             SourceType::Script,
         );
-        let value_symbol = semantic.binding(ScopeId::ROOT, b"value").unwrap();
+        let value_symbol = semantic
+            .binding(ScopeId::ROOT, ast.find_utf8("value").unwrap())
+            .unwrap();
         let value = semantic
             .iter_references()
             .find(|entry| ast.get_utf8(entry.reference.name).as_bytes() == b"value")

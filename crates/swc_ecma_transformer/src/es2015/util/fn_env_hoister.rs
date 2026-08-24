@@ -27,7 +27,7 @@ impl CaptureFrame {
 pub struct FnEnvHoister<'semantic> {
     semantic: &'semantic Semantic<'semantic>,
     frames: Vec<CaptureFrame>,
-    used_names: HashSet<Vec<u8>>,
+    used_names: HashSet<AstUtf8>,
     in_arrow: bool,
 }
 
@@ -35,10 +35,12 @@ impl<'semantic> FnEnvHoister<'semantic> {
     pub fn new(ast: &Ast<'_>, semantic: &'semantic Semantic<'semantic>) -> Self {
         let mut used_names = HashSet::new();
         for entry in semantic.iter_symbols() {
-            used_names.insert(ast.get_wtf8(entry.symbol.name).as_bytes().to_vec());
+            if let Some(name) = ast.as_utf8(entry.symbol.name) {
+                used_names.insert(name);
+            }
         }
         for entry in semantic.iter_references() {
-            used_names.insert(ast.get_utf8(entry.reference.name).as_bytes().to_vec());
+            used_names.insert(entry.reference.name);
         }
         Self {
             semantic,
@@ -63,16 +65,20 @@ impl<'semantic> FnEnvHoister<'semantic> {
     }
 
     fn fresh_name(&mut self, base: &str, ast: &mut Ast<'_>) -> AstUtf8 {
-        let mut candidate = base.to_string();
+        let base_name = ast.add_utf8(base);
+        if self.used_names.insert(base_name) {
+            return base_name;
+        }
+
         let mut suffix = 2u32;
-        while self.used_names.contains(candidate.as_bytes()) {
-            candidate.clear();
-            candidate.push_str(base);
-            candidate.push_str(&suffix.to_string());
+        loop {
+            let candidate = format!("{base}{suffix}");
+            let name = ast.add_utf8(&candidate);
+            if self.used_names.insert(name) {
+                return name;
+            }
             suffix += 1;
         }
-        self.used_names.insert(candidate.as_bytes().to_vec());
-        ast.add_utf8(&candidate)
     }
 
     fn capture_this(&mut self, ast: &mut Ast<'_>) -> AstUtf8 {

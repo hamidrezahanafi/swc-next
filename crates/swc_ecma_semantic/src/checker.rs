@@ -5,9 +5,9 @@ use std::{borrow::Cow, collections::HashMap};
 use swc_next_allocator::Allocator;
 use swc_next_ecma_ast::{
     ArrayPattern, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator,
-    AssignmentPattern, Ast, BinaryOperator, BindingIdentifier, BindingProperty, BindingRestElement,
-    BlockStatement, CallExpression, CatchClause, Class, ClassBody, Decorator, Diagnostic,
-    Directive, ExportAllDeclaration, ExportDefaultDeclaration, ExportNamedDeclaration,
+    AssignmentPattern, Ast, AstUtf8, AstWtf8, BinaryOperator, BindingIdentifier, BindingProperty,
+    BindingRestElement, BlockStatement, CallExpression, CatchClause, Class, ClassBody, Decorator,
+    Diagnostic, Directive, ExportAllDeclaration, ExportDefaultDeclaration, ExportNamedDeclaration,
     ExportSpecifier, ForInStatement, ForOfStatement, ForStatement, FormalParameters, Function,
     FunctionBody, FunctionType, IdentifierReference, ImportDeclaration, ImportOrExportKind,
     ImportSpecifier, JsxClosingElement, JsxOpeningElement, Label, MemberExpression, NodeId,
@@ -167,7 +167,7 @@ fn is_direct_eval_call(tree: &Ast<'_>, call: CallExpression) -> bool {
 }
 
 struct ExportSpecifierInfo {
-    local_name: Vec<u8>,
+    local_name: AstWtf8,
     node: NodeId,
 }
 
@@ -192,13 +192,14 @@ impl<'a> CheckerState<'a> {
         }
         for index in 0..self.export_specifiers.len() {
             let specifier = &self.export_specifiers[index];
-            if symbols
-                .binding(ScopeId::MODULE, &specifier.local_name)
-                .is_none()
-            {
+            let binding = tree
+                .as_utf8(specifier.local_name)
+                .and_then(|name| symbols.binding(ScopeId::MODULE, name));
+            if binding.is_none() {
+                let local_name = tree.get_wtf8(specifier.local_name).as_bytes();
                 let message = self.fmt(format_args!(
                     "Export '{}' is not defined",
-                    String::from_utf8_lossy(&specifier.local_name)
+                    String::from_utf8_lossy(local_name)
                 ));
                 self.report(tree.span(specifier.node), message, ReportOptions::default());
             }
@@ -667,15 +668,17 @@ fn find_formal_parameters(
 
 /// Extracts the name from a ModuleExportName: an IdentifierName,
 /// IdentifierReference, or StringLiteral.
-fn module_export_name<'b>(tree: &'b Ast<'_>, node: NodeId) -> &'b [u8] {
+fn module_export_name_id(tree: &Ast<'_>, node: NodeId) -> AstWtf8 {
     match tree.kind_data(node) {
-        NodeKindData::IdentifierName(identifier) => tree.get_utf8(identifier.name(tree)).as_bytes(),
-        NodeKindData::IdentifierReference(identifier) => {
-            tree.get_utf8(identifier.name(tree)).as_bytes()
-        }
-        NodeKindData::StringLiteral(literal) => tree.get_wtf8(literal.value(tree)).as_bytes(),
-        _ => b"",
+        NodeKindData::IdentifierName(identifier) => identifier.name(tree).into(),
+        NodeKindData::IdentifierReference(identifier) => identifier.name(tree).into(),
+        NodeKindData::StringLiteral(literal) => literal.value(tree),
+        _ => AstWtf8::EMPTY,
     }
+}
+
+fn module_export_name<'b>(tree: &'b Ast<'_>, node: NodeId) -> &'b [u8] {
+    tree.get_wtf8(module_export_name_id(tree, node)).as_bytes()
 }
 
 fn has_octal_escape(value: &[u8]) -> bool {
@@ -810,10 +813,8 @@ impl Checker<'_, '_> {
             }
             NodeKindData::BindingIdentifier(identifier) => {
                 let node_id = identifier.node_id();
-                let name = context
-                    .ast
-                    .get_utf8(identifier.name(context.ast))
-                    .as_bytes();
+                let name_id = identifier.name(context.ast);
+                let name = context.ast.get_utf8(name_id).as_bytes();
                 let flags = context.state.symbols.pending.flags;
                 if context.state.in_type_position() && !flags.contains(SymbolFlags::TYPE_PARAMETER)
                 {
@@ -838,8 +839,8 @@ impl Checker<'_, '_> {
                 let existing = context
                     .state
                     .symbols
-                    .binding(context.state.symbols.pending.scope, name);
-                checks.check_redeclaration(identifier, node_id, name, flags, context, existing);
+                    .binding(context.state.symbols.pending.scope, name_id);
+                checks.check_redeclaration(identifier, node_id, name_id, flags, context, existing);
                 if context.state.symbols.export_state.named().is_some() {
                     let skip = existing.is_some() && context.ast.is_ts();
                     if !skip {
@@ -1527,10 +1528,10 @@ impl Checker<'_, '_> {
                     && declaration.source(context.ast).is_none()
                     && declaration.export_kind(context.ast) != ImportOrExportKind::Type
                 {
-                    let local =
-                        module_export_name(context.ast, specifier.local(context.ast).node_id());
+                    let local_name =
+                        module_export_name_id(context.ast, specifier.local(context.ast).node_id());
                     checks.export_specifiers.push(ExportSpecifierInfo {
-                        local_name: local.to_vec(),
+                        local_name,
                         node: specifier.node_id(),
                     });
                 }
@@ -2610,7 +2611,7 @@ impl<'a> CheckerState<'a> {
         &mut self,
         identifier: BindingIdentifier,
         node: NodeId,
-        name: &[u8],
+        name: AstUtf8,
         flags: SymbolFlags,
         context: &mut SemanticVisitCtx<'_, 'a>,
         existing_id: Option<SymbolId>,
