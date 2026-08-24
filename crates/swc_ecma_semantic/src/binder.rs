@@ -14,6 +14,7 @@ use swc_next_ecma_ast::{
 
 use crate::{
     ClassSemantic, DeclarationId, Redeclarations, ScopeMap, Semantic, SemanticFeatureFlags,
+    UsedNameState,
     module_record::ModuleRecordBuilder,
     scope::{self, ScopeKind, ScopeTracker, ScopeTree},
 };
@@ -512,6 +513,7 @@ pub(crate) struct SymbolTracker<'a> {
     node_symbols: ArenaVec<'a, Option<SymbolId>>,
     scope_maps: ArenaVec<'a, ScopeMap<'a>>,
     hoisting_variables: ArenaVec<'a, ScopeMap<'a>>,
+    used_names: Option<UsedNameState<'a>>,
 
     /// What the next `binding_identifier` will declare: its flags,
     /// redeclaration excludes, and destination scope. Valid inside an
@@ -589,7 +591,7 @@ struct SavedContext {
 }
 
 impl<'a> SymbolTracker<'a> {
-    pub fn init(tree: &Ast<'a>) -> Self {
+    pub fn init(tree: &Ast<'a>, collect_used_names: bool) -> Self {
         let allocator = tree.allocator();
         let nodes = tree.node_count();
         let mut node_symbols = ArenaVec::with_capacity_in(nodes, allocator);
@@ -603,6 +605,7 @@ impl<'a> SymbolTracker<'a> {
             node_symbols,
             scope_maps: ArenaVec::with_capacity_in(8usize.max(nodes / 16), allocator),
             hoisting_variables: ArenaVec::with_capacity_in(8usize.max(nodes / 16), allocator),
+            used_names: collect_used_names.then(|| UsedNameState::new(allocator)),
             pending: PendingBinding::default(),
             export_state: ExportState::None,
             // A declaration file is ambient in its entirety.
@@ -1280,6 +1283,9 @@ impl<'a> SymbolTracker<'a> {
         declaration_flags.set(SymbolFlags::IS_DEFAULT, self.export_state.is_default());
 
         let name_text = tree.get_wtf8(name).as_bytes();
+        if let Some(used_names) = &mut self.used_names {
+            used_names.observe(name_text);
+        }
         let declaration_id = DeclarationId::from_usize(self.declarations.len());
         let id = if let Some(existing) = self.binding(target, name_text) {
             let symbol = &mut self.symbols[existing.index()];
@@ -1342,6 +1348,9 @@ impl<'a> SymbolTracker<'a> {
         } else {
             flags
         };
+        if let Some(used_names) = &mut self.used_names {
+            used_names.observe(tree.get_utf8(name).as_bytes());
+        }
         let id = reference_id(self.references.len());
         self.references.push(Reference {
             name,
@@ -1543,6 +1552,7 @@ impl<'a> SymbolTracker<'a> {
             node_references,
             features,
             class,
+            used_names: self.used_names,
         }
     }
 }
