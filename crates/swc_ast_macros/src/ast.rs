@@ -28,28 +28,72 @@ fn expand_struct(mut item: ItemStruct, id: Option<syn::Ident>) -> TokenStream {
     let Fields::Named(fields) = &mut item.fields else {
         panic!("dedicated AST objects must use named fields");
     };
-    for field in &mut fields.named {
+    let mut hot_fields = Vec::new();
+    let mut optional_fields = Vec::new();
+    for mut field in std::mem::take(&mut fields.named) {
         field.vis = parse_quote!(pub(crate));
+        let field_name = field
+            .ident
+            .as_ref()
+            .expect("dedicated AST fields must be named")
+            .to_string();
+        let field_name = field_name.trim_start_matches("r#");
+        if matches!(field_name, "class_type" | "abstract" | "declare") {
+            continue;
+        }
         let Type::Path(path) = &field.ty else {
+            hot_fields.push(field);
             continue;
         };
         let Some(segment) = path.path.segments.last() else {
+            hot_fields.push(field);
             continue;
         };
-        if segment.ident != "Vec" {
+        if segment.ident == "Option" {
+            let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+                panic!("Option field must have a type argument");
+            };
+            let Some(GenericArgument::Type(inner)) = arguments.args.first() else {
+                panic!("Option field must have a type argument");
+            };
+            let field_ident = field.ident.as_ref().unwrap();
+            optional_fields.push(quote! {
+                pub(crate) #field_ident: crate::node_id::OptionalNode<#inner>
+            });
             continue;
         }
-        let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
-            continue;
-        };
-        let Some(GenericArgument::Type(inner)) = arguments.args.first() else {
-            continue;
-        };
-        field.ty = parse_quote!(crate::TypedNodeRange<#inner>);
+        if segment.ident == "Vec" {
+            let PathArguments::AngleBracketed(arguments) = &segment.arguments else {
+                panic!("Vec field must have a type argument");
+            };
+            let Some(GenericArgument::Type(inner)) = arguments.args.first() else {
+                panic!("Vec field must have a type argument");
+            };
+            field.ty = parse_quote!(crate::TypedNodeRange<#inner>);
+        }
+        hot_fields.push(field);
     }
+    assert_eq!(
+        hot_fields.len(),
+        4,
+        "Class hot record must have four fields"
+    );
+    assert_eq!(
+        optional_fields.len(),
+        4,
+        "Class must have four optional fields"
+    );
+    fields.named = hot_fields.into_iter().collect();
     quote! {
+        #[repr(C, align(32))]
         #[derive(Debug, Copy, Clone)]
         #item
+
+        #[repr(C)]
+        #[derive(Debug, Copy, Clone)]
+        pub(crate) struct ClassOptional {
+            #(#optional_fields),*
+        }
     }
 }
 

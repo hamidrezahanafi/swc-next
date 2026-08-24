@@ -50,11 +50,11 @@ fn generate_property_for_struct(ast: &AstStruct, schema: &Schema) -> TokenStream
             impl ClassId {
                 #[inline]
                 pub fn class_type(self, ast: &Ast<'_>) -> ClassType {
-                    ast.class_data(self).class_type
+                    ast.class_type(self)
                 }
                 #[inline]
                 pub fn set_class_type(self, ast: &mut Ast<'_>, value: ClassType) {
-                    ast.class_data_mut(self).class_type = value;
+                    ast.set_class_type(self, value);
                 }
                 #[inline]
                 pub fn decorators(self, ast: &Ast<'_>) -> TypedNodeRange<Decorator> {
@@ -66,35 +66,35 @@ fn generate_property_for_struct(ast: &AstStruct, schema: &Schema) -> TokenStream
                 }
                 #[inline]
                 pub fn id(self, ast: &Ast<'_>) -> Option<BindingIdentifier> {
-                    ast.class_data(self).id
+                    ast.class_optional_data(self).id.get()
                 }
                 #[inline]
                 pub fn set_id(self, ast: &mut Ast<'_>, value: Option<BindingIdentifier>) {
-                    ast.class_data_mut(self).id = value;
+                    ast.class_optional_data_mut(self).id.set(value);
                 }
                 #[inline]
                 pub fn type_parameters(self, ast: &Ast<'_>) -> Option<TsTypeParameterDeclaration> {
-                    ast.class_data(self).type_parameters
+                    ast.class_optional_data(self).type_parameters.get()
                 }
                 #[inline]
                 pub fn set_type_parameters(self, ast: &mut Ast<'_>, value: Option<TsTypeParameterDeclaration>) {
-                    ast.class_data_mut(self).type_parameters = value;
+                    ast.class_optional_data_mut(self).type_parameters.set(value);
                 }
                 #[inline]
                 pub fn super_class(self, ast: &Ast<'_>) -> Option<Expr> {
-                    ast.class_data(self).super_class
+                    ast.class_optional_data(self).super_class.get()
                 }
                 #[inline]
                 pub fn set_super_class(self, ast: &mut Ast<'_>, value: Option<Expr>) {
-                    ast.class_data_mut(self).super_class = value;
+                    ast.class_optional_data_mut(self).super_class.set(value);
                 }
                 #[inline]
                 pub fn super_type_arguments(self, ast: &Ast<'_>) -> Option<TsTypeParameterInstantiation> {
-                    ast.class_data(self).super_type_arguments
+                    ast.class_optional_data(self).super_type_arguments.get()
                 }
                 #[inline]
                 pub fn set_super_type_arguments(self, ast: &mut Ast<'_>, value: Option<TsTypeParameterInstantiation>) {
-                    ast.class_data_mut(self).super_type_arguments = value;
+                    ast.class_optional_data_mut(self).super_type_arguments.set(value);
                 }
                 #[inline]
                 pub fn implements(self, ast: &Ast<'_>) -> TypedNodeRange<TsClassImplements> {
@@ -126,19 +126,19 @@ fn generate_property_for_struct(ast: &AstStruct, schema: &Schema) -> TokenStream
                 }
                 #[inline]
                 pub fn r#abstract(self, ast: &Ast<'_>) -> bool {
-                    ast.class_data(self).r#abstract
+                    ast.class_abstract(self)
                 }
                 #[inline]
                 pub fn set_abstract(self, ast: &mut Ast<'_>, value: bool) {
-                    ast.class_data_mut(self).r#abstract = value;
+                    ast.set_class_abstract(self, value);
                 }
                 #[inline]
                 pub fn declare(self, ast: &Ast<'_>) -> bool {
-                    ast.class_data(self).declare
+                    ast.class_declare(self)
                 }
                 #[inline]
                 pub fn set_declare(self, ast: &mut Ast<'_>, value: bool) {
-                    ast.class_data_mut(self).declare = value;
+                    ast.set_class_declare(self, value);
                 }
             }
         };

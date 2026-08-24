@@ -117,6 +117,7 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                 let uses_extra_data =
                     ast.storage.is_common() && calculate_inline_layout(ast, schema).is_none();
                 let mut getter_field_loads = TokenStream::new();
+                let mut class_field_loads = TokenStream::new();
                 let mut extra_data_field_loads = TokenStream::new();
                 let mut field_values = Vec::new();
                 let mut visit_children = TokenStream::new();
@@ -154,6 +155,12 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                     getter_field_loads.extend(quote! {
                         let #field_value = self.#visit_getter_name(visitor.ast());
                     });
+                    if ast.name == "Class" {
+                        let read = class_snapshot_field_read(&field.name, quote!(self));
+                        class_field_loads.extend(quote! {
+                            let #field_value = #read;
+                        });
+                    }
                     extra_data_field_loads.extend(quote! {
                         let offset = extra_data_start.wrapping_add(#field_index);
                         debug_assert!(offset < extra_data.len());
@@ -168,22 +175,51 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                     visit_children.extend(quote! {
                         <#visit_field_ty_ident as VisitWith<'a, V>>::visit_with(#field_value, visitor);
                     });
-                    visit_mut_children.extend(quote! {
-                        let field_value = self.#getter_name(visitor.ast());
-                        if let Some(field_value) = <#field_ty_ident as VisitMutWith<'a, V>>::visit_mut_with(
-                            field_value,
-                            visitor,
-                        ) {
-                            self.#setter_name(visitor.ast(), field_value);
-                        }
-                    });
+                    if ast.name == "Class" {
+                        let read = class_indexed_field_read(&field.name, quote!(visitor.ast()));
+                        let write = class_indexed_field_write(
+                            &field.name,
+                            quote!(visitor.ast()),
+                            quote!(field_value),
+                        );
+                        visit_mut_children.extend(quote! {
+                            let field_value = #read;
+                            if let Some(field_value) = <#field_ty_ident as VisitMutWith<'a, V>>::visit_mut_with(
+                                field_value,
+                                visitor,
+                            ) {
+                                #write
+                            }
+                        });
+                    } else {
+                        visit_mut_children.extend(quote! {
+                            let field_value = self.#getter_name(visitor.ast());
+                            if let Some(field_value) = <#field_ty_ident as VisitMutWith<'a, V>>::visit_mut_with(
+                                field_value,
+                                visitor,
+                            ) {
+                                self.#setter_name(visitor.ast(), field_value);
+                            }
+                        });
+                    }
                 }
 
                 // Keep inline-data access behind the typed getters. For extra-data nodes, decode
                 // all visitable fields in one block so the node's base offset and the extra-data
                 // slice are loaded once. The block also releases the immutable AST borrow before
                 // calling back into the mutable visitor.
-                let field_loads = if uses_extra_data && field_values.len() > 1 {
+                let field_loads = if ast.name == "Class" {
+                    quote! {
+                        let (#(#field_values,)*) = {
+                            let ast = visitor.ast();
+                            let class_index = ast.class_index(self);
+                            let class = ast.classes[class_index];
+                            let optional = ast.class_optional[class_index];
+                            #class_field_loads
+                            (#(#field_values,)*)
+                        };
+                    }
+                } else if uses_extra_data && field_values.len() > 1 {
                     quote! {
                         let (#(#field_values,)*) = {
                             let ast = visitor.ast();
@@ -215,6 +251,11 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                         }
                     }
                 });
+                let visit_mut_prelude = (ast.name == "Class").then(|| {
+                    quote! {
+                        let class_index = visitor.ast().class_index(self);
+                    }
+                });
                 visit_mut_with_impls.extend(quote! {
                     impl<'a, V: ?Sized + VisitMut<'a>> VisitMutWith<'a, V> for #ty_ident {
                         #[inline]
@@ -224,6 +265,7 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
 
                         #[inline]
                         fn visit_mut_children_with(self, visitor: &mut V) -> Option<Self> {
+                            #visit_mut_prelude
                             #visit_mut_children
                             None
                         }
@@ -248,7 +290,17 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                     } else {
                         format_ident!("set_{}", field.name.to_case(Case::Snake))
                     };
-                    let replacement = wrap_replacement(field.type_id, quote!(replacement), schema);
+                    let replace_write = if ast.name == "Class" {
+                        class_indexed_field_write(
+                            &field.name,
+                            quote!(ctx.ast),
+                            wrap_replacement(field.type_id, quote!(replacement), schema),
+                        )
+                    } else {
+                        let replacement =
+                            wrap_replacement(field.type_id, quote!(replacement), schema);
+                        quote!(node.#setter_name(ctx.ast, #replacement);)
+                    };
                     let replace_arm = if matches!(field_ty, AstType::Vec(_)) {
                         quote! {
                             TraverseAction::Replace(_) => {
@@ -258,14 +310,19 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                     } else {
                         quote! {
                             TraverseAction::Replace(replacement) => {
-                                node.#setter_name(ctx.ast, #replacement);
+                                #replace_write
                             }
                         }
+                    };
+                    let child_read = if ast.name == "Class" {
+                        class_indexed_field_read(&field.name, quote!(ctx.ast))
+                    } else {
+                        quote!(node.#getter_name(ctx.ast))
                     };
                     if ast.name == "Class" && field.name == "body" {
                         traverse_children.extend(quote! {
                             traverser.enter_class_body(node, ctx);
-                            let child = node.#getter_name(ctx.ast);
+                            let child = #child_read;
                             let child_action = <#field_ty_ident as TraverseWith<'a, State>>::traverse_with(
                                 child,
                                 traverser,
@@ -282,7 +339,7 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                         });
                     } else {
                         traverse_children.extend(quote! {
-                            let child = node.#getter_name(ctx.ast);
+                            let child = #child_read;
                             match <#field_ty_ident as TraverseWith<'a, State>>::traverse_with(
                                 child,
                                 traverser,
@@ -297,6 +354,12 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                         });
                     }
                 }
+
+                let traverse_prelude = (ast.name == "Class").then(|| {
+                    quote! {
+                        let class_index = ctx.ast.class_index(node);
+                    }
+                });
 
                 traverse_walk_functions.extend(quote! {
                     #[inline]
@@ -329,6 +392,7 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                             TraverseAction::Proceed => {}
                         }
 
+                        #traverse_prelude
                         let children_stopped = 'traverse_children: {
                         #traverse_children
                         false
@@ -759,6 +823,55 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
         tokens: output,
     }
     .into()
+}
+
+fn class_snapshot_field_read(field_name: &str, owner: TokenStream) -> TokenStream {
+    match field_name {
+        "decorators" => quote!(class.decorators),
+        "id" => quote!(optional.id.get()),
+        "type_parameters" => quote!(optional.type_parameters.get()),
+        "super_class" => quote!(optional.super_class.get()),
+        "super_type_arguments" => quote!(optional.super_type_arguments.get()),
+        "implements" => quote!(class.implements),
+        "body" => quote!(ClassBody(#owner)),
+        _ => panic!("unsupported visitable Class field `{field_name}`"),
+    }
+}
+
+fn class_indexed_field_read(field_name: &str, ast: TokenStream) -> TokenStream {
+    match field_name {
+        "decorators" => quote!((#ast).classes[class_index].decorators),
+        "id" => quote!((#ast).class_optional[class_index].id.get()),
+        "type_parameters" => quote!((#ast).class_optional[class_index].type_parameters.get()),
+        "super_class" => quote!((#ast).class_optional[class_index].super_class.get()),
+        "super_type_arguments" => {
+            quote!((#ast).class_optional[class_index].super_type_arguments.get())
+        }
+        "implements" => quote!((#ast).classes[class_index].implements),
+        "body" => quote!((#ast).classes[class_index].body),
+        _ => panic!("unsupported visitable Class field `{field_name}`"),
+    }
+}
+
+fn class_indexed_field_write(
+    field_name: &str,
+    ast: TokenStream,
+    value: TokenStream,
+) -> TokenStream {
+    match field_name {
+        "decorators" => quote!((#ast).classes[class_index].decorators = #value;),
+        "id" => quote!((#ast).class_optional[class_index].id.set(#value);),
+        "type_parameters" => {
+            quote!((#ast).class_optional[class_index].type_parameters.set(#value);)
+        }
+        "super_class" => quote!((#ast).class_optional[class_index].super_class.set(#value);),
+        "super_type_arguments" => {
+            quote!((#ast).class_optional[class_index].super_type_arguments.set(#value);)
+        }
+        "implements" => quote!((#ast).classes[class_index].implements = #value;),
+        "body" => quote!((#ast).classes[class_index].body = #value;),
+        _ => panic!("unsupported visitable Class field `{field_name}`"),
+    }
 }
 
 fn should_visit_type(type_id: TypeId, schema: &Schema) -> bool {

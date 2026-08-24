@@ -335,6 +335,41 @@ pub trait CommonAstNode: AstNode {
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self;
 }
 
+/// Four-byte optional handle used by typed out-of-line AST records.
+///
+/// `AstId::NONE` represents `None`; the marker keeps different node kinds from
+/// being mixed without adding a runtime tag.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OptionalNode<T: CommonAstNode> {
+    ast_id: AstId,
+    marker: PhantomData<fn(T) -> T>,
+}
+
+impl<T: CommonAstNode> OptionalNode<T> {
+    #[inline]
+    pub(crate) fn new(value: Option<T>) -> Self {
+        Self {
+            ast_id: value.map_or(AstId::NONE, CommonAstNode::ast_id),
+            marker: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn get(self) -> Option<T> {
+        if self.ast_id.is_none() {
+            None
+        } else {
+            Some(unsafe { T::from_ast_id_unchecked(self.ast_id) })
+        }
+    }
+
+    #[inline]
+    pub(crate) fn set(&mut self, value: Option<T>) {
+        *self = Self::new(value);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,5 +396,10 @@ mod tests {
         assert_eq!(max.raw(), MAX_INDEX);
         assert!(!max.is_none());
         assert!(AstId::NONE.is_none());
+    }
+
+    #[test]
+    fn optional_node_is_one_word() {
+        assert_eq!(std::mem::size_of::<OptionalNode<ClassId>>(), 4);
     }
 }

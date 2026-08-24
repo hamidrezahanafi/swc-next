@@ -74,21 +74,20 @@ fn generate_build_function_for_struct(ast: &AstStruct, schema: &Schema) -> Token
                 let node_id = self.add_node(
                     span,
                     NodeKind::Class,
-                    NodePayload(storage_index as u128),
+                    Self::class_payload(storage_index, class_type, r#abstract, declare),
                 );
                 let class_id = ClassId::from_raw(node_id.raw());
                 self.classes.push(Class {
-                    class_type,
                     decorators,
-                    id,
-                    type_parameters,
-                    super_class,
-                    super_type_arguments,
                     implements,
                     body_span,
                     body,
-                    r#abstract,
-                    declare,
+                });
+                self.class_optional.push(ClassOptional {
+                    id: crate::node_id::OptionalNode::new(id),
+                    type_parameters: crate::node_id::OptionalNode::new(type_parameters),
+                    super_class: crate::node_id::OptionalNode::new(super_class),
+                    super_type_arguments: crate::node_id::OptionalNode::new(super_type_arguments),
                 });
                 class_id
             }

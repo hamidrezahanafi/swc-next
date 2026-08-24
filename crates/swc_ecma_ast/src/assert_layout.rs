@@ -1,4 +1,4 @@
-use crate::{Expr, ExtraData, NodeId, NodePayload, Program, Stmt};
+use crate::{Class, ClassOptional, Expr, ExtraData, NodeId, NodePayload, Program, Stmt};
 
 const _: () = {
     assert!(size_of::<NodePayload>() == 16);
@@ -7,4 +7,7 @@ const _: () = {
     assert!(size_of::<Program>() == size_of::<NodeId>());
     assert!(size_of::<Stmt>() == size_of::<NodeId>());
     assert!(size_of::<Expr>() == size_of::<NodeId>());
+    assert!(size_of::<Class>() == 32);
+    assert!(align_of::<Class>() == 32);
+    assert!(size_of::<ClassOptional>() == 16);
 };

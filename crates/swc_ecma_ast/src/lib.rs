@@ -61,6 +61,9 @@ pub struct Ast<'a> {
     /// vector's index in their payload.
     pub(crate) classes: ArenaVec<'a, Class>,
 
+    /// Cold optional fields for classes, indexed in lockstep with `classes`.
+    pub(crate) class_optional: ArenaVec<'a, ClassOptional>,
+
     /// Four-byte untagged common-node child-list elements.
     pub(crate) node_edges: ArenaVec<'a, AstId>,
 
@@ -423,7 +426,23 @@ impl<'a> Ast<'a> {
 
     #[inline]
     pub fn class_count(&self) -> usize {
+        debug_assert_eq!(self.classes.len(), self.class_optional.len());
         self.classes.len()
+    }
+
+    /// Size of one cold class side-table record.
+    #[doc(hidden)]
+    #[inline]
+    pub const fn class_optional_record_size() -> usize {
+        std::mem::size_of::<ClassOptional>()
+    }
+
+    /// Logical bytes occupied by the hot and cold class records.
+    #[doc(hidden)]
+    #[inline]
+    pub fn class_storage_bytes(&self) -> usize {
+        self.classes.len() * std::mem::size_of::<Class>()
+            + self.class_optional.len() * std::mem::size_of::<ClassOptional>()
     }
 
     #[inline]
@@ -444,6 +463,70 @@ impl<'a> Ast<'a> {
     pub(crate) fn class_data_mut(&mut self, class_id: ClassId) -> &mut Class {
         let index = self.class_index(class_id);
         &mut self.classes[index]
+    }
+
+    #[inline]
+    pub(crate) fn class_optional_data(&self, class_id: ClassId) -> &ClassOptional {
+        &self.class_optional[self.class_index(class_id)]
+    }
+
+    #[inline]
+    pub(crate) fn class_optional_data_mut(&mut self, class_id: ClassId) -> &mut ClassOptional {
+        let index = self.class_index(class_id);
+        &mut self.class_optional[index]
+    }
+
+    #[inline]
+    pub(crate) const fn class_payload(
+        storage_index: u32,
+        class_type: ClassType,
+        r#abstract: bool,
+        declare: bool,
+    ) -> NodePayload {
+        NodePayload(
+            storage_index as u128
+                | ((class_type as u128) << 32)
+                | ((r#abstract as u128) << 40)
+                | ((declare as u128) << 41),
+        )
+    }
+
+    #[inline]
+    pub(crate) fn class_type(&self, class_id: ClassId) -> ClassType {
+        let payload = self.nodes.data(class_id.ast_id().node_id()).0;
+        match (payload >> 32) as u8 {
+            0 => ClassType::ClassDeclaration,
+            1 => ClassType::ClassExpression,
+            _ => unreachable!("invalid ClassType in class owner payload"),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn set_class_type(&mut self, class_id: ClassId, value: ClassType) {
+        let payload = self.nodes.data_mut(class_id.ast_id().node_id());
+        payload.0 = (payload.0 & !((u8::MAX as u128) << 32)) | ((value as u128) << 32);
+    }
+
+    #[inline]
+    pub(crate) fn class_abstract(&self, class_id: ClassId) -> bool {
+        (self.nodes.data(class_id.ast_id().node_id()).0 >> 40) & 1 != 0
+    }
+
+    #[inline]
+    pub(crate) fn set_class_abstract(&mut self, class_id: ClassId, value: bool) {
+        let payload = self.nodes.data_mut(class_id.ast_id().node_id());
+        payload.0 = (payload.0 & !(1 << 40)) | ((value as u128) << 40);
+    }
+
+    #[inline]
+    pub(crate) fn class_declare(&self, class_id: ClassId) -> bool {
+        (self.nodes.data(class_id.ast_id().node_id()).0 >> 41) & 1 != 0
+    }
+
+    #[inline]
+    pub(crate) fn set_class_declare(&mut self, class_id: ClassId, value: bool) {
+        let payload = self.nodes.data_mut(class_id.ast_id().node_id());
+        payload.0 = (payload.0 & !(1 << 41)) | ((value as u128) << 41);
     }
 
     /// Returns the concrete type stored at an AST ID.
@@ -476,6 +559,7 @@ impl<'a> Ast<'a> {
             attached_comments: ArenaVec::new_in(allocator),
             nodes: NodeData::new_in(allocator),
             classes: ArenaVec::new_in(allocator),
+            class_optional: ArenaVec::new_in(allocator),
             node_edges: ArenaVec::new_in(allocator),
             extra_data: ArenaVec::with_capacity_in(0, allocator),
             strings: StringPool::new_in(allocator, source),
@@ -517,6 +601,7 @@ impl<'a> Ast<'a> {
     #[inline]
     pub fn reserve_classes(&mut self, additional_classes: usize) {
         self.classes.reserve(additional_classes);
+        self.class_optional.reserve(additional_classes);
     }
 
     /// Rewinds node and out-of-line field storage to an earlier checkpoint.
@@ -534,6 +619,7 @@ impl<'a> Ast<'a> {
         assert!(extra_data_len <= self.extra_data.len());
         self.nodes.truncate(nodes_len);
         self.classes.truncate(classes_len);
+        self.class_optional.truncate(classes_len);
         self.node_edges.truncate(node_edges_len);
         self.extra_data.truncate(extra_data_len);
     }
@@ -561,5 +647,55 @@ impl Span {
 impl std::fmt::Debug for Span {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}..{}", self.start, self.end)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn class_hot_and_optional_records_stay_in_lockstep() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("C", &allocator);
+        let decorators = ast.add_typed_sub_range(std::iter::empty::<Decorator>());
+        let implements = ast.add_typed_sub_range(std::iter::empty::<TsClassImplements>());
+        let body = ast.add_typed_sub_range(std::iter::empty::<ClassElement>());
+        let name = ast.source_slice(0, 1);
+        let id = ast.binding_identifier(Span::new(0, 1), name, decorators, None, false);
+        let class = ast.class(
+            Span::new(0, 1),
+            ClassType::ClassExpression,
+            decorators,
+            Some(id),
+            None,
+            None,
+            None,
+            implements,
+            Span::new(1, 1),
+            body,
+            true,
+            false,
+        );
+
+        assert_eq!(ast.class_count(), 1);
+        assert_eq!(ast.class_storage_bytes(), 48);
+        assert_eq!(class.class_type(&ast), ClassType::ClassExpression);
+        assert_eq!(class.id(&ast), Some(id));
+        assert!(class.r#abstract(&ast));
+        assert!(!class.declare(&ast));
+
+        class.set_class_type(&mut ast, ClassType::ClassDeclaration);
+        class.set_id(&mut ast, None);
+        class.set_abstract(&mut ast, false);
+        class.set_declare(&mut ast, true);
+        assert_eq!(class.class_type(&ast), ClassType::ClassDeclaration);
+        assert_eq!(class.id(&ast), None);
+        assert!(!class.r#abstract(&ast));
+        assert!(class.declare(&ast));
+
+        ast.truncate(0, 0, 0, 0);
+        assert_eq!(ast.class_count(), 0);
+        assert_eq!(ast.class_storage_bytes(), 0);
     }
 }

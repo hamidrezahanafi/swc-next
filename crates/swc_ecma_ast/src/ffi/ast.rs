@@ -12,7 +12,7 @@ use std::{
 };
 
 use crate::{
-    Ast, AstId, Comment, CommentKind, CommentPosition, CommonAstNode, ExtraData, NodeKind,
+    Ast, AstId, ClassId, Comment, CommentKind, CommentPosition, CommonAstNode, ExtraData, NodeKind,
     NodePayload, Span, TypedNodeRange,
 };
 
@@ -131,20 +131,20 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
         let mut payload = unsafe { *tree.nodes.data.as_ptr().add(index) };
         if kind == NodeKind::Class {
             let storage_index = payload.0 as u32 as usize;
-            let class = &tree.classes[storage_index];
+            let class_id = ClassId::from_raw(index as u32);
             let extra_id =
                 u32::try_from(class_extra_base + storage_index * CLASS_COMPAT_EXTRA_COUNT)
                     .expect("class compatibility extra-data index exceeds u32");
-            let id = class
-                .id
+            let id = class_id
+                .id(tree)
                 .map_or(u32::MAX, |node| wire_node_id(node.ast_id()));
-            let type_parameters = class
-                .type_parameters
+            let type_parameters = class_id
+                .type_parameters(tree)
                 .map_or(u32::MAX, |node| wire_node_id(node.ast_id()));
             payload = NodePayload(
-                (class.class_type as u128)
-                    | ((class.r#abstract as u128) << 8)
-                    | ((class.declare as u128) << 16)
+                (class_id.class_type(tree) as u128)
+                    | ((class_id.r#abstract(tree) as u128) << 8)
+                    | ((class_id.declare(tree) as u128) << 16)
                     | ((id as u128) << 24)
                     | ((type_parameters as u128) << 56)
                     | ((extra_id as u128) << 96),
@@ -174,11 +174,16 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
     for extra in &compatibility_extra {
         write_u64(buf, &mut pos, unsafe { extra.other });
     }
-    for (index, class) in tree.classes.iter().enumerate() {
+    for (index, (class, optional)) in tree
+        .classes
+        .iter()
+        .zip(tree.class_optional.iter())
+        .enumerate()
+    {
         for word in [
             range_word(class.decorators),
-            optional_wire_node(class.super_class),
-            optional_wire_node(class.super_type_arguments),
+            optional_wire_node(optional.super_class.get()),
+            optional_wire_node(optional.super_type_arguments.get()),
             range_word(class.implements),
             wire_class_body_id(tree, index) as u64,
         ] {

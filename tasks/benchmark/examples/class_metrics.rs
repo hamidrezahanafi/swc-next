@@ -1,4 +1,9 @@
-use std::{env, fmt::Write, hint::black_box, mem::size_of};
+use std::{
+    env,
+    fmt::Write,
+    hint::black_box,
+    mem::{align_of, size_of},
+};
 
 use swc_next_allocator::Allocator;
 use swc_next_ecma_ast::{
@@ -66,13 +71,15 @@ fn main() {
     };
 
     println!(
-        "layout_bytes: span={} kind={} payload={} ast_id={} extra={} class={}",
+        "layout_bytes: span={} kind={} payload={} ast_id={} extra={} class_hot={} class_hot_align={} class_optional={}",
         size_of::<Span>(),
         size_of::<NodeKind>(),
         size_of::<NodePayload>(),
         size_of::<AstId>(),
         size_of::<ExtraData>(),
         size_of::<Class>(),
+        align_of::<Class>(),
+        Ast::class_optional_record_size(),
     );
     println!(
         "outer_classes\tsource_bytes\testimated_nodes\tclasses\tcommon_nodes\tnode_edges\tresidual_extra\tlogical_ast_bytes\tparse_allocator_bytes\tsemantic_allocator_bytes\tffi_buffer_bytes"
@@ -85,7 +92,7 @@ fn main() {
         let parse_allocator_bytes = allocator.allocated_bytes();
         let logical_ast_bytes = ast.node_count()
             * (size_of::<Span>() + size_of::<NodeKind>() + size_of::<NodePayload>())
-            + ast.class_count() * size_of::<Class>()
+            + ast.class_storage_bytes()
             + ast.node_edge_count() * size_of::<AstId>()
             + ast.extra_data_count() * size_of::<ExtraData>();
         let ffi_buffer_bytes = buffer_size(&ast);

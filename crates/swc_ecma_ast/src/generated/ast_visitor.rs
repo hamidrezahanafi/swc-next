@@ -2528,13 +2528,36 @@ impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for ClassId {
     }
     #[inline]
     fn visit_children_with(self, visitor: &mut V) {
-        let field_value_1 = self.decorators(visitor.ast());
-        let field_value_2 = self.id(visitor.ast());
-        let field_value_3 = self.type_parameters(visitor.ast());
-        let field_value_4 = self.super_class(visitor.ast());
-        let field_value_5 = self.super_type_arguments(visitor.ast());
-        let field_value_6 = self.implements(visitor.ast());
-        let field_value_8 = self.body(visitor.ast());
+        let (
+            field_value_1,
+            field_value_2,
+            field_value_3,
+            field_value_4,
+            field_value_5,
+            field_value_6,
+            field_value_8,
+        ) = {
+            let ast = visitor.ast();
+            let class_index = ast.class_index(self);
+            let class = ast.classes[class_index];
+            let optional = ast.class_optional[class_index];
+            let field_value_1 = class.decorators;
+            let field_value_2 = optional.id.get();
+            let field_value_3 = optional.type_parameters.get();
+            let field_value_4 = optional.super_class.get();
+            let field_value_5 = optional.super_type_arguments.get();
+            let field_value_6 = class.implements;
+            let field_value_8 = ClassBody(self);
+            (
+                field_value_1,
+                field_value_2,
+                field_value_3,
+                field_value_4,
+                field_value_5,
+                field_value_6,
+                field_value_8,
+            )
+        };
         <TypedSubRange<Decorator> as VisitWith<'a, V>>::visit_with(field_value_1, visitor);
         <Option<BindingIdentifier> as VisitWith<'a, V>>::visit_with(field_value_2, visitor);
         <Option<TsTypeParameterDeclaration> as VisitWith<'a, V>>::visit_with(
@@ -8345,59 +8368,74 @@ impl<'a, V: ?Sized + VisitMut<'a>> VisitMutWith<'a, V> for ClassId {
     }
     #[inline]
     fn visit_mut_children_with(self, visitor: &mut V) -> Option<Self> {
-        let field_value = self.decorators(visitor.ast());
+        let class_index = visitor.ast().class_index(self);
+        let field_value = (visitor.ast()).classes[class_index].decorators;
         if let Some(field_value) =
             <TypedSubRange<Decorator> as VisitMutWith<'a, V>>::visit_mut_with(field_value, visitor)
         {
-            self.set_decorators(visitor.ast(), field_value);
+            (visitor.ast()).classes[class_index].decorators = field_value;
         }
-        let field_value = self.id(visitor.ast());
+        let field_value = (visitor.ast()).class_optional[class_index].id.get();
         if let Some(field_value) =
             <Option<BindingIdentifier> as VisitMutWith<'a, V>>::visit_mut_with(field_value, visitor)
         {
-            self.set_id(visitor.ast(), field_value);
+            (visitor.ast()).class_optional[class_index]
+                .id
+                .set(field_value);
         }
-        let field_value = self.type_parameters(visitor.ast());
+        let field_value = (visitor.ast()).class_optional[class_index]
+            .type_parameters
+            .get();
         if let Some(field_value) =
             <Option<TsTypeParameterDeclaration> as VisitMutWith<'a, V>>::visit_mut_with(
                 field_value,
                 visitor,
             )
         {
-            self.set_type_parameters(visitor.ast(), field_value);
+            (visitor.ast()).class_optional[class_index]
+                .type_parameters
+                .set(field_value);
         }
-        let field_value = self.super_class(visitor.ast());
+        let field_value = (visitor.ast()).class_optional[class_index]
+            .super_class
+            .get();
         if let Some(field_value) =
             <Option<Expr> as VisitMutWith<'a, V>>::visit_mut_with(field_value, visitor)
         {
-            self.set_super_class(visitor.ast(), field_value);
+            (visitor.ast()).class_optional[class_index]
+                .super_class
+                .set(field_value);
         }
-        let field_value = self.super_type_arguments(visitor.ast());
+        let field_value = (visitor.ast()).class_optional[class_index]
+            .super_type_arguments
+            .get();
         if let Some(field_value) =
             <Option<TsTypeParameterInstantiation> as VisitMutWith<'a, V>>::visit_mut_with(
                 field_value,
                 visitor,
             )
         {
-            self.set_super_type_arguments(visitor.ast(), field_value);
+            (visitor.ast()).class_optional[class_index]
+                .super_type_arguments
+                .set(field_value);
         }
-        let field_value = self.implements(visitor.ast());
+        let field_value = (visitor.ast()).classes[class_index].implements;
         if let Some(field_value) =
             <TypedSubRange<TsClassImplements> as VisitMutWith<'a, V>>::visit_mut_with(
                 field_value,
                 visitor,
             )
         {
-            self.set_implements(visitor.ast(), field_value);
+            (visitor.ast()).classes[class_index].implements = field_value;
         }
-        let field_value = self.body_elements(visitor.ast());
+        let field_value = (visitor.ast()).classes[class_index].body;
         if let Some(field_value) =
             <TypedSubRange<ClassElement> as VisitMutWith<'a, V>>::visit_mut_with(
                 field_value,
                 visitor,
             )
         {
-            self.set_body_elements(visitor.ast(), field_value);
+            (visitor.ast()).classes[class_index].body = field_value;
         }
         None
     }
@@ -22963,8 +23001,9 @@ fn walk_class<'a, State, T: ?Sized + Traverse<'a, State>>(
         }
         TraverseAction::Proceed => {}
     }
+    let class_index = ctx.ast.class_index(node);
     let children_stopped = 'traverse_children: {
-        let child = node.decorators(ctx.ast);
+        let child = (ctx.ast).classes[class_index].decorators;
         match <TypedSubRange<Decorator> as TraverseWith<'a, State>>::traverse_with(
             child, traverser, ctx,
         ) {
@@ -22976,7 +23015,7 @@ fn walk_class<'a, State, T: ?Sized + Traverse<'a, State>>(
             }
             TraverseAction::Proceed | TraverseAction::Skip => {}
         }
-        let child = node.id(ctx.ast);
+        let child = (ctx.ast).class_optional[class_index].id.get();
         match <Option<BindingIdentifier> as TraverseWith<'a, State>>::traverse_with(
             child, traverser, ctx,
         ) {
@@ -22984,11 +23023,13 @@ fn walk_class<'a, State, T: ?Sized + Traverse<'a, State>>(
                 break 'traverse_children true;
             }
             TraverseAction::Replace(replacement) => {
-                node.set_id(ctx.ast, Some(replacement));
+                (ctx.ast).class_optional[class_index]
+                    .id
+                    .set(Some(replacement));
             }
             TraverseAction::Proceed | TraverseAction::Skip => {}
         }
-        let child = node.type_parameters(ctx.ast);
+        let child = (ctx.ast).class_optional[class_index].type_parameters.get();
         match <Option<TsTypeParameterDeclaration> as TraverseWith<'a, State>>::traverse_with(
             child, traverser, ctx,
         ) {
@@ -22996,21 +23037,27 @@ fn walk_class<'a, State, T: ?Sized + Traverse<'a, State>>(
                 break 'traverse_children true;
             }
             TraverseAction::Replace(replacement) => {
-                node.set_type_parameters(ctx.ast, Some(replacement));
+                (ctx.ast).class_optional[class_index]
+                    .type_parameters
+                    .set(Some(replacement));
             }
             TraverseAction::Proceed | TraverseAction::Skip => {}
         }
-        let child = node.super_class(ctx.ast);
+        let child = (ctx.ast).class_optional[class_index].super_class.get();
         match <Option<Expr> as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
             TraverseAction::Stop => {
                 break 'traverse_children true;
             }
             TraverseAction::Replace(replacement) => {
-                node.set_super_class(ctx.ast, Some(replacement));
+                (ctx.ast).class_optional[class_index]
+                    .super_class
+                    .set(Some(replacement));
             }
             TraverseAction::Proceed | TraverseAction::Skip => {}
         }
-        let child = node.super_type_arguments(ctx.ast);
+        let child = (ctx.ast).class_optional[class_index]
+            .super_type_arguments
+            .get();
         match <Option<TsTypeParameterInstantiation> as TraverseWith<'a, State>>::traverse_with(
             child, traverser, ctx,
         ) {
@@ -23018,11 +23065,13 @@ fn walk_class<'a, State, T: ?Sized + Traverse<'a, State>>(
                 break 'traverse_children true;
             }
             TraverseAction::Replace(replacement) => {
-                node.set_super_type_arguments(ctx.ast, Some(replacement));
+                (ctx.ast).class_optional[class_index]
+                    .super_type_arguments
+                    .set(Some(replacement));
             }
             TraverseAction::Proceed | TraverseAction::Skip => {}
         }
-        let child = node.implements(ctx.ast);
+        let child = (ctx.ast).classes[class_index].implements;
         match <TypedSubRange<TsClassImplements> as TraverseWith<'a, State>>::traverse_with(
             child, traverser, ctx,
         ) {
@@ -23035,7 +23084,7 @@ fn walk_class<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Proceed | TraverseAction::Skip => {}
         }
         traverser.enter_class_body(node, ctx);
-        let child = node.body_elements(ctx.ast);
+        let child = (ctx.ast).classes[class_index].body;
         let child_action = <TypedSubRange<ClassElement> as TraverseWith<'a, State>>::traverse_with(
             child, traverser, ctx,
         );
