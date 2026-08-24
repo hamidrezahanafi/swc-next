@@ -22,7 +22,8 @@ fn find_string_special(source: &[u8], quote: u8) -> Option<usize> {
 
     #[inline]
     fn zero_byte_mask(value: u64) -> u64 {
-        // Set the high bit of every byte that is zero.
+        // Set the high bit of every zero byte. Borrows across byte lanes may
+        // also mark a neighboring 0x01 byte.
         value.wrapping_sub(LO) & !value & HI
     }
 
@@ -39,12 +40,13 @@ fn find_string_special(source: &[u8], quote: u8) -> Option<usize> {
             | zero_byte_mask(word ^ line_feeds)
             | zero_byte_mask(word ^ carriage_returns);
         if mask != 0 {
-            let byte = if cfg!(target_endian = "little") {
-                mask.trailing_zeros()
-            } else {
-                mask.leading_zeros()
-            };
-            return Some(index * 8 + byte as usize / 8);
+            // The mask is only a chunk-level filter because it can contain
+            // false positives. Select the exact byte from the original chunk.
+            let byte = chunk
+                .iter()
+                .position(|&byte| matches!(byte, b'\\' | b'\n' | b'\r') || byte == quote)
+                .expect("zero byte mask must contain a string special");
+            return Some(index * 8 + byte);
         }
     }
 
@@ -1909,6 +1911,7 @@ mod tests {
         assert_eq!(find_string_special(b"ordinary text", b'"'), None);
         assert_eq!(find_string_special(b"\"ordinary", b'"'), Some(0));
         assert_eq!(find_string_special(b"seven--\"", b'"'), Some(7));
+        assert_eq!(find_string_special(b"aaaaaa#\"", b'"'), Some(7));
         assert_eq!(find_string_special(b"eight---\"", b'"'), Some(8));
         assert_eq!(find_string_special(b"eight---\\", b'"'), Some(8));
         assert_eq!(find_string_special(b"eight---\n", b'"'), Some(8));
