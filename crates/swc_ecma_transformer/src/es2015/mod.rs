@@ -35,7 +35,7 @@ impl ES2015 {
     pub(crate) fn transform<'a>(
         &mut self,
         _node: Program,
-        semantic: &Semantic,
+        semantic: &mut Semantic<'a>,
         ctx: &mut TransformerCtx<'_, 'a>,
     ) {
         if let Some(arrow) = &mut self.arrow {

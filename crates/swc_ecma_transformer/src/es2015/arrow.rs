@@ -24,7 +24,7 @@ impl ArrowFunctions {
         Self { _options: options }
     }
 
-    pub fn transform<'a>(&mut self, ast: &mut Ast<'a>, semantic: &Semantic) {
+    pub fn transform<'a>(&mut self, ast: &mut Ast<'a>, semantic: &mut Semantic<'a>) {
         let program = ast.root_program();
         let mut visitor = ArrowVisitor::new(ast, semantic);
         program.visit_mut_children_with(&mut visitor);
@@ -37,13 +37,13 @@ impl ArrowFunctions {
 
 struct ArrowVisitor<'visit, 'ast> {
     ast: &'visit mut Ast<'ast>,
-    hoister: FnEnvHoister<'visit>,
+    hoister: FnEnvHoister<'visit, 'ast>,
     in_subclass: bool,
     next_method_is_derived_constructor: Option<bool>,
 }
 
 impl<'visit, 'ast> ArrowVisitor<'visit, 'ast> {
-    fn new(ast: &'visit mut Ast<'ast>, semantic: &'visit Semantic) -> Self {
+    fn new(ast: &'visit mut Ast<'ast>, semantic: &'visit mut Semantic<'ast>) -> Self {
         let hoister = FnEnvHoister::new(ast, semantic);
         Self {
             ast,
@@ -171,5 +171,56 @@ impl<'ast> VisitMut<'ast> for ArrowVisitor<'_, 'ast> {
         self.hoister.inject_into_static_block(node, frame, self.ast);
         self.hoister.set_in_arrow(old_in_arrow);
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use swc_next_allocator::Allocator;
+    use swc_next_ecma_ast::Ast;
+    use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
+    use swc_next_ecma_semantic::{AnalyzeOptions, analyze};
+
+    use crate::{
+        Transformer, TransformerOptions,
+        es2015::{ES2015Options, arrow::ArrowFunctionsOptions},
+    };
+
+    #[test]
+    fn reserves_captured_names_and_removes_rewritten_source_names() {
+        let allocator = Allocator::new();
+        let parse = Parser::init(
+            &allocator,
+            "let _this, _arguments; (() => [this, arguments])();",
+            Options::default(),
+            NoTokenParserConfig,
+        )
+        .parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+        let mut ast: Ast<'_> = parse.ast;
+        let options = TransformerOptions {
+            es2015: ES2015Options {
+                arrow_functions: Some(ArrowFunctionsOptions::default()),
+                ..ES2015Options::default()
+            },
+            ..TransformerOptions::default()
+        };
+        let mut semantic = analyze(
+            &ast,
+            AnalyzeOptions {
+                features: options.semantic_features(),
+                ..AnalyzeOptions::default()
+            },
+        )
+        .semantic;
+
+        Transformer::transform(&mut ast, &mut semantic, options);
+
+        let used_names = semantic.used_names().unwrap();
+        assert!(used_names.contains(b"_this"));
+        assert!(used_names.contains(b"_this2"));
+        assert!(used_names.contains(b"_arguments"));
+        assert!(used_names.contains(b"_arguments2"));
+        assert!(!used_names.contains(b"arguments"));
     }
 }

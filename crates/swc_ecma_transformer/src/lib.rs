@@ -32,6 +32,9 @@ impl TransformerOptions {
         if self.es2022.static_blocks {
             features |= SemanticFeatureFlags::CLASS;
         }
+        if self.es2015.arrow_functions.is_some() {
+            features |= SemanticFeatureFlags::GENERATED_NAMES;
+        }
         features
     }
 }

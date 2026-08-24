@@ -75,7 +75,10 @@ impl<'a> SemanticContext<'a> {
         let allocator = tree.allocator();
         Self {
             scope: ScopeTracker::init(tree),
-            symbols: SymbolTracker::init(tree),
+            symbols: SymbolTracker::init(
+                tree,
+                features.contains(SemanticFeatureFlags::GENERATED_NAMES),
+            ),
             module_record: ModuleRecordBuilder::new(allocator, build_module_record),
             class: ClassSemantic::new(allocator, features.contains(SemanticFeatureFlags::CLASS)),
             features,

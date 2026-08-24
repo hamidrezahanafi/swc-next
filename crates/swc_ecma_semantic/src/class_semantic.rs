@@ -1,8 +1,7 @@
-use swc_next_allocator::{
-    Allocator, hash_map::HashMap as ArenaHashMap, hash_set::HashSet as ArenaHashSet,
-    vec::Vec as ArenaVec,
-};
+use swc_next_allocator::{Allocator, hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec};
 use swc_next_ecma_ast::{Ast, NodeId, PropertyKey};
+
+use crate::UsedNameState;
 
 /// Semantic information collected for class transforms.
 ///
@@ -29,7 +28,7 @@ impl std::fmt::Debug for ClassSemantic<'_> {
 /// Information associated with one class.
 #[derive(Debug)]
 pub struct ClassInfo<'a> {
-    used_names: ArenaHashSet<'a, ArenaVec<'a, u8>>,
+    used_names: UsedNameState<'a>,
 }
 
 impl<'a> ClassSemantic<'a> {
@@ -55,21 +54,21 @@ impl<'a> ClassSemantic<'a> {
         self.classes.get(&class)
     }
 
-    /// Reserves `name` for a class transform.
+    /// Allocates and reserves the next private name for `class`.
     ///
-    /// Returns `true` when the name was unused and is now reserved. Generated
-    /// private elements must reserve their name before updating the AST so
-    /// later transforms observe the updated set.
-    pub fn reserve_name(&mut self, class: NodeId, name: &[u8]) -> bool {
+    /// The returned name does not include the leading `#`. Reserving and
+    /// returning the name in one operation keeps generated class elements and
+    /// semantic state synchronized.
+    pub fn next_private_name(&mut self, class: NodeId) -> &str {
         assert!(
             self.enabled,
-            "class semantic collection must be enabled before reserving names"
+            "class semantic collection must be enabled before allocating names"
         );
         let info = self
             .classes
             .get_mut(&class)
             .expect("class semantic entry must exist for an analyzed class");
-        insert_name(self.allocator, &mut info.used_names, name)
+        info.used_names.next_name("_", 2)
     }
 
     pub(crate) fn enter_class(&mut self, class: NodeId) {
@@ -79,7 +78,7 @@ impl<'a> ClassSemantic<'a> {
         let previous = self.classes.insert(
             class,
             ClassInfo {
-                used_names: ArenaHashSet::new_in(self.allocator),
+                used_names: UsedNameState::new(self.allocator),
             },
         );
         debug_assert!(previous.is_none());
@@ -108,7 +107,7 @@ impl<'a> ClassSemantic<'a> {
             .classes
             .get_mut(&class)
             .expect("current class semantic entry must exist");
-        insert_name(self.allocator, &mut info.used_names, name);
+        info.used_names.observe(name);
     }
 
     pub(crate) fn finish_collection(&self) {
@@ -124,19 +123,6 @@ impl ClassInfo<'_> {
 
     /// Iterates the used private names, without their leading `#`.
     pub fn used_names(&self) -> impl Iterator<Item = &[u8]> {
-        self.used_names.iter().map(ArenaVec::as_slice)
+        self.used_names.names()
     }
-}
-
-fn insert_name<'a>(
-    allocator: &'a Allocator,
-    used_names: &mut ArenaHashSet<'a, ArenaVec<'a, u8>>,
-    name: &[u8],
-) -> bool {
-    if used_names.contains(name) {
-        return false;
-    }
-    let mut owned = ArenaVec::with_capacity_in(name.len(), allocator);
-    owned.extend_from_slice(name);
-    used_names.insert(owned)
 }

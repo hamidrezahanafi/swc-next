@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use swc_next_ecma_ast::{
     AssignmentOperator, Ast, AstUtf8, Class, DUMMY_SP, Decl, Expr, Function, FunctionBody, GetSpan,
     IdentifierReference, Program, StaticBlock, Stmt, TypedSubRange, VariableKind, VisitMut,
@@ -24,26 +22,21 @@ impl CaptureFrame {
 ///
 /// This is the flat-AST equivalent of `swc_ecma_utils::function::FnEnvHoister`.
 /// It owns capture state, while callers retain ownership of AST traversal.
-pub struct FnEnvHoister<'semantic> {
-    semantic: &'semantic Semantic<'semantic>,
+pub struct FnEnvHoister<'semantic, 'ast> {
+    semantic: &'semantic mut Semantic<'ast>,
     frames: Vec<CaptureFrame>,
-    used_names: HashSet<Vec<u8>>,
     in_arrow: bool,
 }
 
-impl<'semantic> FnEnvHoister<'semantic> {
-    pub fn new(ast: &Ast<'_>, semantic: &'semantic Semantic<'semantic>) -> Self {
-        let mut used_names = HashSet::new();
-        for entry in semantic.iter_symbols() {
-            used_names.insert(ast.get_wtf8(entry.symbol.name).as_bytes().to_vec());
-        }
-        for entry in semantic.iter_references() {
-            used_names.insert(ast.get_utf8(entry.reference.name).as_bytes().to_vec());
-        }
+impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
+    pub fn new(_ast: &Ast<'_>, semantic: &'semantic mut Semantic<'ast>) -> Self {
+        assert!(
+            semantic.used_names().is_some(),
+            "generated-name semantic collection must be enabled for arrow transforms"
+        );
         Self {
             semantic,
             frames: vec![CaptureFrame::default()],
-            used_names,
             in_arrow: false,
         }
     }
@@ -63,16 +56,12 @@ impl<'semantic> FnEnvHoister<'semantic> {
     }
 
     fn fresh_name(&mut self, base: &str, ast: &mut Ast<'_>) -> AstUtf8 {
-        let mut candidate = base.to_string();
-        let mut suffix = 2u32;
-        while self.used_names.contains(candidate.as_bytes()) {
-            candidate.clear();
-            candidate.push_str(base);
-            candidate.push_str(&suffix.to_string());
-            suffix += 1;
-        }
-        self.used_names.insert(candidate.as_bytes().to_vec());
-        ast.add_utf8(&candidate)
+        let name = self
+            .semantic
+            .used_names_mut()
+            .expect("generated-name semantic collection must be enabled")
+            .next_name(base, 2);
+        ast.add_utf8(name)
     }
 
     fn capture_this(&mut self, ast: &mut Ast<'_>) -> AstUtf8 {
@@ -142,6 +131,10 @@ impl<'semantic> FnEnvHoister<'semantic> {
         if self.in_arrow && self.is_unresolved_arguments(node, ast) {
             let name = self.capture_arguments(ast);
             node.set_name(ast, name);
+            self.semantic
+                .used_names_mut()
+                .expect("generated-name semantic collection must be enabled")
+                .unobserve(b"arguments");
         }
     }
 

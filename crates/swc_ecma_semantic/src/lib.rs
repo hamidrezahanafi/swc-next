@@ -23,6 +23,7 @@ mod ecmascript;
 mod module_record;
 pub mod name_resolver;
 pub mod scope;
+mod used_names;
 
 pub use binder::{Declaration, Reference, ReferenceFlags, ReferenceSpace, Symbol, SymbolFlags};
 pub use class_semantic::{ClassInfo, ClassSemantic};
@@ -31,6 +32,7 @@ pub use module_record::{
     ModuleRecord,
 };
 pub use swc_next_ecma_ast::ReferenceId;
+pub use used_names::UsedNameState;
 
 bitflags::bitflags! {
     /// Optional semantic data requested by downstream transforms.
@@ -38,6 +40,8 @@ bitflags::bitflags! {
     pub struct SemanticFeatureFlags: u8 {
         /// Collect per-class information used by class transforms.
         const CLASS = 1 << 0;
+        /// Collect names used by transforms that introduce local bindings.
+        const GENERATED_NAMES = 1 << 1;
     }
 }
 
@@ -81,6 +85,7 @@ pub struct Semantic<'a> {
     module_record: ModuleRecord<'a>,
     features: SemanticFeatureFlags,
     class: ClassSemantic<'a>,
+    used_names: Option<UsedNameState<'a>>,
 }
 
 impl<'a> Semantic<'a> {
@@ -99,6 +104,16 @@ impl<'a> Semantic<'a> {
     /// AST transforms use this to reserve names for generated class elements.
     pub fn class_mut(&mut self) -> &mut ClassSemantic<'a> {
         &mut self.class
+    }
+
+    /// Names collected for transforms that introduce local bindings.
+    pub fn used_names(&self) -> Option<&UsedNameState<'a>> {
+        self.used_names.as_ref()
+    }
+
+    /// Mutable generated-name state used to synchronize AST transforms.
+    pub fn used_names_mut(&mut self) -> Option<&mut UsedNameState<'a>> {
+        self.used_names.as_mut()
     }
 
     /// The symbol with the given id.
@@ -597,6 +612,33 @@ mod tests {
         let semantic = analyze(&ast, AnalyzeOptions::default()).semantic;
         assert!(!semantic.class().is_enabled());
         assert!(semantic.class().get(class_a.node_id()).is_none());
+    }
+
+    #[test]
+    fn used_names_are_optional_and_collected_with_semantic() {
+        let allocator = Allocator::new();
+        let (_, semantic) = analyze_source_with_options(
+            &allocator,
+            "let value; value; missing;",
+            Lang::Js,
+            SourceType::Script,
+            AnalyzeOptions {
+                features: SemanticFeatureFlags::GENERATED_NAMES,
+                ..AnalyzeOptions::default()
+            },
+        );
+        let used_names = semantic.used_names().unwrap();
+        assert!(used_names.contains(b"value"));
+        assert!(used_names.contains(b"missing"));
+        assert_eq!(used_names.names().count(), 2);
+
+        let (_, semantic) = analyze_source(
+            &allocator,
+            "let value; value; missing;",
+            Lang::Js,
+            SourceType::Script,
+        );
+        assert!(semantic.used_names().is_none());
     }
 
     #[test]
