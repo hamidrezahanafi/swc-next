@@ -25,6 +25,7 @@ const THREE: &str = include_str!("../files/three-0.138.3.js");
 const YUI: &str = include_str!("../files/yui-3.12.0.js");
 const TYPESCRIPT: &str = include_str!("../files/typescript.js");
 const CAL_COM_TSX: &str = include_str!("../files/cal.com.tsx");
+const CLASS_HEAVY: &str = include_str!("../files/class-heavy.js");
 
 #[library_benchmark]
 #[bench::angular(ANGULAR, Lang::Js)]
@@ -37,6 +38,7 @@ const CAL_COM_TSX: &str = include_str!("../files/cal.com.tsx");
 #[bench::yui(YUI, Lang::Js)]
 #[bench::typescript(TYPESCRIPT, Lang::Js)]
 #[bench::cal_com_tsx(CAL_COM_TSX, Lang::Tsx)]
+#[bench::class_heavy(CLASS_HEAVY, Lang::Js)]
 fn bench_parser(source: &str, lang: Lang) {
     let source = black_box(source);
     let allocator = Allocator::new();
@@ -91,6 +93,18 @@ fn bench_semantic_with_syntax_check(ast: Ast<'static>) {
 }
 
 #[library_benchmark]
+#[bench::class_heavy(setup_program(CLASS_HEAVY, Lang::Js))]
+fn bench_class_semantic(ast: Ast<'static>) {
+    black_box(analyze(
+        &ast,
+        AnalyzeOptions {
+            features: swc_next_ecma_semantic::SemanticFeatureFlags::CLASS,
+            ..AnalyzeOptions::default()
+        },
+    ));
+}
+
+#[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
 fn bench_resolver(ast: Ast<'static>) {
     black_box(resolve_names(&ast));
@@ -99,6 +113,7 @@ fn bench_resolver(ast: Ast<'static>) {
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
+#[bench::class_heavy(setup_program(CLASS_HEAVY, Lang::Js))]
 fn bench_codegen(ast: Ast<'static>) {
     black_box(print(ast.allocator(), &ast, CodegenOptions::default()));
 }
@@ -233,6 +248,7 @@ impl<'ast> Traverse<'ast> for TraverseCounter {
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
+#[bench::class_heavy(setup_program(CLASS_HEAVY, Lang::Js))]
 fn bench_visit(ast: Ast<'static>) {
     let program = ast.root_program();
     let mut counter = VisitCounter {
@@ -246,6 +262,7 @@ fn bench_visit(ast: Ast<'static>) {
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
+#[bench::class_heavy(setup_program(CLASS_HEAVY, Lang::Js))]
 fn bench_visit_mut(mut ast: Ast<'static>) {
     let program = ast.root_program();
     let mut counter = VisitMutCounter {
@@ -259,6 +276,7 @@ fn bench_visit_mut(mut ast: Ast<'static>) {
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
+#[bench::class_heavy(setup_program(CLASS_HEAVY, Lang::Js))]
 fn bench_traverse(mut ast: Ast<'static>) {
     let program = ast.root_program();
     let mut counter = TraverseCounter { count: 0 };
@@ -270,7 +288,11 @@ library_benchmark_group!(name = parser, benchmarks = bench_parser);
 
 library_benchmark_group!(
     name = semantic,
-    benchmarks = [bench_semantic, bench_semantic_with_syntax_check]
+    benchmarks = [
+        bench_semantic,
+        bench_semantic_with_syntax_check,
+        bench_class_semantic
+    ]
 );
 
 library_benchmark_group!(name = resolver, benchmarks = bench_resolver);

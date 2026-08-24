@@ -209,6 +209,11 @@ fn bench_files(c: &mut Criterion) {
             include_str!("../files/cal.com.tsx"),
             Lang::Tsx,
         ),
+        (
+            "class-heavy",
+            include_str!("../files/class-heavy.js"),
+            Lang::Js,
+        ),
     ];
 
     for (name, source, lang) in bench_cases {
