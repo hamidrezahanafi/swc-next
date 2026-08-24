@@ -1,7 +1,5 @@
-use swc_next_ecma_ast::Class;
+use swc_next_ecma_ast::{Ast, Program};
 use swc_next_ecma_semantic::Semantic;
-
-use crate::state::TransformerCtx;
 
 mod static_blocks;
 
@@ -21,14 +19,14 @@ impl ES2022 {
         }
     }
 
-    pub(crate) fn exit_class<'a>(
+    pub(crate) fn transform_program<'a>(
         &mut self,
-        class: Class,
+        program: Program,
         semantic: &mut Semantic<'a>,
-        ctx: &mut TransformerCtx<'_, 'a>,
+        ast: &mut Ast<'a>,
     ) {
         if self.static_blocks {
-            static_blocks::StaticBlocks.exit_class(class, semantic, ctx);
+            static_blocks::transform_program(program, semantic, ast);
         }
     }
 }

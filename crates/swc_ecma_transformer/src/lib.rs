@@ -30,7 +30,7 @@ impl TransformerOptions {
     pub fn semantic_features(&self) -> SemanticFeatureFlags {
         let mut features = SemanticFeatureFlags::empty();
         if self.es2022.static_blocks {
-            features |= SemanticFeatureFlags::CLASS;
+            features |= SemanticFeatureFlags::CLASS | SemanticFeatureFlags::GENERATED_NAMES;
         }
         if self.es2015.arrow_functions.is_some() {
             features |= SemanticFeatureFlags::GENERATED_NAMES;
@@ -78,6 +78,8 @@ impl<'a> Traverse<'a, TransformerState> for TransformerImpl<'_, 'a> {
         node: Program,
         ctx: &mut TransformerCtx<'_, 'a>,
     ) -> TraverseAction<Program> {
+        self.x0_es2022
+            .transform_program(node, self.semantic, ctx.ast);
         self.x0_es2015.transform(node, self.semantic, ctx);
         TraverseAction::Proceed
     }
@@ -88,9 +90,5 @@ impl<'a> Traverse<'a, TransformerState> for TransformerImpl<'_, 'a> {
 
     fn exit_reg_exp_literal(&mut self, node: RegExpLiteral, ctx: &mut TransformerCtx<'_, 'a>) {
         self.x0_es2015.exit_reg_exp_literal(node, ctx);
-    }
-
-    fn exit_class(&mut self, node: swc_next_ecma_ast::Class, ctx: &mut TransformerCtx<'_, 'a>) {
-        self.x0_es2022.exit_class(node, self.semantic, ctx);
     }
 }
