@@ -6,6 +6,10 @@ use swc_next_allocator::Allocator;
 use swc_next_ecma_ast::Lang;
 use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
 
+mod support;
+
+use support::lexer::{prepare_jsx_attribute_strings, prepare_normal_strings, run_lexer_benchmark};
+
 fn bench_new(b: &mut Bencher, src: &'static str, lang: Lang) {
     b.iter(|| {
         let allocator = Allocator::new();
@@ -69,6 +73,17 @@ fn bench_files(c: &mut Criterion) {
             bench_new(b, source, lang)
         });
     }
+
+    let typescript_strings =
+        prepare_normal_strings(include_str!("../files/typescript.js"), Lang::Js);
+    c.bench_function("typescript/lexer/strings", |b| {
+        b.iter(|| run_lexer_benchmark(&typescript_strings));
+    });
+
+    let cal_com_jsx_strings = prepare_jsx_attribute_strings(include_str!("../files/cal.com.tsx"));
+    c.bench_function("cal.com.tsx/lexer/jsx_strings", |b| {
+        b.iter(|| run_lexer_benchmark(&cal_com_jsx_strings));
+    });
 }
 
 criterion_group!(benches, bench_files);

@@ -15,6 +15,12 @@ use swc_next_ecma_codegen::{Options as CodegenOptions, print};
 use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
 use swc_next_ecma_semantic::{AnalyzeOptions, analyze, name_resolver::resolver as resolve_names};
 
+mod support;
+
+use support::lexer::{
+    LexerBenchmark, prepare_jsx_attribute_strings, prepare_normal_strings, run_lexer_benchmark,
+};
+
 const ANGULAR: &str = include_str!("../files/angular-1.2.5.js");
 const BACKBONE: &str = include_str!("../files/backbone-1.1.0.js");
 const JQUERY: &str = include_str!("../files/jquery-1.9.1.js");
@@ -52,6 +58,13 @@ fn bench_parser(source: &str, lang: Lang) {
         )
         .parse(),
     );
+}
+
+#[library_benchmark]
+#[bench::typescript(prepare_normal_strings(TYPESCRIPT, Lang::Js))]
+#[bench::cal_com_tsx(prepare_jsx_attribute_strings(CAL_COM_TSX))]
+fn bench_lexer_strings(input: LexerBenchmark) {
+    black_box(run_lexer_benchmark(&input));
 }
 
 fn setup_program(source: &'static str, lang: Lang) -> Ast<'static> {
@@ -268,6 +281,8 @@ fn bench_traverse(mut ast: Ast<'static>) {
 
 library_benchmark_group!(name = parser, benchmarks = bench_parser);
 
+library_benchmark_group!(name = lexer, benchmarks = bench_lexer_strings);
+
 library_benchmark_group!(
     name = semantic,
     benchmarks = [bench_semantic, bench_semantic_with_syntax_check]
@@ -287,5 +302,5 @@ main!(
         LibraryBenchmarkConfig::default().tool(
             Callgrind::with_args(["--branch-sim=no", "--cache-sim=no",]).format([EventKind::Ir]),
         ),
-    library_benchmark_groups = [parser, semantic, resolver, codegen, visit]
+    library_benchmark_groups = [lexer, parser, semantic, resolver, codegen, visit]
 );

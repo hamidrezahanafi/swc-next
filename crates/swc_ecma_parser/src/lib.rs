@@ -12,6 +12,8 @@ mod unicode_id;
 mod util;
 
 pub use config::{NoTokenParserConfig, ParserConfig, TokenParserConfig};
+#[cfg(feature = "unstable")]
+pub use lexer::{Lexer, LexerMode, LexicalError};
 pub use parser::{CommentMode, Options, ParseReturn, Parser};
 pub use swc_next_ecma_ast::{Diagnostic, Label, Lang, Severity};
 pub use token::{Token, TokenFlag, TokenTag};

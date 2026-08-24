@@ -1004,6 +1004,11 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
         self.clear_token_flags();
     }
 
+    /// Sets the lexical goal used for subsequent tokens.
+    pub fn set_mode(&mut self, mode: LexerMode) {
+        self.mode = mode;
+    }
+
     pub fn re_scan_template_continuation(
         &mut self,
         right_brace_start: u32,
