@@ -1,3 +1,5 @@
+use std::hash::BuildHasher;
+
 use hashbrown::HashMap;
 use oxc_index::{Idx, IndexVec};
 use rustc_hash::{FxBuildHasher, FxHashSet};
@@ -214,6 +216,10 @@ struct Resolver<'ast> {
 }
 
 impl<'ast> Resolver<'ast> {
+    fn name_text(&self, name: AstUtf8) -> &'ast [u8] {
+        self.ast.get_utf8(name).as_bytes()
+    }
+
     fn is_declared(&self, name: AstUtf8, start_scope: ScopeId) -> Option<DeclKind> {
         let mut scope = Some(start_scope);
         while let Some(scope_id) = scope {
@@ -261,12 +267,25 @@ impl<'ast> Resolver<'ast> {
     }
 
     fn scope_of_name(&self, name: AstUtf8, stop_at_fn_scope: bool) -> Option<ScopeId> {
+        // Every scope uses the same stateless FxBuildHasher, so reuse the hash
+        // instead of hashing the identifier again for each ancestor scope.
+        let hash = self.scopes[self.current]
+            .declared_symbols
+            .hasher()
+            .hash_one(name);
         let mut scope = Some(self.current);
         while let Some(scope_id) = scope {
             let current = &self.scopes[scope_id];
-            if current.declared_symbols.contains_key(&name) {
-                let name = self.ast.get_utf8(name);
-                return if matches!(name, "undefined" | "NaN" | "Infinity")
+            if current
+                .declared_symbols
+                .raw_entry()
+                .from_hash(hash, |candidate| *candidate == name)
+                .is_some()
+            {
+                let name_text = self.name_text(name);
+                return if (name_text == b"undefined"
+                    || name_text == b"NaN"
+                    || name_text == b"Infinity")
                     && scope_id == self.top_level_scope_id
                     && !self.is_module
                 {
@@ -419,9 +438,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
             JsxElementNameData::JsxIdentifier(identifier) => {
                 let name = identifier.name(self.ast);
                 let scope = if self
-                    .ast
-                    .get_utf8(name)
-                    .as_bytes()
+                    .name_text(name)
                     .first()
                     .is_some_and(u8::is_ascii_lowercase)
                 {
@@ -988,4 +1005,69 @@ impl<'ast> Visit<'ast> for Hoister<'_, 'ast> {
     fn visit_static_block(&mut self, _: StaticBlock) {}
 
     fn visit_assignment_target(&mut self, _: AssignmentTarget) {}
+}
+#[cfg(test)]
+mod tests {
+    use swc_next_allocator::Allocator;
+    use swc_next_ecma_ast::{
+        Ast, BindingIdentifier, IdentifierReference, Lang, SourceType, Visit, VisitWith,
+    };
+    use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
+
+    use super::{SymbolNode, resolver};
+
+    #[test]
+    fn escaped_and_plain_identifiers_share_the_interned_name() {
+        let allocator = Allocator::new();
+        let parse = Parser::init(
+            &allocator,
+            "let value; \\u0076alue;",
+            Options {
+                source_type: SourceType::Script,
+                lang: Lang::Js,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+
+        struct Names<'ast> {
+            ast: &'ast Ast<'ast>,
+            binding: Option<BindingIdentifier>,
+            reference: Option<IdentifierReference>,
+        }
+
+        impl<'ast> Visit<'ast> for Names<'ast> {
+            fn ast(&self) -> &Ast<'ast> {
+                self.ast
+            }
+
+            fn visit_binding_identifier(&mut self, node: BindingIdentifier) {
+                self.binding = Some(node);
+                node.visit_children_with(self);
+            }
+
+            fn visit_identifier_reference(&mut self, node: IdentifierReference) {
+                self.reference = Some(node);
+            }
+        }
+
+        let ast = parse.ast;
+        let mut names = Names {
+            ast: &ast,
+            binding: None,
+            reference: None,
+        };
+        ast.root_program().visit_with(&mut names);
+        let binding = names.binding.unwrap();
+        let reference = names.reference.unwrap();
+        assert_eq!(binding.name(&ast), reference.name(&ast));
+
+        let resolved = resolver(&ast);
+        assert_eq!(
+            resolved.symbol_scope(SymbolNode::BindingIdentifier(binding)),
+            resolved.symbol_scope(SymbolNode::IdentifierReference(reference))
+        );
+    }
 }

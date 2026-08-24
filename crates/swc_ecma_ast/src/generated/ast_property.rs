@@ -2511,6 +2511,7 @@ impl IdentifierReference {
     }
     #[inline]
     pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstUtf8) {
+        let name = ast.intern_utf8_slice(name);
         let field_val: u64 = unsafe { name.to_extra_data(ast).other };
         let payload = unsafe { ast.nodes.data_mut_unchecked(self.0) };
         payload.0 = (payload.0 & 340282366920938463444927863358058659840u128)
@@ -2525,6 +2526,7 @@ impl PrivateIdentifier {
     }
     #[inline]
     pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstUtf8) {
+        let name = ast.intern_utf8_slice(name);
         let field_val: u64 = unsafe { name.to_extra_data(ast).other };
         let payload = unsafe { ast.nodes.data_mut_unchecked(self.0) };
         payload.0 = (payload.0 & 340282366920938463444927863358058659840u128)
@@ -2595,6 +2597,7 @@ impl BindingIdentifier {
     }
     #[inline]
     pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstUtf8) {
+        let name = ast.intern_utf8_slice(name);
         let offset = unsafe {
             ExtraDataId::from_usize_unchecked(
                 ((ast.nodes.data_unchecked(self.0).0 >> 96usize) as u32 as usize)
@@ -2636,6 +2639,7 @@ impl IdentifierName {
     }
     #[inline]
     pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstUtf8) {
+        let name = ast.intern_utf8_slice(name);
         let field_val: u64 = unsafe { name.to_extra_data(ast).other };
         let payload = unsafe { ast.nodes.data_mut_unchecked(self.0) };
         payload.0 = (payload.0 & 340282366920938463444927863358058659840u128)
@@ -2650,6 +2654,7 @@ impl LabelIdentifier {
     }
     #[inline]
     pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstUtf8) {
+        let name = ast.intern_utf8_slice(name);
         let field_val: u64 = unsafe { name.to_extra_data(ast).other };
         let payload = unsafe { ast.nodes.data_mut_unchecked(self.0) };
         payload.0 = (payload.0 & 340282366920938463444927863358058659840u128)
@@ -10191,6 +10196,7 @@ impl JsxIdentifier {
     }
     #[inline]
     pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstUtf8) {
+        let name = ast.intern_utf8_slice(name);
         let field_val: u64 = unsafe { name.to_extra_data(ast).other };
         let payload = unsafe { ast.nodes.data_mut_unchecked(self.0) };
         payload.0 = (payload.0 & 340282366920938463444927863358058659840u128)
