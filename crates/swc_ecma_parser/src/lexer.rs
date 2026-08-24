@@ -177,7 +177,7 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
         collect_comments: bool,
         config: C,
     ) -> Self {
-        debug_assert!(u32::try_from(source.len()).is_ok());
+        assert!(u32::try_from(source.len()).is_ok());
         // Large generated files commonly contain enough comments for repeated
         // growth to show up in parser profiles. Keep the estimate proportional
         // to the source while bounding the reservation to a small fraction of
