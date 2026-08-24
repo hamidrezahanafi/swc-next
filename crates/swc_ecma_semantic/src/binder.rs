@@ -13,7 +13,7 @@ use swc_next_ecma_ast::{
 };
 
 use crate::{
-    DeclarationId, Redeclarations, ScopeMap, Semantic,
+    ClassSemantic, DeclarationId, Redeclarations, ScopeMap, Semantic, SemanticFeatureFlags,
     module_record::ModuleRecordBuilder,
     scope::{self, ScopeKind, ScopeTracker, ScopeTree},
 };
@@ -1412,6 +1412,8 @@ impl<'a> SymbolTracker<'a> {
         scopes: ScopeTree<'a>,
         has_with_statement: bool,
         module_record: ModuleRecordBuilder<'a>,
+        features: SemanticFeatureFlags,
+        class: ClassSemantic<'a>,
     ) -> Semantic<'a> {
         // The walk must have ended balanced.
         debug_assert!(self.saved_stack.is_empty());
@@ -1539,6 +1541,8 @@ impl<'a> SymbolTracker<'a> {
             hoisting_variables: self.hoisting_variables,
             node_symbols,
             node_references,
+            features,
+            class,
         }
     }
 }

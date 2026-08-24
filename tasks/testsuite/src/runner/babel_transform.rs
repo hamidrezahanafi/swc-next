@@ -63,10 +63,12 @@ fn transform_input(case: &BabelTransformCase) -> Result<String, String> {
     let source = case.input.as_str();
     let allocator = Allocator::new();
     let mut ast = parse_program(source, &allocator, case)?;
-    let semantic_ret = analyze(
+    let options: TransformerOptions = case.options.clone().into();
+    let mut semantic_ret = analyze(
         &ast,
         AnalyzeOptions {
             check_syntax: true,
+            features: options.semantic_features(),
             ..AnalyzeOptions::default()
         },
     );
@@ -81,8 +83,7 @@ fn transform_input(case: &BabelTransformCase) -> Result<String, String> {
         ));
     }
 
-    let options: TransformerOptions = case.options.clone().into();
-    Transformer::transform(&mut ast, &semantic_ret.semantic, options);
+    Transformer::transform(&mut ast, &mut semantic_ret.semantic, options);
     Ok(print(&allocator, &ast, case.options.codegen_options())
         .code
         .to_owned())

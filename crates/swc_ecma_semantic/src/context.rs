@@ -5,8 +5,9 @@ use swc_next_ecma_ast::{
 };
 
 use crate::{
-    Semantic,
+    Semantic, SemanticFeatureFlags,
     binder::{ReferenceFlags, ReferenceSpace, SymbolTracker},
+    class_semantic::ClassSemantic,
     module_record::ModuleRecordBuilder,
     scope::ScopeTracker,
 };
@@ -61,6 +62,8 @@ pub(crate) struct SemanticContext<'a> {
     pub scope: ScopeTracker<'a>,
     pub symbols: SymbolTracker<'a>,
     pub module_record: ModuleRecordBuilder<'a>,
+    pub class: ClassSemantic<'a>,
+    features: SemanticFeatureFlags,
     // depth of TS type-only context. inspect via `in_type_position()`.
     type_position_depth: u32,
     ts_namespace_depth: u32,
@@ -68,12 +71,14 @@ pub(crate) struct SemanticContext<'a> {
 }
 
 impl<'a> SemanticContext<'a> {
-    pub fn init(tree: &Ast<'a>, build_module_record: bool) -> Self {
+    pub fn init(tree: &Ast<'a>, build_module_record: bool, features: SemanticFeatureFlags) -> Self {
         let allocator = tree.allocator();
         Self {
             scope: ScopeTracker::init(tree),
             symbols: SymbolTracker::init(tree),
             module_record: ModuleRecordBuilder::new(allocator, build_module_record),
+            class: ClassSemantic::new(allocator, features.contains(SemanticFeatureFlags::CLASS)),
+            features,
             type_position_depth: 0,
             ts_namespace_depth: 0,
             reference_flags: ReferenceFlags::default(),
@@ -236,6 +241,12 @@ impl<'a> SemanticContext<'a> {
 
     pub fn enter_class(&mut self, tree: &Ast, class: Class) {
         self.scope.enter_class(tree, class);
+        self.class.enter_class(class.node_id());
+    }
+
+    pub fn exit_class(&mut self, node: NodeId) {
+        self.class.leave_class(node);
+        self.scope.exit_scope(node);
     }
 
     pub fn enter_static_block(&mut self, node: NodeId) {
@@ -255,8 +266,15 @@ impl<'a> SemanticContext<'a> {
     }
 
     pub fn finalize(self, tree: &Ast) -> Semantic<'a> {
+        self.class.finish_collection();
         let (scopes, has_with_statement) = self.scope.into_scope_tree();
-        self.symbols
-            .finalize(tree, scopes, has_with_statement, self.module_record)
+        self.symbols.finalize(
+            tree,
+            scopes,
+            has_with_statement,
+            self.module_record,
+            self.features,
+            self.class,
+        )
     }
 }

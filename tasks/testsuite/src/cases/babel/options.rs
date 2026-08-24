@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, de::DeserializeOwned};
 use swc_next_ecma_codegen::{NumberFormat, Options as CodegenOptions};
 use swc_next_ecma_transformer::{
-    TransformerOptions, assumptions::Assumptions, es2015::ES2015Options,
+    TransformerOptions, assumptions::Assumptions, es2015::ES2015Options, es2022::ES2022Options,
 };
 
 mod plugins;
@@ -108,6 +108,9 @@ impl From<BabelOptions> for TransformerOptions {
                 arrow_functions: plugins.arrow_function,
                 shorthand_properties: plugins.shorthand_properties,
                 sticky_regex: plugins.sticky_regex,
+            },
+            es2022: ES2022Options {
+                static_blocks: plugins.static_blocks,
             },
         }
     }

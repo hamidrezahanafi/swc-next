@@ -10,27 +10,27 @@ use swc_next_ecma_ast::{
     Directive, ExportAllDeclaration, ExportDefaultDeclaration, ExportNamedDeclaration,
     ExportSpecifier, ForInStatement, ForOfStatement, ForStatement, FormalParameters, Function,
     FunctionBody, FunctionType, IdentifierReference, ImportDeclaration, ImportOrExportKind,
-    ImportSpecifier, JsxClosingElement, JsxOpeningElement, Label, MemberExpression, NodeId,
-    NodeKind, NodeKindData, ObjectPattern, ParenthesizedExpression, PropertyDefinition,
-    PropertyKey, ScopeId, Severity, Span, StaticBlock, SwitchCase, SwitchStatement, SymbolId,
-    TsArrayType, TsAsExpression, TsCallSignatureDeclaration, TsClassImplements, TsConditionalType,
-    TsConstructSignatureDeclaration, TsConstructorType, TsEnumBody, TsEnumDeclaration,
-    TsEnumMember, TsExportAssignment, TsFunction, TsFunctionType, TsGlobalDeclaration,
-    TsImportEqualsDeclaration, TsImportType, TsIndexSignature, TsIndexedAccessType, TsInferType,
-    TsInterfaceBody, TsInterfaceDeclaration, TsInterfaceHeritage, TsIntersectionType,
-    TsJsDocNonNullableType, TsJsDocNullableType, TsJsDocUnknownType, TsLiteralType, TsMappedType,
-    TsMethodDefinition, TsMethodSignature, TsModuleBlock, TsModuleDeclaration, TsNamedTupleMember,
-    TsNamespaceExportDeclaration, TsNonNullExpression, TsOptionalType, TsParenthesizedType,
-    TsPropertySignature, TsQualifiedName, TsRestType, TsSatisfiesExpression, TsTemplateLiteralType,
-    TsTupleType, TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeAssertion, TsTypeLiteral,
-    TsTypeOperator, TsTypeParameter, TsTypeParameterDeclaration, TsTypeParameterInstantiation,
-    TsTypePredicate, TsTypeQuery, TsTypeReference, TsUnionType, UnaryExpression, UnaryOperator,
-    UpdateExpression, VariableDeclaration, VariableDeclarator, VariableKind, Visit, VisitWith,
-    WithStatement,
+    ImportSpecifier, JsxClosingElement, JsxOpeningElement, Label, MemberExpression,
+    MethodDefinition, NodeId, NodeKind, NodeKindData, ObjectPattern, ParenthesizedExpression,
+    PropertyDefinition, PropertyKey, ScopeId, Severity, Span, StaticBlock, SwitchCase,
+    SwitchStatement, SymbolId, TsArrayType, TsAsExpression, TsCallSignatureDeclaration,
+    TsClassImplements, TsConditionalType, TsConstructSignatureDeclaration, TsConstructorType,
+    TsEnumBody, TsEnumDeclaration, TsEnumMember, TsExportAssignment, TsFunction, TsFunctionType,
+    TsGlobalDeclaration, TsImportEqualsDeclaration, TsImportType, TsIndexSignature,
+    TsIndexedAccessType, TsInferType, TsInterfaceBody, TsInterfaceDeclaration, TsInterfaceHeritage,
+    TsIntersectionType, TsJsDocNonNullableType, TsJsDocNullableType, TsJsDocUnknownType,
+    TsLiteralType, TsMappedType, TsMethodDefinition, TsMethodSignature, TsModuleBlock,
+    TsModuleDeclaration, TsNamedTupleMember, TsNamespaceExportDeclaration, TsNonNullExpression,
+    TsOptionalType, TsParenthesizedType, TsPropertySignature, TsQualifiedName, TsRestType,
+    TsSatisfiesExpression, TsTemplateLiteralType, TsTupleType, TsTypeAliasDeclaration,
+    TsTypeAnnotation, TsTypeAssertion, TsTypeLiteral, TsTypeOperator, TsTypeParameter,
+    TsTypeParameterDeclaration, TsTypeParameterInstantiation, TsTypePredicate, TsTypeQuery,
+    TsTypeReference, TsUnionType, UnaryExpression, UnaryOperator, UpdateExpression,
+    VariableDeclaration, VariableDeclarator, VariableKind, Visit, VisitWith, WithStatement,
 };
 
 use crate::{
-    ReferenceFlags, ReferenceSpace, Semantic, Symbol, SymbolFlags,
+    ReferenceFlags, ReferenceSpace, Semantic, SemanticFeatureFlags, Symbol, SymbolFlags,
     context::{SemanticContext, SemanticVisitCtx},
     ecmascript,
     scope::ScopeKind,
@@ -50,10 +50,18 @@ struct CheckerState<'a> {
 }
 
 impl<'traverse, 'a> Checker<'traverse, 'a> {
-    pub fn new(ast: &'traverse Ast<'a>, check_syntax: bool, build_module_record: bool) -> Self {
+    pub fn new(
+        ast: &'traverse Ast<'a>,
+        check_syntax: bool,
+        build_module_record: bool,
+        features: SemanticFeatureFlags,
+    ) -> Self {
         Self {
             checks: CheckerState::new(),
-            context: SemanticVisitCtx::new(ast, SemanticContext::init(ast, build_module_record)),
+            context: SemanticVisitCtx::new(
+                ast,
+                SemanticContext::init(ast, build_module_record, features),
+            ),
             check_syntax,
             in_ts_module_name: false,
         }
@@ -1620,6 +1628,10 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
     #[inline]
     fn visit_property_definition(&mut self, node: PropertyDefinition) {
         self.context.enter_node(node.node_id());
+        self.context
+            .state
+            .class
+            .record_private_key(self.context.ast, node.key(self.context.ast));
         let decorators = node.decorators(self.context.ast);
         decorators.visit_with(self);
         let key = node.key(self.context.ast);
@@ -1638,8 +1650,22 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
         self.leave_node(node.node_id());
     }
     #[inline]
+    fn visit_method_definition(&mut self, node: MethodDefinition) {
+        self.context.enter_node(node.node_id());
+        self.context
+            .state
+            .class
+            .record_private_key(self.context.ast, node.key(self.context.ast));
+        node.visit_children_with(self);
+        self.leave_node(node.node_id());
+    }
+    #[inline]
     fn visit_ts_method_definition(&mut self, node: TsMethodDefinition) {
         self.context.enter_node(node.node_id());
+        self.context
+            .state
+            .class
+            .record_private_key(self.context.ast, node.key(self.context.ast));
         let decorators = node.decorators(self.context.ast);
         decorators.visit_with(self);
         self.visit_erased_member_key(
@@ -2318,7 +2344,7 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
             .enter_class(self.context.ast, node, &state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.context.state.exit_scope(node.node_id());
+        self.context.state.exit_class(node.node_id());
         self.leave_node(node.node_id());
     }
     fn visit_static_block(&mut self, node: StaticBlock) {

@@ -17,6 +17,7 @@ use crate::{binder::Range, checker::Checker, scope::ScopeTree};
 
 mod binder;
 mod checker;
+mod class_semantic;
 mod context;
 mod ecmascript;
 mod module_record;
@@ -24,11 +25,21 @@ pub mod name_resolver;
 pub mod scope;
 
 pub use binder::{Declaration, Reference, ReferenceFlags, ReferenceSpace, Symbol, SymbolFlags};
+pub use class_semantic::{ClassInfo, ClassSemantic};
 pub use module_record::{
     ExportEntry, ExportName, ExportOrigin, ExportTarget, ExternalExportName, ModuleName,
     ModuleRecord,
 };
 pub use swc_next_ecma_ast::ReferenceId;
+
+bitflags::bitflags! {
+    /// Optional semantic data requested by downstream transforms.
+    #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
+    pub struct SemanticFeatureFlags: u8 {
+        /// Collect per-class information used by class transforms.
+        const CLASS = 1 << 0;
+    }
+}
 
 oxc_index::define_nonmax_u32_index_type! {
     /// Identifier for a declaration in a completed [`Semantic`] model.
@@ -68,9 +79,28 @@ pub struct Semantic<'a> {
     node_references: ArenaVec<'a, Option<ReferenceId>>,
 
     module_record: ModuleRecord<'a>,
+    features: SemanticFeatureFlags,
+    class: ClassSemantic<'a>,
 }
 
 impl<'a> Semantic<'a> {
+    /// Optional semantic features collected during analysis.
+    pub fn features(&self) -> SemanticFeatureFlags {
+        self.features
+    }
+
+    /// Per-class transform information.
+    pub fn class(&self) -> &ClassSemantic<'a> {
+        &self.class
+    }
+
+    /// Mutable per-class transform information.
+    ///
+    /// AST transforms use this to reserve names for generated class elements.
+    pub fn class_mut(&mut self) -> &mut ClassSemantic<'a> {
+        &mut self.class
+    }
+
     /// The symbol with the given id.
     pub fn symbol(&self, id: SymbolId) -> Symbol {
         self.symbols[id.index()]
@@ -407,6 +437,8 @@ pub struct AnalyzeOptions {
     ///
     /// Disabled by default.
     pub build_module_record: bool,
+    /// Optional semantic information required by transforms.
+    pub features: SemanticFeatureFlags,
 }
 
 /// Runs semantic analysis on a tree and builds the requested [`Semantic`] model.
@@ -418,7 +450,12 @@ pub struct AnalyzeOptions {
 /// module record is empty.
 pub fn analyze<'a>(ast: &Ast<'a>, options: AnalyzeOptions) -> SemanticReturn<'a> {
     let root = ast.root_program();
-    let mut visitor = Checker::new(ast, options.check_syntax, options.build_module_record);
+    let mut visitor = Checker::new(
+        ast,
+        options.check_syntax,
+        options.build_module_record,
+        options.features,
+    );
     root.visit_with(&mut visitor);
     let (semantic, diagnostics) = visitor.finish();
     SemanticReturn {
@@ -434,8 +471,8 @@ mod tests {
     use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
 
     use super::{
-        AnalyzeOptions, ExportOrigin, ExportTarget, ReferenceSpace, Semantic, SymbolFlags, analyze,
-        scope::ScopeKind,
+        AnalyzeOptions, ExportOrigin, ExportTarget, ReferenceSpace, Semantic, SemanticFeatureFlags,
+        SymbolFlags, analyze, scope::ScopeKind,
     };
 
     fn analyze_source<'a>(
@@ -519,6 +556,47 @@ mod tests {
             semantic.declaration_ids(a).collect::<Vec<_>>(),
             [first.id, third.id, fourth.id]
         );
+    }
+
+    #[test]
+    fn class_semantic_is_optional_and_collects_private_names_in_one_walk() {
+        let allocator = Allocator::new();
+        let (ast, semantic) = analyze_source_with_options(
+            &allocator,
+            "class A { #field; #method() {} } class B { #other; }",
+            Lang::Js,
+            SourceType::Script,
+            AnalyzeOptions {
+                features: SemanticFeatureFlags::CLASS,
+                ..AnalyzeOptions::default()
+            },
+        );
+        let body = ast.root_program().body(&ast);
+        let class_a = body
+            .get_node(&ast, 0)
+            .unwrap()
+            .as_declaration(&ast)
+            .and_then(|declaration| declaration.as_class(&ast))
+            .unwrap();
+        let class_b = body
+            .get_node(&ast, 1)
+            .unwrap()
+            .as_declaration(&ast)
+            .and_then(|declaration| declaration.as_class(&ast))
+            .unwrap();
+
+        assert!(semantic.class().is_enabled());
+        let class_a_info = semantic.class().get(class_a.node_id()).unwrap();
+        assert!(class_a_info.has_name(b"field"));
+        assert!(class_a_info.has_name(b"method"));
+        assert_eq!(class_a_info.used_names().count(), 2);
+        let class_b_info = semantic.class().get(class_b.node_id()).unwrap();
+        assert!(class_b_info.has_name(b"other"));
+        assert!(!class_b_info.has_name(b"field"));
+
+        let semantic = analyze(&ast, AnalyzeOptions::default()).semantic;
+        assert!(!semantic.class().is_enabled());
+        assert!(semantic.class().get(class_a.node_id()).is_none());
     }
 
     #[test]
