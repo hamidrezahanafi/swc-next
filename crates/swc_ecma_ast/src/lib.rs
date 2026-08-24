@@ -20,7 +20,6 @@ mod generated {
 }
 
 use oxc_index::Idx;
-use std::marker::PhantomData;
 use swc_next_allocator::{Allocator, hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec};
 
 pub use ast::*;
@@ -29,7 +28,11 @@ pub use derive::*;
 pub use diagnostic::*;
 pub use generated::ast_node::{NodeKind, NodeKindData};
 pub use generated::ast_visitor::*;
-pub use node_id::{AstNode, ExtraDataCompact, ExtraDataId, NodeId, SubRange, TypedSubRange};
+pub use node_id::{
+    AstEdge, AstId, AstNode, ClassDomain, ClassId, CommonAstNode, CommonDomain, ExtraDataCompact,
+    ExtraDataId, Id, IdDomain, NodeEdgeId, NodeEdgeIndex, NodeId, NodeMeta, NodeRange, SubRange,
+    TypedAstId, TypedNodeRange, TypedSubRange,
+};
 pub use semantic::{ReferenceId, ScopeId, SymbolId};
 pub use strings::{AstUtf8, AstWtf8};
 pub use syntax::*;
@@ -43,7 +46,7 @@ use crate::strings::StringPool;
 pub struct Ast<'a> {
     allocator: &'a Allocator,
 
-    root: Option<NodeId>,
+    root: Option<AstId>,
 
     source_type: SourceType,
 
@@ -53,6 +56,13 @@ pub struct Ast<'a> {
 
     /// Flattening AST nodes.
     pub(crate) nodes: NodeData<'a>,
+
+    /// Dense object storage for classes. Common Class owner nodes store this
+    /// vector's index in their payload.
+    pub(crate) classes: ArenaVec<'a, Class>,
+
+    /// Four-byte untagged common-node child-list elements.
+    pub(crate) node_edges: ArenaVec<'a, AstId>,
 
     /// Flattening AST fields.
     extra_data: ArenaVec<'a, ExtraData>,
@@ -79,10 +89,16 @@ multi_index_vec! {
 #[derive(Clone, Copy)]
 pub struct NodePayload(pub(crate) u128);
 
+#[derive(Debug, Clone, Copy)]
+pub struct ExtraDataRange {
+    pub start: ExtraDataId,
+    pub end: ExtraDataId,
+}
+
 /// Compact values stored in the flattening AST's extra-data table.
 #[derive(Clone, Copy)]
 pub union ExtraData {
-    node_id: NodeId,
+    ast_id: AstId,
 
     sub_range: SubRange,
 
@@ -97,9 +113,9 @@ impl ExtraData {
     /// the four-byte union field directly would leave the high four bytes
     /// uninitialized.
     #[inline]
-    pub(crate) fn from_node_id(node_id: NodeId) -> Self {
+    pub(crate) fn from_ast_id(ast_id: AstId) -> Self {
         let mut data = Self { other: 0 };
-        data.node_id = node_id;
+        data.ast_id = ast_id;
         data
     }
 }
@@ -119,7 +135,7 @@ impl<'a> Ast<'a> {
             "AST root is not a program"
         );
         // SAFETY: The node kind was checked above.
-        unsafe { Program::from_node_id_unchecked(root) }
+        unsafe { Program::from_ast_id_unchecked(root) }
     }
 
     /// Returns the AST's root expression.
@@ -135,7 +151,7 @@ impl<'a> Ast<'a> {
             "AST root is not an expression"
         );
         // SAFETY: The node kind was checked above.
-        unsafe { Expr::from_node_id_unchecked(root) }
+        unsafe { Expr::from_ast_id_unchecked(root) }
     }
 
     #[inline]
@@ -143,24 +159,28 @@ impl<'a> Ast<'a> {
         self.nodes.push(span, kind, data)
     }
 
-    /// Replace `old`'s node data with `new`'s while preserving `old`'s node ID.
+    /// Replace a common owner node in place while preserving its AST ID.
     ///
     /// # Safety
     ///
-    /// Replacing the data may change the concrete node kind stored at `old`,
-    /// invalidating typed handles and AST edges that refer to it.
-    /// The caller must ensure that every typed handle and every AST edge used
-    /// after this call accepts the replacement kind.
-    /// In particular, a handle for `old`'s previous concrete kind must never be
-    /// used to access node-specific data after the replacement.
+    /// Replacing the data can invalidate concrete typed handles and semantic
+    /// side tables. The caller must ensure all surviving handles accept the
+    /// replacement and invalidate semantics when the structure changes.
     #[inline]
-    pub unsafe fn set_data(&mut self, old: NodeId, new: NodeId) {
+    pub unsafe fn replace_in_place_same_domain(
+        &mut self,
+        old_ast_id: AstId,
+        new_ast_id: AstId,
+    ) -> AstId {
+        let old = old_ast_id.node_id();
+        let new = new_ast_id.node_id();
         let span = *self.nodes.span(new);
         let kind = *self.nodes.kind(new);
         let data = *self.nodes.data(new);
         *self.nodes.span_mut(old) = span;
         *self.nodes.kind_mut(old) = kind;
         *self.nodes.data_mut(old) = data;
+        old_ast_id
     }
 
     /// Replace `old` with a newly built `new` node, discard the temporary node,
@@ -180,9 +200,15 @@ impl<'a> Ast<'a> {
     /// payload must not contain a reference to `new`, because its slot is
     /// removed before this function returns.
     #[inline]
-    pub unsafe fn replace_data<Old: AstNode, New: AstNode>(&mut self, old: Old, new: New) -> New {
-        let old = old.node_id();
-        let new = new.node_id();
+    pub unsafe fn replace_data<Old: CommonAstNode, New: CommonAstNode>(
+        &mut self,
+        old: Old,
+        new: New,
+    ) -> New {
+        let old_ast_id = old.ast_id();
+        let new_ast_id = new.ast_id();
+        let old = old_ast_id.node_id();
+        let new = new_ast_id.node_id();
         assert_ne!(old, new);
         assert_eq!(new.index() + 1, self.nodes.len());
 
@@ -194,7 +220,7 @@ impl<'a> Ast<'a> {
         *self.nodes.data_mut(old) = data;
         self.nodes.truncate(new.index());
 
-        unsafe { New::from_node_id_unchecked(old) }
+        unsafe { New::from_ast_id_unchecked(old.ast_id()) }
     }
 
     #[inline]
@@ -215,30 +241,37 @@ impl<'a> Ast<'a> {
     }
 
     #[inline]
-    pub fn add_typed_sub_range<N: ExtraDataCompact<'a>, I: IntoIterator<Item = N>>(
+    pub fn add_typed_sub_range<N: AstEdge, I: IntoIterator<Item = N>>(
         &mut self,
         iter: I,
-    ) -> TypedSubRange<N> {
-        let start = self.next_extra_data_id();
-        for node in iter {
-            let data = node.to_extra_data(self);
-            self.extra_data.push(data);
-        }
-        TypedSubRange {
-            inner: SubRange {
-                start,
-                end: self.next_extra_data_id(),
-            },
-            _phantom: PhantomData,
-        }
+    ) -> TypedNodeRange<N> {
+        let start = NodeEdgeIndex::from_usize_unchecked(self.node_edges.len());
+        self.node_edges
+            .extend(iter.into_iter().map(AstEdge::to_ast_id));
+        let end = NodeEdgeIndex::from_usize_unchecked(self.node_edges.len());
+        unsafe { NodeRange { start, end }.cast_to_typed() }
+    }
+
+    /// Appends already-encoded AST IDs as a typed child range.
+    ///
+    /// # Safety
+    ///
+    /// Every non-sentinel ID in `ast_ids` must identify a node accepted by
+    /// `N`; sentinel IDs are only valid when `N` is an optional AST edge.
+    #[inline]
+    pub unsafe fn add_typed_ast_id_sub_range<N>(&mut self, ast_ids: &[AstId]) -> TypedNodeRange<N> {
+        let start = NodeEdgeIndex::from_usize_unchecked(self.node_edges.len());
+        self.node_edges.extend_from_slice_copy(ast_ids);
+        let end = NodeEdgeIndex::from_usize_unchecked(self.node_edges.len());
+        unsafe { NodeRange { start, end }.cast_to_typed() }
     }
 
     /// Append pre-encoded extra data as a single contiguous range.
-    pub fn add_extra_data_sub_range(&mut self, data: &[ExtraData]) -> SubRange {
+    pub fn add_extra_data_sub_range(&mut self, data: &[ExtraData]) -> ExtraDataRange {
         let start = self.next_extra_data_id();
         let end = start.index() + data.len();
         self.extra_data.extend_from_slice_copy(data);
-        SubRange {
+        ExtraDataRange {
             start,
             end: ExtraDataId::from_usize_unchecked(end),
         }
@@ -370,16 +403,51 @@ impl<'a> Ast<'a> {
         self.extra_data.len()
     }
 
-    /// Returns the concrete type stored at `node_id`.
     #[inline]
-    pub fn node_kind(&self, node_id: NodeId) -> NodeKind {
-        *self.nodes.kind(node_id)
+    pub fn node_edge_count(&self) -> usize {
+        self.node_edges.len()
     }
 
-    /// Returns the source span stored for `node_id`.
     #[inline]
-    pub fn span(&self, node_id: NodeId) -> Span {
-        *self.nodes.span(node_id)
+    pub fn class_count(&self) -> usize {
+        self.classes.len()
+    }
+
+    #[inline]
+    pub fn class_index(&self, class_id: ClassId) -> usize {
+        let node_id = class_id.ast_id().node_id();
+        assert_eq!(*self.nodes.kind(node_id), NodeKind::Class);
+        let index = self.nodes.data(node_id).0 as u32 as usize;
+        assert!(index < self.classes.len());
+        index
+    }
+
+    #[inline]
+    pub(crate) fn class_data(&self, class_id: ClassId) -> &Class {
+        &self.classes[self.class_index(class_id)]
+    }
+
+    #[inline]
+    pub(crate) fn class_data_mut(&mut self, class_id: ClassId) -> &mut Class {
+        let index = self.class_index(class_id);
+        &mut self.classes[index]
+    }
+
+    /// Returns the concrete type stored at an AST ID.
+    #[inline]
+    pub fn node_kind<I: Into<AstId>>(&self, node_id: I) -> NodeKind {
+        *self.nodes.kind(node_id.into().node_id())
+    }
+
+    /// Returns the source span stored for an AST ID.
+    #[inline]
+    pub fn span<I: Into<AstId>>(&self, node_id: I) -> Span {
+        *self.nodes.span(node_id.into().node_id())
+    }
+
+    #[inline]
+    pub fn set_span(&mut self, node_id: AstId, span: Span) {
+        *self.nodes.span_mut(node_id.node_id()) = span;
     }
 }
 
@@ -394,6 +462,8 @@ impl<'a> Ast<'a> {
             lang: Lang::Js,
             attached_comments: ArenaVec::new_in(allocator),
             nodes: NodeData::new_in(allocator),
+            classes: ArenaVec::new_in(allocator),
+            node_edges: ArenaVec::new_in(allocator),
             extra_data: ArenaVec::with_capacity_in(0, allocator),
             strings: StringPool::new_in(allocator, source),
         }
@@ -413,28 +483,45 @@ impl<'a> Ast<'a> {
     /// Sets a program as the AST root.
     #[inline]
     pub fn set_root_program(&mut self, root: Program) {
-        self.root = Some(root.node_id());
+        self.root = Some(root.ast_id());
     }
 
     /// Sets an expression as the AST root.
     #[inline]
     pub fn set_root_expression(&mut self, root: Expr) {
-        self.root = Some(root.node_id());
+        self.root = Some(root.ast_id());
     }
 
     /// Reserves storage for parser output without changing logical lengths.
     #[inline]
     pub fn reserve(&mut self, additional_nodes: usize, additional_extra_data: usize) {
         self.nodes.reserve(additional_nodes);
+        self.node_edges.reserve(additional_extra_data);
         self.extra_data.reserve(additional_extra_data);
+    }
+
+    /// Reserves dedicated class storage without changing its logical length.
+    #[inline]
+    pub fn reserve_classes(&mut self, additional_classes: usize) {
+        self.classes.reserve(additional_classes);
     }
 
     /// Rewinds node and out-of-line field storage to an earlier checkpoint.
     #[inline]
-    pub fn truncate(&mut self, nodes_len: usize, extra_data_len: usize) {
+    pub fn truncate(
+        &mut self,
+        nodes_len: usize,
+        classes_len: usize,
+        node_edges_len: usize,
+        extra_data_len: usize,
+    ) {
         assert!(nodes_len <= self.nodes.len());
+        assert!(classes_len <= self.classes.len());
+        assert!(node_edges_len <= self.node_edges.len());
         assert!(extra_data_len <= self.extra_data.len());
         self.nodes.truncate(nodes_len);
+        self.classes.truncate(classes_len);
+        self.node_edges.truncate(node_edges_len);
         self.extra_data.truncate(extra_data_len);
     }
 }

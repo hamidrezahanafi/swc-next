@@ -1,5 +1,5 @@
-use swc_next_allocator::{Allocator, hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec};
-use swc_next_ecma_ast::{Ast, NodeId, PropertyKey};
+use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
+use swc_next_ecma_ast::{Ast, ClassId, PropertyKey};
 
 use crate::UsedNameState;
 
@@ -11,8 +11,8 @@ use crate::UsedNameState;
 pub struct ClassSemantic<'a> {
     allocator: &'a Allocator,
     enabled: bool,
-    classes: ArenaHashMap<'a, NodeId, ClassInfo<'a>>,
-    class_stack: ArenaVec<'a, NodeId>,
+    classes: ArenaVec<'a, Option<ClassInfo<'a>>>,
+    class_stack: ArenaVec<'a, ClassId>,
 }
 
 impl std::fmt::Debug for ClassSemantic<'_> {
@@ -32,11 +32,15 @@ pub struct ClassInfo<'a> {
 }
 
 impl<'a> ClassSemantic<'a> {
-    pub(crate) fn new(allocator: &'a Allocator, enabled: bool) -> Self {
+    pub(crate) fn new(allocator: &'a Allocator, enabled: bool, owner_count: usize) -> Self {
+        let mut classes = ArenaVec::with_capacity_in(owner_count, allocator);
+        for _ in 0..owner_count {
+            classes.push(None);
+        }
         Self {
             allocator,
             enabled,
-            classes: ArenaHashMap::new_in(allocator),
+            classes,
             class_stack: ArenaVec::new_in(allocator),
         }
     }
@@ -50,8 +54,10 @@ impl<'a> ClassSemantic<'a> {
     ///
     /// This returns `None` when collection was disabled or the node is not a
     /// class from the analyzed tree.
-    pub fn get(&self, class: NodeId) -> Option<&ClassInfo<'a>> {
-        self.classes.get(&class)
+    pub fn get(&self, ast: &Ast<'_>, class: ClassId) -> Option<&ClassInfo<'a>> {
+        self.classes
+            .get(ast.class_index(class))
+            .and_then(Option::as_ref)
     }
 
     /// Allocates and reserves the next private name for `class`.
@@ -59,33 +65,34 @@ impl<'a> ClassSemantic<'a> {
     /// The returned name does not include the leading `#`. Reserving and
     /// returning the name in one operation keeps generated class elements and
     /// semantic state synchronized.
-    pub fn next_private_name(&mut self, class: NodeId) -> &str {
+    pub fn next_private_name(&mut self, ast: &Ast<'_>, class: ClassId) -> &str {
         assert!(
             self.enabled,
             "class semantic collection must be enabled before allocating names"
         );
         let info = self
             .classes
-            .get_mut(&class)
+            .get_mut(ast.class_index(class))
+            .and_then(Option::as_mut)
             .expect("class semantic entry must exist for an analyzed class");
         info.used_names.next_name("_", 2)
     }
 
-    pub(crate) fn enter_class(&mut self, class: NodeId) {
+    pub(crate) fn enter_class(&mut self, ast: &Ast<'_>, class: ClassId) {
         if !self.enabled {
             return;
         }
-        let previous = self.classes.insert(
-            class,
-            ClassInfo {
-                used_names: UsedNameState::new(self.allocator),
-            },
-        );
-        debug_assert!(previous.is_none());
+        let index = ast.class_index(class);
+        debug_assert!(index < self.classes.len());
+        let entry = &mut self.classes[index];
+        debug_assert!(entry.is_none());
+        *entry = Some(ClassInfo {
+            used_names: UsedNameState::new(self.allocator),
+        });
         self.class_stack.push(class);
     }
 
-    pub(crate) fn leave_class(&mut self, class: NodeId) {
+    pub(crate) fn leave_class(&mut self, class: ClassId) {
         if !self.enabled {
             return;
         }
@@ -105,7 +112,8 @@ impl<'a> ClassSemantic<'a> {
         let name = ast.get_utf8(private.name(ast)).as_bytes();
         let info = self
             .classes
-            .get_mut(&class)
+            .get_mut(ast.class_index(class))
+            .and_then(Option::as_mut)
             .expect("current class semantic entry must exist");
         info.used_names.observe(name);
     }

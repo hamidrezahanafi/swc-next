@@ -21,6 +21,11 @@ fn bench_semantic(c: &mut Criterion) {
             include_str!("../files/cal.com.tsx"),
             Lang::Tsx,
         ),
+        (
+            "class-heavy",
+            include_str!("../files/class-heavy.js"),
+            Lang::Js,
+        ),
     ];
     let mut group = c.benchmark_group("semantic");
     for (name, source, lang) in bench_cases {
@@ -42,7 +47,17 @@ fn bench_semantic(c: &mut Criterion) {
                     result.ast
                 },
                 |ast| {
-                    black_box(analyze(&ast, AnalyzeOptions::default()));
+                    black_box(analyze(
+                        &ast,
+                        AnalyzeOptions {
+                            features: if name == "class-heavy" {
+                                swc_next_ecma_semantic::SemanticFeatureFlags::CLASS
+                            } else {
+                                swc_next_ecma_semantic::SemanticFeatureFlags::default()
+                            },
+                            ..AnalyzeOptions::default()
+                        },
+                    ));
                 },
                 BatchSize::SmallInput,
             );

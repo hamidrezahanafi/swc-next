@@ -36,8 +36,8 @@ pub fn ast_clone_in(schema: &Schema) -> RawOutput {
     .into()
 }
 
-fn generate_clone_in_for_struct(ast: &AstStruct, _schema: &Schema) -> TokenStream {
-    let name = format_ident!("{}", ast.name);
+fn generate_clone_in_for_struct(ast: &AstStruct, schema: &Schema) -> TokenStream {
+    let name = schema.types[ast.type_id].repr_ident(schema);
 
     let mut fields_clone_in = TokenStream::new();
     let mut fields_params = Vec::new();
@@ -45,8 +45,13 @@ fn generate_clone_in_for_struct(ast: &AstStruct, _schema: &Schema) -> TokenStrea
     fields_params.push(quote!(span));
     for field in ast.fields.iter() {
         let field_ident = safe_ident(&field.name.to_case(Case::Snake));
+        let getter_ident = if ast.name == "Class" && field.name == "body" {
+            format_ident!("body_elements")
+        } else {
+            field_ident.clone()
+        };
         fields_clone_in.extend(quote! {
-            let #field_ident = self.#field_ident(ast).clone_in(ast);
+            let #field_ident = self.#getter_ident(ast).clone_in(ast);
         });
         fields_params.push(quote!(#field_ident));
     }

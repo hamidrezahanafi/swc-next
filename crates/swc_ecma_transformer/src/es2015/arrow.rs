@@ -1,6 +1,6 @@
 use serde::Deserialize;
 use swc_next_ecma_ast::{
-    Ast, Class, DUMMY_SP, Expr, FormalParameterKind, Function, FunctionType, GetSpan,
+    Ast, ClassId, DUMMY_SP, Expr, FormalParameterKind, Function, FunctionType, GetSpan,
     IdentifierReference, MethodDefinition, MethodDefinitionKind, StaticBlock, Stmt, TypedSubRange,
     VisitMut, VisitMutWith,
 };
@@ -135,7 +135,7 @@ impl<'ast> VisitMut<'ast> for ArrowVisitor<'_, 'ast> {
         None
     }
 
-    fn visit_mut_class(&mut self, node: Class) -> Option<Class> {
+    fn visit_mut_class(&mut self, node: ClassId) -> Option<ClassId> {
         let old = self.in_subclass;
         self.in_subclass = node.super_class(self.ast).is_some();
         node.visit_mut_children_with(self);

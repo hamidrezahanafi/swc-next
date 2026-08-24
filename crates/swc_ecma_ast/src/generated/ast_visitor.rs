@@ -4,14 +4,18 @@ use crate::*;
 pub trait Visit<'a> {
     fn ast(&self) -> &Ast<'a>;
     #[inline]
-    fn enter_node(&mut self, node_id: NodeId) {}
+    fn enter_node(&mut self, node_id: AstId) {}
     #[inline]
-    fn leave_node(&mut self, node_id: NodeId) {}
+    fn leave_node(&mut self, node_id: AstId) {}
+    #[inline]
+    fn visit_class_body(&mut self, body: ClassBody) {
+        <ClassBody as VisitWith<'a, Self>>::visit_children_with(body, self);
+    }
     #[inline]
     fn visit_program(&mut self, node: Program) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <Program as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_stmt(&mut self, node: Stmt) {
@@ -87,513 +91,507 @@ pub trait Visit<'a> {
     }
     #[inline]
     fn visit_super(&mut self, node: Super) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <Super as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_this_expression(&mut self, node: ThisExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ThisExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_string_literal(&mut self, node: StringLiteral) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <StringLiteral as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_numeric_literal(&mut self, node: NumericLiteral) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <NumericLiteral as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_big_int_literal(&mut self, node: BigIntLiteral) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <BigIntLiteral as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_boolean_literal(&mut self, node: BooleanLiteral) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <BooleanLiteral as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_null_literal(&mut self, node: NullLiteral) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <NullLiteral as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_reg_exp_literal(&mut self, node: RegExpLiteral) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <RegExpLiteral as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_template_literal(&mut self, node: TemplateLiteral) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TemplateLiteral as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_template_element(&mut self, node: TemplateElement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TemplateElement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_identifier_reference(&mut self, node: IdentifierReference) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <IdentifierReference as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_private_identifier(&mut self, node: PrivateIdentifier) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <PrivateIdentifier as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_binding_identifier(&mut self, node: BindingIdentifier) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <BindingIdentifier as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_identifier_name(&mut self, node: IdentifierName) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <IdentifierName as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_label_identifier(&mut self, node: LabelIdentifier) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <LabelIdentifier as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_assignment_pattern(&mut self, node: AssignmentPattern) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <AssignmentPattern as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_binding_rest_element(&mut self, node: BindingRestElement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <BindingRestElement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_array_pattern(&mut self, node: ArrayPattern) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ArrayPattern as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_object_pattern(&mut self, node: ObjectPattern) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ObjectPattern as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_binding_property(&mut self, node: BindingProperty) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <BindingProperty as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_binary_expression(&mut self, node: BinaryExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <BinaryExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_logical_expression(&mut self, node: LogicalExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <LogicalExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_conditional_expression(&mut self, node: ConditionalExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ConditionalExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_unary_expression(&mut self, node: UnaryExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <UnaryExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_update_expression(&mut self, node: UpdateExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <UpdateExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_assignment_expression(&mut self, node: AssignmentExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <AssignmentExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_variable_declaration(&mut self, node: VariableDeclaration) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <VariableDeclaration as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_variable_declarator(&mut self, node: VariableDeclarator) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <VariableDeclarator as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_if_statement(&mut self, node: IfStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <IfStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_switch_statement(&mut self, node: SwitchStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <SwitchStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_switch_case(&mut self, node: SwitchCase) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <SwitchCase as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_for_statement(&mut self, node: ForStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ForStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_for_in_statement(&mut self, node: ForInStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ForInStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_for_of_statement(&mut self, node: ForOfStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ForOfStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_try_statement(&mut self, node: TryStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TryStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_catch_clause(&mut self, node: CatchClause) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <CatchClause as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_break_statement(&mut self, node: BreakStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <BreakStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_continue_statement(&mut self, node: ContinueStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ContinueStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_labeled_statement(&mut self, node: LabeledStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <LabeledStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_expression_statement(&mut self, node: ExpressionStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ExpressionStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_return_statement(&mut self, node: ReturnStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ReturnStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_throw_statement(&mut self, node: ThrowStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ThrowStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_debugger_statement(&mut self, node: DebuggerStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <DebuggerStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_empty_statement(&mut self, node: EmptyStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <EmptyStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_directive(&mut self, node: Directive) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <Directive as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_decorator(&mut self, node: Decorator) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <Decorator as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
-    fn visit_class(&mut self, node: Class) {
-        self.enter_node(node.node_id());
-        <Class as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
-    }
-    #[inline]
-    fn visit_class_body(&mut self, node: ClassBody) {
-        self.enter_node(node.node_id());
-        <ClassBody as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+    fn visit_class(&mut self, node: ClassId) {
+        self.enter_node(node.ast_id());
+        <ClassId as VisitWith<'a, Self>>::visit_children_with(node, self);
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_method_definition(&mut self, node: MethodDefinition) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <MethodDefinition as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_property_definition(&mut self, node: PropertyDefinition) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <PropertyDefinition as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_static_block(&mut self, node: StaticBlock) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <StaticBlock as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_function(&mut self, node: Function) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <Function as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_function_body(&mut self, node: FunctionBody) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <FunctionBody as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_block_statement(&mut self, node: BlockStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <BlockStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_while_statement(&mut self, node: WhileStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <WhileStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_do_while_statement(&mut self, node: DoWhileStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <DoWhileStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_with_statement(&mut self, node: WithStatement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <WithStatement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_formal_parameters(&mut self, node: FormalParameters) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <FormalParameters as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_formal_parameter(&mut self, node: FormalParameter) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <FormalParameter as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_array_expression(&mut self, node: ArrayExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ArrayExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_object_expression(&mut self, node: ObjectExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ObjectExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_spread_element(&mut self, node: SpreadElement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <SpreadElement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_object_property(&mut self, node: ObjectProperty) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ObjectProperty as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_parenthesized_expression(&mut self, node: ParenthesizedExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ParenthesizedExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_arrow_function_expression(&mut self, node: ArrowFunctionExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ArrowFunctionExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_sequence_expression(&mut self, node: SequenceExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <SequenceExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_member_expression(&mut self, node: MemberExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <MemberExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_call_expression(&mut self, node: CallExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <CallExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_chain_expression(&mut self, node: ChainExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ChainExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_tagged_template_expression(&mut self, node: TaggedTemplateExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TaggedTemplateExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_new_expression(&mut self, node: NewExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <NewExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_await_expression(&mut self, node: AwaitExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <AwaitExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_yield_expression(&mut self, node: YieldExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <YieldExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_meta_property(&mut self, node: MetaProperty) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <MetaProperty as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_import_expression(&mut self, node: ImportExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ImportExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_import_declaration(&mut self, node: ImportDeclaration) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ImportDeclaration as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_import_specifier(&mut self, node: ImportSpecifier) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ImportSpecifier as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_import_default_specifier(&mut self, node: ImportDefaultSpecifier) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ImportDefaultSpecifier as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_import_namespace_specifier(&mut self, node: ImportNamespaceSpecifier) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ImportNamespaceSpecifier as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_import_attribute(&mut self, node: ImportAttribute) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ImportAttribute as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_export_named_declaration(&mut self, node: ExportNamedDeclaration) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ExportNamedDeclaration as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_export_default_declaration(&mut self, node: ExportDefaultDeclaration) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ExportDefaultDeclaration as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_export_all_declaration(&mut self, node: ExportAllDeclaration) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ExportAllDeclaration as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_export_specifier(&mut self, node: ExportSpecifier) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <ExportSpecifier as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_hashbang(&mut self, node: Hashbang) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <Hashbang as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_type(&mut self, node: TsType) {
@@ -649,441 +647,441 @@ pub trait Visit<'a> {
     }
     #[inline]
     fn visit_ts_function(&mut self, node: TsFunction) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsFunction as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_method_definition(&mut self, node: TsMethodDefinition) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsMethodDefinition as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_type_annotation(&mut self, node: TsTypeAnnotation) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsTypeAnnotation as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_any_keyword(&mut self, node: TsAnyKeyword) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsAnyKeyword as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_unknown_keyword(&mut self, node: TsUnknownKeyword) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsUnknownKeyword as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_never_keyword(&mut self, node: TsNeverKeyword) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsNeverKeyword as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_void_keyword(&mut self, node: TsVoidKeyword) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsVoidKeyword as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_null_keyword(&mut self, node: TsNullKeyword) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsNullKeyword as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_undefined_keyword(&mut self, node: TsUndefinedKeyword) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsUndefinedKeyword as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_string_keyword(&mut self, node: TsStringKeyword) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsStringKeyword as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_number_keyword(&mut self, node: TsNumberKeyword) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsNumberKeyword as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_big_int_keyword(&mut self, node: TsBigIntKeyword) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsBigIntKeyword as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_boolean_keyword(&mut self, node: TsBooleanKeyword) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsBooleanKeyword as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_symbol_keyword(&mut self, node: TsSymbolKeyword) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsSymbolKeyword as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_object_keyword(&mut self, node: TsObjectKeyword) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsObjectKeyword as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_intrinsic_keyword(&mut self, node: TsIntrinsicKeyword) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsIntrinsicKeyword as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_this_type(&mut self, node: TsThisType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsThisType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_type_reference(&mut self, node: TsTypeReference) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsTypeReference as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_qualified_name(&mut self, node: TsQualifiedName) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsQualifiedName as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_type_query(&mut self, node: TsTypeQuery) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsTypeQuery as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_import_type(&mut self, node: TsImportType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsImportType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_type_parameter(&mut self, node: TsTypeParameter) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsTypeParameter as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_type_parameter_declaration(&mut self, node: TsTypeParameterDeclaration) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsTypeParameterDeclaration as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_type_parameter_instantiation(&mut self, node: TsTypeParameterInstantiation) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsTypeParameterInstantiation as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_literal_type(&mut self, node: TsLiteralType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsLiteralType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_template_literal_type(&mut self, node: TsTemplateLiteralType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsTemplateLiteralType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_array_type(&mut self, node: TsArrayType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsArrayType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_indexed_access_type(&mut self, node: TsIndexedAccessType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsIndexedAccessType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_tuple_type(&mut self, node: TsTupleType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsTupleType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_named_tuple_member(&mut self, node: TsNamedTupleMember) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsNamedTupleMember as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_optional_type(&mut self, node: TsOptionalType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsOptionalType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_rest_type(&mut self, node: TsRestType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsRestType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_js_doc_nullable_type(&mut self, node: TsJsDocNullableType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsJsDocNullableType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_js_doc_non_nullable_type(&mut self, node: TsJsDocNonNullableType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsJsDocNonNullableType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_js_doc_unknown_type(&mut self, node: TsJsDocUnknownType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsJsDocUnknownType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_union_type(&mut self, node: TsUnionType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsUnionType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_intersection_type(&mut self, node: TsIntersectionType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsIntersectionType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_conditional_type(&mut self, node: TsConditionalType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsConditionalType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_infer_type(&mut self, node: TsInferType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsInferType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_type_operator(&mut self, node: TsTypeOperator) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsTypeOperator as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_parenthesized_type(&mut self, node: TsParenthesizedType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsParenthesizedType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_function_type(&mut self, node: TsFunctionType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsFunctionType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_constructor_type(&mut self, node: TsConstructorType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsConstructorType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_type_predicate(&mut self, node: TsTypePredicate) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsTypePredicate as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_type_literal(&mut self, node: TsTypeLiteral) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsTypeLiteral as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_mapped_type(&mut self, node: TsMappedType) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsMappedType as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_property_signature(&mut self, node: TsPropertySignature) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsPropertySignature as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_method_signature(&mut self, node: TsMethodSignature) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsMethodSignature as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_call_signature_declaration(&mut self, node: TsCallSignatureDeclaration) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsCallSignatureDeclaration as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_construct_signature_declaration(&mut self, node: TsConstructSignatureDeclaration) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsConstructSignatureDeclaration as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_index_signature(&mut self, node: TsIndexSignature) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsIndexSignature as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_type_alias_declaration(&mut self, node: TsTypeAliasDeclaration) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsTypeAliasDeclaration as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_interface_declaration(&mut self, node: TsInterfaceDeclaration) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsInterfaceDeclaration as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_interface_body(&mut self, node: TsInterfaceBody) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsInterfaceBody as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_interface_heritage(&mut self, node: TsInterfaceHeritage) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsInterfaceHeritage as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_class_implements(&mut self, node: TsClassImplements) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsClassImplements as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_enum_declaration(&mut self, node: TsEnumDeclaration) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsEnumDeclaration as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_enum_body(&mut self, node: TsEnumBody) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsEnumBody as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_enum_member(&mut self, node: TsEnumMember) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsEnumMember as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_module_declaration(&mut self, node: TsModuleDeclaration) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsModuleDeclaration as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_module_block(&mut self, node: TsModuleBlock) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsModuleBlock as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_global_declaration(&mut self, node: TsGlobalDeclaration) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsGlobalDeclaration as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_parameter_property(&mut self, node: TsParameterProperty) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsParameterProperty as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_this_parameter(&mut self, node: TsThisParameter) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsThisParameter as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_as_expression(&mut self, node: TsAsExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsAsExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_satisfies_expression(&mut self, node: TsSatisfiesExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsSatisfiesExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_type_assertion(&mut self, node: TsTypeAssertion) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsTypeAssertion as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_non_null_expression(&mut self, node: TsNonNullExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsNonNullExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_instantiation_expression(&mut self, node: TsInstantiationExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsInstantiationExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_export_assignment(&mut self, node: TsExportAssignment) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsExportAssignment as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_namespace_export_declaration(&mut self, node: TsNamespaceExportDeclaration) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsNamespaceExportDeclaration as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_import_equals_declaration(&mut self, node: TsImportEqualsDeclaration) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsImportEqualsDeclaration as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_external_module_reference(&mut self, node: TsExternalModuleReference) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <TsExternalModuleReference as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_jsx_element_name(&mut self, node: JsxElementName) {
@@ -1115,93 +1113,93 @@ pub trait Visit<'a> {
     }
     #[inline]
     fn visit_jsx_element(&mut self, node: JsxElement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <JsxElement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_jsx_opening_element(&mut self, node: JsxOpeningElement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <JsxOpeningElement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_jsx_closing_element(&mut self, node: JsxClosingElement) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <JsxClosingElement as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_jsx_fragment(&mut self, node: JsxFragment) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <JsxFragment as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_jsx_opening_fragment(&mut self, node: JsxOpeningFragment) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <JsxOpeningFragment as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_jsx_closing_fragment(&mut self, node: JsxClosingFragment) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <JsxClosingFragment as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_jsx_identifier(&mut self, node: JsxIdentifier) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <JsxIdentifier as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_jsx_namespaced_name(&mut self, node: JsxNamespacedName) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <JsxNamespacedName as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_jsx_member_expression(&mut self, node: JsxMemberExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <JsxMemberExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_jsx_attribute(&mut self, node: JsxAttribute) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <JsxAttribute as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_jsx_spread_attribute(&mut self, node: JsxSpreadAttribute) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <JsxSpreadAttribute as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_jsx_expression_container(&mut self, node: JsxExpressionContainer) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <JsxExpressionContainer as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_jsx_empty_expression(&mut self, node: JsxEmptyExpression) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <JsxEmptyExpression as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_jsx_text(&mut self, node: JsxText) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <JsxText as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_jsx_spread_child(&mut self, node: JsxSpreadChild) {
-        self.enter_node(node.node_id());
+        self.enter_node(node.ast_id());
         <JsxSpreadChild as VisitWith<'a, Self>>::visit_children_with(node, self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_directives(&mut self, node: TypedSubRange<Directive>) {
@@ -1421,6 +1419,16 @@ pub trait VisitWith<'a, V: ?Sized + Visit<'a>> {
     fn visit_with(self, visitor: &mut V);
     fn visit_children_with(self, visitor: &mut V);
 }
+impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for ClassBody {
+    #[inline]
+    fn visit_with(self, visitor: &mut V) {
+        <V as Visit<'a>>::visit_class_body(visitor, self);
+    }
+    #[inline]
+    fn visit_children_with(self, visitor: &mut V) {
+        self.body(visitor.ast()).visit_with(visitor);
+    }
+}
 impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for Program {
     #[inline]
     fn visit_with(self, visitor: &mut V) {
@@ -1530,7 +1538,7 @@ impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for Decl {
                 <VariableDeclaration as VisitWith<'a, V>>::visit_with(it, visitor)
             }
             DeclData::Function(it) => <Function as VisitWith<'a, V>>::visit_with(it, visitor),
-            DeclData::Class(it) => <Class as VisitWith<'a, V>>::visit_with(it, visitor),
+            DeclData::Class(it) => <ClassId as VisitWith<'a, V>>::visit_with(it, visitor),
             DeclData::TsFunction(it) => <TsFunction as VisitWith<'a, V>>::visit_with(it, visitor),
             DeclData::TsTypeAliasDeclaration(it) => {
                 <TsTypeAliasDeclaration as VisitWith<'a, V>>::visit_with(it, visitor)
@@ -1639,7 +1647,7 @@ impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for Expr {
                 <ParenthesizedExpression as VisitWith<'a, V>>::visit_with(it, visitor)
             }
             ExprData::Function(it) => <Function as VisitWith<'a, V>>::visit_with(it, visitor),
-            ExprData::Class(it) => <Class as VisitWith<'a, V>>::visit_with(it, visitor),
+            ExprData::Class(it) => <ClassId as VisitWith<'a, V>>::visit_with(it, visitor),
             ExprData::ImportExpression(it) => {
                 <ImportExpression as VisitWith<'a, V>>::visit_with(it, visitor)
             }
@@ -1968,7 +1976,7 @@ impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for ExportDefaultDeclarationKin
                 <Function as VisitWith<'a, V>>::visit_with(it, visitor)
             }
             ExportDefaultDeclarationKindData::Class(it) => {
-                <Class as VisitWith<'a, V>>::visit_with(it, visitor)
+                <ClassId as VisitWith<'a, V>>::visit_with(it, visitor)
             }
             ExportDefaultDeclarationKindData::TsFunction(it) => {
                 <TsFunction as VisitWith<'a, V>>::visit_with(it, visitor)
@@ -2513,7 +2521,7 @@ impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for Decorator {
         <Expr as VisitWith<'a, V>>::visit_with(field_value_0, visitor);
     }
 }
-impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for Class {
+impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for ClassId {
     #[inline]
     fn visit_with(self, visitor: &mut V) {
         <V as Visit<'a>>::visit_class(visitor, self)
@@ -2526,7 +2534,7 @@ impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for Class {
         let field_value_4 = self.super_class(visitor.ast());
         let field_value_5 = self.super_type_arguments(visitor.ast());
         let field_value_6 = self.implements(visitor.ast());
-        let field_value_7 = self.body(visitor.ast());
+        let field_value_8 = self.body(visitor.ast());
         <TypedSubRange<Decorator> as VisitWith<'a, V>>::visit_with(field_value_1, visitor);
         <Option<BindingIdentifier> as VisitWith<'a, V>>::visit_with(field_value_2, visitor);
         <Option<TsTypeParameterDeclaration> as VisitWith<'a, V>>::visit_with(
@@ -2539,18 +2547,7 @@ impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for Class {
             visitor,
         );
         <TypedSubRange<TsClassImplements> as VisitWith<'a, V>>::visit_with(field_value_6, visitor);
-        <ClassBody as VisitWith<'a, V>>::visit_with(field_value_7, visitor);
-    }
-}
-impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for ClassBody {
-    #[inline]
-    fn visit_with(self, visitor: &mut V) {
-        <V as Visit<'a>>::visit_class_body(visitor, self)
-    }
-    #[inline]
-    fn visit_children_with(self, visitor: &mut V) {
-        let field_value_0 = self.body(visitor.ast());
-        <TypedSubRange<ClassElement> as VisitWith<'a, V>>::visit_with(field_value_0, visitor);
+        <ClassBody as VisitWith<'a, V>>::visit_with(field_value_8, visitor);
     }
 }
 impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for MethodDefinition {
@@ -5594,12 +5591,8 @@ pub trait VisitMut<'a> {
         <Decorator as VisitMutWith<'a, Self>>::visit_mut_children_with(node, self)
     }
     #[inline]
-    fn visit_mut_class(&mut self, node: Class) -> Option<Class> {
-        <Class as VisitMutWith<'a, Self>>::visit_mut_children_with(node, self)
-    }
-    #[inline]
-    fn visit_mut_class_body(&mut self, node: ClassBody) -> Option<ClassBody> {
-        <ClassBody as VisitMutWith<'a, Self>>::visit_mut_children_with(node, self)
+    fn visit_mut_class(&mut self, node: ClassId) -> Option<ClassId> {
+        <ClassId as VisitMutWith<'a, Self>>::visit_mut_children_with(node, self)
     }
     #[inline]
     fn visit_mut_method_definition(&mut self, node: MethodDefinition) -> Option<MethodDefinition> {
@@ -6891,7 +6884,7 @@ impl<'a, V: ?Sized + VisitMut<'a>> VisitMutWith<'a, V> for Decl {
                 <Function as VisitMutWith<'a, V>>::visit_mut_with(it, visitor).map(Decl::Function)
             }
             DeclData::Class(it) => {
-                <Class as VisitMutWith<'a, V>>::visit_mut_with(it, visitor).map(Decl::Class)
+                <ClassId as VisitMutWith<'a, V>>::visit_mut_with(it, visitor).map(Decl::Class)
             }
             DeclData::TsFunction(it) => {
                 <TsFunction as VisitMutWith<'a, V>>::visit_mut_with(it, visitor)
@@ -7044,7 +7037,7 @@ impl<'a, V: ?Sized + VisitMut<'a>> VisitMutWith<'a, V> for Expr {
                 <Function as VisitMutWith<'a, V>>::visit_mut_with(it, visitor).map(Expr::Function)
             }
             ExprData::Class(it) => {
-                <Class as VisitMutWith<'a, V>>::visit_mut_with(it, visitor).map(Expr::Class)
+                <ClassId as VisitMutWith<'a, V>>::visit_mut_with(it, visitor).map(Expr::Class)
             }
             ExprData::ImportExpression(it) => {
                 <ImportExpression as VisitMutWith<'a, V>>::visit_mut_with(it, visitor)
@@ -7457,7 +7450,7 @@ impl<'a, V: ?Sized + VisitMut<'a>> VisitMutWith<'a, V> for ExportDefaultDeclarat
                     .map(ExportDefaultDeclarationKind::Function)
             }
             ExportDefaultDeclarationKindData::Class(it) => {
-                <Class as VisitMutWith<'a, V>>::visit_mut_with(it, visitor)
+                <ClassId as VisitMutWith<'a, V>>::visit_mut_with(it, visitor)
                     .map(ExportDefaultDeclarationKind::Class)
             }
             ExportDefaultDeclarationKindData::TsFunction(it) => {
@@ -8345,7 +8338,7 @@ impl<'a, V: ?Sized + VisitMut<'a>> VisitMutWith<'a, V> for Decorator {
         None
     }
 }
-impl<'a, V: ?Sized + VisitMut<'a>> VisitMutWith<'a, V> for Class {
+impl<'a, V: ?Sized + VisitMut<'a>> VisitMutWith<'a, V> for ClassId {
     #[inline]
     fn visit_mut_with(self, visitor: &mut V) -> Option<Self> {
         <V as VisitMut<'a>>::visit_mut_class(visitor, self)
@@ -8397,30 +8390,14 @@ impl<'a, V: ?Sized + VisitMut<'a>> VisitMutWith<'a, V> for Class {
         {
             self.set_implements(visitor.ast(), field_value);
         }
-        let field_value = self.body(visitor.ast());
-        if let Some(field_value) =
-            <ClassBody as VisitMutWith<'a, V>>::visit_mut_with(field_value, visitor)
-        {
-            self.set_body(visitor.ast(), field_value);
-        }
-        None
-    }
-}
-impl<'a, V: ?Sized + VisitMut<'a>> VisitMutWith<'a, V> for ClassBody {
-    #[inline]
-    fn visit_mut_with(self, visitor: &mut V) -> Option<Self> {
-        <V as VisitMut<'a>>::visit_mut_class_body(visitor, self)
-    }
-    #[inline]
-    fn visit_mut_children_with(self, visitor: &mut V) -> Option<Self> {
-        let field_value = self.body(visitor.ast());
+        let field_value = self.body_elements(visitor.ast());
         if let Some(field_value) =
             <TypedSubRange<ClassElement> as VisitMutWith<'a, V>>::visit_mut_with(
                 field_value,
                 visitor,
             )
         {
-            self.set_body(visitor.ast(), field_value);
+            self.set_body_elements(visitor.ast(), field_value);
         }
         None
     }
@@ -12300,13 +12277,17 @@ pub trait Traverse<'a, State = ()> {
     #[inline]
     fn enter_node<T: AstNode>(
         &mut self,
-        node_id: NodeId,
+        node_id: AstId,
         ctx: &mut TraverseCtx<'_, 'a, State>,
     ) -> TraverseAction<T> {
         TraverseAction::Proceed
     }
     #[inline]
-    fn exit_node(&mut self, node_id: NodeId, ctx: &mut TraverseCtx<'_, 'a, State>) {}
+    fn exit_node(&mut self, node_id: AstId, ctx: &mut TraverseCtx<'_, 'a, State>) {}
+    #[inline]
+    fn enter_class_body(&mut self, class: ClassId, ctx: &mut TraverseCtx<'_, 'a, State>) {}
+    #[inline]
+    fn exit_class_body(&mut self, class: ClassId, ctx: &mut TraverseCtx<'_, 'a, State>) {}
     #[inline]
     fn enter_program(
         &mut self,
@@ -12912,23 +12893,13 @@ pub trait Traverse<'a, State = ()> {
     #[inline]
     fn enter_class(
         &mut self,
-        node: Class,
+        node: ClassId,
         ctx: &mut TraverseCtx<'_, 'a, State>,
-    ) -> TraverseAction<Class> {
+    ) -> TraverseAction<ClassId> {
         TraverseAction::Proceed
     }
     #[inline]
-    fn exit_class(&mut self, node: Class, ctx: &mut TraverseCtx<'_, 'a, State>) {}
-    #[inline]
-    fn enter_class_body(
-        &mut self,
-        node: ClassBody,
-        ctx: &mut TraverseCtx<'_, 'a, State>,
-    ) -> TraverseAction<ClassBody> {
-        TraverseAction::Proceed
-    }
-    #[inline]
-    fn exit_class_body(&mut self, node: ClassBody, ctx: &mut TraverseCtx<'_, 'a, State>) {}
+    fn exit_class(&mut self, node: ClassId, ctx: &mut TraverseCtx<'_, 'a, State>) {}
     #[inline]
     fn enter_method_definition(
         &mut self,
@@ -14981,7 +14952,7 @@ impl<'a, State> TraverseWith<'a, State> for Decl {
                 }
             }
             DeclData::Class(it) => {
-                match <Class as TraverseWith<'a, State>>::traverse_with(it, traverser, ctx) {
+                match <ClassId as TraverseWith<'a, State>>::traverse_with(it, traverser, ctx) {
                     TraverseAction::Proceed => TraverseAction::Proceed,
                     TraverseAction::Skip => TraverseAction::Skip,
                     TraverseAction::Stop => TraverseAction::Stop,
@@ -15405,7 +15376,7 @@ impl<'a, State> TraverseWith<'a, State> for Expr {
                 }
             }
             ExprData::Class(it) => {
-                match <Class as TraverseWith<'a, State>>::traverse_with(it, traverser, ctx) {
+                match <ClassId as TraverseWith<'a, State>>::traverse_with(it, traverser, ctx) {
                     TraverseAction::Proceed => TraverseAction::Proceed,
                     TraverseAction::Skip => TraverseAction::Skip,
                     TraverseAction::Stop => TraverseAction::Stop,
@@ -16253,7 +16224,7 @@ impl<'a, State> TraverseWith<'a, State> for ExportDefaultDeclarationKind {
                 }
             }
             ExportDefaultDeclarationKindData::Class(it) => {
-                match <Class as TraverseWith<'a, State>>::traverse_with(it, traverser, ctx) {
+                match <ClassId as TraverseWith<'a, State>>::traverse_with(it, traverser, ctx) {
                     TraverseAction::Proceed => TraverseAction::Proceed,
                     TraverseAction::Skip => TraverseAction::Skip,
                     TraverseAction::Stop => TraverseAction::Stop,
@@ -16793,8 +16764,8 @@ impl<'a, State> TraverseWith<'a, State> for Decorator {
         walk_decorator(self, traverser, ctx)
     }
 }
-impl<'a, State> TraverseWith<'a, State> for Class {
-    type Node = Class;
+impl<'a, State> TraverseWith<'a, State> for ClassId {
+    type Node = ClassId;
     #[inline]
     fn traverse_with<T: ?Sized + Traverse<'a, State>>(
         self,
@@ -16802,17 +16773,6 @@ impl<'a, State> TraverseWith<'a, State> for Class {
         ctx: &mut TraverseCtx<'_, 'a, State>,
     ) -> TraverseAction<Self::Node> {
         walk_class(self, traverser, ctx)
-    }
-}
-impl<'a, State> TraverseWith<'a, State> for ClassBody {
-    type Node = ClassBody;
-    #[inline]
-    fn traverse_with<T: ?Sized + Traverse<'a, State>>(
-        self,
-        traverser: &mut T,
-        ctx: &mut TraverseCtx<'_, 'a, State>,
-    ) -> TraverseAction<Self::Node> {
-        walk_class_body(self, traverser, ctx)
     }
 }
 impl<'a, State> TraverseWith<'a, State> for MethodDefinition {
@@ -20437,7 +20397,7 @@ fn walk_program<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<Program> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<Program>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_program(node, ctx),
@@ -20509,7 +20469,7 @@ fn walk_super<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<Super> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<Super>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_super(node, ctx),
@@ -20546,7 +20506,7 @@ fn walk_this_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ThisExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ThisExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_this_expression(node, ctx),
@@ -20583,7 +20543,7 @@ fn walk_string_literal<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<StringLiteral> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<StringLiteral>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_string_literal(node, ctx),
@@ -20620,7 +20580,7 @@ fn walk_numeric_literal<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<NumericLiteral> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<NumericLiteral>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_numeric_literal(node, ctx),
@@ -20657,7 +20617,7 @@ fn walk_big_int_literal<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<BigIntLiteral> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<BigIntLiteral>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_big_int_literal(node, ctx),
@@ -20694,7 +20654,7 @@ fn walk_boolean_literal<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<BooleanLiteral> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<BooleanLiteral>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_boolean_literal(node, ctx),
@@ -20731,7 +20691,7 @@ fn walk_null_literal<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<NullLiteral> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<NullLiteral>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_null_literal(node, ctx),
@@ -20768,7 +20728,7 @@ fn walk_reg_exp_literal<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<RegExpLiteral> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<RegExpLiteral>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_reg_exp_literal(node, ctx),
@@ -20805,7 +20765,7 @@ fn walk_template_literal<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TemplateLiteral> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TemplateLiteral>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_template_literal(node, ctx),
@@ -20867,7 +20827,7 @@ fn walk_template_element<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TemplateElement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TemplateElement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_template_element(node, ctx),
@@ -20904,7 +20864,7 @@ fn walk_identifier_reference<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<IdentifierReference> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<IdentifierReference>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_identifier_reference(node, ctx),
@@ -20941,7 +20901,7 @@ fn walk_private_identifier<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<PrivateIdentifier> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<PrivateIdentifier>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_private_identifier(node, ctx),
@@ -20978,7 +20938,7 @@ fn walk_binding_identifier<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<BindingIdentifier> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<BindingIdentifier>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_binding_identifier(node, ctx),
@@ -21041,7 +21001,7 @@ fn walk_identifier_name<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<IdentifierName> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<IdentifierName>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_identifier_name(node, ctx),
@@ -21078,7 +21038,7 @@ fn walk_label_identifier<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<LabelIdentifier> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<LabelIdentifier>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_label_identifier(node, ctx),
@@ -21115,7 +21075,7 @@ fn walk_assignment_pattern<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<AssignmentPattern> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<AssignmentPattern>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_assignment_pattern(node, ctx),
@@ -21198,7 +21158,7 @@ fn walk_binding_rest_element<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<BindingRestElement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<BindingRestElement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_binding_rest_element(node, ctx),
@@ -21271,7 +21231,7 @@ fn walk_array_pattern<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ArrayPattern> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ArrayPattern>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_array_pattern(node, ctx),
@@ -21358,7 +21318,7 @@ fn walk_object_pattern<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ObjectPattern> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ObjectPattern>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_object_pattern(node, ctx),
@@ -21445,7 +21405,7 @@ fn walk_binding_property<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<BindingProperty> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<BindingProperty>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_binding_property(node, ctx),
@@ -21504,7 +21464,7 @@ fn walk_binary_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<BinaryExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<BinaryExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_binary_expression(node, ctx),
@@ -21563,7 +21523,7 @@ fn walk_logical_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<LogicalExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<LogicalExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_logical_expression(node, ctx),
@@ -21622,7 +21582,7 @@ fn walk_conditional_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ConditionalExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ConditionalExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_conditional_expression(node, ctx),
@@ -21691,7 +21651,7 @@ fn walk_unary_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<UnaryExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<UnaryExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_unary_expression(node, ctx),
@@ -21740,7 +21700,7 @@ fn walk_update_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<UpdateExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<UpdateExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_update_expression(node, ctx),
@@ -21791,7 +21751,7 @@ fn walk_assignment_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<AssignmentExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<AssignmentExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_assignment_expression(node, ctx),
@@ -21850,7 +21810,7 @@ fn walk_variable_declaration<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<VariableDeclaration> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<VariableDeclaration>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_variable_declaration(node, ctx),
@@ -21901,7 +21861,7 @@ fn walk_variable_declarator<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<VariableDeclarator> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<VariableDeclarator>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_variable_declarator(node, ctx),
@@ -21960,7 +21920,7 @@ fn walk_if_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<IfStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<IfStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_if_statement(node, ctx),
@@ -22029,7 +21989,7 @@ fn walk_switch_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<SwitchStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<SwitchStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_switch_statement(node, ctx),
@@ -22090,7 +22050,7 @@ fn walk_switch_case<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<SwitchCase> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<SwitchCase>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_switch_case(node, ctx),
@@ -22150,7 +22110,7 @@ fn walk_for_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ForStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ForStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_for_statement(node, ctx),
@@ -22231,7 +22191,7 @@ fn walk_for_in_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ForInStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ForInStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_for_in_statement(node, ctx),
@@ -22300,7 +22260,7 @@ fn walk_for_of_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ForOfStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ForOfStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_for_of_statement(node, ctx),
@@ -22369,7 +22329,7 @@ fn walk_try_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TryStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TryStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_try_statement(node, ctx),
@@ -22441,7 +22401,7 @@ fn walk_catch_clause<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<CatchClause> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<CatchClause>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_catch_clause(node, ctx),
@@ -22502,7 +22462,7 @@ fn walk_break_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<BreakStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<BreakStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_break_statement(node, ctx),
@@ -22553,7 +22513,7 @@ fn walk_continue_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ContinueStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ContinueStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_continue_statement(node, ctx),
@@ -22604,7 +22564,7 @@ fn walk_labeled_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<LabeledStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<LabeledStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_labeled_statement(node, ctx),
@@ -22663,7 +22623,7 @@ fn walk_expression_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ExpressionStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ExpressionStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_expression_statement(node, ctx),
@@ -22712,7 +22672,7 @@ fn walk_return_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ReturnStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ReturnStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_return_statement(node, ctx),
@@ -22761,7 +22721,7 @@ fn walk_throw_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ThrowStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ThrowStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_throw_statement(node, ctx),
@@ -22810,7 +22770,7 @@ fn walk_debugger_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<DebuggerStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<DebuggerStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_debugger_statement(node, ctx),
@@ -22847,7 +22807,7 @@ fn walk_empty_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<EmptyStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<EmptyStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_empty_statement(node, ctx),
@@ -22884,7 +22844,7 @@ fn walk_directive<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<Directive> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<Directive>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_directive(node, ctx),
@@ -22933,7 +22893,7 @@ fn walk_decorator<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<Decorator> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<Decorator>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_decorator(node, ctx),
@@ -22978,13 +22938,13 @@ fn walk_decorator<'a, State, T: ?Sized + Traverse<'a, State>>(
 }
 #[inline]
 fn walk_class<'a, State, T: ?Sized + Traverse<'a, State>>(
-    node: Class,
+    node: ClassId,
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
-) -> TraverseAction<Class> {
-    let node_id = node.node_id();
+) -> TraverseAction<ClassId> {
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
-    let action = match traverser.enter_node::<Class>(node_id, ctx) {
+    let action = match traverser.enter_node::<ClassId>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_class(node, ctx),
         action => action,
     };
@@ -23074,13 +23034,18 @@ fn walk_class<'a, State, T: ?Sized + Traverse<'a, State>>(
             }
             TraverseAction::Proceed | TraverseAction::Skip => {}
         }
-        let child = node.body(ctx.ast);
-        match <ClassBody as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
+        traverser.enter_class_body(node, ctx);
+        let child = node.body_elements(ctx.ast);
+        let child_action = <TypedSubRange<ClassElement> as TraverseWith<'a, State>>::traverse_with(
+            child, traverser, ctx,
+        );
+        traverser.exit_class_body(node, ctx);
+        match child_action {
             TraverseAction::Stop => {
                 break 'traverse_children true;
             }
-            TraverseAction::Replace(replacement) => {
-                node.set_body(ctx.ast, replacement);
+            TraverseAction::Replace(_) => {
+                unreachable!("sub-range traversal consumes child replacements")
             }
             TraverseAction::Proceed | TraverseAction::Skip => {}
         }
@@ -23096,63 +23061,12 @@ fn walk_class<'a, State, T: ?Sized + Traverse<'a, State>>(
     TraverseAction::Proceed
 }
 #[inline]
-fn walk_class_body<'a, State, T: ?Sized + Traverse<'a, State>>(
-    node: ClassBody,
-    traverser: &mut T,
-    ctx: &mut TraverseCtx<'_, 'a, State>,
-) -> TraverseAction<ClassBody> {
-    let node_id = node.node_id();
-    ctx.push_node(node_id);
-    let action = match traverser.enter_node::<ClassBody>(node_id, ctx) {
-        TraverseAction::Proceed => traverser.enter_class_body(node, ctx),
-        action => action,
-    };
-    match action {
-        TraverseAction::Skip => {
-            ctx.pop_node(node_id);
-            return TraverseAction::Proceed;
-        }
-        TraverseAction::Stop => {
-            ctx.pop_node(node_id);
-            return TraverseAction::Stop;
-        }
-        TraverseAction::Replace(replacement) => {
-            ctx.pop_node(node_id);
-            return TraverseAction::Replace(replacement);
-        }
-        TraverseAction::Proceed => {}
-    }
-    let children_stopped = 'traverse_children: {
-        let child = node.body(ctx.ast);
-        match <TypedSubRange<ClassElement> as TraverseWith<'a, State>>::traverse_with(
-            child, traverser, ctx,
-        ) {
-            TraverseAction::Stop => {
-                break 'traverse_children true;
-            }
-            TraverseAction::Replace(_) => {
-                unreachable!("sub-range traversal consumes child replacements")
-            }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
-        }
-        false
-    };
-    if children_stopped {
-        ctx.pop_node(node_id);
-        return TraverseAction::Stop;
-    }
-    traverser.exit_class_body(node, ctx);
-    traverser.exit_node(node_id, ctx);
-    ctx.pop_node(node_id);
-    TraverseAction::Proceed
-}
-#[inline]
 fn walk_method_definition<'a, State, T: ?Sized + Traverse<'a, State>>(
     node: MethodDefinition,
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<MethodDefinition> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<MethodDefinition>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_method_definition(node, ctx),
@@ -23223,7 +23137,7 @@ fn walk_property_definition<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<PropertyDefinition> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<PropertyDefinition>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_property_definition(node, ctx),
@@ -23306,7 +23220,7 @@ fn walk_static_block<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<StaticBlock> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<StaticBlock>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_static_block(node, ctx),
@@ -23356,7 +23270,7 @@ fn walk_function<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<Function> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<Function>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_function(node, ctx),
@@ -23451,7 +23365,7 @@ fn walk_function_body<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<FunctionBody> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<FunctionBody>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_function_body(node, ctx),
@@ -23513,7 +23427,7 @@ fn walk_block_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<BlockStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<BlockStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_block_statement(node, ctx),
@@ -23563,7 +23477,7 @@ fn walk_while_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<WhileStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<WhileStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_while_statement(node, ctx),
@@ -23622,7 +23536,7 @@ fn walk_do_while_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<DoWhileStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<DoWhileStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_do_while_statement(node, ctx),
@@ -23681,7 +23595,7 @@ fn walk_with_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<WithStatement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<WithStatement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_with_statement(node, ctx),
@@ -23740,7 +23654,7 @@ fn walk_formal_parameters<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<FormalParameters> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<FormalParameters>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_formal_parameters(node, ctx),
@@ -23803,7 +23717,7 @@ fn walk_formal_parameter<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<FormalParameter> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<FormalParameter>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_formal_parameter(node, ctx),
@@ -23854,7 +23768,7 @@ fn walk_array_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ArrayExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ArrayExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_array_expression(node, ctx),
@@ -23905,7 +23819,7 @@ fn walk_object_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ObjectExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ObjectExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_object_expression(node, ctx),
@@ -23956,7 +23870,7 @@ fn walk_spread_element<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<SpreadElement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<SpreadElement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_spread_element(node, ctx),
@@ -24005,7 +23919,7 @@ fn walk_object_property<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ObjectProperty> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ObjectProperty>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_object_property(node, ctx),
@@ -24064,7 +23978,7 @@ fn walk_parenthesized_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ParenthesizedExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ParenthesizedExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_parenthesized_expression(node, ctx),
@@ -24113,7 +24027,7 @@ fn walk_arrow_function_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ArrowFunctionExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ArrowFunctionExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_arrow_function_expression(node, ctx),
@@ -24196,7 +24110,7 @@ fn walk_sequence_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<SequenceExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<SequenceExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_sequence_expression(node, ctx),
@@ -24246,7 +24160,7 @@ fn walk_member_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<MemberExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<MemberExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_member_expression(node, ctx),
@@ -24305,7 +24219,7 @@ fn walk_call_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<CallExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<CallExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_call_expression(node, ctx),
@@ -24378,7 +24292,7 @@ fn walk_chain_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ChainExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ChainExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_chain_expression(node, ctx),
@@ -24427,7 +24341,7 @@ fn walk_tagged_template_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TaggedTemplateExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TaggedTemplateExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_tagged_template_expression(node, ctx),
@@ -24498,7 +24412,7 @@ fn walk_new_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<NewExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<NewExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_new_expression(node, ctx),
@@ -24571,7 +24485,7 @@ fn walk_await_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<AwaitExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<AwaitExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_await_expression(node, ctx),
@@ -24620,7 +24534,7 @@ fn walk_yield_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<YieldExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<YieldExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_yield_expression(node, ctx),
@@ -24669,7 +24583,7 @@ fn walk_meta_property<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<MetaProperty> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<MetaProperty>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_meta_property(node, ctx),
@@ -24728,7 +24642,7 @@ fn walk_import_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ImportExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ImportExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_import_expression(node, ctx),
@@ -24787,7 +24701,7 @@ fn walk_import_declaration<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ImportDeclaration> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ImportDeclaration>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_import_declaration(node, ctx),
@@ -24860,7 +24774,7 @@ fn walk_import_specifier<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ImportSpecifier> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ImportSpecifier>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_import_specifier(node, ctx),
@@ -24919,7 +24833,7 @@ fn walk_import_default_specifier<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ImportDefaultSpecifier> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ImportDefaultSpecifier>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_import_default_specifier(node, ctx),
@@ -24968,7 +24882,7 @@ fn walk_import_namespace_specifier<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ImportNamespaceSpecifier> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ImportNamespaceSpecifier>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_import_namespace_specifier(node, ctx),
@@ -25017,7 +24931,7 @@ fn walk_import_attribute<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ImportAttribute> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ImportAttribute>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_import_attribute(node, ctx),
@@ -25076,7 +24990,7 @@ fn walk_export_named_declaration<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ExportNamedDeclaration> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ExportNamedDeclaration>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_export_named_declaration(node, ctx),
@@ -25161,7 +25075,7 @@ fn walk_export_default_declaration<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ExportDefaultDeclaration> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ExportDefaultDeclaration>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_export_default_declaration(node, ctx),
@@ -25212,7 +25126,7 @@ fn walk_export_all_declaration<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ExportAllDeclaration> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ExportAllDeclaration>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_export_all_declaration(node, ctx),
@@ -25285,7 +25199,7 @@ fn walk_export_specifier<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<ExportSpecifier> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<ExportSpecifier>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_export_specifier(node, ctx),
@@ -25344,7 +25258,7 @@ fn walk_hashbang<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<Hashbang> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<Hashbang>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_hashbang(node, ctx),
@@ -25381,7 +25295,7 @@ fn walk_ts_function<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsFunction> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsFunction>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_function(node, ctx),
@@ -25466,7 +25380,7 @@ fn walk_ts_method_definition<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsMethodDefinition> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsMethodDefinition>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_method_definition(node, ctx),
@@ -25537,7 +25451,7 @@ fn walk_ts_type_annotation<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsTypeAnnotation> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsTypeAnnotation>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_type_annotation(node, ctx),
@@ -25586,7 +25500,7 @@ fn walk_ts_any_keyword<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsAnyKeyword> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsAnyKeyword>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_any_keyword(node, ctx),
@@ -25623,7 +25537,7 @@ fn walk_ts_unknown_keyword<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsUnknownKeyword> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsUnknownKeyword>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_unknown_keyword(node, ctx),
@@ -25660,7 +25574,7 @@ fn walk_ts_never_keyword<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsNeverKeyword> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsNeverKeyword>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_never_keyword(node, ctx),
@@ -25697,7 +25611,7 @@ fn walk_ts_void_keyword<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsVoidKeyword> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsVoidKeyword>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_void_keyword(node, ctx),
@@ -25734,7 +25648,7 @@ fn walk_ts_null_keyword<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsNullKeyword> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsNullKeyword>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_null_keyword(node, ctx),
@@ -25771,7 +25685,7 @@ fn walk_ts_undefined_keyword<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsUndefinedKeyword> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsUndefinedKeyword>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_undefined_keyword(node, ctx),
@@ -25808,7 +25722,7 @@ fn walk_ts_string_keyword<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsStringKeyword> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsStringKeyword>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_string_keyword(node, ctx),
@@ -25845,7 +25759,7 @@ fn walk_ts_number_keyword<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsNumberKeyword> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsNumberKeyword>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_number_keyword(node, ctx),
@@ -25882,7 +25796,7 @@ fn walk_ts_big_int_keyword<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsBigIntKeyword> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsBigIntKeyword>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_big_int_keyword(node, ctx),
@@ -25919,7 +25833,7 @@ fn walk_ts_boolean_keyword<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsBooleanKeyword> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsBooleanKeyword>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_boolean_keyword(node, ctx),
@@ -25956,7 +25870,7 @@ fn walk_ts_symbol_keyword<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsSymbolKeyword> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsSymbolKeyword>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_symbol_keyword(node, ctx),
@@ -25993,7 +25907,7 @@ fn walk_ts_object_keyword<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsObjectKeyword> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsObjectKeyword>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_object_keyword(node, ctx),
@@ -26030,7 +25944,7 @@ fn walk_ts_intrinsic_keyword<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsIntrinsicKeyword> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsIntrinsicKeyword>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_intrinsic_keyword(node, ctx),
@@ -26067,7 +25981,7 @@ fn walk_ts_this_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsThisType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsThisType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_this_type(node, ctx),
@@ -26104,7 +26018,7 @@ fn walk_ts_type_reference<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsTypeReference> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsTypeReference>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_type_reference(node, ctx),
@@ -26165,7 +26079,7 @@ fn walk_ts_qualified_name<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsQualifiedName> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsQualifiedName>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_qualified_name(node, ctx),
@@ -26225,7 +26139,7 @@ fn walk_ts_type_query<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsTypeQuery> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsTypeQuery>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_type_query(node, ctx),
@@ -26287,7 +26201,7 @@ fn walk_ts_import_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsImportType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsImportType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_import_type(node, ctx),
@@ -26370,7 +26284,7 @@ fn walk_ts_type_parameter<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsTypeParameter> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsTypeParameter>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_type_parameter(node, ctx),
@@ -26439,7 +26353,7 @@ fn walk_ts_type_parameter_declaration<'a, State, T: ?Sized + Traverse<'a, State>
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsTypeParameterDeclaration> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsTypeParameterDeclaration>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_type_parameter_declaration(node, ctx),
@@ -26490,7 +26404,7 @@ fn walk_ts_type_parameter_instantiation<'a, State, T: ?Sized + Traverse<'a, Stat
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsTypeParameterInstantiation> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsTypeParameterInstantiation>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_type_parameter_instantiation(node, ctx),
@@ -26541,7 +26455,7 @@ fn walk_ts_literal_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsLiteralType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsLiteralType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_literal_type(node, ctx),
@@ -26590,7 +26504,7 @@ fn walk_ts_template_literal_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsTemplateLiteralType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsTemplateLiteralType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_template_literal_type(node, ctx),
@@ -26653,7 +26567,7 @@ fn walk_ts_array_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsArrayType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsArrayType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_array_type(node, ctx),
@@ -26702,7 +26616,7 @@ fn walk_ts_indexed_access_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsIndexedAccessType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsIndexedAccessType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_indexed_access_type(node, ctx),
@@ -26761,7 +26675,7 @@ fn walk_ts_tuple_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsTupleType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsTupleType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_tuple_type(node, ctx),
@@ -26812,7 +26726,7 @@ fn walk_ts_named_tuple_member<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsNamedTupleMember> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsNamedTupleMember>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_named_tuple_member(node, ctx),
@@ -26871,7 +26785,7 @@ fn walk_ts_optional_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsOptionalType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsOptionalType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_optional_type(node, ctx),
@@ -26920,7 +26834,7 @@ fn walk_ts_rest_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsRestType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsRestType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_rest_type(node, ctx),
@@ -26969,7 +26883,7 @@ fn walk_ts_js_doc_nullable_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsJsDocNullableType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsJsDocNullableType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_js_doc_nullable_type(node, ctx),
@@ -27018,7 +26932,7 @@ fn walk_ts_js_doc_non_nullable_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsJsDocNonNullableType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsJsDocNonNullableType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_js_doc_non_nullable_type(node, ctx),
@@ -27067,7 +26981,7 @@ fn walk_ts_js_doc_unknown_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsJsDocUnknownType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsJsDocUnknownType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_js_doc_unknown_type(node, ctx),
@@ -27104,7 +27018,7 @@ fn walk_ts_union_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsUnionType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsUnionType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_union_type(node, ctx),
@@ -27155,7 +27069,7 @@ fn walk_ts_intersection_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsIntersectionType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsIntersectionType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_intersection_type(node, ctx),
@@ -27206,7 +27120,7 @@ fn walk_ts_conditional_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsConditionalType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsConditionalType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_conditional_type(node, ctx),
@@ -27285,7 +27199,7 @@ fn walk_ts_infer_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsInferType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsInferType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_infer_type(node, ctx),
@@ -27334,7 +27248,7 @@ fn walk_ts_type_operator<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsTypeOperator> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsTypeOperator>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_type_operator(node, ctx),
@@ -27383,7 +27297,7 @@ fn walk_ts_parenthesized_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsParenthesizedType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsParenthesizedType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_parenthesized_type(node, ctx),
@@ -27432,7 +27346,7 @@ fn walk_ts_function_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsFunctionType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsFunctionType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_function_type(node, ctx),
@@ -27503,7 +27417,7 @@ fn walk_ts_constructor_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsConstructorType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsConstructorType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_constructor_type(node, ctx),
@@ -27574,7 +27488,7 @@ fn walk_ts_type_predicate<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsTypePredicate> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsTypePredicate>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_type_predicate(node, ctx),
@@ -27636,7 +27550,7 @@ fn walk_ts_type_literal<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsTypeLiteral> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsTypeLiteral>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_type_literal(node, ctx),
@@ -27687,7 +27601,7 @@ fn walk_ts_mapped_type<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsMappedType> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsMappedType>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_mapped_type(node, ctx),
@@ -27766,7 +27680,7 @@ fn walk_ts_property_signature<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsPropertySignature> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsPropertySignature>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_property_signature(node, ctx),
@@ -27827,7 +27741,7 @@ fn walk_ts_method_signature<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsMethodSignature> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsMethodSignature>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_method_signature(node, ctx),
@@ -27910,7 +27824,7 @@ fn walk_ts_call_signature_declaration<'a, State, T: ?Sized + Traverse<'a, State>
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsCallSignatureDeclaration> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsCallSignatureDeclaration>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_call_signature_declaration(node, ctx),
@@ -27983,7 +27897,7 @@ fn walk_ts_construct_signature_declaration<'a, State, T: ?Sized + Traverse<'a, S
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsConstructSignatureDeclaration> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsConstructSignatureDeclaration>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_construct_signature_declaration(node, ctx),
@@ -28056,7 +27970,7 @@ fn walk_ts_index_signature<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsIndexSignature> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsIndexSignature>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_index_signature(node, ctx),
@@ -28117,7 +28031,7 @@ fn walk_ts_type_alias_declaration<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsTypeAliasDeclaration> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsTypeAliasDeclaration>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_type_alias_declaration(node, ctx),
@@ -28188,7 +28102,7 @@ fn walk_ts_interface_declaration<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsInterfaceDeclaration> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsInterfaceDeclaration>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_interface_declaration(node, ctx),
@@ -28271,7 +28185,7 @@ fn walk_ts_interface_body<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsInterfaceBody> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsInterfaceBody>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_interface_body(node, ctx),
@@ -28322,7 +28236,7 @@ fn walk_ts_interface_heritage<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsInterfaceHeritage> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsInterfaceHeritage>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_interface_heritage(node, ctx),
@@ -28383,7 +28297,7 @@ fn walk_ts_class_implements<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsClassImplements> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsClassImplements>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_class_implements(node, ctx),
@@ -28444,7 +28358,7 @@ fn walk_ts_enum_declaration<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsEnumDeclaration> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsEnumDeclaration>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_enum_declaration(node, ctx),
@@ -28503,7 +28417,7 @@ fn walk_ts_enum_body<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsEnumBody> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsEnumBody>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_enum_body(node, ctx),
@@ -28554,7 +28468,7 @@ fn walk_ts_enum_member<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsEnumMember> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsEnumMember>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_enum_member(node, ctx),
@@ -28613,7 +28527,7 @@ fn walk_ts_module_declaration<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsModuleDeclaration> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsModuleDeclaration>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_module_declaration(node, ctx),
@@ -28674,7 +28588,7 @@ fn walk_ts_module_block<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsModuleBlock> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsModuleBlock>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_module_block(node, ctx),
@@ -28736,7 +28650,7 @@ fn walk_ts_global_declaration<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsGlobalDeclaration> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsGlobalDeclaration>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_global_declaration(node, ctx),
@@ -28795,7 +28709,7 @@ fn walk_ts_parameter_property<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsParameterProperty> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsParameterProperty>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_parameter_property(node, ctx),
@@ -28856,7 +28770,7 @@ fn walk_ts_this_parameter<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsThisParameter> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsThisParameter>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_this_parameter(node, ctx),
@@ -28907,7 +28821,7 @@ fn walk_ts_as_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsAsExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsAsExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_as_expression(node, ctx),
@@ -28966,7 +28880,7 @@ fn walk_ts_satisfies_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsSatisfiesExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsSatisfiesExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_satisfies_expression(node, ctx),
@@ -29025,7 +28939,7 @@ fn walk_ts_type_assertion<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsTypeAssertion> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsTypeAssertion>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_type_assertion(node, ctx),
@@ -29084,7 +28998,7 @@ fn walk_ts_non_null_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsNonNullExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsNonNullExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_non_null_expression(node, ctx),
@@ -29133,7 +29047,7 @@ fn walk_ts_instantiation_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsInstantiationExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsInstantiationExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_instantiation_expression(node, ctx),
@@ -29194,7 +29108,7 @@ fn walk_ts_export_assignment<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsExportAssignment> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsExportAssignment>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_export_assignment(node, ctx),
@@ -29243,7 +29157,7 @@ fn walk_ts_namespace_export_declaration<'a, State, T: ?Sized + Traverse<'a, Stat
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsNamespaceExportDeclaration> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsNamespaceExportDeclaration>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_namespace_export_declaration(node, ctx),
@@ -29292,7 +29206,7 @@ fn walk_ts_import_equals_declaration<'a, State, T: ?Sized + Traverse<'a, State>>
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsImportEqualsDeclaration> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsImportEqualsDeclaration>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_import_equals_declaration(node, ctx),
@@ -29351,7 +29265,7 @@ fn walk_ts_external_module_reference<'a, State, T: ?Sized + Traverse<'a, State>>
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<TsExternalModuleReference> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<TsExternalModuleReference>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_ts_external_module_reference(node, ctx),
@@ -29400,7 +29314,7 @@ fn walk_jsx_element<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<JsxElement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<JsxElement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_jsx_element(node, ctx),
@@ -29473,7 +29387,7 @@ fn walk_jsx_opening_element<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<JsxOpeningElement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<JsxOpeningElement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_jsx_opening_element(node, ctx),
@@ -29546,7 +29460,7 @@ fn walk_jsx_closing_element<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<JsxClosingElement> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<JsxClosingElement>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_jsx_closing_element(node, ctx),
@@ -29595,7 +29509,7 @@ fn walk_jsx_fragment<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<JsxFragment> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<JsxFragment>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_jsx_fragment(node, ctx),
@@ -29668,7 +29582,7 @@ fn walk_jsx_opening_fragment<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<JsxOpeningFragment> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<JsxOpeningFragment>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_jsx_opening_fragment(node, ctx),
@@ -29705,7 +29619,7 @@ fn walk_jsx_closing_fragment<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<JsxClosingFragment> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<JsxClosingFragment>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_jsx_closing_fragment(node, ctx),
@@ -29742,7 +29656,7 @@ fn walk_jsx_identifier<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<JsxIdentifier> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<JsxIdentifier>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_jsx_identifier(node, ctx),
@@ -29779,7 +29693,7 @@ fn walk_jsx_namespaced_name<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<JsxNamespacedName> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<JsxNamespacedName>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_jsx_namespaced_name(node, ctx),
@@ -29838,7 +29752,7 @@ fn walk_jsx_member_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<JsxMemberExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<JsxMemberExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_jsx_member_expression(node, ctx),
@@ -29899,7 +29813,7 @@ fn walk_jsx_attribute<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<JsxAttribute> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<JsxAttribute>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_jsx_attribute(node, ctx),
@@ -29960,7 +29874,7 @@ fn walk_jsx_spread_attribute<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<JsxSpreadAttribute> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<JsxSpreadAttribute>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_jsx_spread_attribute(node, ctx),
@@ -30009,7 +29923,7 @@ fn walk_jsx_expression_container<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<JsxExpressionContainer> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<JsxExpressionContainer>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_jsx_expression_container(node, ctx),
@@ -30058,7 +29972,7 @@ fn walk_jsx_empty_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<JsxEmptyExpression> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<JsxEmptyExpression>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_jsx_empty_expression(node, ctx),
@@ -30095,7 +30009,7 @@ fn walk_jsx_text<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<JsxText> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<JsxText>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_jsx_text(node, ctx),
@@ -30132,7 +30046,7 @@ fn walk_jsx_spread_child<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) -> TraverseAction<JsxSpreadChild> {
-    let node_id = node.node_id();
+    let node_id = node.ast_id();
     ctx.push_node(node_id);
     let action = match traverser.enter_node::<JsxSpreadChild>(node_id, ctx) {
         TraverseAction::Proceed => traverser.enter_jsx_spread_child(node, ctx),

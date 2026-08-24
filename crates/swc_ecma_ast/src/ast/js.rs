@@ -3,7 +3,7 @@ use std::mem;
 use swc_next_ast_macros::ast;
 
 use super::{jsx::*, ts::*};
-use crate::{Ast, ExtraData, node_id::ExtraDataCompact};
+use crate::{Ast, ClassId, ExtraData, Span, TypedNodeRange, node_id::ExtraDataCompact};
 
 macro_rules! impl_extra_data_compact {
     ($($ty:ty),+ $(,)?) => {
@@ -1333,7 +1333,7 @@ pub struct Decorator {
 ///
 /// `@dec class` populates `decorators`. `abstract class` sets `abstract`.
 /// `declare class` sets `declare`.
-#[ast]
+#[ast(storage = class, id = ClassId)]
 pub struct Class {
     class_type: ClassType,
     /// `decorator[]`
@@ -1351,27 +1351,44 @@ pub struct Class {
     /// `ts_class_implements[]`. Empty when the class has no `implements`
     /// clause.
     implements: Vec<TsClassImplements>,
-    /// `class_body`
-    body: ClassBody,
+    /// Span of the logical `{ ... }` class body boundary.
+    body_span: Span,
+    /// `method_definition`, `property_definition`, `static_block`, or `ts_index_signature`
+    body: Vec<ClassElement>,
     r#abstract: bool,
     /// true for `declare class`.
     declare: bool,
 }
 
-/// The `{ ... }` body of a class, holding its members.
+/// A zero-allocation view of a class's logical `{ ... }` body boundary.
 ///
-/// ## Example
-/// ```js
-/// class C {
-///   a;
-///   b() {}
-///   static {}
-/// }
-/// ```
-#[ast]
-pub struct ClassBody {
-    /// `method_definition`, `property_definition`, `static_block`, or `ts_index_signature`
-    body: Vec<ClassElement>,
+/// The body no longer occupies a common AST node. This view preserves the
+/// public Rust API while addressing the owning [`Class`] through its typed
+/// [`ClassId`].
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClassBody(pub(crate) ClassId);
+
+impl ClassBody {
+    #[inline]
+    pub const fn id(self) -> ClassId {
+        self.0
+    }
+
+    #[inline]
+    pub fn span(self, ast: &Ast<'_>) -> Span {
+        ast.class_data(self.0).body_span
+    }
+
+    #[inline]
+    pub fn body(self, ast: &Ast<'_>) -> TypedNodeRange<ClassElement> {
+        ast.class_data(self.0).body
+    }
+
+    #[inline]
+    pub fn set_body(self, ast: &mut Ast<'_>, value: TypedNodeRange<ClassElement>) {
+        ast.class_data_mut(self.0).body = value;
+    }
 }
 
 /// A method, getter, setter, or constructor in a class body.

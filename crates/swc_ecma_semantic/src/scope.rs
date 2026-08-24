@@ -1,8 +1,8 @@
 use oxc_index::Idx;
 use swc_next_allocator::vec::Vec as ArenaVec;
 use swc_next_ecma_ast::{
-    ArrowFunctionExpression, Ast, Class, ClassType, Directive, Function, FunctionBody,
-    FunctionType, NodeId, NodeKindData, ScopeId, SourceType,
+    ArrowFunctionExpression, Ast, AstId, ClassId, ClassType, Directive, Function, FunctionBody,
+    FunctionType, NodeKindData, ScopeId, SourceType,
 };
 
 use crate::ecmascript;
@@ -19,7 +19,7 @@ use crate::ecmascript;
 #[derive(Debug, Clone, Copy)]
 pub struct Scope {
     /// The AST node that created this scope.
-    pub node: NodeId,
+    pub node: AstId,
     /// Parent scope, or `None` for the root.
     pub parent: Option<ScopeId>,
     /// Nearest ancestor (or self) where `var` declarations hoist to.
@@ -174,11 +174,11 @@ impl<'a> ScopeTracker<'a> {
             active_with_scopes: Vec::new(),
             decorator_saved: Vec::new(),
         };
-        tracker.push_root(root.node_id(), tree.source_type());
+        tracker.push_root(root.ast_id(), tree.source_type());
         tracker
     }
 
-    fn push_root(&mut self, root_node: NodeId, source_type: SourceType) {
+    fn push_root(&mut self, root_node: AstId, source_type: SourceType) {
         debug_assert!(self.scopes.is_empty());
         self.scopes.push(Scope {
             node: root_node,
@@ -210,7 +210,7 @@ impl<'a> ScopeTracker<'a> {
         }
     }
 
-    pub fn push_scope(&mut self, kind: ScopeKind, node: NodeId, flags: ScopeFlags) {
+    pub fn push_scope(&mut self, kind: ScopeKind, node: AstId, flags: ScopeFlags) {
         // The current length is the about-to-be-assigned id and must fit u32.
         debug_assert!(self.scopes.len() < u32::MAX as usize);
         let id = ScopeId::from_usize(self.scopes.len());
@@ -258,21 +258,21 @@ impl<'a> ScopeTracker<'a> {
         // Use the function node as the scope creator so `exit_scope` removes
         // this scope together with the function scope below.
         if annex_b_if_body && !flags.strict {
-            self.push_scope(ScopeKind::Block, function.node_id(), flags);
+            self.push_scope(ScopeKind::Block, function.ast_id(), flags);
         }
         if is_named_function_expression(tree, function) {
             // The expression-name scope sits between outer and body.
-            self.push_scope(ScopeKind::ExpressionName, function.node_id(), flags);
+            self.push_scope(ScopeKind::ExpressionName, function.ast_id(), flags);
         }
-        self.push_scope(ScopeKind::Function, function.node_id(), flags);
+        self.push_scope(ScopeKind::Function, function.ast_id(), flags);
     }
 
-    pub fn enter_ts_function(&mut self, node: NodeId) {
+    pub fn enter_ts_function(&mut self, node: AstId) {
         self.push_scope(ScopeKind::Function, node, self.inherit_strict_flag());
     }
 
     pub fn enter_arrow_function_expression(&mut self, tree: &Ast, arrow: ArrowFunctionExpression) {
-        let body = arrow.body(tree).node_id();
+        let body = arrow.body(tree).ast_id();
         let flags = match tree.kind_data(body) {
             NodeKindData::FunctionBody(body) if self.has_retroactive_use_strict(tree, body) => {
                 ScopeFlags {
@@ -282,10 +282,10 @@ impl<'a> ScopeTracker<'a> {
             }
             _ => self.inherit_strict_flag(),
         };
-        self.push_scope(ScopeKind::Function, arrow.node_id(), flags);
+        self.push_scope(ScopeKind::Function, arrow.ast_id(), flags);
     }
 
-    pub fn enter_function_body(&mut self, tree: &Ast, body: FunctionBody, parent: Option<NodeId>) {
+    pub fn enter_function_body(&mut self, tree: &Ast, body: FunctionBody, parent: Option<AstId>) {
         // Pushed only when the parent function's parameter list
         // contains expressions; see ScopeKind::FunctionBody.
         let Some(parent) = parent else { return };
@@ -297,13 +297,13 @@ impl<'a> ScopeTracker<'a> {
         if ecmascript::find_parameter_expression(tree, params).is_some() {
             self.push_scope(
                 ScopeKind::FunctionBody,
-                body.node_id(),
+                body.ast_id(),
                 self.inherit_strict_flag(),
             );
         }
     }
 
-    pub fn enter_block_statement(&mut self, tree: &Ast, node: NodeId) {
+    pub fn enter_block_statement(&mut self, tree: &Ast, node: AstId) {
         // 14.15.2 gives catch parameters and the block separate
         // environments. Folding them is unobservable and makes the
         // 14.15.1 conflict a single-scope lookup, except when a
@@ -317,9 +317,9 @@ impl<'a> ScopeTracker<'a> {
         };
         let shares_catch_scope = self.current_scope().kind == ScopeKind::Block
             && catch.is_some_and(|catch| {
-                catch.body(tree).node_id() == node
+                catch.body(tree).ast_id() == node
                     && catch.param(tree).is_none_or(|param| {
-                        ecmascript::find_pattern_expression(tree, Some(param.node_id())).is_none()
+                        ecmascript::find_pattern_expression(tree, Some(param.ast_id())).is_none()
                     })
             });
         if !shares_catch_scope {
@@ -327,7 +327,7 @@ impl<'a> ScopeTracker<'a> {
         }
     }
 
-    pub fn enter_switch_case(&mut self, parent: Option<NodeId>) {
+    pub fn enter_switch_case(&mut self, parent: Option<AstId>) {
         // One case-block scope per switch, shared by every case and
         // created at the first case. Per 14.12.4, the discriminant
         // evaluates before this environment exists:
@@ -340,22 +340,22 @@ impl<'a> ScopeTracker<'a> {
         }
     }
 
-    pub fn enter_ts_enum_body(&mut self, node: NodeId) {
+    pub fn enter_ts_enum_body(&mut self, node: AstId) {
         // TSC resolves unqualified member references inside the body.
         self.enter_block_scope(node);
     }
 
-    pub fn enter_block_scope(&mut self, node: NodeId) {
+    pub fn enter_block_scope(&mut self, node: AstId) {
         self.push_scope(ScopeKind::Block, node, self.inherit_strict_flag());
     }
 
-    pub fn enter_with_scope(&mut self, node: NodeId) {
+    pub fn enter_with_scope(&mut self, node: AstId) {
         self.has_with_statement = true;
         self.push_scope(ScopeKind::With, node, self.inherit_strict_flag());
         self.active_with_scopes.push(self.current);
     }
 
-    pub fn exit_with_scope(&mut self, node: NodeId) {
+    pub fn exit_with_scope(&mut self, node: AstId) {
         let scope = self.current_scope();
         debug_assert_eq!(scope.node, node);
         debug_assert_eq!(scope.kind, ScopeKind::With);
@@ -364,23 +364,23 @@ impl<'a> ScopeTracker<'a> {
         self.pop_scope();
     }
 
-    pub fn enter_ts_module_block(&mut self, node: NodeId) {
+    pub fn enter_ts_module_block(&mut self, node: AstId) {
         self.push_scope(ScopeKind::TsModule, node, self.inherit_strict_flag());
     }
 
-    pub fn enter_class(&mut self, tree: &Ast, class: Class) {
+    pub fn enter_class(&mut self, tree: &Ast, class: ClassId) {
         // Classes are always strict mode (section 15.7.14).
         let flags = ScopeFlags {
             strict: true,
             ..ScopeFlags::default()
         };
         if is_named_class_expression(tree, class) {
-            self.push_scope(ScopeKind::ExpressionName, class.node_id(), flags);
+            self.push_scope(ScopeKind::ExpressionName, class.ast_id(), flags);
         }
-        self.push_scope(ScopeKind::Class, class.node_id(), flags);
+        self.push_scope(ScopeKind::Class, class.ast_id(), flags);
     }
 
-    pub fn enter_static_block(&mut self, node: NodeId) {
+    pub fn enter_static_block(&mut self, node: AstId) {
         self.push_scope(ScopeKind::StaticBlock, node, self.inherit_strict_flag());
     }
 
@@ -434,7 +434,7 @@ impl<'a> ScopeTracker<'a> {
     // A node pops exactly the scopes recording it as creator. Two for a
     // named function or class expression, zero for a shared or never-created
     // scope. Cannot drift from `enter`.
-    pub fn exit_scope(&mut self, node: NodeId) {
+    pub fn exit_scope(&mut self, node: AstId) {
         while self.current.index() != 0 && self.current_scope().node == node {
             self.pop_scope();
         }
@@ -531,6 +531,6 @@ fn is_named_function_expression(tree: &Ast<'_>, function: Function) -> bool {
     function.function_type(tree) == FunctionType::FunctionExpression && function.id(tree).is_some()
 }
 
-fn is_named_class_expression(tree: &Ast<'_>, class: Class) -> bool {
+fn is_named_class_expression(tree: &Ast<'_>, class: ClassId) -> bool {
     class.class_type(tree) != ClassType::ClassDeclaration && class.id(tree).is_some()
 }

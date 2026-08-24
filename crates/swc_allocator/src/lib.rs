@@ -150,6 +150,11 @@ impl Allocator {
         self.arena.reset();
     }
 
+    /// Total bytes currently owned by the bump arena, excluding allocator metadata.
+    pub fn allocated_bytes(&self) -> usize {
+        self.arena.allocated_bytes()
+    }
+
     pub fn alloc<T>(&self, value: T) -> &mut T {
         self.arena.alloc(value)
     }

@@ -1,4 +1,4 @@
-use swc_next_ecma_ast::Class;
+use swc_next_ecma_ast::ClassId;
 use swc_next_ecma_semantic::Semantic;
 
 use crate::state::TransformerCtx;
@@ -23,7 +23,7 @@ impl ES2022 {
 
     pub(crate) fn exit_class<'a>(
         &mut self,
-        class: Class,
+        class: ClassId,
         semantic: &mut Semantic<'a>,
         ctx: &mut TransformerCtx<'_, 'a>,
     ) {

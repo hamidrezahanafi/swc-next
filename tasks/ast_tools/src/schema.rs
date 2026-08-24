@@ -41,7 +41,10 @@ impl AstType {
 
     pub fn repr_ident<'a>(&'a self, schema: &'a Schema) -> TokenStream {
         match self {
-            AstType::Struct(ast) => format_ident!("{}", &ast.name).into_token_stream(),
+            AstType::Struct(ast) => match &ast.storage {
+                StorageDomain::Common => format_ident!("{}", &ast.name).into_token_stream(),
+                StorageDomain::Dedicated { id, .. } => format_ident!("{id}").into_token_stream(),
+            },
             AstType::Enum(ast) => format_ident!("{}", &ast.name).into_token_stream(),
             AstType::Vec(ast) => {
                 let name = format_ident!("TypedSubRange");
@@ -70,7 +73,20 @@ pub struct AstStruct {
     pub type_id: TypeId,
     pub name: String,
     pub fields: Vec<AstStructField>,
+    pub storage: StorageDomain,
     pub _attrs: AstAttrs,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StorageDomain {
+    Common,
+    Dedicated { name: String, id: String },
+}
+
+impl StorageDomain {
+    pub fn is_common(&self) -> bool {
+        matches!(self, Self::Common)
+    }
 }
 
 #[derive(Debug)]
@@ -126,6 +142,8 @@ pub struct AstPrimitive {
 pub struct AstAttrs {
     pub ast_attrs: HashSet<String>,
     pub generate_derives: HashSet<String>,
+    pub storage: Option<String>,
+    pub id: Option<String>,
 }
 
 #[derive(Debug, Default)]

@@ -1,9 +1,9 @@
 use crate::{
-    Accessibility, AssignmentOperator, Ast, AstUtf8, AstWtf8, BinaryOperator, ClassType,
+    Accessibility, AssignmentOperator, Ast, AstEdge, AstUtf8, AstWtf8, BinaryOperator, ClassType,
     FormalParameterKind, FunctionType, ImportOrExportKind, ImportPhase, LogicalOperator,
     MethodDefinitionKind, PropertyKind, SourceType, Span, TsMappedTypeModifier,
     TsMethodSignatureKind, TsModuleDeclarationKind, TsTypeOperatorKind, TypedSubRange,
-    UnaryOperator, UpdateOperator, VariableKind, node_id::ExtraDataCompact,
+    UnaryOperator, UpdateOperator, VariableKind,
 };
 
 pub trait CloneIn<'a>: Sized {
@@ -68,8 +68,8 @@ impl<'a, C, T: CloneIn<'a, Cloned = C>> CloneIn<'a> for Option<T> {
 
 impl<'a, C, T> CloneIn<'a> for TypedSubRange<T>
 where
-    C: ExtraDataCompact<'a>,
-    T: CloneIn<'a, Cloned = C> + ExtraDataCompact<'a>,
+    C: AstEdge,
+    T: AstEdge + CloneIn<'a, Cloned = C>,
 {
     type Cloned = TypedSubRange<C>;
 

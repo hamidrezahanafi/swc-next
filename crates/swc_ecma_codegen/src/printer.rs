@@ -2801,7 +2801,7 @@ impl<'a> Printer<'a> {
         self.forbid_in = old_forbid_in;
     }
 
-    fn print_class(&mut self, c: Class, declaration: bool) {
+    fn print_class(&mut self, c: ClassId, declaration: bool) {
         let is_expression = c.class_type(self.ast) == ClassType::ClassExpression;
         let offset = self.js.len();
         let wrap =

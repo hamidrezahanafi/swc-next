@@ -6,7 +6,7 @@ use super::ast_node::concrete_node_kinds;
 use crate::{
     AST_CRATE_PATH,
     output::{RawOutput, RustOutput, output_path},
-    schema::{AstEnum, AstStruct, AstStructField, AstType, Schema},
+    schema::{AstEnum, AstStruct, AstStructField, AstType, Schema, StorageDomain},
     util::{
         EXTRA_DATA_ID_BIT_OFFSET, InlineLayout, InlineStorageMode, calculate_inline_layout,
         generate_field_to_u32, generate_field_to_u64, generate_u32_to_field, generate_u64_to_field,
@@ -43,6 +43,106 @@ pub fn ast_property(schema: &Schema) -> RawOutput {
 
 fn generate_property_for_struct(ast: &AstStruct, schema: &Schema) -> TokenStream {
     let name = format_ident!("{}", ast.name);
+
+    if let StorageDomain::Dedicated { name: storage, .. } = &ast.storage {
+        assert_eq!(storage, "class");
+        return quote! {
+            impl ClassId {
+                #[inline]
+                pub fn class_type(self, ast: &Ast<'_>) -> ClassType {
+                    ast.class_data(self).class_type
+                }
+                #[inline]
+                pub fn set_class_type(self, ast: &mut Ast<'_>, value: ClassType) {
+                    ast.class_data_mut(self).class_type = value;
+                }
+                #[inline]
+                pub fn decorators(self, ast: &Ast<'_>) -> TypedNodeRange<Decorator> {
+                    ast.class_data(self).decorators
+                }
+                #[inline]
+                pub fn set_decorators(self, ast: &mut Ast<'_>, value: TypedNodeRange<Decorator>) {
+                    ast.class_data_mut(self).decorators = value;
+                }
+                #[inline]
+                pub fn id(self, ast: &Ast<'_>) -> Option<BindingIdentifier> {
+                    ast.class_data(self).id
+                }
+                #[inline]
+                pub fn set_id(self, ast: &mut Ast<'_>, value: Option<BindingIdentifier>) {
+                    ast.class_data_mut(self).id = value;
+                }
+                #[inline]
+                pub fn type_parameters(self, ast: &Ast<'_>) -> Option<TsTypeParameterDeclaration> {
+                    ast.class_data(self).type_parameters
+                }
+                #[inline]
+                pub fn set_type_parameters(self, ast: &mut Ast<'_>, value: Option<TsTypeParameterDeclaration>) {
+                    ast.class_data_mut(self).type_parameters = value;
+                }
+                #[inline]
+                pub fn super_class(self, ast: &Ast<'_>) -> Option<Expr> {
+                    ast.class_data(self).super_class
+                }
+                #[inline]
+                pub fn set_super_class(self, ast: &mut Ast<'_>, value: Option<Expr>) {
+                    ast.class_data_mut(self).super_class = value;
+                }
+                #[inline]
+                pub fn super_type_arguments(self, ast: &Ast<'_>) -> Option<TsTypeParameterInstantiation> {
+                    ast.class_data(self).super_type_arguments
+                }
+                #[inline]
+                pub fn set_super_type_arguments(self, ast: &mut Ast<'_>, value: Option<TsTypeParameterInstantiation>) {
+                    ast.class_data_mut(self).super_type_arguments = value;
+                }
+                #[inline]
+                pub fn implements(self, ast: &Ast<'_>) -> TypedNodeRange<TsClassImplements> {
+                    ast.class_data(self).implements
+                }
+                #[inline]
+                pub fn set_implements(self, ast: &mut Ast<'_>, value: TypedNodeRange<TsClassImplements>) {
+                    ast.class_data_mut(self).implements = value;
+                }
+                #[inline]
+                pub fn body_span(self, ast: &Ast<'_>) -> Span {
+                    ast.class_data(self).body_span
+                }
+                #[inline]
+                pub fn set_body_span(self, ast: &mut Ast<'_>, value: Span) {
+                    ast.class_data_mut(self).body_span = value;
+                }
+                #[inline]
+                pub fn body(self, _ast: &Ast<'_>) -> ClassBody {
+                    ClassBody(self)
+                }
+                #[inline]
+                pub fn body_elements(self, ast: &Ast<'_>) -> TypedNodeRange<ClassElement> {
+                    ast.class_data(self).body
+                }
+                #[inline]
+                pub fn set_body_elements(self, ast: &mut Ast<'_>, value: TypedNodeRange<ClassElement>) {
+                    ast.class_data_mut(self).body = value;
+                }
+                #[inline]
+                pub fn r#abstract(self, ast: &Ast<'_>) -> bool {
+                    ast.class_data(self).r#abstract
+                }
+                #[inline]
+                pub fn set_abstract(self, ast: &mut Ast<'_>, value: bool) {
+                    ast.class_data_mut(self).r#abstract = value;
+                }
+                #[inline]
+                pub fn declare(self, ast: &Ast<'_>) -> bool {
+                    ast.class_data(self).declare
+                }
+                #[inline]
+                pub fn set_declare(self, ast: &mut Ast<'_>, value: bool) {
+                    ast.class_data_mut(self).declare = value;
+                }
+            }
+        };
+    }
 
     let mut field_getters = TokenStream::new();
     let mut field_setters = TokenStream::new();

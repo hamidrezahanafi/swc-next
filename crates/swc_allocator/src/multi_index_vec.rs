@@ -172,6 +172,7 @@ macro_rules! multi_index_vec {
             }
 
             #[inline(always)]
+            #[allow(clippy::too_many_arguments)]
             $vis fn push(&mut self, $( $fname: $fty ),*) -> $idx {
                 if self.len == self.cap {
                     let min_cap = (self.len as usize)

@@ -829,8 +829,8 @@ impl<'a> CloneIn<'a> for Decorator {
         ast.decorator(span, expression)
     }
 }
-impl<'a> CloneIn<'a> for Class {
-    type Cloned = Class;
+impl<'a> CloneIn<'a> for ClassId {
+    type Cloned = ClassId;
     #[inline]
     fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
@@ -841,7 +841,8 @@ impl<'a> CloneIn<'a> for Class {
         let super_class = self.super_class(ast).clone_in(ast);
         let super_type_arguments = self.super_type_arguments(ast).clone_in(ast);
         let implements = self.implements(ast).clone_in(ast);
-        let body = self.body(ast).clone_in(ast);
+        let body_span = self.body_span(ast).clone_in(ast);
+        let body = self.body_elements(ast).clone_in(ast);
         let r#abstract = self.r#abstract(ast).clone_in(ast);
         let declare = self.declare(ast).clone_in(ast);
         ast.class(
@@ -853,19 +854,11 @@ impl<'a> CloneIn<'a> for Class {
             super_class,
             super_type_arguments,
             implements,
+            body_span,
             body,
             r#abstract,
             declare,
         )
-    }
-}
-impl<'a> CloneIn<'a> for ClassBody {
-    type Cloned = ClassBody;
-    #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let span = self.span(ast).clone_in(ast);
-        let body = self.body(ast).clone_in(ast);
-        ast.class_body(span, body)
     }
 }
 impl<'a> CloneIn<'a> for MethodDefinition {

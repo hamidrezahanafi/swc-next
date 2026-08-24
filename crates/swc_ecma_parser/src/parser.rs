@@ -191,7 +191,7 @@ impl Default for ReportOptions {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct ScratchBuffer {
-    items: Vec<NodeId>,
+    items: Vec<AstId>,
 }
 
 impl ScratchBuffer {
@@ -199,8 +199,8 @@ impl ScratchBuffer {
         self.items.len()
     }
 
-    fn append(&mut self, index: impl AstNode) {
-        self.items.push(index.node_id());
+    fn append(&mut self, index: impl CommonAstNode) {
+        self.items.push(index.ast_id());
     }
 
     fn reset(&mut self, checkpoint: usize) {
@@ -656,6 +656,8 @@ struct Checkpoint {
     current_token: Token,
     // Append-only AST storage.
     nodes_len: usize,
+    classes_len: usize,
+    node_edges_len: usize,
     extra_len: usize,
     diagnostics_len: usize,
     // Parser flags, copied by value.
@@ -714,6 +716,12 @@ impl<C: ParserConfig> Drop for Peek<'_, '_, C> {
             self.restore();
         }
     }
+}
+
+fn estimate_class_capacity(source_len: usize) -> usize {
+    // Reserve from source size only. This avoids scanning every byte before
+    // parsing the first class while keeping a modest floor for small files.
+    (source_len / 64).max(4)
 }
 
 fn estimate_ast_capacity(source_len: usize) -> (usize, usize) {
@@ -815,6 +823,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             .program(Span::new(0, end), directives, body, hashbang);
         if !self.preserve_parens {
             strip_parenthesized_nodes(&mut self.ast, &mut self.lexer.comments);
+            let mut stripper = DedicatedParenthesisStripper { ast: &mut self.ast };
+            program.visit_mut_children_with(&mut stripper);
         }
 
         if self.comment_mode == CommentMode::Flat {
@@ -853,9 +863,13 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         match expr {
             Some(expr) if self.diagnostics.is_empty() => {
                 self.resolve_unambiguous_source_type();
-                if !self.preserve_parens {
+                let expr = if !self.preserve_parens {
                     strip_parenthesized_nodes(&mut self.ast, &mut self.lexer.comments);
-                }
+                    let mut stripper = DedicatedParenthesisStripper { ast: &mut self.ast };
+                    expr.visit_mut_with(&mut stripper).unwrap_or(expr)
+                } else {
+                    expr
+                };
 
                 if self.comment_mode == CommentMode::Flat {
                     self.ast.set_attached_comments(self.lexer.comments);
@@ -980,11 +994,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         N: AstNode + ExtraDataCompact<'a>,
     {
         debug_assert!(scratch_checkpoint <= self.scratch_a.items.len());
-        let range = self.ast.add_typed_sub_range(
-            self.scratch_a.items[scratch_checkpoint..]
-                .iter()
-                .map(|node| unsafe { N::from_node_id_unchecked(*node) }),
-        );
+        // SAFETY: this scratch segment is populated exclusively with `N`.
+        let range = unsafe {
+            self.ast
+                .add_typed_ast_id_sub_range(&self.scratch_a.items[scratch_checkpoint..])
+        };
         debug_assert_eq!(range.len(), self.scratch_a.items.len() - scratch_checkpoint);
         range
     }
@@ -994,11 +1008,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         N: AstNode + ExtraDataCompact<'a>,
     {
         debug_assert!(scratch_checkpoint <= self.scratch_b.items.len());
-        let range = self.ast.add_typed_sub_range(
-            self.scratch_b.items[scratch_checkpoint..]
-                .iter()
-                .map(|node| unsafe { N::from_node_id_unchecked(*node) }),
-        );
+        // SAFETY: this scratch segment is populated exclusively with `N`.
+        let range = unsafe {
+            self.ast
+                .add_typed_ast_id_sub_range(&self.scratch_b.items[scratch_checkpoint..])
+        };
         debug_assert_eq!(range.len(), self.scratch_b.items.len() - scratch_checkpoint);
         range
     }
@@ -1008,11 +1022,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         N: AstNode + ExtraDataCompact<'a>,
     {
         debug_assert!(scratch_checkpoint <= self.scratch_cover.items.len());
-        let range = self.ast.add_typed_sub_range(
-            self.scratch_cover.items[scratch_checkpoint..]
-                .iter()
-                .map(|node| unsafe { N::from_node_id_unchecked(*node) }),
-        );
+        // SAFETY: this scratch segment is populated exclusively with `N`.
+        let range = unsafe {
+            self.ast
+                .add_typed_ast_id_sub_range(&self.scratch_cover.items[scratch_checkpoint..])
+        };
         debug_assert_eq!(
             range.len(),
             self.scratch_cover.items.len() - scratch_checkpoint
@@ -1028,11 +1042,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         N: AstNode + ExtraDataCompact<'a>,
     {
         debug_assert!(scratch_checkpoint <= self.scratch_decorators.items.len());
-        let range = self.ast.add_typed_sub_range(
-            self.scratch_decorators.items[scratch_checkpoint..]
-                .iter()
-                .map(|node| unsafe { N::from_node_id_unchecked(*node) }),
-        );
+        // SAFETY: this scratch segment is populated exclusively with `N`.
+        let range = unsafe {
+            self.ast
+                .add_typed_ast_id_sub_range(&self.scratch_decorators.items[scratch_checkpoint..])
+        };
         debug_assert_eq!(
             range.len(),
             self.scratch_decorators.items.len() - scratch_checkpoint
@@ -1061,11 +1075,12 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     {
         debug_assert!(scratch_start <= scratch_end);
         debug_assert!(scratch_end <= self.scratch_statements.items.len());
-        let range = self.ast.add_typed_sub_range(
-            self.scratch_statements.items[scratch_start..scratch_end]
-                .iter()
-                .map(|node| unsafe { N::from_node_id_unchecked(*node) }),
-        );
+        // SAFETY: this scratch segment is populated exclusively with `N`.
+        let range = unsafe {
+            self.ast.add_typed_ast_id_sub_range(
+                &self.scratch_statements.items[scratch_start..scratch_end],
+            )
+        };
         debug_assert_eq!(range.len(), scratch_end - scratch_start);
         range
     }
@@ -1081,6 +1096,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             lexer_tokens_len: self.lexer.tokens.len(),
             current_token: self.current_token,
             nodes_len: self.ast.node_count(),
+            classes_len: self.ast.class_count(),
+            node_edges_len: self.ast.node_edge_count(),
             extra_len: self.ast.extra_data_count(),
             diagnostics_len: self.diagnostics.len(),
             context: self.context,
@@ -1102,8 +1119,12 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.lexer.processed_comments = checkpoint.lexer_processed_comments;
         self.lexer.tokens.truncate(checkpoint.lexer_tokens_len);
         self.current_token = checkpoint.current_token;
-        self.ast
-            .truncate(checkpoint.nodes_len, checkpoint.extra_len);
+        self.ast.truncate(
+            checkpoint.nodes_len,
+            checkpoint.classes_len,
+            checkpoint.node_edges_len,
+            checkpoint.extra_len,
+        );
         self.diagnostics.truncate(checkpoint.diagnostics_len);
         self.context = checkpoint.context;
         self.statement_context = checkpoint.statement_context;
@@ -2161,7 +2182,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         opts: ParseClassOpts,
         start_from_param: Option<u32>,
-    ) -> Option<Class> {
+    ) -> Option<ClassId> {
         let decorators = TypedSubRange::empty();
         self.parse_class_decorated(opts, start_from_param, decorators)
     }
@@ -2171,7 +2192,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         opts: ParseClassOpts,
         start_from_param: Option<u32>,
         decorators: TypedSubRange<Decorator>,
-    ) -> Option<Class> {
+    ) -> Option<ClassId> {
         let start = start_from_param.unwrap_or(self.current_token.span.start);
         let mut is_abstract = opts.is_abstract;
         if self.current_token.tag == TokenTag::Abstract
@@ -2186,6 +2207,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
         if !self.expect(TokenTag::Class, "Expected 'class' keyword", None) {
             return None;
+        }
+        if self.ast.class_count() == 0 {
+            self.ast
+                .reserve_classes(estimate_class_capacity(self.source.len()));
         }
         let class_type = if opts.is_expression && !opts.is_default_export {
             ClassType::ClassExpression
@@ -2253,8 +2278,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         } else {
             TypedSubRange::empty()
         };
-        let body = self.parse_class_body()?;
-        let end = body.span(&self.ast).end;
+        let (body_span, body) = self.parse_class_body()?;
+        let end = body_span.end;
         Some(self.ast.class(
             Span::new(start, end),
             class_type,
@@ -2264,6 +2289,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             super_class,
             super_type_arguments,
             implements,
+            body_span,
             body,
             is_abstract,
             opts.is_declare,
@@ -2299,7 +2325,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(expression)
     }
 
-    fn parse_class_body(&mut self) -> Option<ClassBody> {
+    fn parse_class_body(&mut self) -> Option<(Span, TypedNodeRange<ClassElement>)> {
         let start = self.current_token.span.start;
         if !self.expect(
             TokenTag::LeftBrace,
@@ -2328,7 +2354,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 return None;
             }
             let elements = self.add_extra_from_scratch_a(checkpoint);
-            Some(self.ast.class_body(Span::new(start, end), elements))
+            Some((Span::new(start, end), elements))
         })();
         self.scratch_a.reset(checkpoint);
         result
@@ -2506,10 +2532,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         };
         let accessor_before_star =
             next.tag == TokenTag::Star && matches!(token.tag, TokenTag::Get | TokenTag::Set);
-        let consume_as_modifier = can_start_element_key(next.tag)
-            && !accessor_before_star
-            && !(requires_same_line(token.tag) && next.has_line_terminator_before())
-            && !modifiers.conflicts(token.tag);
+        let cannot_consume_as_modifier = !can_start_element_key(next.tag)
+            || accessor_before_star
+            || (requires_same_line(token.tag) && next.has_line_terminator_before())
+            || modifiers.conflicts(token.tag);
+        let consume_as_modifier = !cannot_consume_as_modifier;
 
         if !consume_as_modifier {
             self.advance_without_escape_check()?;
@@ -6496,7 +6523,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             {
                 let node = match kind {
                     AngleListKind::Arguments => self.parse_type()?.node_id(),
-                    AngleListKind::Parameters => self.parse_type_parameter()?.node_id(),
+                    AngleListKind::Parameters => self.parse_type_parameter()?.ast_id(),
                 };
                 self.scratch_a.items.push(node);
                 parsed_any = true;
@@ -7979,12 +8006,12 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 }
             }
             Some(if self.scratch_cover.items.len() - checkpoint == 1 {
-                unsafe { Expr::from_node_id_unchecked(self.scratch_cover.items[checkpoint]) }
+                unsafe { Expr::from_ast_id_unchecked(self.scratch_cover.items[checkpoint]) }
             } else {
                 let first =
-                    unsafe { Expr::from_node_id_unchecked(self.scratch_cover.items[checkpoint]) };
+                    unsafe { Expr::from_ast_id_unchecked(self.scratch_cover.items[checkpoint]) };
                 let last = unsafe {
-                    Expr::from_node_id_unchecked(
+                    Expr::from_ast_id_unchecked(
                         *self
                             .scratch_cover
                             .items
@@ -8705,7 +8732,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         let checkpoint = self.scratch_cover.begin();
         let result = (|| {
             let source_elements_len = elements_range.len();
-            let none = NodeId::from_raw_unchecked(u32::MAX);
+            let none = AstId::NONE;
             let mut rest = None;
             for index in 0..source_elements_len {
                 let argument = elements_range.get_node(&self.ast, index).unwrap();
@@ -8772,14 +8799,13 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                     }
                 }
             }
-            let elements =
+            // SAFETY: this segment contains binding patterns or `AstId::NONE`.
+            let elements = unsafe {
                 self.ast
-                    .add_typed_sub_range(self.scratch_cover.items[checkpoint..].iter().map(
-                        |node| {
-                            (*node != none)
-                                .then(|| unsafe { BindingPattern::from_node_id_unchecked(*node) })
-                        },
-                    ));
+                    .add_typed_ast_id_sub_range::<Option<BindingPattern>>(
+                        &self.scratch_cover.items[checkpoint..],
+                    )
+            };
             let temporary =
                 self.ast
                     .array_pattern(span, TypedSubRange::empty(), elements, rest, None, false);
@@ -9192,72 +9218,69 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         let start = self.current_token.span.start;
         self.advance()?;
         let checkpoint = self.scratch_cover.begin();
-        let result =
-            (|| {
-                let mut end = start + 1;
-                while self.current_token.tag != TokenTag::RightBracket
-                    && self.current_token.tag != TokenTag::Eof
-                {
-                    if self.eat(TokenTag::Comma)? {
-                        self.scratch_cover
-                            .items
-                            .push(NodeId::from_raw_unchecked(u32::MAX));
-                        continue;
-                    }
-                    let argument = if self.eat(TokenTag::Spread)? {
-                        let spread_start = self.lexer.state.prev_token_end - 3;
-                        let expression = self.parse_assignment_expression_in_cover()?;
-                        let span = Span::new(spread_start, expression.span(&self.ast).end);
-                        Argument::SpreadElement(self.ast.spread_element(span, expression))
-                    } else {
-                        Argument::Expr(self.parse_assignment_expression_in_cover()?)
-                    };
-                    end = argument.span(&self.ast).end;
-                    self.scratch_cover.append(argument);
-                    if self.eat(TokenTag::Comma)? {
-                        if self.current_token.tag == TokenTag::RightBracket {
-                            self.state.cover_has_trailing_comma = Some(start);
-                        }
-                    } else if self.current_token.tag != TokenTag::RightBracket {
-                        self.report_expected(
-                            self.current_token.span,
-                            "Expected ',' or ']' in array",
-                            ReportOptions {
-                                help: Some(Cow::Borrowed(
-                                    "Add a comma between elements or close the array with ']'.",
-                                )),
-                                ..ReportOptions::default()
-                            },
-                        );
-                        return None;
-                    }
+        let result = (|| {
+            let mut end = start + 1;
+            while self.current_token.tag != TokenTag::RightBracket
+                && self.current_token.tag != TokenTag::Eof
+            {
+                if self.eat(TokenTag::Comma)? {
+                    self.scratch_cover.items.push(AstId::NONE);
+                    continue;
                 }
-                if self.current_token.tag != TokenTag::RightBracket {
-                    self.report(
-                        Span::new(start, end),
-                        "Unterminated array",
+                let argument = if self.eat(TokenTag::Spread)? {
+                    let spread_start = self.lexer.state.prev_token_end - 3;
+                    let expression = self.parse_assignment_expression_in_cover()?;
+                    let span = Span::new(spread_start, expression.span(&self.ast).end);
+                    Argument::SpreadElement(self.ast.spread_element(span, expression))
+                } else {
+                    Argument::Expr(self.parse_assignment_expression_in_cover()?)
+                };
+                end = argument.span(&self.ast).end;
+                self.scratch_cover.append(argument);
+                if self.eat(TokenTag::Comma)? {
+                    if self.current_token.tag == TokenTag::RightBracket {
+                        self.state.cover_has_trailing_comma = Some(start);
+                    }
+                } else if self.current_token.tag != TokenTag::RightBracket {
+                    self.report_expected(
+                        self.current_token.span,
+                        "Expected ',' or ']' in array",
                         ReportOptions {
-                            help: Some(Cow::Borrowed("Add a closing ']' to complete the array.")),
-                            labels: vec![self.label(Span::new(start, start + 1), "Opened here")],
+                            help: Some(Cow::Borrowed(
+                                "Add a comma between elements or close the array with ']'.",
+                            )),
                             ..ReportOptions::default()
                         },
                     );
                     return None;
                 }
-                end = self.current_token.span.end;
-                self.advance()?;
-                let none = NodeId::from_raw_unchecked(u32::MAX);
-                let elements = self.ast.add_typed_sub_range(
-                    self.scratch_cover.items[checkpoint..].iter().map(|node| {
-                        (*node != none).then(|| unsafe { Argument::from_node_id_unchecked(*node) })
-                    }),
+            }
+            if self.current_token.tag != TokenTag::RightBracket {
+                self.report(
+                    Span::new(start, end),
+                    "Unterminated array",
+                    ReportOptions {
+                        help: Some(Cow::Borrowed("Add a closing ']' to complete the array.")),
+                        labels: vec![self.label(Span::new(start, start + 1), "Opened here")],
+                        ..ReportOptions::default()
+                    },
                 );
-                Some(ArrayCover {
-                    elements,
-                    start,
-                    end,
-                })
-            })();
+                return None;
+            }
+            end = self.current_token.span.end;
+            self.advance()?;
+            // SAFETY: this segment contains arguments or `AstId::NONE`.
+            let elements = unsafe {
+                self.ast.add_typed_ast_id_sub_range::<Option<Argument>>(
+                    &self.scratch_cover.items[checkpoint..],
+                )
+            };
+            Some(ArrayCover {
+                elements,
+                start,
+                end,
+            })
+        })();
         self.scratch_cover.reset(checkpoint);
         result
     }
@@ -12066,6 +12089,26 @@ fn assignment_operator(tag: TokenTag) -> AssignmentOperator {
     }
 }
 
+struct DedicatedParenthesisStripper<'traverse, 'ast> {
+    ast: &'traverse mut Ast<'ast>,
+}
+
+impl<'ast> VisitMut<'ast> for DedicatedParenthesisStripper<'_, 'ast> {
+    fn ast(&mut self) -> &mut Ast<'ast> {
+        self.ast
+    }
+
+    fn visit_mut_expr(&mut self, node: Expr) -> Option<Expr> {
+        let child_replacement = node.visit_mut_children_with(self);
+        debug_assert!(child_replacement.is_none());
+        let ExprData::ParenthesizedExpression(parenthesized) = self.ast.expr_data(node) else {
+            return None;
+        };
+        let inner = parenthesized.expression(self.ast);
+        Some(inner)
+    }
+}
+
 fn strip_parenthesized_nodes(ast: &mut Ast<'_>, comments: &mut [Comment]) {
     let mut trailing_comment_index = 0;
     for index in 0..ast.node_count() {
@@ -12113,10 +12156,11 @@ fn strip_parenthesized_nodes(ast: &mut Ast<'_>, comments: &mut [Comment]) {
             comment.attached_to = replacement_span.end;
         }
 
+        let replacement = replacement.node_id();
         // SAFETY: parsing has not exposed any concrete handles yet. This pass
         // retires the parenthesized node, and all expression or type edges that
         // refer to it accept the corresponding replacement kind.
-        unsafe { ast.set_data(node, replacement) };
+        let _ = unsafe { ast.replace_in_place_same_domain(node.ast_id(), replacement.ast_id()) };
     }
 }
 

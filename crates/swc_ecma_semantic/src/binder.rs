@@ -3,11 +3,11 @@ use std::hash::BuildHasher;
 use oxc_index::Idx;
 use swc_next_allocator::{Allocator, CloneIn, vec::Vec as ArenaVec};
 use swc_next_ecma_ast::{
-    Ast, AstUtf8, AstWtf8, BindingIdentifier, Class, ClassType, ExportNamedDeclaration,
+    Ast, AstId, AstUtf8, AstWtf8, BindingIdentifier, ClassId, ClassType, ExportNamedDeclaration,
     ExportSpecifier, Function, FunctionType, IdentifierReference, ImportDeclaration,
     ImportOrExportKind, ImportSpecifier, JsxClosingElement, JsxElementName, JsxElementNameData,
-    JsxIdentifier, JsxMemberExpressionObjectData, JsxOpeningElement, NodeId, NodeKind,
-    NodeKindData, ReferenceId, ScopeId, SourceType, SymbolId, TsEnumDeclaration, TsEnumMember,
+    JsxIdentifier, JsxMemberExpressionObjectData, JsxOpeningElement, NodeKind, NodeKindData,
+    ReferenceId, ScopeId, SourceType, SymbolId, TsEnumDeclaration, TsEnumMember,
     TsInterfaceDeclaration, TsModuleDeclaration, TsTypeAliasDeclaration, TsTypePredicate,
     VariableDeclaration, VariableKind,
 };
@@ -63,7 +63,7 @@ pub struct Symbol {
 /// meanings of declarations that merge into one symbol.
 #[derive(Debug, Clone, Copy)]
 pub struct Declaration {
-    pub node: NodeId,
+    pub node: AstId,
     pub symbol: SymbolId,
     pub flags: SymbolFlags,
 }
@@ -352,7 +352,7 @@ pub struct Reference {
     /// The scope the reference appears in.
     pub scope: ScopeId,
     /// The referencing node.
-    pub node: NodeId,
+    pub node: AstId,
     /// The lexical fallback symbol this reference resolves to. `None` for
     /// names with no binding visible in the reference's space.
     ///
@@ -535,7 +535,7 @@ pub(crate) enum ExportState {
     #[default]
     None,
     Named {
-        statement: NodeId,
+        statement: AstId,
     },
     Default,
 }
@@ -549,7 +549,7 @@ impl ExportState {
         matches!(self, Self::Default)
     }
 
-    pub(crate) fn named(self) -> Option<NodeId> {
+    pub(crate) fn named(self) -> Option<AstId> {
         match self {
             Self::Named { statement } => Some(statement),
             Self::None | Self::Default => None,
@@ -631,7 +631,7 @@ impl<'a> SymbolTracker<'a> {
             || declaration.export_kind(tree) != ImportOrExportKind::Type
         {
             self.export_state = ExportState::Named {
-                statement: declaration.node_id(),
+                statement: declaration.ast_id(),
             };
         }
     }
@@ -757,7 +757,7 @@ impl<'a> SymbolTracker<'a> {
         };
     }
 
-    pub fn enter_class(&mut self, tree: &Ast, class: Class, scope: &ScopeTracker<'a>) {
+    pub fn enter_class(&mut self, tree: &Ast, class: ClassId, scope: &ScopeTracker<'a>) {
         self.push_saved_context();
         let is_declaration = class.class_type(tree) == ClassType::ClassDeclaration;
         self.pending = PendingBinding {
@@ -963,7 +963,7 @@ impl<'a> SymbolTracker<'a> {
     pub fn enter_ts_type_parameter(
         &mut self,
         tree: &Ast,
-        parent: Option<NodeId>,
+        parent: Option<AstId>,
         scope: &ScopeTracker<'a>,
     ) {
         // `TsTypeParameter` wraps `<T>` and `infer U`.
@@ -987,7 +987,7 @@ impl<'a> SymbolTracker<'a> {
     pub fn enter_ts_mapped_type(
         &mut self,
         tree: &Ast,
-        parent: Option<NodeId>,
+        parent: Option<AstId>,
         scope: &ScopeTracker<'a>,
     ) {
         // Mapped type keys `[K in T]` are bare binding identifiers, so the
@@ -1079,7 +1079,7 @@ impl<'a> SymbolTracker<'a> {
         space: ReferenceSpace,
     ) -> Option<SymbolId> {
         self.sync_scope_maps_from(scope);
-        let node = identifier.node_id();
+        let node = identifier.ast_id();
         // Type-position identifiers are parameter labels. Only type
         // parameters are real declarations there.
         if space.in_type_position() && !self.pending.flags.contains(SymbolFlags::TYPE_PARAMETER) {
@@ -1116,7 +1116,7 @@ impl<'a> SymbolTracker<'a> {
             tree,
             identifier.name(tree),
             scope.current,
-            identifier.node_id(),
+            identifier.ast_id(),
             flags,
         );
     }
@@ -1134,7 +1134,7 @@ impl<'a> SymbolTracker<'a> {
             tree,
             identifier.name(tree),
             scope.current,
-            identifier.node_id(),
+            identifier.ast_id(),
             flags,
         );
     }
@@ -1150,13 +1150,7 @@ impl<'a> SymbolTracker<'a> {
             return;
         };
         self.sync_scope_maps_from(scope);
-        self.add_reference(
-            tree,
-            local.name(tree),
-            scope.current,
-            local.node_id(),
-            flags,
-        );
+        self.add_reference(tree, local.name(tree), scope.current, local.ast_id(), flags);
     }
 
     pub fn add_ts_type_predicate_reference(
@@ -1172,7 +1166,7 @@ impl<'a> SymbolTracker<'a> {
         // signatures the parameter is only a label, so no reference
         // is recorded.
         let parameter_name = predicate.parameter_name(tree);
-        let parameter_node = parameter_name.node_id();
+        let parameter_node = parameter_name.ast_id();
         let NodeKindData::IdentifierName(parameter_name) = tree.kind_data(parameter_node) else {
             return;
         };
@@ -1215,7 +1209,7 @@ impl<'a> SymbolTracker<'a> {
         if member.computed(tree) {
             return;
         }
-        let member_name = member.id(tree).node_id();
+        let member_name = member.id(tree).ast_id();
         let name = match tree.kind_data(member_name) {
             NodeKindData::IdentifierName(identifier) => identifier.name(tree).into(),
             NodeKindData::StringLiteral(literal) => literal.value(tree),
@@ -1227,7 +1221,7 @@ impl<'a> SymbolTracker<'a> {
             excludes: Excludes::ENUM_MEMBER,
             scope: scope.current,
         };
-        self.declare(tree, name, member.node_id());
+        self.declare(tree, name, member.ast_id());
         self.pending = saved;
     }
 
@@ -1264,7 +1258,7 @@ impl<'a> SymbolTracker<'a> {
                 tree,
                 identifier.name(tree),
                 scope,
-                identifier.node_id(),
+                identifier.ast_id(),
                 ReferenceFlags::default(),
             );
         }
@@ -1274,7 +1268,7 @@ impl<'a> SymbolTracker<'a> {
     /// existing binding is merged. On conflict, its flags remain unchanged
     /// because the caller reports the diagnostic. Every node is still stored
     /// as a declaration for error recovery.
-    pub fn declare(&mut self, tree: &Ast, name: AstWtf8, node: NodeId) -> SymbolId {
+    pub fn declare(&mut self, tree: &Ast, name: AstWtf8, node: AstId) -> SymbolId {
         let target = self.pending.scope;
         debug_assert!(node.index() < tree.node_count());
 
@@ -1335,7 +1329,7 @@ impl<'a> SymbolTracker<'a> {
         tree: &Ast,
         name: AstUtf8,
         scope: ScopeId,
-        node: NodeId,
+        node: AstId,
         flags: ReferenceFlags,
     ) -> ReferenceId {
         debug_assert!(node.index() < tree.node_count());
@@ -1369,7 +1363,7 @@ impl<'a> SymbolTracker<'a> {
 
     /// The `binding_identifier` node of the earliest declaration of `id`.
     /// Later declarations merged into the symbol do not change it.
-    pub fn first_decl_of(&self, id: SymbolId) -> NodeId {
+    pub fn first_decl_of(&self, id: SymbolId) -> AstId {
         let declaration_id = self.symbols[id.index()].declaration;
         self.declarations[declaration_id.index()].node
     }
@@ -1670,12 +1664,12 @@ fn namespace_is_instantiated(
     let Some(body) = body else {
         return true;
     };
-    let body = body.node_id();
+    let body = body.ast_id();
     let NodeKindData::TsModuleBlock(block) = tree.kind_data(body) else {
         return true;
     };
     for statement in block.body(tree).iter() {
-        let statement = tree.get_node_in_sub_range(statement).node_id();
+        let statement = tree.get_node_in_sub_range(statement).ast_id();
         if is_instantiating_statement(tree, statement) {
             return true;
         }
@@ -1683,7 +1677,7 @@ fn namespace_is_instantiated(
     false
 }
 
-fn is_instantiating_statement(tree: &Ast<'_>, node: NodeId) -> bool {
+fn is_instantiating_statement(tree: &Ast<'_>, node: AstId) -> bool {
     match tree.kind_data(node) {
         NodeKindData::TsInterfaceDeclaration(_)
         | NodeKindData::TsTypeAliasDeclaration(_)
@@ -1697,7 +1691,7 @@ fn is_instantiating_statement(tree: &Ast<'_>, node: NodeId) -> bool {
                 return false;
             }
             if let Some(declaration) = export.declaration(tree) {
-                return is_instantiating_statement(tree, declaration.node_id());
+                return is_instantiating_statement(tree, declaration.ast_id());
             }
             export.source(tree).is_some()
         }

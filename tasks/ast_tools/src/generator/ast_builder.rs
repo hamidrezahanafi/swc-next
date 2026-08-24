@@ -5,7 +5,7 @@ use quote::{ToTokens, format_ident, quote};
 use crate::{
     AST_CRATE_PATH,
     output::{RawOutput, RustOutput, output_path},
-    schema::{AstEnum, AstStruct, AstType, Schema},
+    schema::{AstEnum, AstStruct, AstType, Schema, StorageDomain},
     util::{
         EXTRA_DATA_ID_BIT_OFFSET, InlineStorageMode, calculate_inline_layout,
         generate_field_to_u32, generate_field_to_u64, safe_ident,
@@ -60,6 +60,38 @@ fn generate_build_function_for_struct(ast: &AstStruct, schema: &Schema) -> Token
     let fn_name = safe_ident(&ast.name.to_case(Case::Snake));
     let ret_ty = format_ident!("{}", ast.name);
     let fn_params = generate_fn_params_decl(ast, schema);
+
+    if let StorageDomain::Dedicated { name, id, .. } = &ast.storage {
+        assert_eq!(name, "class");
+        let ret_ty = format_ident!("{id}");
+        return quote! {
+            #[inline]
+            pub fn #fn_name(&mut self, span: Span, #fn_params) -> #ret_ty {
+                let storage_index =
+                    u32::try_from(self.classes.len()).expect("class index exceeds u32");
+                let node_id = self.add_node(
+                    span,
+                    NodeKind::Class,
+                    NodePayload(storage_index as u128),
+                );
+                let class_id = ClassId::from_raw(node_id.raw());
+                self.classes.push(Class {
+                    class_type,
+                    decorators,
+                    id,
+                    type_parameters,
+                    super_class,
+                    super_type_arguments,
+                    implements,
+                    body_span,
+                    body,
+                    r#abstract,
+                    declare,
+                });
+                class_id
+            }
+        };
+    }
 
     // Check if this struct can use inline storage
     if let Some(layout) = calculate_inline_layout(ast, schema) {

@@ -90,7 +90,7 @@ impl<'a> Traverse<'a, TransformerState> for TransformerImpl<'_, 'a> {
         self.x0_es2015.exit_reg_exp_literal(node, ctx);
     }
 
-    fn exit_class(&mut self, node: swc_next_ecma_ast::Class, ctx: &mut TransformerCtx<'_, 'a>) {
+    fn exit_class(&mut self, node: swc_next_ecma_ast::ClassId, ctx: &mut TransformerCtx<'_, 'a>) {
         self.x0_es2022.exit_class(node, self.semantic, ctx);
     }
 }

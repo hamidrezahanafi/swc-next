@@ -22,8 +22,7 @@ impl<'a> Ast<'a> {
             NodePayload(
                 0u128
                     | ((unsafe { directives.to_extra_data(self).other } as u128) << 32usize)
-                    | ((hashbang.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 0usize)
+                    | ((hashbang.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 0usize)
                     | ((_f0.index() as u128) << 96usize),
             ),
         ))
@@ -197,7 +196,8 @@ impl<'a> Ast<'a> {
         super_class: Option<Expr>,
         super_type_arguments: Option<TsTypeParameterInstantiation>,
         implements: TypedSubRange<TsClassImplements>,
-        body: ClassBody,
+        body_span: Span,
+        body: TypedSubRange<ClassElement>,
         r#abstract: bool,
         declare: bool,
     ) -> Stmt {
@@ -211,6 +211,7 @@ impl<'a> Ast<'a> {
                 super_class,
                 super_type_arguments,
                 implements,
+                body_span,
                 body,
                 r#abstract,
                 declare,
@@ -445,7 +446,8 @@ impl<'a> Ast<'a> {
         super_class: Option<Expr>,
         super_type_arguments: Option<TsTypeParameterInstantiation>,
         implements: TypedSubRange<TsClassImplements>,
-        body: ClassBody,
+        body_span: Span,
+        body: TypedSubRange<ClassElement>,
         r#abstract: bool,
         declare: bool,
     ) -> Decl {
@@ -459,6 +461,7 @@ impl<'a> Ast<'a> {
                 super_class,
                 super_type_arguments,
                 implements,
+                body_span,
                 body,
                 r#abstract,
                 declare,
@@ -843,7 +846,8 @@ impl<'a> Ast<'a> {
         super_class: Option<Expr>,
         super_type_arguments: Option<TsTypeParameterInstantiation>,
         implements: TypedSubRange<TsClassImplements>,
-        body: ClassBody,
+        body_span: Span,
+        body: TypedSubRange<ClassElement>,
         r#abstract: bool,
         declare: bool,
     ) -> Expr {
@@ -857,6 +861,7 @@ impl<'a> Ast<'a> {
                 super_class,
                 super_type_arguments,
                 implements,
+                body_span,
                 body,
                 r#abstract,
                 declare,
@@ -1656,7 +1661,8 @@ impl<'a> Ast<'a> {
         super_class: Option<Expr>,
         super_type_arguments: Option<TsTypeParameterInstantiation>,
         implements: TypedSubRange<TsClassImplements>,
-        body: ClassBody,
+        body_span: Span,
+        body: TypedSubRange<ClassElement>,
         r#abstract: bool,
         declare: bool,
     ) -> PropertyKey {
@@ -1670,6 +1676,7 @@ impl<'a> Ast<'a> {
                 super_class,
                 super_type_arguments,
                 implements,
+                body_span,
                 body,
                 r#abstract,
                 declare,
@@ -2143,7 +2150,8 @@ impl<'a> Ast<'a> {
         super_class: Option<Expr>,
         super_type_arguments: Option<TsTypeParameterInstantiation>,
         implements: TypedSubRange<TsClassImplements>,
-        body: ClassBody,
+        body_span: Span,
+        body: TypedSubRange<ClassElement>,
         r#abstract: bool,
         declare: bool,
     ) -> Argument {
@@ -2157,6 +2165,7 @@ impl<'a> Ast<'a> {
                 super_class,
                 super_type_arguments,
                 implements,
+                body_span,
                 body,
                 r#abstract,
                 declare,
@@ -2662,7 +2671,8 @@ impl<'a> Ast<'a> {
         super_class: Option<Expr>,
         super_type_arguments: Option<TsTypeParameterInstantiation>,
         implements: TypedSubRange<TsClassImplements>,
-        body: ClassBody,
+        body_span: Span,
+        body: TypedSubRange<ClassElement>,
         r#abstract: bool,
         declare: bool,
     ) -> ForStatementInit {
@@ -2676,6 +2686,7 @@ impl<'a> Ast<'a> {
                 super_class,
                 super_type_arguments,
                 implements,
+                body_span,
                 body,
                 r#abstract,
                 declare,
@@ -3289,7 +3300,8 @@ impl<'a> Ast<'a> {
         super_class: Option<Expr>,
         super_type_arguments: Option<TsTypeParameterInstantiation>,
         implements: TypedSubRange<TsClassImplements>,
-        body: ClassBody,
+        body_span: Span,
+        body: TypedSubRange<ClassElement>,
         r#abstract: bool,
         declare: bool,
     ) -> ArrowFunctionBody {
@@ -3303,6 +3315,7 @@ impl<'a> Ast<'a> {
                 super_class,
                 super_type_arguments,
                 implements,
+                body_span,
                 body,
                 r#abstract,
                 declare,
@@ -4147,7 +4160,8 @@ impl<'a> Ast<'a> {
         super_class: Option<Expr>,
         super_type_arguments: Option<TsTypeParameterInstantiation>,
         implements: TypedSubRange<TsClassImplements>,
-        body: ClassBody,
+        body_span: Span,
+        body: TypedSubRange<ClassElement>,
         r#abstract: bool,
         declare: bool,
     ) -> ExportDefaultDeclarationKind {
@@ -4161,6 +4175,7 @@ impl<'a> Ast<'a> {
                 super_class,
                 super_type_arguments,
                 implements,
+                body_span,
                 body,
                 r#abstract,
                 declare,
@@ -4336,7 +4351,8 @@ impl<'a> Ast<'a> {
         super_class: Option<Expr>,
         super_type_arguments: Option<TsTypeParameterInstantiation>,
         implements: TypedSubRange<TsClassImplements>,
-        body: ClassBody,
+        body_span: Span,
+        body: TypedSubRange<ClassElement>,
         r#abstract: bool,
         declare: bool,
     ) -> ExportDefaultDeclarationKind {
@@ -4350,6 +4366,7 @@ impl<'a> Ast<'a> {
                 super_class,
                 super_type_arguments,
                 implements,
+                body_span,
                 body,
                 r#abstract,
                 declare,
@@ -4543,8 +4560,7 @@ impl<'a> Ast<'a> {
             NodeKind::BindingIdentifier,
             NodePayload(
                 0u128
-                    | ((type_annotation.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((type_annotation.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 8usize)
                     | ((optional as u32 as u128) << 0usize)
                     | ((_extra_data_range.start.index() as u128) << 96usize),
@@ -4584,9 +4600,8 @@ impl<'a> Ast<'a> {
             NodeKind::AssignmentPattern,
             NodePayload(
                 0u128
-                    | ((left.node_id().index() as u32 as u128) << 8usize)
-                    | ((type_annotation.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((left.ast_id().raw() as u128) << 8usize)
+                    | ((type_annotation.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 40usize)
                     | ((optional as u32 as u128) << 0usize)
                     | ((_extra_data_range.start.index() as u128) << 96usize),
@@ -4608,9 +4623,8 @@ impl<'a> Ast<'a> {
             NodeKind::BindingRestElement,
             NodePayload(
                 0u128
-                    | ((argument.node_id().index() as u32 as u128) << 8usize)
-                    | ((type_annotation.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((argument.ast_id().raw() as u128) << 8usize)
+                    | ((type_annotation.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 40usize)
                     | ((optional as u32 as u128) << 0usize)
                     | ((_f0.index() as u128) << 96usize),
@@ -4634,10 +4648,8 @@ impl<'a> Ast<'a> {
             NodeKind::ArrayPattern,
             NodePayload(
                 0u128
-                    | ((rest.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 8usize)
-                    | ((type_annotation.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((rest.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 8usize)
+                    | ((type_annotation.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 40usize)
                     | ((optional as u32 as u128) << 0usize)
                     | ((_extra_data_range.start.index() as u128) << 96usize),
@@ -4664,10 +4676,8 @@ impl<'a> Ast<'a> {
             NodeKind::ObjectPattern,
             NodePayload(
                 0u128
-                    | ((rest.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 8usize)
-                    | ((type_annotation.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((rest.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 8usize)
+                    | ((type_annotation.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 40usize)
                     | ((optional as u32 as u128) << 0usize)
                     | ((_extra_data_range.start.index() as u128) << 96usize),
@@ -4688,8 +4698,8 @@ impl<'a> Ast<'a> {
             NodeKind::BindingProperty,
             NodePayload(
                 0u128
-                    | ((key.node_id().index() as u32 as u128) << 0usize)
-                    | ((value.node_id().index() as u32 as u128) << 32usize)
+                    | ((key.ast_id().raw() as u128) << 0usize)
+                    | ((value.ast_id().raw() as u128) << 32usize)
                     | ((shorthand as u32 as u128) << 64usize)
                     | ((computed as u32 as u128) << 72usize),
             ),
@@ -4708,8 +4718,8 @@ impl<'a> Ast<'a> {
             NodeKind::BinaryExpression,
             NodePayload(
                 0u128
-                    | ((left.node_id().index() as u32 as u128) << 0usize)
-                    | ((right.node_id().index() as u32 as u128) << 32usize)
+                    | ((left.ast_id().raw() as u128) << 0usize)
+                    | ((right.ast_id().raw() as u128) << 32usize)
                     | ((operator as u32 as u128) << 64usize),
             ),
         ))
@@ -4727,8 +4737,8 @@ impl<'a> Ast<'a> {
             NodeKind::LogicalExpression,
             NodePayload(
                 0u128
-                    | ((left.node_id().index() as u32 as u128) << 0usize)
-                    | ((right.node_id().index() as u32 as u128) << 32usize)
+                    | ((left.ast_id().raw() as u128) << 0usize)
+                    | ((right.ast_id().raw() as u128) << 32usize)
                     | ((operator as u32 as u128) << 64usize),
             ),
         ))
@@ -4746,9 +4756,9 @@ impl<'a> Ast<'a> {
             NodeKind::ConditionalExpression,
             NodePayload(
                 0u128
-                    | ((test.node_id().index() as u32 as u128) << 0usize)
-                    | ((consequent.node_id().index() as u32 as u128) << 32usize)
-                    | ((alternate.node_id().index() as u32 as u128) << 64usize),
+                    | ((test.ast_id().raw() as u128) << 0usize)
+                    | ((consequent.ast_id().raw() as u128) << 32usize)
+                    | ((alternate.ast_id().raw() as u128) << 64usize),
             ),
         ))
     }
@@ -4764,7 +4774,7 @@ impl<'a> Ast<'a> {
             NodeKind::UnaryExpression,
             NodePayload(
                 0u128
-                    | ((argument.node_id().index() as u32 as u128) << 0usize)
+                    | ((argument.ast_id().raw() as u128) << 0usize)
                     | ((operator as u32 as u128) << 32usize),
             ),
         ))
@@ -4782,7 +4792,7 @@ impl<'a> Ast<'a> {
             NodeKind::UpdateExpression,
             NodePayload(
                 0u128
-                    | ((argument.node_id().index() as u32 as u128) << 0usize)
+                    | ((argument.ast_id().raw() as u128) << 0usize)
                     | ((operator as u32 as u128) << 32usize)
                     | ((prefix as u32 as u128) << 40usize),
             ),
@@ -4801,8 +4811,8 @@ impl<'a> Ast<'a> {
             NodeKind::AssignmentExpression,
             NodePayload(
                 0u128
-                    | ((left.node_id().index() as u32 as u128) << 0usize)
-                    | ((right.node_id().index() as u32 as u128) << 32usize)
+                    | ((left.ast_id().raw() as u128) << 0usize)
+                    | ((right.ast_id().raw() as u128) << 32usize)
                     | ((operator as u32 as u128) << 64usize),
             ),
         ))
@@ -4839,9 +4849,8 @@ impl<'a> Ast<'a> {
             NodeKind::VariableDeclarator,
             NodePayload(
                 0u128
-                    | ((id.node_id().index() as u32 as u128) << 0usize)
-                    | ((init.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 32usize)
+                    | ((id.ast_id().raw() as u128) << 0usize)
+                    | ((init.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 32usize)
                     | ((definite as u32 as u128) << 64usize),
             ),
         ))
@@ -4859,10 +4868,9 @@ impl<'a> Ast<'a> {
             NodeKind::IfStatement,
             NodePayload(
                 0u128
-                    | ((test.node_id().index() as u32 as u128) << 0usize)
-                    | ((consequent.node_id().index() as u32 as u128) << 32usize)
-                    | ((alternate.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 64usize),
+                    | ((test.ast_id().raw() as u128) << 0usize)
+                    | ((consequent.ast_id().raw() as u128) << 32usize)
+                    | ((alternate.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 64usize),
             ),
         ))
     }
@@ -4878,7 +4886,7 @@ impl<'a> Ast<'a> {
             NodeKind::SwitchStatement,
             NodePayload(
                 0u128
-                    | ((discriminant.node_id().index() as u32 as u128) << 64usize)
+                    | ((discriminant.ast_id().raw() as u128) << 64usize)
                     | ((unsafe { cases.to_extra_data(self).other } as u128) << 0usize),
             ),
         ))
@@ -4895,8 +4903,7 @@ impl<'a> Ast<'a> {
             NodeKind::SwitchCase,
             NodePayload(
                 0u128
-                    | ((test.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 64usize)
+                    | ((test.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 64usize)
                     | ((unsafe { consequent.to_extra_data(self).other } as u128) << 0usize),
             ),
         ))
@@ -4915,13 +4922,10 @@ impl<'a> Ast<'a> {
             NodeKind::ForStatement,
             NodePayload(
                 0u128
-                    | ((init.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 0usize)
-                    | ((test.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 32usize)
-                    | ((update.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 64usize)
-                    | ((body.node_id().index() as u32 as u128) << 96usize),
+                    | ((init.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 0usize)
+                    | ((test.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 32usize)
+                    | ((update.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 64usize)
+                    | ((body.ast_id().raw() as u128) << 96usize),
             ),
         ))
     }
@@ -4938,9 +4942,9 @@ impl<'a> Ast<'a> {
             NodeKind::ForInStatement,
             NodePayload(
                 0u128
-                    | ((left.node_id().index() as u32 as u128) << 0usize)
-                    | ((right.node_id().index() as u32 as u128) << 32usize)
-                    | ((body.node_id().index() as u32 as u128) << 64usize),
+                    | ((left.ast_id().raw() as u128) << 0usize)
+                    | ((right.ast_id().raw() as u128) << 32usize)
+                    | ((body.ast_id().raw() as u128) << 64usize),
             ),
         ))
     }
@@ -4958,9 +4962,9 @@ impl<'a> Ast<'a> {
             NodeKind::ForOfStatement,
             NodePayload(
                 0u128
-                    | ((left.node_id().index() as u32 as u128) << 0usize)
-                    | ((right.node_id().index() as u32 as u128) << 32usize)
-                    | ((body.node_id().index() as u32 as u128) << 64usize)
+                    | ((left.ast_id().raw() as u128) << 0usize)
+                    | ((right.ast_id().raw() as u128) << 32usize)
+                    | ((body.ast_id().raw() as u128) << 64usize)
                     | ((r#await as u32 as u128) << 96usize),
             ),
         ))
@@ -4978,11 +4982,9 @@ impl<'a> Ast<'a> {
             NodeKind::TryStatement,
             NodePayload(
                 0u128
-                    | ((block.node_id().index() as u32 as u128) << 0usize)
-                    | ((handler.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 32usize)
-                    | ((finalizer.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 64usize),
+                    | ((block.ast_id().raw() as u128) << 0usize)
+                    | ((handler.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 32usize)
+                    | ((finalizer.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 64usize),
             ),
         ))
     }
@@ -4998,9 +5000,8 @@ impl<'a> Ast<'a> {
             NodeKind::CatchClause,
             NodePayload(
                 0u128
-                    | ((param.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 0usize)
-                    | ((body.node_id().index() as u32 as u128) << 32usize),
+                    | ((param.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 0usize)
+                    | ((body.ast_id().raw() as u128) << 32usize),
             ),
         ))
     }
@@ -5014,9 +5015,7 @@ impl<'a> Ast<'a> {
             span,
             NodeKind::BreakStatement,
             NodePayload(
-                0u128
-                    | ((label.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 0usize),
+                0u128 | ((label.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 0usize),
             ),
         ))
     }
@@ -5030,9 +5029,7 @@ impl<'a> Ast<'a> {
             span,
             NodeKind::ContinueStatement,
             NodePayload(
-                0u128
-                    | ((label.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 0usize),
+                0u128 | ((label.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 0usize),
             ),
         ))
     }
@@ -5048,8 +5045,8 @@ impl<'a> Ast<'a> {
             NodeKind::LabeledStatement,
             NodePayload(
                 0u128
-                    | ((label.node_id().index() as u32 as u128) << 0usize)
-                    | ((body.node_id().index() as u32 as u128) << 32usize),
+                    | ((label.ast_id().raw() as u128) << 0usize)
+                    | ((body.ast_id().raw() as u128) << 32usize),
             ),
         ))
     }
@@ -5058,7 +5055,7 @@ impl<'a> Ast<'a> {
         ExpressionStatement(self.add_node(
             span,
             NodeKind::ExpressionStatement,
-            NodePayload(0u128 | ((expression.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((expression.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -5067,9 +5064,7 @@ impl<'a> Ast<'a> {
             span,
             NodeKind::ReturnStatement,
             NodePayload(
-                0u128
-                    | ((argument.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 0usize),
+                0u128 | ((argument.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 0usize),
             ),
         ))
     }
@@ -5078,7 +5073,7 @@ impl<'a> Ast<'a> {
         ThrowStatement(self.add_node(
             span,
             NodeKind::ThrowStatement,
-            NodePayload(0u128 | ((argument.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((argument.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -5101,7 +5096,7 @@ impl<'a> Ast<'a> {
             NodeKind::Directive,
             NodePayload(
                 0u128
-                    | ((expression.node_id().index() as u32 as u128) << 64usize)
+                    | ((expression.ast_id().raw() as u128) << 64usize)
                     | ((unsafe { value.to_extra_data(self).other } as u128) << 0usize),
             ),
         ))
@@ -5111,7 +5106,7 @@ impl<'a> Ast<'a> {
         Decorator(self.add_node(
             span,
             NodeKind::Decorator,
-            NodePayload(0u128 | ((expression.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((expression.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -5125,42 +5120,28 @@ impl<'a> Ast<'a> {
         super_class: Option<Expr>,
         super_type_arguments: Option<TsTypeParameterInstantiation>,
         implements: TypedSubRange<TsClassImplements>,
-        body: ClassBody,
+        body_span: Span,
+        body: TypedSubRange<ClassElement>,
         r#abstract: bool,
         declare: bool,
-    ) -> Class {
-        let _extra_data = [
-            decorators.to_extra_data(self),
-            super_class.to_extra_data(self),
-            super_type_arguments.to_extra_data(self),
-            implements.to_extra_data(self),
-            body.to_extra_data(self),
-        ];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
-        Class(self.add_node(
-            span,
-            NodeKind::Class,
-            NodePayload(
-                0u128
-                    | ((class_type as u32 as u128) << 0usize)
-                    | ((id.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 24usize)
-                    | ((type_parameters.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
-                        << 56usize)
-                    | ((r#abstract as u32 as u128) << 8usize)
-                    | ((declare as u32 as u128) << 16usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
-            ),
-        ))
-    }
-    #[inline]
-    pub fn class_body(&mut self, span: Span, body: TypedSubRange<ClassElement>) -> ClassBody {
-        ClassBody(self.add_node(
-            span,
-            NodeKind::ClassBody,
-            NodePayload(0u128 | ((unsafe { body.to_extra_data(self).other } as u128) << 0usize)),
-        ))
+    ) -> ClassId {
+        let storage_index = u32::try_from(self.classes.len()).expect("class index exceeds u32");
+        let node_id = self.add_node(span, NodeKind::Class, NodePayload(storage_index as u128));
+        let class_id = ClassId::from_raw(node_id.raw());
+        self.classes.push(Class {
+            class_type,
+            decorators,
+            id,
+            type_parameters,
+            super_class,
+            super_type_arguments,
+            implements,
+            body_span,
+            body,
+            r#abstract,
+            declare,
+        });
+        class_id
     }
     #[inline]
     pub fn method_definition(
@@ -5184,7 +5165,7 @@ impl<'a> Ast<'a> {
             NodeKind::MethodDefinition,
             NodePayload(
                 0u128
-                    | ((key.node_id().index() as u32 as u128) << 56usize)
+                    | ((key.ast_id().raw() as u128) << 56usize)
                     | ((kind as u32 as u128) << 0usize)
                     | ((computed as u32 as u128) << 8usize)
                     | ((r#static as u32 as u128) << 16usize)
@@ -5274,10 +5255,8 @@ impl<'a> Ast<'a> {
             NodePayload(
                 0u128
                     | ((function_type as u32 as u128) << 0usize)
-                    | ((id.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 24usize)
-                    | ((type_parameters.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((id.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 24usize)
+                    | ((type_parameters.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 56usize)
                     | ((generator as u32 as u128) << 8usize)
                     | ((r#async as u32 as u128) << 16usize)
@@ -5317,8 +5296,8 @@ impl<'a> Ast<'a> {
             NodeKind::WhileStatement,
             NodePayload(
                 0u128
-                    | ((test.node_id().index() as u32 as u128) << 0usize)
-                    | ((body.node_id().index() as u32 as u128) << 32usize),
+                    | ((test.ast_id().raw() as u128) << 0usize)
+                    | ((body.ast_id().raw() as u128) << 32usize),
             ),
         ))
     }
@@ -5329,8 +5308,8 @@ impl<'a> Ast<'a> {
             NodeKind::DoWhileStatement,
             NodePayload(
                 0u128
-                    | ((body.node_id().index() as u32 as u128) << 0usize)
-                    | ((test.node_id().index() as u32 as u128) << 32usize),
+                    | ((body.ast_id().raw() as u128) << 0usize)
+                    | ((test.ast_id().raw() as u128) << 32usize),
             ),
         ))
     }
@@ -5341,8 +5320,8 @@ impl<'a> Ast<'a> {
             NodeKind::WithStatement,
             NodePayload(
                 0u128
-                    | ((object.node_id().index() as u32 as u128) << 0usize)
-                    | ((body.node_id().index() as u32 as u128) << 32usize),
+                    | ((object.ast_id().raw() as u128) << 0usize)
+                    | ((body.ast_id().raw() as u128) << 32usize),
             ),
         ))
     }
@@ -5360,8 +5339,7 @@ impl<'a> Ast<'a> {
             NodePayload(
                 0u128
                     | ((unsafe { items.to_extra_data(self).other } as u128) << 0usize)
-                    | ((rest.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 64usize)
+                    | ((rest.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 64usize)
                     | ((kind as u32 as u128) << 96usize),
             ),
         ))
@@ -5375,7 +5353,7 @@ impl<'a> Ast<'a> {
         FormalParameter(self.add_node(
             span,
             NodeKind::FormalParameter,
-            NodePayload(0u128 | ((pattern.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((pattern.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -5411,7 +5389,7 @@ impl<'a> Ast<'a> {
         SpreadElement(self.add_node(
             span,
             NodeKind::SpreadElement,
-            NodePayload(0u128 | ((argument.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((argument.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -5430,8 +5408,8 @@ impl<'a> Ast<'a> {
             NodeKind::ObjectProperty,
             NodePayload(
                 0u128
-                    | ((key.node_id().index() as u32 as u128) << 0usize)
-                    | ((value.node_id().index() as u32 as u128) << 32usize)
+                    | ((key.ast_id().raw() as u128) << 0usize)
+                    | ((value.ast_id().raw() as u128) << 32usize)
                     | ((kind as u32 as u128) << 64usize)
                     | ((method as u32 as u128) << 72usize)
                     | ((shorthand as u32 as u128) << 80usize)
@@ -5448,7 +5426,7 @@ impl<'a> Ast<'a> {
         ParenthesizedExpression(self.add_node(
             span,
             NodeKind::ParenthesizedExpression,
-            NodePayload(0u128 | ((expression.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((expression.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -5471,10 +5449,9 @@ impl<'a> Ast<'a> {
                 0u128
                     | ((expression as u32 as u128) << 0usize)
                     | ((r#async as u32 as u128) << 8usize)
-                    | ((type_parameters.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((type_parameters.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 16usize)
-                    | ((params.node_id().index() as u32 as u128) << 48usize)
+                    | ((params.ast_id().raw() as u128) << 48usize)
                     | ((_extra_data_range.start.index() as u128) << 96usize),
             ),
         ))
@@ -5507,8 +5484,8 @@ impl<'a> Ast<'a> {
             NodeKind::MemberExpression,
             NodePayload(
                 0u128
-                    | ((object.node_id().index() as u32 as u128) << 0usize)
-                    | ((property.node_id().index() as u32 as u128) << 32usize)
+                    | ((object.ast_id().raw() as u128) << 0usize)
+                    | ((property.ast_id().raw() as u128) << 32usize)
                     | ((computed as u32 as u128) << 64usize)
                     | ((optional as u32 as u128) << 72usize),
             ),
@@ -5529,9 +5506,8 @@ impl<'a> Ast<'a> {
             NodeKind::CallExpression,
             NodePayload(
                 0u128
-                    | ((callee.node_id().index() as u32 as u128) << 8usize)
-                    | ((type_arguments.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((callee.ast_id().raw() as u128) << 8usize)
+                    | ((type_arguments.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 40usize)
                     | ((optional as u32 as u128) << 0usize)
                     | ((_f0.index() as u128) << 96usize),
@@ -5543,7 +5519,7 @@ impl<'a> Ast<'a> {
         ChainExpression(self.add_node(
             span,
             NodeKind::ChainExpression,
-            NodePayload(0u128 | ((expression.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((expression.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -5559,11 +5535,10 @@ impl<'a> Ast<'a> {
             NodeKind::TaggedTemplateExpression,
             NodePayload(
                 0u128
-                    | ((tag.node_id().index() as u32 as u128) << 0usize)
-                    | ((type_arguments.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((tag.ast_id().raw() as u128) << 0usize)
+                    | ((type_arguments.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 32usize)
-                    | ((quasi.node_id().index() as u32 as u128) << 64usize),
+                    | ((quasi.ast_id().raw() as u128) << 64usize),
             ),
         ))
     }
@@ -5580,9 +5555,8 @@ impl<'a> Ast<'a> {
             NodeKind::NewExpression,
             NodePayload(
                 0u128
-                    | ((callee.node_id().index() as u32 as u128) << 64usize)
-                    | ((type_arguments.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((callee.ast_id().raw() as u128) << 64usize)
+                    | ((type_arguments.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 96usize)
                     | ((unsafe { arguments.to_extra_data(self).other } as u128) << 0usize),
             ),
@@ -5593,7 +5567,7 @@ impl<'a> Ast<'a> {
         AwaitExpression(self.add_node(
             span,
             NodeKind::AwaitExpression,
-            NodePayload(0u128 | ((argument.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((argument.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -5608,8 +5582,7 @@ impl<'a> Ast<'a> {
             NodeKind::YieldExpression,
             NodePayload(
                 0u128
-                    | ((argument.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 0usize)
+                    | ((argument.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 0usize)
                     | ((delegate as u32 as u128) << 32usize),
             ),
         ))
@@ -5626,8 +5599,8 @@ impl<'a> Ast<'a> {
             NodeKind::MetaProperty,
             NodePayload(
                 0u128
-                    | ((meta.node_id().index() as u32 as u128) << 0usize)
-                    | ((property.node_id().index() as u32 as u128) << 32usize),
+                    | ((meta.ast_id().raw() as u128) << 0usize)
+                    | ((property.ast_id().raw() as u128) << 32usize),
             ),
         ))
     }
@@ -5646,9 +5619,8 @@ impl<'a> Ast<'a> {
             NodeKind::ImportExpression,
             NodePayload(
                 0u128
-                    | ((source.node_id().index() as u32 as u128) << 8usize)
-                    | ((options.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 40usize)
+                    | ((source.ast_id().raw() as u128) << 8usize)
+                    | ((options.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 40usize)
                     | ((sync as u32 as u128) << 0usize)
                     | ((_f0.index() as u128) << 96usize),
             ),
@@ -5675,7 +5647,7 @@ impl<'a> Ast<'a> {
             NodeKind::ImportDeclaration,
             NodePayload(
                 0u128
-                    | ((source.node_id().index() as u32 as u128) << 8usize)
+                    | ((source.ast_id().raw() as u128) << 8usize)
                     | ((import_kind as u32 as u128) << 0usize)
                     | ((_extra_data_range.start.index() as u128) << 96usize),
             ),
@@ -5694,8 +5666,8 @@ impl<'a> Ast<'a> {
             NodeKind::ImportSpecifier,
             NodePayload(
                 0u128
-                    | ((imported.node_id().index() as u32 as u128) << 0usize)
-                    | ((local.node_id().index() as u32 as u128) << 32usize)
+                    | ((imported.ast_id().raw() as u128) << 0usize)
+                    | ((local.ast_id().raw() as u128) << 32usize)
                     | ((import_kind as u32 as u128) << 64usize),
             ),
         ))
@@ -5709,7 +5681,7 @@ impl<'a> Ast<'a> {
         ImportDefaultSpecifier(self.add_node(
             span,
             NodeKind::ImportDefaultSpecifier,
-            NodePayload(0u128 | ((local.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((local.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -5721,7 +5693,7 @@ impl<'a> Ast<'a> {
         ImportNamespaceSpecifier(self.add_node(
             span,
             NodeKind::ImportNamespaceSpecifier,
-            NodePayload(0u128 | ((local.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((local.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -5736,8 +5708,8 @@ impl<'a> Ast<'a> {
             NodeKind::ImportAttribute,
             NodePayload(
                 0u128
-                    | ((key.node_id().index() as u32 as u128) << 0usize)
-                    | ((value.node_id().index() as u32 as u128) << 32usize),
+                    | ((key.ast_id().raw() as u128) << 0usize)
+                    | ((value.ast_id().raw() as u128) << 32usize),
             ),
         ))
     }
@@ -5761,11 +5733,9 @@ impl<'a> Ast<'a> {
             NodeKind::ExportNamedDeclaration,
             NodePayload(
                 0u128
-                    | ((declaration.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((declaration.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 8usize)
-                    | ((source.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 40usize)
+                    | ((source.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 40usize)
                     | ((export_kind as u32 as u128) << 0usize)
                     | ((_extra_data_range.start.index() as u128) << 96usize),
             ),
@@ -5780,7 +5750,7 @@ impl<'a> Ast<'a> {
         ExportDefaultDeclaration(self.add_node(
             span,
             NodeKind::ExportDefaultDeclaration,
-            NodePayload(0u128 | ((declaration.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((declaration.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -5798,9 +5768,8 @@ impl<'a> Ast<'a> {
             NodeKind::ExportAllDeclaration,
             NodePayload(
                 0u128
-                    | ((exported.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 8usize)
-                    | ((source.node_id().index() as u32 as u128) << 40usize)
+                    | ((exported.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 8usize)
+                    | ((source.ast_id().raw() as u128) << 40usize)
                     | ((export_kind as u32 as u128) << 0usize)
                     | ((_f0.index() as u128) << 96usize),
             ),
@@ -5819,8 +5788,8 @@ impl<'a> Ast<'a> {
             NodeKind::ExportSpecifier,
             NodePayload(
                 0u128
-                    | ((local.node_id().index() as u32 as u128) << 0usize)
-                    | ((exported.node_id().index() as u32 as u128) << 32usize)
+                    | ((local.ast_id().raw() as u128) << 0usize)
+                    | ((exported.ast_id().raw() as u128) << 32usize)
                     | ((export_kind as u32 as u128) << 64usize),
             ),
         ))
@@ -7086,7 +7055,8 @@ impl<'a> Ast<'a> {
         super_class: Option<Expr>,
         super_type_arguments: Option<TsTypeParameterInstantiation>,
         implements: TypedSubRange<TsClassImplements>,
-        body: ClassBody,
+        body_span: Span,
+        body: TypedSubRange<ClassElement>,
         r#abstract: bool,
         declare: bool,
     ) -> TsEnumMemberName {
@@ -7100,6 +7070,7 @@ impl<'a> Ast<'a> {
                 super_class,
                 super_type_arguments,
                 implements,
+                body_span,
                 body,
                 r#abstract,
                 declare,
@@ -7341,10 +7312,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsFunction,
             NodePayload(
                 0u128
-                    | ((id.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 24usize)
-                    | ((type_parameters.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((id.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 24usize)
+                    | ((type_parameters.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 56usize)
                     | ((generator as u32 as u128) << 0usize)
                     | ((r#async as u32 as u128) << 8usize)
@@ -7375,7 +7344,7 @@ impl<'a> Ast<'a> {
             NodeKind::TsMethodDefinition,
             NodePayload(
                 0u128
-                    | ((key.node_id().index() as u32 as u128) << 56usize)
+                    | ((key.ast_id().raw() as u128) << 56usize)
                     | ((kind as u32 as u128) << 0usize)
                     | ((computed as u32 as u128) << 8usize)
                     | ((r#static as u32 as u128) << 16usize)
@@ -7392,7 +7361,7 @@ impl<'a> Ast<'a> {
         TsTypeAnnotation(self.add_node(
             span,
             NodeKind::TsTypeAnnotation,
-            NodePayload(0u128 | ((type_annotation.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((type_annotation.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -7463,9 +7432,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsTypeReference,
             NodePayload(
                 0u128
-                    | ((type_name.node_id().index() as u32 as u128) << 0usize)
-                    | ((type_arguments.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((type_name.ast_id().raw() as u128) << 0usize)
+                    | ((type_arguments.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 32usize),
             ),
         ))
@@ -7482,8 +7450,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsQualifiedName,
             NodePayload(
                 0u128
-                    | ((left.node_id().index() as u32 as u128) << 0usize)
-                    | ((right.node_id().index() as u32 as u128) << 32usize),
+                    | ((left.ast_id().raw() as u128) << 0usize)
+                    | ((right.ast_id().raw() as u128) << 32usize),
             ),
         ))
     }
@@ -7499,9 +7467,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsTypeQuery,
             NodePayload(
                 0u128
-                    | ((expr_name.node_id().index() as u32 as u128) << 0usize)
-                    | ((type_arguments.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((expr_name.ast_id().raw() as u128) << 0usize)
+                    | ((type_arguments.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 32usize),
             ),
         ))
@@ -7520,13 +7487,10 @@ impl<'a> Ast<'a> {
             NodeKind::TsImportType,
             NodePayload(
                 0u128
-                    | ((source.node_id().index() as u32 as u128) << 0usize)
-                    | ((options.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 32usize)
-                    | ((qualifier.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 64usize)
-                    | ((type_arguments.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((source.ast_id().raw() as u128) << 0usize)
+                    | ((options.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 32usize)
+                    | ((qualifier.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 64usize)
+                    | ((type_arguments.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 96usize),
             ),
         ))
@@ -7547,11 +7511,10 @@ impl<'a> Ast<'a> {
             NodeKind::TsTypeParameter,
             NodePayload(
                 0u128
-                    | ((name.node_id().index() as u32 as u128) << 0usize)
-                    | ((constraint.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
+                    | ((name.ast_id().raw() as u128) << 0usize)
+                    | ((constraint.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 32usize)
-                    | ((default.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 64usize)
+                    | ((default.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 64usize)
                     | ((r#in as u32 as u128) << 96usize)
                     | ((out as u32 as u128) << 104usize)
                     | ((r#const as u32 as u128) << 112usize),
@@ -7587,7 +7550,7 @@ impl<'a> Ast<'a> {
         TsLiteralType(self.add_node(
             span,
             NodeKind::TsLiteralType,
-            NodePayload(0u128 | ((literal.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((literal.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -7612,7 +7575,7 @@ impl<'a> Ast<'a> {
         TsArrayType(self.add_node(
             span,
             NodeKind::TsArrayType,
-            NodePayload(0u128 | ((element_type.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((element_type.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -7627,8 +7590,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsIndexedAccessType,
             NodePayload(
                 0u128
-                    | ((object_type.node_id().index() as u32 as u128) << 0usize)
-                    | ((index_type.node_id().index() as u32 as u128) << 32usize),
+                    | ((object_type.ast_id().raw() as u128) << 0usize)
+                    | ((index_type.ast_id().raw() as u128) << 32usize),
             ),
         ))
     }
@@ -7659,8 +7622,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsNamedTupleMember,
             NodePayload(
                 0u128
-                    | ((label.node_id().index() as u32 as u128) << 0usize)
-                    | ((element_type.node_id().index() as u32 as u128) << 32usize)
+                    | ((label.ast_id().raw() as u128) << 0usize)
+                    | ((element_type.ast_id().raw() as u128) << 32usize)
                     | ((optional as u32 as u128) << 64usize),
             ),
         ))
@@ -7670,7 +7633,7 @@ impl<'a> Ast<'a> {
         TsOptionalType(self.add_node(
             span,
             NodeKind::TsOptionalType,
-            NodePayload(0u128 | ((type_annotation.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((type_annotation.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -7678,7 +7641,7 @@ impl<'a> Ast<'a> {
         TsRestType(self.add_node(
             span,
             NodeKind::TsRestType,
-            NodePayload(0u128 | ((type_annotation.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((type_annotation.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -7693,7 +7656,7 @@ impl<'a> Ast<'a> {
             NodeKind::TsJsDocNullableType,
             NodePayload(
                 0u128
-                    | ((type_annotation.node_id().index() as u32 as u128) << 0usize)
+                    | ((type_annotation.ast_id().raw() as u128) << 0usize)
                     | ((postfix as u32 as u128) << 32usize),
             ),
         ))
@@ -7710,7 +7673,7 @@ impl<'a> Ast<'a> {
             NodeKind::TsJsDocNonNullableType,
             NodePayload(
                 0u128
-                    | ((type_annotation.node_id().index() as u32 as u128) << 0usize)
+                    | ((type_annotation.ast_id().raw() as u128) << 0usize)
                     | ((postfix as u32 as u128) << 32usize),
             ),
         ))
@@ -7753,10 +7716,10 @@ impl<'a> Ast<'a> {
             NodeKind::TsConditionalType,
             NodePayload(
                 0u128
-                    | ((check_type.node_id().index() as u32 as u128) << 0usize)
-                    | ((extends_type.node_id().index() as u32 as u128) << 32usize)
-                    | ((true_type.node_id().index() as u32 as u128) << 64usize)
-                    | ((false_type.node_id().index() as u32 as u128) << 96usize),
+                    | ((check_type.ast_id().raw() as u128) << 0usize)
+                    | ((extends_type.ast_id().raw() as u128) << 32usize)
+                    | ((true_type.ast_id().raw() as u128) << 64usize)
+                    | ((false_type.ast_id().raw() as u128) << 96usize),
             ),
         ))
     }
@@ -7765,7 +7728,7 @@ impl<'a> Ast<'a> {
         TsInferType(self.add_node(
             span,
             NodeKind::TsInferType,
-            NodePayload(0u128 | ((type_parameter.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((type_parameter.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -7781,7 +7744,7 @@ impl<'a> Ast<'a> {
             NodePayload(
                 0u128
                     | ((operator as u32 as u128) << 32usize)
-                    | ((type_annotation.node_id().index() as u32 as u128) << 0usize),
+                    | ((type_annotation.ast_id().raw() as u128) << 0usize),
             ),
         ))
     }
@@ -7794,7 +7757,7 @@ impl<'a> Ast<'a> {
         TsParenthesizedType(self.add_node(
             span,
             NodeKind::TsParenthesizedType,
-            NodePayload(0u128 | ((type_annotation.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((type_annotation.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -7810,11 +7773,10 @@ impl<'a> Ast<'a> {
             NodeKind::TsFunctionType,
             NodePayload(
                 0u128
-                    | ((type_parameters.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((type_parameters.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 0usize)
-                    | ((params.node_id().index() as u32 as u128) << 32usize)
-                    | ((return_type.node_id().index() as u32 as u128) << 64usize),
+                    | ((params.ast_id().raw() as u128) << 32usize)
+                    | ((return_type.ast_id().raw() as u128) << 64usize),
             ),
         ))
     }
@@ -7832,11 +7794,10 @@ impl<'a> Ast<'a> {
             NodeKind::TsConstructorType,
             NodePayload(
                 0u128
-                    | ((type_parameters.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((type_parameters.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 0usize)
-                    | ((params.node_id().index() as u32 as u128) << 32usize)
-                    | ((return_type.node_id().index() as u32 as u128) << 64usize)
+                    | ((params.ast_id().raw() as u128) << 32usize)
+                    | ((return_type.ast_id().raw() as u128) << 64usize)
                     | ((r#abstract as u32 as u128) << 96usize),
             ),
         ))
@@ -7854,9 +7815,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsTypePredicate,
             NodePayload(
                 0u128
-                    | ((parameter_name.node_id().index() as u32 as u128) << 0usize)
-                    | ((type_annotation.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((parameter_name.ast_id().raw() as u128) << 0usize)
+                    | ((type_annotation.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 32usize)
                     | ((asserts as u32 as u128) << 64usize),
             ),
@@ -7895,8 +7855,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsMappedType,
             NodePayload(
                 0u128
-                    | ((key.node_id().index() as u32 as u128) << 16usize)
-                    | ((constraint.node_id().index() as u32 as u128) << 48usize)
+                    | ((key.ast_id().raw() as u128) << 16usize)
+                    | ((constraint.ast_id().raw() as u128) << 48usize)
                     | ((optional as u32 as u128) << 0usize)
                     | ((readonly as u32 as u128) << 8usize)
                     | ((_extra_data_range.start.index() as u128) << 96usize),
@@ -7918,9 +7878,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsPropertySignature,
             NodePayload(
                 0u128
-                    | ((key.node_id().index() as u32 as u128) << 0usize)
-                    | ((type_annotation.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((key.ast_id().raw() as u128) << 0usize)
+                    | ((type_annotation.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 32usize)
                     | ((computed as u32 as u128) << 64usize)
                     | ((optional as u32 as u128) << 72usize)
@@ -7947,9 +7906,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsMethodSignature,
             NodePayload(
                 0u128
-                    | ((key.node_id().index() as u32 as u128) << 24usize)
-                    | ((type_parameters.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((key.ast_id().raw() as u128) << 24usize)
+                    | ((type_parameters.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 56usize)
                     | ((kind as u32 as u128) << 0usize)
                     | ((computed as u32 as u128) << 8usize)
@@ -7971,12 +7929,10 @@ impl<'a> Ast<'a> {
             NodeKind::TsCallSignatureDeclaration,
             NodePayload(
                 0u128
-                    | ((type_parameters.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((type_parameters.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 0usize)
-                    | ((params.node_id().index() as u32 as u128) << 32usize)
-                    | ((return_type.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((params.ast_id().raw() as u128) << 32usize)
+                    | ((return_type.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 64usize),
             ),
         ))
@@ -7994,12 +7950,10 @@ impl<'a> Ast<'a> {
             NodeKind::TsConstructSignatureDeclaration,
             NodePayload(
                 0u128
-                    | ((type_parameters.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((type_parameters.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 0usize)
-                    | ((params.node_id().index() as u32 as u128) << 32usize)
-                    | ((return_type.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((params.ast_id().raw() as u128) << 32usize)
+                    | ((return_type.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 64usize),
             ),
         ))
@@ -8019,7 +7973,7 @@ impl<'a> Ast<'a> {
             NodePayload(
                 0u128
                     | ((unsafe { parameters.to_extra_data(self).other } as u128) << 0usize)
-                    | ((type_annotation.node_id().index() as u32 as u128) << 64usize)
+                    | ((type_annotation.ast_id().raw() as u128) << 64usize)
                     | ((readonly as u32 as u128) << 96usize)
                     | ((r#static as u32 as u128) << 104usize),
             ),
@@ -8039,11 +7993,10 @@ impl<'a> Ast<'a> {
             NodeKind::TsTypeAliasDeclaration,
             NodePayload(
                 0u128
-                    | ((id.node_id().index() as u32 as u128) << 0usize)
-                    | ((type_parameters.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((id.ast_id().raw() as u128) << 0usize)
+                    | ((type_parameters.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 32usize)
-                    | ((type_annotation.node_id().index() as u32 as u128) << 64usize)
+                    | ((type_annotation.ast_id().raw() as u128) << 64usize)
                     | ((declare as u32 as u128) << 96usize),
             ),
         ))
@@ -8065,9 +8018,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsInterfaceDeclaration,
             NodePayload(
                 0u128
-                    | ((id.node_id().index() as u32 as u128) << 8usize)
-                    | ((type_parameters.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((id.ast_id().raw() as u128) << 8usize)
+                    | ((type_parameters.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 40usize)
                     | ((declare as u32 as u128) << 0usize)
                     | ((_extra_data_range.start.index() as u128) << 96usize),
@@ -8098,9 +8050,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsInterfaceHeritage,
             NodePayload(
                 0u128
-                    | ((expression.node_id().index() as u32 as u128) << 0usize)
-                    | ((type_arguments.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((expression.ast_id().raw() as u128) << 0usize)
+                    | ((type_arguments.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 32usize),
             ),
         ))
@@ -8117,9 +8068,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsClassImplements,
             NodePayload(
                 0u128
-                    | ((expression.node_id().index() as u32 as u128) << 0usize)
-                    | ((type_arguments.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((expression.ast_id().raw() as u128) << 0usize)
+                    | ((type_arguments.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 32usize),
             ),
         ))
@@ -8138,8 +8088,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsEnumDeclaration,
             NodePayload(
                 0u128
-                    | ((id.node_id().index() as u32 as u128) << 0usize)
-                    | ((body.node_id().index() as u32 as u128) << 32usize)
+                    | ((id.ast_id().raw() as u128) << 0usize)
+                    | ((body.ast_id().raw() as u128) << 32usize)
                     | ((is_const as u32 as u128) << 64usize)
                     | ((declare as u32 as u128) << 72usize),
             ),
@@ -8166,9 +8116,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsEnumMember,
             NodePayload(
                 0u128
-                    | ((id.node_id().index() as u32 as u128) << 0usize)
-                    | ((initializer.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((id.ast_id().raw() as u128) << 0usize)
+                    | ((initializer.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 32usize)
                     | ((computed as u32 as u128) << 64usize),
             ),
@@ -8188,9 +8137,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsModuleDeclaration,
             NodePayload(
                 0u128
-                    | ((id.node_id().index() as u32 as u128) << 0usize)
-                    | ((body.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 32usize)
+                    | ((id.ast_id().raw() as u128) << 0usize)
+                    | ((body.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 32usize)
                     | ((kind as u32 as u128) << 64usize)
                     | ((declare as u32 as u128) << 72usize),
             ),
@@ -8226,8 +8174,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsGlobalDeclaration,
             NodePayload(
                 0u128
-                    | ((id.node_id().index() as u32 as u128) << 0usize)
-                    | ((body.node_id().index() as u32 as u128) << 32usize)
+                    | ((id.ast_id().raw() as u128) << 0usize)
+                    | ((body.ast_id().raw() as u128) << 32usize)
                     | ((declare as u32 as u128) << 64usize),
             ),
         ))
@@ -8248,7 +8196,7 @@ impl<'a> Ast<'a> {
             NodePayload(
                 0u128
                     | ((unsafe { decorators.to_extra_data(self).other } as u128) << 0usize)
-                    | ((parameter.node_id().index() as u32 as u128) << 64usize)
+                    | ((parameter.ast_id().raw() as u128) << 64usize)
                     | ((r#override as u32 as u128) << 96usize)
                     | ((readonly as u32 as u128) << 104usize)
                     | ((accessibility as u32 as u128) << 112usize),
@@ -8266,8 +8214,7 @@ impl<'a> Ast<'a> {
             NodeKind::TsThisParameter,
             NodePayload(
                 0u128
-                    | ((type_annotation.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((type_annotation.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 0usize),
             ),
         ))
@@ -8284,8 +8231,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsAsExpression,
             NodePayload(
                 0u128
-                    | ((expression.node_id().index() as u32 as u128) << 0usize)
-                    | ((type_annotation.node_id().index() as u32 as u128) << 32usize),
+                    | ((expression.ast_id().raw() as u128) << 0usize)
+                    | ((type_annotation.ast_id().raw() as u128) << 32usize),
             ),
         ))
     }
@@ -8301,8 +8248,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsSatisfiesExpression,
             NodePayload(
                 0u128
-                    | ((expression.node_id().index() as u32 as u128) << 0usize)
-                    | ((type_annotation.node_id().index() as u32 as u128) << 32usize),
+                    | ((expression.ast_id().raw() as u128) << 0usize)
+                    | ((type_annotation.ast_id().raw() as u128) << 32usize),
             ),
         ))
     }
@@ -8318,8 +8265,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsTypeAssertion,
             NodePayload(
                 0u128
-                    | ((type_annotation.node_id().index() as u32 as u128) << 0usize)
-                    | ((expression.node_id().index() as u32 as u128) << 32usize),
+                    | ((type_annotation.ast_id().raw() as u128) << 0usize)
+                    | ((expression.ast_id().raw() as u128) << 32usize),
             ),
         ))
     }
@@ -8328,7 +8275,7 @@ impl<'a> Ast<'a> {
         TsNonNullExpression(self.add_node(
             span,
             NodeKind::TsNonNullExpression,
-            NodePayload(0u128 | ((expression.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((expression.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -8343,8 +8290,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsInstantiationExpression,
             NodePayload(
                 0u128
-                    | ((expression.node_id().index() as u32 as u128) << 0usize)
-                    | ((type_arguments.node_id().index() as u32 as u128) << 32usize),
+                    | ((expression.ast_id().raw() as u128) << 0usize)
+                    | ((type_arguments.ast_id().raw() as u128) << 32usize),
             ),
         ))
     }
@@ -8353,7 +8300,7 @@ impl<'a> Ast<'a> {
         TsExportAssignment(self.add_node(
             span,
             NodeKind::TsExportAssignment,
-            NodePayload(0u128 | ((expression.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((expression.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -8365,7 +8312,7 @@ impl<'a> Ast<'a> {
         TsNamespaceExportDeclaration(self.add_node(
             span,
             NodeKind::TsNamespaceExportDeclaration,
-            NodePayload(0u128 | ((id.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((id.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -8381,8 +8328,8 @@ impl<'a> Ast<'a> {
             NodeKind::TsImportEqualsDeclaration,
             NodePayload(
                 0u128
-                    | ((id.node_id().index() as u32 as u128) << 0usize)
-                    | ((module_reference.node_id().index() as u32 as u128) << 32usize)
+                    | ((id.ast_id().raw() as u128) << 0usize)
+                    | ((module_reference.ast_id().raw() as u128) << 32usize)
                     | ((import_kind as u32 as u128) << 64usize),
             ),
         ))
@@ -8396,7 +8343,7 @@ impl<'a> Ast<'a> {
         TsExternalModuleReference(self.add_node(
             span,
             NodeKind::TsExternalModuleReference,
-            NodePayload(0u128 | ((expression.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((expression.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -8857,7 +8804,8 @@ impl<'a> Ast<'a> {
         super_class: Option<Expr>,
         super_type_arguments: Option<TsTypeParameterInstantiation>,
         implements: TypedSubRange<TsClassImplements>,
-        body: ClassBody,
+        body_span: Span,
+        body: TypedSubRange<ClassElement>,
         r#abstract: bool,
         declare: bool,
     ) -> JsxExpression {
@@ -8871,6 +8819,7 @@ impl<'a> Ast<'a> {
                 super_class,
                 super_type_arguments,
                 implements,
+                body_span,
                 body,
                 r#abstract,
                 declare,
@@ -9066,10 +9015,9 @@ impl<'a> Ast<'a> {
             NodeKind::JsxElement,
             NodePayload(
                 0u128
-                    | ((opening_element.node_id().index() as u32 as u128) << 64usize)
+                    | ((opening_element.ast_id().raw() as u128) << 64usize)
                     | ((unsafe { children.to_extra_data(self).other } as u128) << 0usize)
-                    | ((closing_element.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((closing_element.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 96usize),
             ),
         ))
@@ -9089,9 +9037,8 @@ impl<'a> Ast<'a> {
             NodeKind::JsxOpeningElement,
             NodePayload(
                 0u128
-                    | ((name.node_id().index() as u32 as u128) << 8usize)
-                    | ((type_arguments.map_or(u32::MAX, |node| node.node_id().index() as u32)
-                        as u128)
+                    | ((name.ast_id().raw() as u128) << 8usize)
+                    | ((type_arguments.map_or(u32::MAX, |node| node.ast_id().raw()) as u128)
                         << 40usize)
                     | ((self_closing as u32 as u128) << 0usize)
                     | ((_f0.index() as u128) << 96usize),
@@ -9103,7 +9050,7 @@ impl<'a> Ast<'a> {
         JsxClosingElement(self.add_node(
             span,
             NodeKind::JsxClosingElement,
-            NodePayload(0u128 | ((name.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((name.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -9119,9 +9066,9 @@ impl<'a> Ast<'a> {
             NodeKind::JsxFragment,
             NodePayload(
                 0u128
-                    | ((opening_fragment.node_id().index() as u32 as u128) << 64usize)
+                    | ((opening_fragment.ast_id().raw() as u128) << 64usize)
                     | ((unsafe { children.to_extra_data(self).other } as u128) << 0usize)
-                    | ((closing_fragment.node_id().index() as u32 as u128) << 96usize),
+                    | ((closing_fragment.ast_id().raw() as u128) << 96usize),
             ),
         ))
     }
@@ -9153,8 +9100,8 @@ impl<'a> Ast<'a> {
             NodeKind::JsxNamespacedName,
             NodePayload(
                 0u128
-                    | ((namespace.node_id().index() as u32 as u128) << 0usize)
-                    | ((name.node_id().index() as u32 as u128) << 32usize),
+                    | ((namespace.ast_id().raw() as u128) << 0usize)
+                    | ((name.ast_id().raw() as u128) << 32usize),
             ),
         ))
     }
@@ -9170,8 +9117,8 @@ impl<'a> Ast<'a> {
             NodeKind::JsxMemberExpression,
             NodePayload(
                 0u128
-                    | ((object.node_id().index() as u32 as u128) << 0usize)
-                    | ((property.node_id().index() as u32 as u128) << 32usize),
+                    | ((object.ast_id().raw() as u128) << 0usize)
+                    | ((property.ast_id().raw() as u128) << 32usize),
             ),
         ))
     }
@@ -9187,9 +9134,8 @@ impl<'a> Ast<'a> {
             NodeKind::JsxAttribute,
             NodePayload(
                 0u128
-                    | ((name.node_id().index() as u32 as u128) << 0usize)
-                    | ((value.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
-                        << 32usize),
+                    | ((name.ast_id().raw() as u128) << 0usize)
+                    | ((value.map_or(u32::MAX, |node| node.ast_id().raw()) as u128) << 32usize),
             ),
         ))
     }
@@ -9198,7 +9144,7 @@ impl<'a> Ast<'a> {
         JsxSpreadAttribute(self.add_node(
             span,
             NodeKind::JsxSpreadAttribute,
-            NodePayload(0u128 | ((argument.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((argument.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -9210,7 +9156,7 @@ impl<'a> Ast<'a> {
         JsxExpressionContainer(self.add_node(
             span,
             NodeKind::JsxExpressionContainer,
-            NodePayload(0u128 | ((expression.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((expression.ast_id().raw() as u128) << 0usize)),
         ))
     }
     #[inline]
@@ -9230,7 +9176,7 @@ impl<'a> Ast<'a> {
         JsxSpreadChild(self.add_node(
             span,
             NodeKind::JsxSpreadChild,
-            NodePayload(0u128 | ((expression.node_id().index() as u32 as u128) << 0usize)),
+            NodePayload(0u128 | ((expression.ast_id().raw() as u128) << 0usize)),
         ))
     }
 }

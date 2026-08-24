@@ -7,13 +7,13 @@ use indexmap::IndexSet;
 use oxc_index::IndexVec;
 use quote::ToTokens;
 use syn::{
-    Attribute, Field, GenericArgument, Ident, Item, ItemEnum, ItemStruct, Meta, PathArguments,
-    Type, Variant, punctuated::Punctuated, token::Comma,
+    Attribute, Expr, Field, GenericArgument, Ident, Item, ItemEnum, ItemStruct, Meta,
+    PathArguments, Type, Variant, punctuated::Punctuated, token::Comma,
 };
 
 use crate::schema::{
     AstAttrs, AstEnum, AstEnumVariant, AstFieldAttrs, AstOption, AstPrimitive, AstStruct,
-    AstStructField, AstType, AstVec, Schema, TypeId,
+    AstStructField, AstType, AstVec, Schema, StorageDomain, TypeId,
 };
 
 struct Parser {
@@ -234,6 +234,8 @@ fn parse_attrs(attrs: &[Attribute]) -> Option<AstAttrs> {
     let mut has_ast_attr = false;
     let mut ast_attrs = HashSet::new();
     let mut generate_derives = HashSet::new();
+    let mut storage = None;
+    let mut id = None;
 
     // Find #[ast] and #[generate_derive]
     for attr in attrs {
@@ -247,9 +249,42 @@ fn parse_attrs(attrs: &[Attribute]) -> Option<AstAttrs> {
                 if meta_list.path.is_ident("ast") {
                     has_ast_attr = true;
                     let args = meta_list
-                        .parse_args_with(Punctuated::<Ident, Comma>::parse_terminated)
-                        .expect("Unable to parse `#[ast]`");
-                    ast_attrs.extend(args.into_iter().map(|arg| arg.to_string()));
+                        .parse_args_with(Punctuated::<Meta, Comma>::parse_terminated)
+                        .expect("Unable to parse ast attribute");
+                    for arg in args {
+                        match arg {
+                            Meta::Path(path) => {
+                                ast_attrs.insert(
+                                    path.get_ident()
+                                        .expect("ast option must be an identifier")
+                                        .to_string(),
+                                );
+                            }
+                            Meta::NameValue(value) if value.path.is_ident("storage") => {
+                                let Expr::Path(path) = value.value else {
+                                    panic!("ast storage must be an identifier");
+                                };
+                                storage = Some(
+                                    path.path
+                                        .get_ident()
+                                        .expect("ast storage must be an identifier")
+                                        .to_string(),
+                                );
+                            }
+                            Meta::NameValue(value) if value.path.is_ident("id") => {
+                                let Expr::Path(path) = value.value else {
+                                    panic!("ast id must be an identifier");
+                                };
+                                id = Some(
+                                    path.path
+                                        .get_ident()
+                                        .expect("ast id must be an identifier")
+                                        .to_string(),
+                                );
+                            }
+                            _ => panic!("unsupported ast attribute option"),
+                        }
+                    }
                 }
                 if meta_list.path.is_ident("generate_derive") {
                     let args = meta_list
@@ -269,6 +304,8 @@ fn parse_attrs(attrs: &[Attribute]) -> Option<AstAttrs> {
     Some(AstAttrs {
         ast_attrs,
         generate_derives,
+        storage,
+        id,
     })
 }
 
@@ -280,10 +317,19 @@ impl Parser {
             .into_iter()
             .map(|field| self.parse_struct_field(field))
             .collect();
+        let storage = match (&attrs.storage, &attrs.id) {
+            (None, None) => StorageDomain::Common,
+            (Some(storage), Some(id)) => StorageDomain::Dedicated {
+                name: storage.clone(),
+                id: id.clone(),
+            },
+            _ => panic!("dedicated AST storage and typed id must be declared together"),
+        };
         AstType::Struct(AstStruct {
             type_id,
             name,
             fields,
+            storage,
             _attrs: attrs,
         })
     }

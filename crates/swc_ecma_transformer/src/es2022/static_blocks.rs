@@ -6,7 +6,7 @@
 //! class C { static #_ = (() => { foo(); })(); }
 //! ```
 
-use swc_next_ecma_ast::{Accessibility, Class, ClassElement, DUMMY_SP, Stmt, TypedSubRange};
+use swc_next_ecma_ast::{Accessibility, ClassElement, ClassId, DUMMY_SP, Stmt, TypedSubRange};
 use swc_next_ecma_semantic::Semantic;
 
 use crate::state::TransformerCtx;
@@ -16,7 +16,7 @@ pub(super) struct StaticBlocks;
 impl StaticBlocks {
     pub(crate) fn exit_class<'a>(
         &self,
-        class: Class,
+        class: ClassId,
         semantic: &mut Semantic<'a>,
         ctx: &mut TransformerCtx<'_, 'a>,
     ) {
@@ -39,7 +39,7 @@ impl StaticBlocks {
                 continue;
             }
 
-            let private_name = semantic.class_mut().next_private_name(class.node_id());
+            let private_name = semantic.class_mut().next_private_name(ctx.ast, class);
             let ast = &mut *ctx.ast;
             let property = build_static_block_property(ast, statements, private_name);
             let output_id = elements.get(write_index).expect("write index is in range");
@@ -158,7 +158,7 @@ mod tests {
             .map(|private| ast.get_utf8(private.name(&ast)))
             .collect();
         assert_eq!(private_names, ["_2", "_3"]);
-        let class_info = semantic.class().get(class.node_id()).unwrap();
+        let class_info = semantic.class().get(&ast, class.node_id()).unwrap();
         assert!(class_info.has_name(b"_"));
         assert!(class_info.has_name(b"_2"));
         assert!(class_info.has_name(b"_3"));

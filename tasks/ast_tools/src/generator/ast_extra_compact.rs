@@ -11,19 +11,19 @@ pub fn ast_extra_compact(schema: &Schema) -> RawOutput {
     let mut impls = TokenStream::new();
     for ty in schema.types.iter() {
         match ty {
-            AstType::Struct(ast_struct) => {
-                let ident = format_ident!("{}", ast_struct.name);
+            AstType::Struct(_) => {
+                let ident = ty.repr_ident(schema);
 
                 impls.extend(quote! {
                    impl<'a> ExtraDataCompact<'a> for #ident {
                         #[inline]
                         fn to_extra_data(self, _ast: &Ast<'a>) -> ExtraData {
-                            ExtraData::from_node_id(self.node_id())
+                            ExtraData::from_ast_id(self.ast_id())
                         }
 
                         #[inline]
                         unsafe fn from_extra_data(data: ExtraData, _ast: &Ast<'a>) -> Self {
-                            Self(unsafe { data.node_id })
+                            unsafe { <Self as CommonAstNode>::from_ast_id_unchecked(data.ast_id) }
                         }
                    }
                 });
@@ -35,12 +35,12 @@ pub fn ast_extra_compact(schema: &Schema) -> RawOutput {
                    impl<'a> ExtraDataCompact<'a> for #ident {
                         #[inline]
                         fn to_extra_data(self, _ast: &Ast<'a>) -> ExtraData {
-                            ExtraData::from_node_id(self.node_id())
+                            ExtraData::from_ast_id(self.ast_id())
                         }
 
                         #[inline]
                         unsafe fn from_extra_data(data: ExtraData, _ast: &Ast<'a>) -> Self {
-                            Self(unsafe { data.node_id })
+                            unsafe { <Self as CommonAstNode>::from_ast_id_unchecked(data.ast_id) }
                         }
                    }
                 });
@@ -60,16 +60,18 @@ pub fn ast_extra_compact(schema: &Schema) -> RawOutput {
                    impl<'a> ExtraDataCompact<'a> for #ty_ident {
                         #[inline]
                         fn to_extra_data(self, _ast: &Ast<'a>) -> ExtraData {
-                            ExtraData::from_node_id(self.map_or(
-                                NodeId::from_raw_unchecked(u32::MAX),
-                                |node| node.node_id(),
+                            ExtraData::from_ast_id(self.map_or(
+                                AstId::NONE,
+                                |node| node.ast_id(),
                             ))
                         }
 
                         #[inline]
                         unsafe fn from_extra_data(data: ExtraData, _ast: &Ast<'a>) -> Self {
-                            let node_id = unsafe { data.node_id };
-                            (node_id.index() != u32::MAX as usize).then_some(#inner_ident(node_id))
+                            let ast_id = unsafe { data.ast_id };
+                            (!ast_id.is_none()).then(|| unsafe {
+                                <#inner_ident as CommonAstNode>::from_ast_id_unchecked(ast_id)
+                            })
                         }
                    }
                 });

@@ -11,7 +11,7 @@ use swc_next_allocator::{
     hash_map::{HashMap as ArenaHashMap, Values},
     vec::Vec as ArenaVec,
 };
-use swc_next_ecma_ast::{Ast, Diagnostic, NodeId, ScopeId, SymbolId, VisitWith};
+use swc_next_ecma_ast::{Ast, AstId, Diagnostic, ScopeId, SymbolId, VisitWith};
 
 use crate::{binder::Range, checker::Checker, scope::ScopeTree};
 
@@ -78,7 +78,7 @@ pub struct Semantic<'a> {
     scope_maps: ArenaVec<'a, ScopeMap<'a>>,
     hoisting_variables: ArenaVec<'a, ScopeMap<'a>>,
 
-    /// The symbol declared by each node, indexed by [`NodeId`].
+    /// The symbol declared by each node, indexed by [`AstId`].
     node_symbols: ArenaVec<'a, Option<SymbolId>>,
     node_references: ArenaVec<'a, Option<ReferenceId>>,
 
@@ -144,14 +144,14 @@ impl<'a> Semantic<'a> {
 
     /// The symbol declared at `node`, or `None` when the node is not a
     /// declaration site.
-    pub fn symbol_of(&self, node: NodeId) -> Option<SymbolId> {
-        self.node_symbols[node.index()]
+    pub fn symbol_of<I: Into<AstId>>(&self, node: I) -> Option<SymbolId> {
+        self.node_symbols[node.into().index()]
     }
 
     /// The reference recorded at `node`, or `None` when the node is
     /// not a reference site.
-    pub fn reference_of(&self, node: NodeId) -> Option<ReferenceId> {
-        self.node_references[node.index()]
+    pub fn reference_of<I: Into<AstId>>(&self, node: I) -> Option<ReferenceId> {
+        self.node_references[node.into().index()]
     }
 
     /// The scope of the given symbol id.
@@ -601,17 +601,17 @@ mod tests {
             .unwrap();
 
         assert!(semantic.class().is_enabled());
-        let class_a_info = semantic.class().get(class_a.node_id()).unwrap();
+        let class_a_info = semantic.class().get(&ast, class_a.node_id()).unwrap();
         assert!(class_a_info.has_name(b"field"));
         assert!(class_a_info.has_name(b"method"));
         assert_eq!(class_a_info.used_names().count(), 2);
-        let class_b_info = semantic.class().get(class_b.node_id()).unwrap();
+        let class_b_info = semantic.class().get(&ast, class_b.node_id()).unwrap();
         assert!(class_b_info.has_name(b"other"));
         assert!(!class_b_info.has_name(b"field"));
 
         let semantic = analyze(&ast, AnalyzeOptions::default()).semantic;
         assert!(!semantic.class().is_enabled());
-        assert!(semantic.class().get(class_a.node_id()).is_none());
+        assert!(semantic.class().get(&ast, class_a.node_id()).is_none());
     }
 
     #[test]
@@ -745,7 +745,7 @@ mod tests {
         let statement = body.get_node(&ast, 0).unwrap();
         let declaration = statement.as_export_named_declaration(&ast).unwrap();
         let local_specifier = declaration.specifiers(&ast).get_node(&ast, 0).unwrap();
-        let local_node = local_specifier.local(&ast).node_id();
+        let local_node = local_specifier.local(&ast).ast_id();
 
         let local_reference = semantic.reference_of(local_node).unwrap();
         let local_reference_data = semantic.reference(local_reference);
@@ -756,7 +756,7 @@ mod tests {
             .module_record()
             .exports()
             .iter()
-            .find(|entry| entry.node == local_specifier.node_id())
+            .find(|entry| entry.node == local_specifier.ast_id())
             .unwrap();
         assert_eq!(local_export.origin, ExportOrigin::LocalSpecifier);
         assert_eq!(
@@ -781,14 +781,14 @@ mod tests {
         let statement = body.get_node(&ast, 0).unwrap();
         let declaration = statement.as_export_named_declaration(&ast).unwrap();
         let re_export_specifier = declaration.specifiers(&ast).get_node(&ast, 0).unwrap();
-        let re_export_node = re_export_specifier.local(&ast).node_id();
+        let re_export_node = re_export_specifier.local(&ast).ast_id();
         assert_eq!(semantic.reference_of(re_export_node), None);
 
         let re_export = semantic
             .module_record()
             .exports()
             .iter()
-            .find(|entry| entry.node == re_export_specifier.node_id())
+            .find(|entry| entry.node == re_export_specifier.ast_id())
             .unwrap();
         assert_eq!(re_export.origin, ExportOrigin::ReExportSpecifier);
         assert!(matches!(re_export.target, ExportTarget::External { .. }));
