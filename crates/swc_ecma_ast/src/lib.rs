@@ -372,6 +372,19 @@ impl<'a> Ast<'a> {
         self.strings.add_wtf8(value)
     }
 
+    /// Stores a canonical UTF-8 range for strings whose identity is used by
+    /// semantic analysis.
+    #[inline]
+    pub fn intern_utf8(&mut self, value: &str) -> AstUtf8 {
+        self.strings.intern_utf8(value)
+    }
+
+    /// Canonicalizes an existing UTF-8 string range.
+    #[inline]
+    pub fn intern_utf8_slice(&mut self, value: AstUtf8) -> AstUtf8 {
+        self.strings.intern_utf8_slice(value)
+    }
+
     #[inline]
     pub fn get_utf8(&self, id: AstUtf8) -> &str {
         self.strings.get_utf8(id)

@@ -4530,6 +4530,7 @@ impl<'a> Ast<'a> {
     }
     #[inline]
     pub fn identifier_reference(&mut self, span: Span, name: AstUtf8) -> IdentifierReference {
+        let name = self.intern_utf8_slice(name);
         IdentifierReference(self.add_node(
             span,
             NodeKind::IdentifierReference,
@@ -4538,6 +4539,7 @@ impl<'a> Ast<'a> {
     }
     #[inline]
     pub fn private_identifier(&mut self, span: Span, name: AstUtf8) -> PrivateIdentifier {
+        let name = self.intern_utf8_slice(name);
         PrivateIdentifier(self.add_node(
             span,
             NodeKind::PrivateIdentifier,
@@ -4553,6 +4555,7 @@ impl<'a> Ast<'a> {
         type_annotation: Option<TsTypeAnnotation>,
         optional: bool,
     ) -> BindingIdentifier {
+        let name = self.intern_utf8_slice(name);
         let _extra_data = [name.to_extra_data(self), decorators.to_extra_data(self)];
         let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
         BindingIdentifier(self.add_node(
@@ -4569,6 +4572,7 @@ impl<'a> Ast<'a> {
     }
     #[inline]
     pub fn identifier_name(&mut self, span: Span, name: AstUtf8) -> IdentifierName {
+        let name = self.intern_utf8_slice(name);
         IdentifierName(self.add_node(
             span,
             NodeKind::IdentifierName,
@@ -4577,6 +4581,7 @@ impl<'a> Ast<'a> {
     }
     #[inline]
     pub fn label_identifier(&mut self, span: Span, name: AstUtf8) -> LabelIdentifier {
+        let name = self.intern_utf8_slice(name);
         LabelIdentifier(self.add_node(
             span,
             NodeKind::LabelIdentifier,
@@ -9082,6 +9087,7 @@ impl<'a> Ast<'a> {
     }
     #[inline]
     pub fn jsx_identifier(&mut self, span: Span, name: AstUtf8) -> JsxIdentifier {
+        let name = self.intern_utf8_slice(name);
         JsxIdentifier(self.add_node(
             span,
             NodeKind::JsxIdentifier,

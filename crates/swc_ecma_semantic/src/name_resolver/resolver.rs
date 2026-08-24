@@ -95,13 +95,13 @@ impl JsNameResolver<'_> {
 }
 
 #[derive(Debug)]
-struct Scope<'ast> {
+struct Scope {
     parent: Option<ScopeId>,
     kind: ScopeKind,
-    declared_symbols: HashMap<&'ast [u8], DeclKind, FxBuildHasher>,
+    declared_symbols: HashMap<AstUtf8, DeclKind, FxBuildHasher>,
 }
 
-impl<'ast> Scope<'ast> {
+impl Scope {
     fn new(kind: ScopeKind, parent: Option<ScopeId>) -> Self {
         Self {
             parent,
@@ -203,7 +203,7 @@ impl ScopeOwner {
 /// resolved while walking the source in order.
 struct Resolver<'ast> {
     ast: &'ast Ast<'ast>,
-    scopes: IndexVec<ScopeId, Scope<'ast>>,
+    scopes: IndexVec<ScopeId, Scope>,
     node_scopes: ArenaVec<'ast, Option<ScopeId>>,
     top_level_scope_id: ScopeId,
     unresolved_scope_id: ScopeId,
@@ -215,15 +215,15 @@ struct Resolver<'ast> {
 }
 
 impl<'ast> Resolver<'ast> {
-    fn name(&self, name: AstUtf8) -> &'ast [u8] {
+    fn name_text(&self, name: AstUtf8) -> &'ast [u8] {
         self.ast.get_utf8(name).as_bytes()
     }
 
-    fn is_declared(&self, name: &[u8], start_scope: ScopeId) -> Option<DeclKind> {
+    fn is_declared(&self, name: AstUtf8, start_scope: ScopeId) -> Option<DeclKind> {
         let mut scope = Some(start_scope);
         while let Some(scope_id) = scope {
             let current = &self.scopes[scope_id];
-            if let Some(kind) = current.declared_symbols.get(name) {
+            if let Some(kind) = current.declared_symbols.get(&name) {
                 return Some(*kind);
             }
             scope = current.parent;
@@ -265,7 +265,7 @@ impl<'ast> Resolver<'ast> {
         self.set_scope_once(owner.ast_id(), scope);
     }
 
-    fn scope_of_name(&self, name: &[u8], stop_at_fn_scope: bool) -> Option<ScopeId> {
+    fn scope_of_name(&self, name: AstUtf8, stop_at_fn_scope: bool) -> Option<ScopeId> {
         // Every scope uses the same stateless FxBuildHasher, so reuse the hash
         // instead of hashing the identifier again for each ancestor scope.
         let hash = self.scopes[self.current]
@@ -281,7 +281,10 @@ impl<'ast> Resolver<'ast> {
                 .from_hash(hash, |candidate| *candidate == name)
                 .is_some()
             {
-                return if (name == b"undefined" || name == b"NaN" || name == b"Infinity")
+                let name_text = self.name_text(name);
+                return if (name_text == b"undefined"
+                    || name_text == b"NaN"
+                    || name_text == b"Infinity")
                     && scope_id == self.top_level_scope_id
                     && !self.is_module
                 {
@@ -303,7 +306,7 @@ impl<'ast> Resolver<'ast> {
             return;
         }
 
-        let name = self.name(identifier.name(self.ast));
+        let name = identifier.name(self.ast);
         self.scopes[self.current]
             .declared_symbols
             .insert(name, kind);
@@ -313,7 +316,7 @@ impl<'ast> Resolver<'ast> {
     fn has_use_strict(&self, directives: TypedSubRange<Directive>) -> bool {
         directives.iter().any(|id| {
             let directive = self.ast.get_node_in_sub_range(id);
-            self.name(directive.value(self.ast)) == b"use strict"
+            self.name_text(directive.value(self.ast)) == b"use strict"
         })
     }
 
@@ -335,7 +338,7 @@ impl<'ast> Resolver<'ast> {
             let ast = self.ast;
             let current = self.current;
             for_each_binding_id(ast, pattern, |identifier| {
-                let name = ast.get_utf8(identifier.name(ast)).as_bytes();
+                let name = identifier.name(ast);
                 self.scopes[current]
                     .declared_symbols
                     .insert(name, DeclKind::Param);
@@ -400,7 +403,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
         if self.node_scopes[reference.ast_id().index()].is_some() {
             return;
         }
-        let name = self.name(reference.name(self.ast));
+        let name = reference.name(self.ast);
         let scope = self
             .scope_of_name(name, false)
             .unwrap_or(self.unresolved_scope_id);
@@ -418,8 +421,12 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
     fn visit_jsx_element_name(&mut self, name: JsxElementName) {
         match self.ast.jsx_element_name_data(name) {
             JsxElementNameData::JsxIdentifier(identifier) => {
-                let name = self.name(identifier.name(self.ast));
-                let scope = if name.first().is_some_and(u8::is_ascii_lowercase) {
+                let name = identifier.name(self.ast);
+                let scope = if self
+                    .name_text(name)
+                    .first()
+                    .is_some_and(u8::is_ascii_lowercase)
+                {
                     self.unresolved_scope_id
                 } else {
                     self.scope_of_name(name, false)
@@ -437,7 +444,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
     fn visit_jsx_member_expression_object(&mut self, object: JsxMemberExpressionObject) {
         match self.ast.jsx_member_expression_object_data(object) {
             JsxMemberExpressionObjectData::JsxIdentifier(identifier) => {
-                let name = self.name(identifier.name(self.ast));
+                let name = identifier.name(self.ast);
                 let scope = self
                     .scope_of_name(name, false)
                     .unwrap_or(self.unresolved_scope_id);
@@ -510,7 +517,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
                 let ast = child.ast;
                 let current = child.current;
                 for_each_binding_id(ast, pattern, |identifier| {
-                    let name = ast.get_utf8(identifier.name(ast)).as_bytes();
+                    let name = identifier.name(ast);
                     child.scopes[current]
                         .declared_symbols
                         .insert(name, DeclKind::Param);
@@ -632,7 +639,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
                         let ast = child.ast;
                         let current = child.current;
                         for_each_binding_id(ast, pattern, |identifier| {
-                            let name = ast.get_utf8(identifier.name(ast)).as_bytes();
+                            let name = identifier.name(ast);
                             child.scopes[current]
                                 .declared_symbols
                                 .insert(name, DeclKind::Param);
@@ -771,7 +778,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
         if let ModuleExportNameData::IdentifierName(identifier) =
             self.ast.module_export_name_data(local)
         {
-            let name = self.name(identifier.name(self.ast));
+            let name = identifier.name(self.ast);
             let scope = self
                 .scope_of_name(name, false)
                 .unwrap_or(self.unresolved_scope_id);
@@ -782,7 +789,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
             && let ModuleExportNameData::IdentifierName(identifier) =
                 self.ast.module_export_name_data(exported)
         {
-            let name = self.name(identifier.name(self.ast));
+            let name = identifier.name(self.ast);
             let scope = self
                 .scope_of_name(name, false)
                 .unwrap_or(self.unresolved_scope_id);
@@ -812,21 +819,22 @@ struct Hoister<'resolver, 'ast> {
     kind: DeclKind,
     in_block: bool,
     in_catch_body: bool,
-    excluded_from_catch: FxHashSet<&'ast [u8]>,
-    catch_param_decls: FxHashSet<&'ast [u8]>,
+    excluded_from_catch: FxHashSet<AstUtf8>,
+    catch_param_decls: FxHashSet<AstUtf8>,
 }
 
 impl<'resolver, 'ast> Hoister<'resolver, 'ast> {
     fn add_binding(&mut self, identifier: BindingIdentifier) {
-        let name = self.resolver.name(identifier.name(self.resolver.ast));
+        let name = identifier.name(self.resolver.ast);
         if self.in_catch_body {
             if self.resolver.scope_of_name(name, true).is_some()
-                && self.catch_param_decls.contains(name)
+                && self.catch_param_decls.contains(&name)
             {
                 return;
             }
             self.excluded_from_catch.insert(name);
-        } else if self.catch_param_decls.contains(name) && !self.excluded_from_catch.contains(name)
+        } else if self.catch_param_decls.contains(&name)
+            && !self.excluded_from_catch.contains(&name)
         {
             return;
         }
@@ -887,8 +895,8 @@ impl<'ast> Visit<'ast> for Hoister<'_, 'ast> {
         let Some(identifier) = function.id(self.resolver.ast) else {
             return;
         };
-        let name = self.resolver.name(identifier.name(self.resolver.ast));
-        if self.catch_param_decls.contains(name) {
+        let name = identifier.name(self.resolver.ast);
+        if self.catch_param_decls.contains(&name) {
             return;
         }
         if self.in_block {
@@ -952,7 +960,7 @@ impl<'ast> Visit<'ast> for Hoister<'_, 'ast> {
         if let Some(param) = catch.param(self.resolver.ast) {
             let ast = self.resolver.ast;
             for_each_binding_id(ast, param, |identifier| {
-                let name = ast.get_utf8(identifier.name(ast)).as_bytes();
+                let name = identifier.name(ast);
                 self.catch_param_decls.insert(name);
             });
         }
@@ -1029,10 +1037,12 @@ impl<'ast> Visit<'ast> for Hoister<'_, 'ast> {
 #[cfg(test)]
 mod tests {
     use swc_next_allocator::Allocator;
-    use swc_next_ecma_ast::{Lang, SourceType};
+    use swc_next_ecma_ast::{
+        Ast, BindingIdentifier, IdentifierReference, Lang, SourceType, Visit, VisitWith,
+    };
     use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
 
-    use super::{ScopeOwner, resolver};
+    use super::{ScopeOwner, SymbolNode, resolver};
 
     #[test]
     fn class_scope_owner_uses_typed_class_id() {
@@ -1061,6 +1071,61 @@ mod tests {
         assert_ne!(
             resolved.owner_scope(ScopeOwner::Class(class)),
             resolved.unresolved_scope_id()
+        );
+    }
+
+    #[test]
+    fn escaped_and_plain_identifiers_share_the_interned_name() {
+        let allocator = Allocator::new();
+        let parse = Parser::init(
+            &allocator,
+            "let value; \\u0076alue;",
+            Options {
+                source_type: SourceType::Script,
+                lang: Lang::Js,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+
+        struct Names<'ast> {
+            ast: &'ast Ast<'ast>,
+            binding: Option<BindingIdentifier>,
+            reference: Option<IdentifierReference>,
+        }
+
+        impl<'ast> Visit<'ast> for Names<'ast> {
+            fn ast(&self) -> &Ast<'ast> {
+                self.ast
+            }
+
+            fn visit_binding_identifier(&mut self, node: BindingIdentifier) {
+                self.binding = Some(node);
+                node.visit_children_with(self);
+            }
+
+            fn visit_identifier_reference(&mut self, node: IdentifierReference) {
+                self.reference = Some(node);
+            }
+        }
+
+        let ast = parse.ast;
+        let mut names = Names {
+            ast: &ast,
+            binding: None,
+            reference: None,
+        };
+        ast.root_program().visit_with(&mut names);
+        let binding = names.binding.unwrap();
+        let reference = names.reference.unwrap();
+        assert_eq!(binding.name(&ast), reference.name(&ast));
+
+        let resolved = resolver(&ast);
+        assert_eq!(
+            resolved.symbol_scope(SymbolNode::BindingIdentifier(binding)),
+            resolved.symbol_scope(SymbolNode::IdentifierReference(reference))
         );
     }
 }

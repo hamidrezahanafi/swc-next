@@ -202,6 +202,7 @@ fn generate_inline_property_accessors(
 
         let setter_name = format_ident!("set_{}", field_name);
         let invalidations = generate_invalidations(field);
+        let intern_field = generate_intern_field(field, &field_name);
         let write_expr = generate_inline_write(
             field_ty,
             &field_name,
@@ -213,6 +214,7 @@ fn generate_inline_property_accessors(
         field_setters.extend(quote! {
             #[inline]
             pub fn #setter_name<'a>(self, ast: &mut crate::Ast<'a>, #field_name: #ret_ty) {
+                #intern_field
                 #write_expr
             }
         });
@@ -421,10 +423,12 @@ fn generate_extra_data_setter(
 ) -> TokenStream {
     let setter_name = format_ident!("set_{}", field_name);
     let invalidations = generate_invalidations(field);
+    let intern_field = generate_intern_field(field, field_name);
     if invalidations.is_empty() {
         return quote! {
             #[inline]
             pub fn #setter_name<'a>(self, ast: &mut crate::Ast<'a>, #field_name: #field_ty) {
+                #intern_field
                 let offset = unsafe {
                     ExtraDataId::from_usize_unchecked(
                         ((ast.nodes.data_unchecked(self.0).0 >> #EXTRA_DATA_ID_BIT_OFFSET) as u32 as usize)
@@ -443,6 +447,7 @@ fn generate_extra_data_setter(
     quote! {
         #[inline]
         pub fn #setter_name<'a>(self, ast: &mut crate::Ast<'a>, #field_name: #field_ty) {
+            #intern_field
             let field_value = #field_name.to_extra_data(ast);
             let offset = unsafe {
                 ExtraDataId::from_usize_unchecked(
@@ -463,6 +468,16 @@ fn generate_extra_data_setter(
             };
             #invalidations
         }
+    }
+}
+
+fn generate_intern_field(field: &AstStructField, field_name: &syn::Ident) -> TokenStream {
+    if field.attrs.intern {
+        quote! {
+            let #field_name = ast.intern_utf8_slice(#field_name);
+        }
+    } else {
+        TokenStream::new()
     }
 }
 

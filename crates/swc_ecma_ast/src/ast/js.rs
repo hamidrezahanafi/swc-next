@@ -708,6 +708,7 @@ pub struct TemplateElement {
 /// as a value reference.
 #[ast]
 pub struct IdentifierReference {
+    #[ast(intern)]
     name: AstUtf8,
 }
 
@@ -725,6 +726,7 @@ pub struct IdentifierReference {
 /// ```
 #[ast]
 pub struct PrivateIdentifier {
+    #[ast(intern)]
     name: AstUtf8,
 }
 
@@ -738,6 +740,7 @@ pub struct PrivateIdentifier {
 /// ```
 #[ast]
 pub struct BindingIdentifier {
+    #[ast(intern)]
     name: AstUtf8,
     /// `decorator[]`. Decorators on a parameter binding (legacy
     /// `experimentalDecorators`). Empty for non-parameter bindings.
@@ -759,6 +762,7 @@ pub struct BindingIdentifier {
 /// ```
 #[ast]
 pub struct IdentifierName {
+    #[ast(intern)]
     name: AstUtf8,
 }
 
@@ -773,6 +777,7 @@ pub struct IdentifierName {
 /// ```
 #[ast]
 pub struct LabelIdentifier {
+    #[ast(intern)]
     name: AstUtf8,
 }
 
