@@ -513,7 +513,8 @@ pub(crate) struct SymbolTracker<'a> {
     node_symbols: ArenaVec<'a, Option<SymbolId>>,
     scope_maps: ArenaVec<'a, ScopeMap<'a>>,
     hoisting_variables: ArenaVec<'a, ScopeMap<'a>>,
-    used_names: Option<UsedNameState<'a>>,
+    used_names: UsedNameState<'a>,
+    collect_used_names: bool,
 
     /// What the next `binding_identifier` will declare: its flags,
     /// redeclaration excludes, and destination scope. Valid inside an
@@ -605,7 +606,8 @@ impl<'a> SymbolTracker<'a> {
             node_symbols,
             scope_maps: ArenaVec::with_capacity_in(8usize.max(nodes / 16), allocator),
             hoisting_variables: ArenaVec::with_capacity_in(8usize.max(nodes / 16), allocator),
-            used_names: collect_used_names.then(|| UsedNameState::new(allocator)),
+            used_names: UsedNameState::new(allocator),
+            collect_used_names,
             pending: PendingBinding::default(),
             export_state: ExportState::None,
             // A declaration file is ambient in its entirety.
@@ -621,7 +623,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_export_named_declaration(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         declaration: ExportNamedDeclaration,
     ) {
         // The declaration form always exports its binding, even when
@@ -642,7 +644,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_variable_declaration(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         declaration: VariableDeclaration,
         scope: &ScopeTracker<'a>,
     ) -> bool {
@@ -688,7 +690,7 @@ impl<'a> SymbolTracker<'a> {
         kind == VariableKind::Var && scope.var_write_crosses_with()
     }
 
-    pub fn enter_function(&mut self, tree: &Ast, function: Function, scope: &ScopeTracker<'a>) {
+    pub fn enter_function(&mut self, tree: &Ast<'a>, function: Function, scope: &ScopeTracker<'a>) {
         self.push_saved_context();
         let is_declaration = function.function_type(tree) == FunctionType::FunctionDeclaration;
         let target = if is_declaration {
@@ -757,7 +759,7 @@ impl<'a> SymbolTracker<'a> {
         };
     }
 
-    pub fn enter_class(&mut self, tree: &Ast, class: Class, scope: &ScopeTracker<'a>) {
+    pub fn enter_class(&mut self, tree: &Ast<'a>, class: Class, scope: &ScopeTracker<'a>) {
         self.push_saved_context();
         let is_declaration = class.class_type(tree) == ClassType::ClassDeclaration;
         self.pending = PendingBinding {
@@ -816,7 +818,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_import_declaration(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         declaration: ImportDeclaration,
         scope: &ScopeTracker<'a>,
     ) {
@@ -833,7 +835,7 @@ impl<'a> SymbolTracker<'a> {
         self.pending = import_pending(import_kind, scope.current);
     }
 
-    pub fn enter_import_specifier(&mut self, tree: &Ast, specifier: ImportSpecifier) {
+    pub fn enter_import_specifier(&mut self, tree: &Ast<'a>, specifier: ImportSpecifier) {
         self.push_saved_context();
         if specifier.import_kind(tree) == ImportOrExportKind::Type {
             self.pending.flags = SymbolFlags::TYPE_IMPORT;
@@ -852,7 +854,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_interface_declaration(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         declaration: TsInterfaceDeclaration,
         scope: &ScopeTracker<'a>,
     ) {
@@ -874,7 +876,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_type_alias_declaration(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         declaration: TsTypeAliasDeclaration,
         scope: &ScopeTracker<'a>,
     ) {
@@ -894,7 +896,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_enum_declaration(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         declaration: TsEnumDeclaration,
         scope: &ScopeTracker<'a>,
     ) {
@@ -920,7 +922,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_module_declaration(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         declaration: TsModuleDeclaration,
         scope: &ScopeTracker<'a>,
     ) {
@@ -962,7 +964,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_type_parameter(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         parent: Option<NodeId>,
         scope: &ScopeTracker<'a>,
     ) {
@@ -986,7 +988,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_mapped_type(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         parent: Option<NodeId>,
         scope: &ScopeTracker<'a>,
     ) {
@@ -1073,7 +1075,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn declare_binding_identifier(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         identifier: BindingIdentifier,
         scope: &ScopeTracker<'a>,
         space: ReferenceSpace,
@@ -1106,7 +1108,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_identifier_reference(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         identifier: IdentifierReference,
         scope: &ScopeTracker<'a>,
         flags: ReferenceFlags,
@@ -1123,7 +1125,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_var_write_reference(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         identifier: BindingIdentifier,
         scope: &ScopeTracker<'a>,
         flags: ReferenceFlags,
@@ -1141,7 +1143,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_local_export_reference(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         specifier: ExportSpecifier,
         scope: &ScopeTracker<'a>,
         flags: ReferenceFlags,
@@ -1161,7 +1163,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_ts_type_predicate_reference(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         predicate: TsTypePredicate,
         scope: &ScopeTracker<'a>,
     ) {
@@ -1199,7 +1201,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn declare_ts_enum_member(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         member: TsEnumMember,
         scope: &ScopeTracker<'a>,
     ) {
@@ -1233,7 +1235,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_jsx_opening_element_reference(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         element: JsxOpeningElement,
         scope: &ScopeTracker<'a>,
     ) {
@@ -1246,7 +1248,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_jsx_closing_element_reference(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         element: JsxClosingElement,
         scope: &ScopeTracker<'a>,
     ) {
@@ -1254,7 +1256,7 @@ impl<'a> SymbolTracker<'a> {
         self.add_jsx_reference(tree, element.name(tree), scope.current);
     }
 
-    fn add_jsx_reference(&mut self, tree: &Ast, name: JsxElementName, scope: ScopeId) {
+    fn add_jsx_reference(&mut self, tree: &Ast<'a>, name: JsxElementName, scope: ScopeId) {
         let Some(identifier) = jsx_tag_root(tree, tree.jsx_element_name_data(name)) else {
             return;
         };
@@ -1283,8 +1285,8 @@ impl<'a> SymbolTracker<'a> {
         declaration_flags.set(SymbolFlags::IS_DEFAULT, self.export_state.is_default());
 
         let name_text = tree.get_wtf8(name).as_bytes();
-        if let Some(used_names) = &mut self.used_names {
-            used_names.observe(name_text);
+        if self.collect_used_names {
+            self.used_names.observe(name_text);
         }
         let declaration_id = DeclarationId::from_usize(self.declarations.len());
         let id = if let Some(existing) = self.binding(target, name_text) {
@@ -1332,7 +1334,7 @@ impl<'a> SymbolTracker<'a> {
     /// Records an identifier reference at `node` in `scope`.
     pub fn add_reference(
         &mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         name: AstUtf8,
         scope: ScopeId,
         node: NodeId,
@@ -1348,8 +1350,8 @@ impl<'a> SymbolTracker<'a> {
         } else {
             flags
         };
-        if let Some(used_names) = &mut self.used_names {
-            used_names.observe(tree.get_utf8(name).as_bytes());
+        if self.collect_used_names {
+            self.used_names.observe(tree.get_utf8(name).as_bytes());
         }
         let id = reference_id(self.references.len());
         self.references.push(Reference {
@@ -1417,7 +1419,7 @@ impl<'a> SymbolTracker<'a> {
     /// remains valid for the source tree's arena lifetime.
     pub fn finalize(
         mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         scopes: ScopeTree<'a>,
         has_with_statement: bool,
         module_record: ModuleRecordBuilder<'a>,

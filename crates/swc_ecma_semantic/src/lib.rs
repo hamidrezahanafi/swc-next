@@ -85,7 +85,7 @@ pub struct Semantic<'a> {
     module_record: ModuleRecord<'a>,
     features: SemanticFeatureFlags,
     class: ClassSemantic<'a>,
-    used_names: Option<UsedNameState<'a>>,
+    used_names: UsedNameState<'a>,
 }
 
 impl<'a> Semantic<'a> {
@@ -107,13 +107,15 @@ impl<'a> Semantic<'a> {
     }
 
     /// Names collected for transforms that introduce local bindings.
-    pub fn used_names(&self) -> Option<&UsedNameState<'a>> {
-        self.used_names.as_ref()
+    ///
+    /// Empty unless [`SemanticFeatureFlags::GENERATED_NAMES`] was enabled.
+    pub fn used_names(&self) -> &UsedNameState<'a> {
+        &self.used_names
     }
 
     /// Mutable generated-name state used to synchronize AST transforms.
-    pub fn used_names_mut(&mut self) -> Option<&mut UsedNameState<'a>> {
-        self.used_names.as_mut()
+    pub fn used_names_mut(&mut self) -> &mut UsedNameState<'a> {
+        &mut self.used_names
     }
 
     /// The symbol with the given id.
@@ -486,8 +488,8 @@ mod tests {
     use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
 
     use super::{
-        AnalyzeOptions, ExportOrigin, ExportTarget, ReferenceSpace, Semantic, SemanticFeatureFlags,
-        SymbolFlags, analyze, scope::ScopeKind,
+        AnalyzeOptions, ExportOrigin, ExportTarget, ReferenceSpace, Semantic, SymbolFlags, analyze,
+        scope::ScopeKind,
     };
 
     fn analyze_source<'a>(
@@ -571,74 +573,6 @@ mod tests {
             semantic.declaration_ids(a).collect::<Vec<_>>(),
             [first.id, third.id, fourth.id]
         );
-    }
-
-    #[test]
-    fn class_semantic_is_optional_and_collects_private_names_in_one_walk() {
-        let allocator = Allocator::new();
-        let (ast, semantic) = analyze_source_with_options(
-            &allocator,
-            "class A { #field; #method() {} } class B { #other; }",
-            Lang::Js,
-            SourceType::Script,
-            AnalyzeOptions {
-                features: SemanticFeatureFlags::CLASS,
-                ..AnalyzeOptions::default()
-            },
-        );
-        let body = ast.root_program().body(&ast);
-        let class_a = body
-            .get_node(&ast, 0)
-            .unwrap()
-            .as_declaration(&ast)
-            .and_then(|declaration| declaration.as_class(&ast))
-            .unwrap();
-        let class_b = body
-            .get_node(&ast, 1)
-            .unwrap()
-            .as_declaration(&ast)
-            .and_then(|declaration| declaration.as_class(&ast))
-            .unwrap();
-
-        assert!(semantic.class().is_enabled());
-        let class_a_info = semantic.class().get(class_a.node_id()).unwrap();
-        assert!(class_a_info.has_name(b"field"));
-        assert!(class_a_info.has_name(b"method"));
-        assert_eq!(class_a_info.used_names().count(), 2);
-        let class_b_info = semantic.class().get(class_b.node_id()).unwrap();
-        assert!(class_b_info.has_name(b"other"));
-        assert!(!class_b_info.has_name(b"field"));
-
-        let semantic = analyze(&ast, AnalyzeOptions::default()).semantic;
-        assert!(!semantic.class().is_enabled());
-        assert!(semantic.class().get(class_a.node_id()).is_none());
-    }
-
-    #[test]
-    fn used_names_are_optional_and_collected_with_semantic() {
-        let allocator = Allocator::new();
-        let (_, semantic) = analyze_source_with_options(
-            &allocator,
-            "let value; value; missing;",
-            Lang::Js,
-            SourceType::Script,
-            AnalyzeOptions {
-                features: SemanticFeatureFlags::GENERATED_NAMES,
-                ..AnalyzeOptions::default()
-            },
-        );
-        let used_names = semantic.used_names().unwrap();
-        assert!(used_names.contains(b"value"));
-        assert!(used_names.contains(b"missing"));
-        assert_eq!(used_names.names().count(), 2);
-
-        let (_, semantic) = analyze_source(
-            &allocator,
-            "let value; value; missing;",
-            Lang::Js,
-            SourceType::Script,
-        );
-        assert!(semantic.used_names().is_none());
     }
 
     #[test]

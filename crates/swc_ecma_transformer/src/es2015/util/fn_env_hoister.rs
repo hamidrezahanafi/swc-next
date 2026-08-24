@@ -3,7 +3,7 @@ use swc_next_ecma_ast::{
     IdentifierReference, Program, StaticBlock, Stmt, TypedSubRange, VariableKind, VisitMut,
     VisitMutWith,
 };
-use swc_next_ecma_semantic::{ReferenceSpace, Semantic};
+use swc_next_ecma_semantic::{ReferenceSpace, Semantic, SemanticFeatureFlags};
 
 #[derive(Default)]
 pub struct CaptureFrame {
@@ -31,7 +31,9 @@ pub struct FnEnvHoister<'semantic, 'ast> {
 impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
     pub fn new(_ast: &Ast<'_>, semantic: &'semantic mut Semantic<'ast>) -> Self {
         assert!(
-            semantic.used_names().is_some(),
+            semantic
+                .features()
+                .contains(SemanticFeatureFlags::GENERATED_NAMES),
             "generated-name semantic collection must be enabled for arrow transforms"
         );
         Self {
@@ -56,11 +58,7 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
     }
 
     fn fresh_name(&mut self, base: &str, ast: &mut Ast<'_>) -> AstUtf8 {
-        let name = self
-            .semantic
-            .used_names_mut()
-            .expect("generated-name semantic collection must be enabled")
-            .next_name(base, 2);
+        let name = self.semantic.used_names_mut().next_name(base, 2);
         ast.add_utf8(name)
     }
 
@@ -108,7 +106,7 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
         reference.flags.space == ReferenceSpace::Value && reference.symbol.is_none()
     }
 
-    fn is_new_target(&self, node: swc_next_ecma_ast::MetaProperty, ast: &Ast<'_>) -> bool {
+    fn is_new_target(&self, node: swc_next_ecma_ast::MetaProperty, ast: &Ast<'ast>) -> bool {
         let meta = node.meta(ast);
         let property = node.property(ast);
         ast.get_utf8(meta.name(ast)) == "new" && ast.get_utf8(property.name(ast)) == "target"
@@ -117,7 +115,7 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
     pub fn transform_this_expression(
         &mut self,
         node: swc_next_ecma_ast::ThisExpression,
-        ast: &mut Ast<'_>,
+        ast: &mut Ast<'ast>,
     ) -> Expr {
         if !self.in_arrow {
             return Expr::ThisExpression(node);
@@ -127,21 +125,17 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
         Expr::IdentifierReference(replacement)
     }
 
-    pub fn visit_identifier_reference(&mut self, node: IdentifierReference, ast: &mut Ast<'_>) {
+    pub fn visit_identifier_reference(&mut self, node: IdentifierReference, ast: &mut Ast<'ast>) {
         if self.in_arrow && self.is_unresolved_arguments(node, ast) {
             let name = self.capture_arguments(ast);
             node.set_name(ast, name);
-            self.semantic
-                .used_names_mut()
-                .expect("generated-name semantic collection must be enabled")
-                .unobserve(b"arguments");
         }
     }
 
     pub fn transform_meta_property(
         &mut self,
         node: swc_next_ecma_ast::MetaProperty,
-        ast: &mut Ast<'_>,
+        ast: &mut Ast<'ast>,
     ) -> Expr {
         if self.in_arrow && self.is_new_target(node, ast) {
             let name = self.capture_new_target(ast);
@@ -156,7 +150,7 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
         &mut self,
         frame: CaptureFrame,
         derived_constructor: bool,
-        ast: &mut Ast<'_>,
+        ast: &mut Ast<'ast>,
     ) -> Option<swc_next_ecma_ast::VariableDeclaration> {
         if frame.is_empty() {
             return None;
@@ -210,7 +204,7 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
         &mut self,
         program: Program,
         frame: CaptureFrame,
-        ast: &mut Ast<'_>,
+        ast: &mut Ast<'ast>,
     ) {
         let Some(declaration) = self.build_capture_declaration(frame, false, ast) else {
             return;
@@ -225,7 +219,7 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
         function: Function,
         frame: CaptureFrame,
         derived_constructor: bool,
-        ast: &mut Ast<'_>,
+        ast: &mut Ast<'ast>,
     ) {
         let body = function.body(ast);
 
@@ -246,7 +240,7 @@ impl<'semantic, 'ast> FnEnvHoister<'semantic, 'ast> {
         &mut self,
         block: StaticBlock,
         frame: CaptureFrame,
-        ast: &mut Ast<'_>,
+        ast: &mut Ast<'ast>,
     ) {
         let Some(declaration) = self.build_capture_declaration(frame, false, ast) else {
             return;

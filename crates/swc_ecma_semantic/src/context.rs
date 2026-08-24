@@ -268,7 +268,7 @@ impl<'a> SemanticContext<'a> {
         self.scope.exit_decorator();
     }
 
-    pub fn finalize(self, tree: &Ast) -> Semantic<'a> {
+    pub fn finalize(self, tree: &Ast<'a>) -> Semantic<'a> {
         self.class.finish_collection();
         let (scopes, has_with_statement) = self.scope.into_scope_tree();
         self.symbols.finalize(
