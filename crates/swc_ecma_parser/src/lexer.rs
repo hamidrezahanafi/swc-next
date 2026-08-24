@@ -15,6 +15,46 @@ use super::util::{
     unicode_separator_len,
 };
 
+#[inline]
+fn find_string_special(source: &[u8], quote: u8) -> Option<usize> {
+    const LO: u64 = u64::from_ne_bytes([0x01; 8]);
+    const HI: u64 = u64::from_ne_bytes([0x80; 8]);
+
+    #[inline]
+    fn zero_byte_mask(value: u64) -> u64 {
+        // Set the high bit of every byte that is zero.
+        value.wrapping_sub(LO) & !value & HI
+    }
+
+    let quotes = u64::from_ne_bytes([quote; 8]);
+    let backslashes = u64::from_ne_bytes([b'\\'; 8]);
+    let line_feeds = u64::from_ne_bytes([b'\n'; 8]);
+    let carriage_returns = u64::from_ne_bytes([b'\r'; 8]);
+    let (chunks, remainder) = source.as_chunks::<8>();
+
+    for (index, chunk) in chunks.iter().enumerate() {
+        let word = u64::from_ne_bytes(*chunk);
+        let mask = zero_byte_mask(word ^ quotes)
+            | zero_byte_mask(word ^ backslashes)
+            | zero_byte_mask(word ^ line_feeds)
+            | zero_byte_mask(word ^ carriage_returns);
+        if mask != 0 {
+            let byte = if cfg!(target_endian = "little") {
+                mask.trailing_zeros()
+            } else {
+                mask.leading_zeros()
+            };
+            return Some(index * 8 + byte as usize / 8);
+        }
+    }
+
+    let tail_start = source.len() - remainder.len();
+    remainder
+        .iter()
+        .position(|&byte| matches!(byte, b'\\' | b'\n' | b'\r') || byte == quote)
+        .map(|index| tail_start + index)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LexicalError {
     UnterminatedString,
@@ -347,18 +387,11 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
         if self.mode == LexerMode::Normal {
             loop {
                 let remaining = &self.source[pos..];
-                let special = memchr3(quote, b'\\', b'\n', remaining);
-                let plain_len = special.unwrap_or(remaining.len());
-
-                if let Some(carriage_return) = memchr(b'\r', &remaining[..plain_len]) {
-                    self.cursor = (pos + carriage_return) as u32;
-                    return Err(LexicalError::UnterminatedString);
-                }
-
-                pos += plain_len;
-                let Some(_) = special else {
+                let Some(special) = find_string_special(remaining, quote) else {
+                    pos = self.source.len();
                     break;
                 };
+                pos += special;
 
                 match self.source[pos] {
                     c if c == quote => {
@@ -371,7 +404,7 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
                         self.consume_escape(EscapeContext::String)?;
                         pos = self.cursor as usize;
                     }
-                    b'\n' => {
+                    b'\n' | b'\r' => {
                         self.cursor = pos as u32;
                         return Err(LexicalError::UnterminatedString);
                     }
@@ -1873,6 +1906,14 @@ mod tests {
 
     #[test]
     fn string() {
+        assert_eq!(find_string_special(b"ordinary text", b'"'), None);
+        assert_eq!(find_string_special(b"\"ordinary", b'"'), Some(0));
+        assert_eq!(find_string_special(b"seven--\"", b'"'), Some(7));
+        assert_eq!(find_string_special(b"eight---\"", b'"'), Some(8));
+        assert_eq!(find_string_special(b"eight---\\", b'"'), Some(8));
+        assert_eq!(find_string_special(b"eight---\n", b'"'), Some(8));
+        assert_eq!(find_string_special(b"eight---\r", b'"'), Some(8));
+
         let (token, cursor) = next_string(r#""ordinary""#, LexerMode::Normal);
         assert_eq!(token.unwrap().span, Span::new(0, 10));
         assert_eq!(cursor, 10);
