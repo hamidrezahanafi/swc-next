@@ -104,10 +104,8 @@ impl<'a> StaticBlocks<'_, 'a> {
         // UsedNameState currently provides one conservative program-wide
         // collision domain. `var_scopes` below still places each declaration
         // in its nearest function, static-block, or program scope.
-        let name = self
-            .semantic
-            .used_names_mut()
-            .next_name(self.ast, "_staticBlock", 2);
+        let name = self.semantic.used_names_mut().next_name("_staticBlock", 2);
+        let name = self.ast.add_utf8(name);
         self.var_scopes
             .last_mut()
             .expect("generated closure must belong to a var scope")
