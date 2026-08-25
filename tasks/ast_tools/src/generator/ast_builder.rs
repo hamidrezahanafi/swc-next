@@ -78,12 +78,10 @@ fn generate_build_function_inline(
     fn_params: TokenStream,
     layout: &crate::util::InlineLayout,
 ) -> TokenStream {
-    let intern_fields = generate_intern_fields(ast);
     if layout.fields.is_empty() {
         return quote! {
             #[inline]
             pub fn #fn_name(&mut self, span: Span) -> #ret_ty {
-                #intern_fields
                 #ret_ty(self.add_node(
                     span,
                     NodeKind::#ret_ty,
@@ -115,7 +113,6 @@ fn generate_build_function_inline(
         InlineStorageMode::Full => quote! {
             #[inline]
             pub fn #fn_name(&mut self, span: Span, #fn_params) -> #ret_ty {
-                #intern_fields
                 #ret_ty(self.add_node(
                     span,
                     NodeKind::#ret_ty,
@@ -145,7 +142,6 @@ fn generate_build_function_inline(
             quote! {
                 #[inline]
                 pub fn #fn_name(&mut self, span: Span, #fn_params) -> #ret_ty {
-                    #intern_fields
                     #add_extra_data
                     #ret_ty(self.add_node(
                         span,
@@ -170,7 +166,6 @@ fn generate_build_function_extra_data(
     ret_ty: syn::Ident,
     fn_params: TokenStream,
 ) -> TokenStream {
-    let intern_fields = generate_intern_fields(ast);
     let mut extra_data_values = Vec::new();
     for field in &ast.fields {
         let field_name = format_ident!("{}", field.name);
@@ -188,7 +183,6 @@ fn generate_build_function_extra_data(
     let tokens = quote! {
         #[inline]
         pub fn #fn_name(&mut self, span: Span, #fn_params) -> #ret_ty {
-            #intern_fields
             #add_extra_data
 
             #ret_ty(
@@ -202,20 +196,6 @@ fn generate_build_function_extra_data(
     };
 
     tokens
-}
-
-fn generate_intern_fields(ast: &AstStruct) -> TokenStream {
-    let fields = ast
-        .fields
-        .iter()
-        .filter(|field| field.attrs.intern)
-        .map(|field| {
-            let field_name = format_ident!("{}", field.name);
-            quote! {
-                let #field_name = self.intern_utf8_slice(#field_name);
-            }
-        });
-    quote!(#(#fields)*)
 }
 
 fn generate_add_extra_data(values: &[TokenStream]) -> (TokenStream, Option<TokenStream>) {

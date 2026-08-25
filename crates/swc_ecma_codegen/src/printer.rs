@@ -742,7 +742,7 @@ impl<'a> Printer<'a> {
                 self.print("break");
                 if let Some(label) = s.label(self.ast) {
                     self.print(" ");
-                    let name = self.ast.get_utf8(label.name(self.ast));
+                    let name = self.ast.get_interned_utf8(label.name(self.ast));
                     self.add_source_mapping_for_name(label.span(self.ast).start, name);
                     self.print_identifier(name);
                 }
@@ -754,7 +754,7 @@ impl<'a> Printer<'a> {
                 self.print("continue");
                 if let Some(label) = s.label(self.ast) {
                     self.print(" ");
-                    let name = self.ast.get_utf8(label.name(self.ast));
+                    let name = self.ast.get_interned_utf8(label.name(self.ast));
                     self.add_source_mapping_for_name(label.span(self.ast).start, name);
                     self.print_identifier(name);
                 }
@@ -915,7 +915,7 @@ impl<'a> Printer<'a> {
             StmtData::LabeledStatement(s) => {
                 self.print_indent();
                 let label = s.label(self.ast);
-                let name = self.ast.get_utf8(label.name(self.ast));
+                let name = self.ast.get_interned_utf8(label.name(self.ast));
                 self.add_source_mapping_for_name(label.span(self.ast).start, name);
                 self.print_identifier(name);
                 self.print(":");
@@ -1047,7 +1047,7 @@ impl<'a> Printer<'a> {
                 self.print_indent();
                 self.add_source_mapping(stmt.span(self.ast).start);
                 self.print("export as namespace ");
-                self.print_identifier(self.ast.get_utf8(s.id(self.ast).name(self.ast)));
+                self.print_identifier(self.ast.get_interned_utf8(s.id(self.ast).name(self.ast)));
                 self.print_semicolon_after_statement();
             }
         }
@@ -1299,7 +1299,7 @@ impl<'a> Printer<'a> {
             self.print_for_left(left);
             return;
         };
-        let wrap = self.ast.get_utf8(identifier.name(self.ast)) == "async";
+        let wrap = self.ast.get_interned_utf8(identifier.name(self.ast)) == "async";
         if wrap {
             self.print("(");
         }
@@ -1468,7 +1468,7 @@ impl<'a> Printer<'a> {
         if decorators {
             self.print_decorators(id.decorators(self.ast));
         }
-        let name = self.ast.get_utf8(id.name(self.ast));
+        let name = self.ast.get_interned_utf8(id.name(self.ast));
         self.add_source_mapping_for_name(id.span(self.ast).start, name);
         self.print_identifier(name);
         if id.optional(self.ast) {
@@ -1572,7 +1572,7 @@ impl<'a> Printer<'a> {
                 && match self.ast.property_key_data(prop.key(self.ast)) {
                     PropertyKeyData::IdentifierName(key) => {
                         self.binding_pattern_identifier_name(value)
-                            == Some(self.ast.get_utf8(key.name(self.ast)))
+                            == Some(self.ast.get_interned_utf8(key.name(self.ast)))
                     }
                     _ => false,
                 };
@@ -1622,7 +1622,7 @@ impl<'a> Printer<'a> {
     fn print_simple_assignment_target(&mut self, target: SimpleAssignmentTarget) {
         match self.ast.simple_assignment_target_data(target) {
             SimpleAssignmentTargetData::IdentifierReference(i) => {
-                let name = self.ast.get_utf8(i.name(self.ast));
+                let name = self.ast.get_interned_utf8(i.name(self.ast));
                 let wrap = self.js.len() == self.for_of_init_start && name == "let";
                 if wrap {
                     self.print("(");
@@ -1779,7 +1779,7 @@ impl<'a> Printer<'a> {
         }
         match self.ast.expr_data(expr) {
             ExprData::IdentifierReference(e) => {
-                let name = self.ast.get_utf8(e.name(self.ast));
+                let name = self.ast.get_interned_utf8(e.name(self.ast));
                 let wrap = self.js.len() == self.for_of_init_start && name == "let";
                 if wrap {
                     self.print("(");
@@ -1800,9 +1800,12 @@ impl<'a> Printer<'a> {
             }
             ExprData::MetaProperty(e) => {
                 self.add_source_mapping(expr.span(self.ast).start);
-                self.print_identifier(self.ast.get_utf8(e.meta(self.ast).name(self.ast)));
+                self.print_identifier(self.ast.get_interned_utf8(e.meta(self.ast).name(self.ast)));
                 self.print(".");
-                self.print_identifier(self.ast.get_utf8(e.property(self.ast).name(self.ast)));
+                self.print_identifier(
+                    self.ast
+                        .get_interned_utf8(e.property(self.ast).name(self.ast)),
+                );
             }
             ExprData::StringLiteral(e) => {
                 self.add_source_mapping(expr.span(self.ast).start);
@@ -2047,7 +2050,7 @@ impl<'a> Printer<'a> {
                 }
             }
             ExprData::PrivateIdentifier(e) => {
-                let name = self.ast.get_utf8(e.name(self.ast));
+                let name = self.ast.get_interned_utf8(e.name(self.ast));
                 self.add_source_mapping_for_name(expr.span(self.ast).start, name);
                 self.print("#");
                 self.print_identifier(name);
@@ -2234,7 +2237,7 @@ impl<'a> Printer<'a> {
             && matches!(
                 object_data,
                 ExprData::IdentifierReference(identifier)
-                    if self.ast.get_utf8(identifier.name(self.ast)) == "let"
+                    if self.ast.get_interned_utf8(identifier.name(self.ast)) == "let"
             );
         if wrap_object {
             self.print("(");
@@ -2256,7 +2259,7 @@ impl<'a> Printer<'a> {
         let property_data = self.ast.property_key_data(property);
         let (identifier_text, property_text): (Option<&str>, Option<&Wtf8>) = match property_data {
             PropertyKeyData::IdentifierName(identifier) => {
-                let name = self.ast.get_utf8(identifier.name(self.ast));
+                let name = self.ast.get_interned_utf8(identifier.name(self.ast));
                 (Some(name), Some(Wtf8::from_str(name)))
             }
             PropertyKeyData::StringLiteral(string) => {
@@ -2632,7 +2635,7 @@ impl<'a> Printer<'a> {
             && !property.computed(self.ast)
             && match self.ast.property_key_data(property.key(self.ast)) {
                 PropertyKeyData::IdentifierName(identifier) => {
-                    self.can_print_identifier(self.ast.get_utf8(identifier.name(self.ast)))
+                    self.can_print_identifier(self.ast.get_interned_utf8(identifier.name(self.ast)))
                 }
                 _ => false,
             }
@@ -2652,11 +2655,11 @@ impl<'a> Printer<'a> {
     fn print_property_key_expr(&mut self, key: PropertyKey) {
         match self.ast.property_key_data(key) {
             PropertyKeyData::IdentifierName(e) => {
-                self.print_identifier(self.ast.get_utf8(e.name(self.ast)))
+                self.print_identifier(self.ast.get_interned_utf8(e.name(self.ast)))
             }
             PropertyKeyData::PrivateIdentifier(e) => {
                 self.print("#");
-                self.print_identifier(self.ast.get_utf8(e.name(self.ast)));
+                self.print_identifier(self.ast.get_interned_utf8(e.name(self.ast)));
             }
             PropertyKeyData::StringLiteral(e) => {
                 self.print_quoted(self.ast.get_wtf8(e.value(self.ast)), true)
@@ -2685,7 +2688,7 @@ impl<'a> Printer<'a> {
     fn print_property_key_plain_data(&mut self, key: PropertyKey, data: PropertyKeyData) {
         match data {
             PropertyKeyData::IdentifierName(value) => {
-                let name = self.ast.get_utf8(value.name(self.ast));
+                let name = self.ast.get_interned_utf8(value.name(self.ast));
                 if self.can_print_identifier(name) {
                     self.print_identifier(name);
                 } else {
@@ -3073,10 +3076,10 @@ impl<'a> Printer<'a> {
                     ExprData::MemberExpression(member) if !member.computed(ast) => {
                         let name = match ast.property_key_data(member.property(ast)) {
                             PropertyKeyData::IdentifierName(identifier) => {
-                                ast.get_utf8(identifier.name(ast))
+                                ast.get_interned_utf8(identifier.name(ast))
                             }
                             PropertyKeyData::PrivateIdentifier(identifier) => {
-                                ast.get_utf8(identifier.name(ast))
+                                ast.get_interned_utf8(identifier.name(ast))
                             }
                             _ => return true,
                         };
@@ -3539,7 +3542,7 @@ impl<'a> Printer<'a> {
                     }
                     self.print_module_name(s.imported(self.ast));
                     let imported = self.module_name(s.imported(self.ast));
-                    let local = self.ast.get_utf8(s.local(self.ast).name(self.ast));
+                    let local = self.ast.get_interned_utf8(s.local(self.ast).name(self.ast));
                     if imported != local {
                         self.print_space();
                         self.print_space_before_identifier();
@@ -3599,7 +3602,7 @@ impl<'a> Printer<'a> {
     fn print_module_name(&mut self, name: ModuleExportName) {
         match self.ast.module_export_name_data(name) {
             ModuleExportNameData::IdentifierName(i) => {
-                let text = self.ast.get_utf8(i.name(self.ast));
+                let text = self.ast.get_interned_utf8(i.name(self.ast));
                 self.add_source_mapping_for_name(name.span(self.ast).start, text);
                 self.print_identifier(text)
             }
@@ -4087,7 +4090,7 @@ impl<'a> Printer<'a> {
                     .ts_type_predicate_name_data(t.parameter_name(self.ast))
                 {
                     TsTypePredicateNameData::IdentifierName(i) => {
-                        self.print_identifier(self.ast.get_utf8(i.name(self.ast)))
+                        self.print_identifier(self.ast.get_interned_utf8(i.name(self.ast)))
                     }
                     TsTypePredicateNameData::TsThisType(_) => self.print("this"),
                 };
@@ -4125,7 +4128,7 @@ impl<'a> Printer<'a> {
     fn print_ts_type_name(&mut self, n: TsTypeName) {
         match self.ast.ts_type_name_data(n) {
             TsTypeNameData::IdentifierReference(i) => {
-                let name = self.ast.get_utf8(i.name(self.ast));
+                let name = self.ast.get_interned_utf8(i.name(self.ast));
                 self.add_source_mapping_for_name(i.span(self.ast).start, name);
                 self.print_identifier(name)
             }
@@ -4135,17 +4138,17 @@ impl<'a> Printer<'a> {
     fn print_ts_qualified(&mut self, q: TsQualifiedName) {
         match self.ast.ts_qualified_name_left_data(q.left(self.ast)) {
             TsQualifiedNameLeftData::IdentifierReference(i) => {
-                let name = self.ast.get_utf8(i.name(self.ast));
+                let name = self.ast.get_interned_utf8(i.name(self.ast));
                 self.add_source_mapping_for_name(i.span(self.ast).start, name);
                 self.print_identifier(name)
             }
             TsQualifiedNameLeftData::IdentifierName(i) => {
-                let name = self.ast.get_utf8(i.name(self.ast));
+                let name = self.ast.get_interned_utf8(i.name(self.ast));
                 self.add_source_mapping_for_name(i.span(self.ast).start, name);
                 self.print_identifier(name)
             }
             TsQualifiedNameLeftData::BindingIdentifier(i) => {
-                let name = self.ast.get_utf8(i.name(self.ast));
+                let name = self.ast.get_interned_utf8(i.name(self.ast));
                 self.add_source_mapping_for_name(i.span(self.ast).start, name);
                 self.print_identifier(name)
             }
@@ -4154,14 +4157,14 @@ impl<'a> Printer<'a> {
         }
         self.print(".");
         let right = q.right(self.ast);
-        let name = self.ast.get_utf8(right.name(self.ast));
+        let name = self.ast.get_interned_utf8(right.name(self.ast));
         self.add_source_mapping_for_name(right.span(self.ast).start, name);
         self.print_identifier(name);
     }
     fn print_ts_import_qualifier(&mut self, q: TsImportTypeQualifier) {
         match self.ast.ts_import_type_qualifier_data(q) {
             TsImportTypeQualifierData::IdentifierName(i) => {
-                let name = self.ast.get_utf8(i.name(self.ast));
+                let name = self.ast.get_interned_utf8(i.name(self.ast));
                 self.add_source_mapping_for_name(i.span(self.ast).start, name);
                 self.print_identifier(name)
             }
@@ -4230,7 +4233,7 @@ impl<'a> Printer<'a> {
                     element_type = rest.type_annotation(self.ast);
                 }
                 let label = n.label(self.ast);
-                let name = self.ast.get_utf8(label.name(self.ast));
+                let name = self.ast.get_interned_utf8(label.name(self.ast));
                 self.add_source_mapping_for_name(label.span(self.ast).start, name);
                 self.print_identifier(name);
                 if n.optional(self.ast) {
@@ -4452,7 +4455,7 @@ impl<'a> Printer<'a> {
         }
         match self.ast.ts_enum_member_name_data(n) {
             TsEnumMemberNameData::IdentifierName(i) => {
-                let name = self.ast.get_utf8(i.name(self.ast));
+                let name = self.ast.get_interned_utf8(i.name(self.ast));
                 self.add_source_mapping_for_name(i.span(self.ast).start, name);
                 self.print_identifier(name)
             }
@@ -4530,7 +4533,7 @@ impl<'a> Printer<'a> {
             self.print("declare ");
         }
         let id = d.id(self.ast);
-        let name = self.ast.get_utf8(id.name(self.ast));
+        let name = self.ast.get_interned_utf8(id.name(self.ast));
         self.add_source_mapping_for_name(id.span(self.ast).start, name);
         self.print_identifier(name);
         self.print_space();
@@ -4652,15 +4655,18 @@ impl<'a> Printer<'a> {
     fn print_jsx_name(&mut self, n: JsxElementName) {
         match self.ast.jsx_element_name_data(n) {
             JsxElementNameData::JsxIdentifier(i) => {
-                let name = self.ast.get_utf8(i.name(self.ast));
+                let name = self.ast.get_interned_utf8(i.name(self.ast));
                 self.add_source_mapping_for_name(n.span(self.ast).start, name);
                 self.print_bytes(name)
             }
             JsxElementNameData::JsxNamespacedName(x) => {
                 self.add_source_mapping(n.span(self.ast).start);
-                self.print_bytes(self.ast.get_utf8(x.namespace(self.ast).name(self.ast)));
+                self.print_bytes(
+                    self.ast
+                        .get_interned_utf8(x.namespace(self.ast).name(self.ast)),
+                );
                 self.print(":");
-                self.print_bytes(self.ast.get_utf8(x.name(self.ast).name(self.ast)));
+                self.print_bytes(self.ast.get_interned_utf8(x.name(self.ast).name(self.ast)));
             }
             JsxElementNameData::JsxMemberExpression(m) => self.print_jsx_member(m),
         }
@@ -4671,7 +4677,7 @@ impl<'a> Printer<'a> {
             .jsx_member_expression_object_data(m.object(self.ast))
         {
             JsxMemberExpressionObjectData::JsxIdentifier(i) => {
-                let name = self.ast.get_utf8(i.name(self.ast));
+                let name = self.ast.get_interned_utf8(i.name(self.ast));
                 self.add_source_mapping_for_name(i.span(self.ast).start, name);
                 self.print_bytes(name)
             }
@@ -4679,22 +4685,25 @@ impl<'a> Printer<'a> {
         }
         self.print(".");
         let property = m.property(self.ast);
-        let name = self.ast.get_utf8(property.name(self.ast));
+        let name = self.ast.get_interned_utf8(property.name(self.ast));
         self.add_source_mapping_for_name(property.span(self.ast).start, name);
         self.print_bytes(name);
     }
     fn print_jsx_attr_name(&mut self, n: JsxAttributeName) {
         match self.ast.jsx_attribute_name_data(n) {
             JsxAttributeNameData::JsxIdentifier(i) => {
-                let name = self.ast.get_utf8(i.name(self.ast));
+                let name = self.ast.get_interned_utf8(i.name(self.ast));
                 self.add_source_mapping_for_name(n.span(self.ast).start, name);
                 self.print_bytes(name)
             }
             JsxAttributeNameData::JsxNamespacedName(x) => {
                 self.add_source_mapping(n.span(self.ast).start);
-                self.print_bytes(self.ast.get_utf8(x.namespace(self.ast).name(self.ast)));
+                self.print_bytes(
+                    self.ast
+                        .get_interned_utf8(x.namespace(self.ast).name(self.ast)),
+                );
                 self.print(":");
-                self.print_bytes(self.ast.get_utf8(x.name(self.ast).name(self.ast)));
+                self.print_bytes(self.ast.get_interned_utf8(x.name(self.ast).name(self.ast)));
             }
         }
     }
@@ -4753,12 +4762,12 @@ impl Printer<'_> {
     fn binding_pattern_identifier_name(&self, binding: BindingPattern) -> Option<&str> {
         match self.ast.binding_pattern_data(binding) {
             BindingPatternData::BindingIdentifier(identifier) => {
-                Some(self.ast.get_utf8(identifier.name(self.ast)))
+                Some(self.ast.get_interned_utf8(identifier.name(self.ast)))
             }
             BindingPatternData::SimpleAssignmentTarget(target) => {
                 match self.ast.simple_assignment_target_data(target) {
                     SimpleAssignmentTargetData::IdentifierReference(identifier) => {
-                        Some(self.ast.get_utf8(identifier.name(self.ast)))
+                        Some(self.ast.get_interned_utf8(identifier.name(self.ast)))
                     }
                     _ => None,
                 }
@@ -4813,7 +4822,9 @@ impl Printer<'_> {
     fn module_name(&self, n: ModuleExportName) -> &Wtf8 {
         let ast = self.ast;
         match ast.module_export_name_data(n) {
-            ModuleExportNameData::IdentifierName(i) => Wtf8::from_str(ast.get_utf8(i.name(ast))),
+            ModuleExportNameData::IdentifierName(i) => {
+                Wtf8::from_str(ast.get_interned_utf8(i.name(ast)))
+            }
             ModuleExportNameData::StringLiteral(s) => ast.get_wtf8(s.value(ast)),
         }
     }

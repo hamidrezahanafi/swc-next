@@ -2505,13 +2505,12 @@ impl TemplateElement {
 }
 impl IdentifierReference {
     #[inline]
-    pub fn name<'a>(self, ast: &crate::Ast<'a>) -> AstUtf8 {
+    pub fn name<'a>(self, ast: &crate::Ast<'a>) -> AstInternedUtf8 {
         let raw = (unsafe { ast.nodes.data_unchecked(self.0).0 } >> 0usize) as u64;
         unsafe { ExtraDataCompact::from_extra_data(ExtraData { other: raw }, ast) }
     }
     #[inline]
-    pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstUtf8) {
-        let name = ast.intern_utf8_slice(name);
+    pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstInternedUtf8) {
         let field_val: u64 = unsafe { name.to_extra_data(ast).other };
         let payload = unsafe { ast.nodes.data_mut_unchecked(self.0) };
         payload.0 = (payload.0 & 340282366920938463444927863358058659840u128)
@@ -2520,13 +2519,12 @@ impl IdentifierReference {
 }
 impl PrivateIdentifier {
     #[inline]
-    pub fn name<'a>(self, ast: &crate::Ast<'a>) -> AstUtf8 {
+    pub fn name<'a>(self, ast: &crate::Ast<'a>) -> AstInternedUtf8 {
         let raw = (unsafe { ast.nodes.data_unchecked(self.0).0 } >> 0usize) as u64;
         unsafe { ExtraDataCompact::from_extra_data(ExtraData { other: raw }, ast) }
     }
     #[inline]
-    pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstUtf8) {
-        let name = ast.intern_utf8_slice(name);
+    pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstInternedUtf8) {
         let field_val: u64 = unsafe { name.to_extra_data(ast).other };
         let payload = unsafe { ast.nodes.data_mut_unchecked(self.0) };
         payload.0 = (payload.0 & 340282366920938463444927863358058659840u128)
@@ -2546,7 +2544,7 @@ impl BindingIdentifier {
         raw != 0
     }
     #[inline]
-    pub fn name<'a>(self, ast: &crate::Ast<'a>) -> AstUtf8 {
+    pub fn name<'a>(self, ast: &crate::Ast<'a>) -> AstInternedUtf8 {
         let offset = unsafe {
             ExtraDataId::from_usize_unchecked(
                 ((ast.nodes.data_unchecked(self.0).0 >> 96usize) as u32 as usize)
@@ -2596,8 +2594,7 @@ impl BindingIdentifier {
             | (((field_val as u128) & 255u128) << 0usize);
     }
     #[inline]
-    pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstUtf8) {
-        let name = ast.intern_utf8_slice(name);
+    pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstInternedUtf8) {
         let offset = unsafe {
             ExtraDataId::from_usize_unchecked(
                 ((ast.nodes.data_unchecked(self.0).0 >> 96usize) as u32 as usize)
@@ -2633,13 +2630,12 @@ impl BindingIdentifier {
 }
 impl IdentifierName {
     #[inline]
-    pub fn name<'a>(self, ast: &crate::Ast<'a>) -> AstUtf8 {
+    pub fn name<'a>(self, ast: &crate::Ast<'a>) -> AstInternedUtf8 {
         let raw = (unsafe { ast.nodes.data_unchecked(self.0).0 } >> 0usize) as u64;
         unsafe { ExtraDataCompact::from_extra_data(ExtraData { other: raw }, ast) }
     }
     #[inline]
-    pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstUtf8) {
-        let name = ast.intern_utf8_slice(name);
+    pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstInternedUtf8) {
         let field_val: u64 = unsafe { name.to_extra_data(ast).other };
         let payload = unsafe { ast.nodes.data_mut_unchecked(self.0) };
         payload.0 = (payload.0 & 340282366920938463444927863358058659840u128)
@@ -2648,13 +2644,12 @@ impl IdentifierName {
 }
 impl LabelIdentifier {
     #[inline]
-    pub fn name<'a>(self, ast: &crate::Ast<'a>) -> AstUtf8 {
+    pub fn name<'a>(self, ast: &crate::Ast<'a>) -> AstInternedUtf8 {
         let raw = (unsafe { ast.nodes.data_unchecked(self.0).0 } >> 0usize) as u64;
         unsafe { ExtraDataCompact::from_extra_data(ExtraData { other: raw }, ast) }
     }
     #[inline]
-    pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstUtf8) {
-        let name = ast.intern_utf8_slice(name);
+    pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstInternedUtf8) {
         let field_val: u64 = unsafe { name.to_extra_data(ast).other };
         let payload = unsafe { ast.nodes.data_mut_unchecked(self.0) };
         payload.0 = (payload.0 & 340282366920938463444927863358058659840u128)
@@ -10190,13 +10185,12 @@ impl JsxOpeningFragment {}
 impl JsxClosingFragment {}
 impl JsxIdentifier {
     #[inline]
-    pub fn name<'a>(self, ast: &crate::Ast<'a>) -> AstUtf8 {
+    pub fn name<'a>(self, ast: &crate::Ast<'a>) -> AstInternedUtf8 {
         let raw = (unsafe { ast.nodes.data_unchecked(self.0).0 } >> 0usize) as u64;
         unsafe { ExtraDataCompact::from_extra_data(ExtraData { other: raw }, ast) }
     }
     #[inline]
-    pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstUtf8) {
-        let name = ast.intern_utf8_slice(name);
+    pub fn set_name<'a>(self, ast: &mut crate::Ast<'a>, name: AstInternedUtf8) {
         let field_val: u64 = unsafe { name.to_extra_data(ast).other };
         let payload = unsafe { ast.nodes.data_mut_unchecked(self.0) };
         payload.0 = (payload.0 & 340282366920938463444927863358058659840u128)

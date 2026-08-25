@@ -99,7 +99,7 @@ impl JsNameResolver<'_> {
 struct Scope {
     parent: Option<ScopeId>,
     kind: ScopeKind,
-    declared_symbols: HashMap<AstUtf8, DeclKind, FxBuildHasher>,
+    declared_symbols: HashMap<AstInternedUtf8, DeclKind, FxBuildHasher>,
 }
 
 impl Scope {
@@ -216,11 +216,11 @@ struct Resolver<'ast> {
 }
 
 impl<'ast> Resolver<'ast> {
-    fn name_text(&self, name: AstUtf8) -> &'ast [u8] {
-        self.ast.get_utf8(name).as_bytes()
+    fn name_text(&self, name: AstInternedUtf8) -> &'ast [u8] {
+        self.ast.get_interned_utf8(name).as_bytes()
     }
 
-    fn is_declared(&self, name: AstUtf8, start_scope: ScopeId) -> Option<DeclKind> {
+    fn is_declared(&self, name: AstInternedUtf8, start_scope: ScopeId) -> Option<DeclKind> {
         let mut scope = Some(start_scope);
         while let Some(scope_id) = scope {
             let current = &self.scopes[scope_id];
@@ -266,7 +266,7 @@ impl<'ast> Resolver<'ast> {
         self.set_scope_once(owner.node_id(), scope);
     }
 
-    fn scope_of_name(&self, name: AstUtf8, stop_at_fn_scope: bool) -> Option<ScopeId> {
+    fn scope_of_name(&self, name: AstInternedUtf8, stop_at_fn_scope: bool) -> Option<ScopeId> {
         // Every scope uses the same stateless FxBuildHasher, so reuse the hash
         // instead of hashing the identifier again for each ancestor scope.
         let hash = self.scopes[self.current]
@@ -349,7 +349,7 @@ impl<'ast> Resolver<'ast> {
     fn has_use_strict(&self, directives: TypedSubRange<Directive>) -> bool {
         directives.iter().any(|id| {
             let directive = self.ast.get_node_in_sub_range(id);
-            self.ast.get_utf8(directive.value(self.ast)) == "use strict"
+            self.ast.get_utf8(directive.value(self.ast)).as_bytes() == b"use strict"
         })
     }
 
@@ -792,8 +792,8 @@ struct Hoister<'resolver, 'ast> {
     kind: DeclKind,
     in_block: bool,
     in_catch_body: bool,
-    excluded_from_catch: FxHashSet<AstUtf8>,
-    catch_param_decls: FxHashSet<AstUtf8>,
+    excluded_from_catch: FxHashSet<AstInternedUtf8>,
+    catch_param_decls: FxHashSet<AstInternedUtf8>,
 }
 
 impl<'resolver, 'ast> Hoister<'resolver, 'ast> {

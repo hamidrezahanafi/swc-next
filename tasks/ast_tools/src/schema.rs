@@ -124,6 +124,5 @@ pub struct AstAttrs {
 #[derive(Debug, Default)]
 pub struct AstFieldAttrs {
     pub estree_skip: bool,
-    pub intern: bool,
     pub invalidates: Vec<String>,
 }

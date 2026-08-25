@@ -31,7 +31,7 @@ pub use generated::ast_node::{NodeKind, NodeKindData};
 pub use generated::ast_visitor::*;
 pub use node_id::{AstNode, ExtraDataCompact, ExtraDataId, NodeId, SubRange, TypedSubRange};
 pub use semantic::{ReferenceId, ScopeId, SymbolId};
-pub use strings::{AstUtf8, AstWtf8};
+pub use strings::{AstInternedUtf8, AstUtf8, AstWtf8};
 pub use syntax::*;
 pub use visit::{TraverseAction, TraverseCtx};
 
@@ -334,25 +334,19 @@ impl<'a> Ast<'a> {
         self.strings.source
     }
 
-    /// Interns the source slice at the given offsets and returns its canonical handle.
-    ///
-    /// The returned handle may point at an earlier equal string. AST node locations are
-    /// represented by spans, not by string handles.
+    /// Returns a slice of the source string corresponding to the given start and end offsets.
     /// Actually this function should be unsafe because it does not check if the offsets are valid.
     /// So external crates should be better not use this function directly.
     #[inline]
-    pub fn source_slice(&mut self, start: u32, end: u32) -> AstUtf8 {
+    pub fn source_slice(&self, start: u32, end: u32) -> AstUtf8 {
         self.strings.source_slice(start, end)
     }
 
-    /// Interns the source slice at the given offsets and returns its canonical handle.
-    ///
-    /// The returned handle may point at an earlier equal string. AST node locations are
-    /// represented by spans, not by string handles.
+    /// Returns a slice of the source string corresponding to the given start and end offsets.
     /// Actually this function should be unsafe because it does not check if the offsets are valid.
     /// So external crates should be better not use this function directly.
     #[inline]
-    pub fn source_slice_wtf8(&mut self, start: u32, end: u32) -> AstWtf8 {
+    pub fn source_slice_wtf8(&self, start: u32, end: u32) -> AstWtf8 {
         self.strings.source_slice_wtf8(start, end)
     }
 
@@ -375,13 +369,13 @@ impl<'a> Ast<'a> {
     /// Stores a canonical UTF-8 range for strings whose identity is used by
     /// semantic analysis.
     #[inline]
-    pub fn intern_utf8(&mut self, value: &str) -> AstUtf8 {
+    pub fn intern_utf8(&mut self, value: &str) -> AstInternedUtf8 {
         self.strings.intern_utf8(value)
     }
 
     /// Canonicalizes an existing UTF-8 string range.
     #[inline]
-    pub fn intern_utf8_slice(&mut self, value: AstUtf8) -> AstUtf8 {
+    pub fn intern_utf8_slice(&mut self, value: AstUtf8) -> AstInternedUtf8 {
         self.strings.intern_utf8_slice(value)
     }
 
@@ -391,13 +385,18 @@ impl<'a> Ast<'a> {
     }
 
     #[inline]
+    pub fn get_interned_utf8(&self, id: AstInternedUtf8) -> &str {
+        self.strings.get_interned_utf8(id)
+    }
+
+    #[inline]
     pub fn get_wtf8(&self, id: AstWtf8) -> &swc_next_allocator::wtf8::Wtf8 {
         self.strings.get_wtf8(id)
     }
 
     /// Returns the canonical handle for a UTF-8 string already interned in this AST.
     #[inline]
-    pub fn find_utf8(&self, value: &str) -> Option<AstUtf8> {
+    pub fn find_utf8(&self, value: &str) -> Option<AstInternedUtf8> {
         self.strings.find_utf8(value)
     }
 

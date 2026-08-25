@@ -46,6 +46,10 @@ define_ast_string!(
     "A compact handle to a UTF-8 string in an [`Ast`](crate::Ast)."
 );
 define_ast_string!(
+    AstInternedUtf8,
+    "A compact handle to an interned UTF-8 string in an [`Ast`](crate::Ast)."
+);
+define_ast_string!(
     AstWtf8,
     "A compact handle to a WTF-8 string in an [`Ast`](crate::Ast)."
 );
@@ -53,6 +57,16 @@ define_ast_string!(
 impl From<AstUtf8> for AstWtf8 {
     #[inline]
     fn from(value: AstUtf8) -> Self {
+        Self {
+            start: value.start,
+            end: value.end,
+        }
+    }
+}
+
+impl From<AstInternedUtf8> for AstWtf8 {
+    #[inline]
+    fn from(value: AstInternedUtf8) -> Self {
         Self {
             start: value.start,
             end: value.end,
@@ -86,19 +100,25 @@ impl<'a> StringPool<'a> {
     }
 
     #[inline]
+    pub fn get_interned_utf8(&self, id: AstInternedUtf8) -> &str {
+        // SAFETY: `AstInternedUtf8` is guaranteed to reference valid UTF-8.
+        unsafe { std::str::from_utf8_unchecked(self.get_bytes(id.start, id.end)) }
+    }
+
+    #[inline]
     pub fn get_wtf8(&self, id: AstWtf8) -> &Wtf8 {
         // SAFETY: `AstWtf8` is guaranteed to reference valid WTF-8.
         unsafe { Wtf8::from_bytes_unchecked(self.get_bytes(id.start, id.end)) }
     }
 
     #[inline]
-    pub fn find_utf8(&self, text: &str) -> Option<AstUtf8> {
+    pub fn find_utf8(&self, text: &str) -> Option<AstInternedUtf8> {
         if text.is_empty() {
-            return Some(AstUtf8::EMPTY);
+            return Some(AstInternedUtf8::EMPTY);
         }
         self.interned
             .get(text.as_bytes())
-            .map(|&(start, end)| AstUtf8 { start, end })
+            .map(|&(start, end)| AstInternedUtf8 { start, end })
     }
 
     #[inline]
@@ -158,16 +178,16 @@ impl<'a> StringPool<'a> {
 
     /// Returns the canonical range for a semantic UTF-8 string.
     #[inline]
-    pub fn intern_utf8(&mut self, text: &str) -> AstUtf8 {
+    pub fn intern_utf8(&mut self, text: &str) -> AstInternedUtf8 {
         let (start, end) = self.intern_bytes(text.as_bytes());
-        AstUtf8 { start, end }
+        AstInternedUtf8 { start, end }
     }
 
     /// Canonicalizes an existing UTF-8 range.
     #[inline]
-    pub fn intern_utf8_slice(&mut self, text: AstUtf8) -> AstUtf8 {
+    pub fn intern_utf8_slice(&mut self, text: AstUtf8) -> AstInternedUtf8 {
         let (start, end) = self.intern_range(text.start, text.end);
-        AstUtf8 { start, end }
+        AstInternedUtf8 { start, end }
     }
 
     fn intern_bytes(&mut self, text: &[u8]) -> (u32, u32) {
@@ -249,12 +269,14 @@ mod tests {
     }
 
     #[test]
-    fn semantic_name_fields_intern_but_literal_fields_remain_slices() {
+    fn semantic_name_fields_use_interned_handles_but_literal_fields_remain_slices() {
         let allocator = Allocator::new();
         let mut ast = Ast::new("name name same same", &allocator);
 
         let first_name = ast.source_slice(0, 4);
+        let first_name = ast.intern_utf8_slice(first_name);
         let second_name = ast.source_slice(5, 9);
+        let second_name = ast.intern_utf8_slice(second_name);
         let first_identifier = ast.identifier_reference(Span::new(0, 4), first_name);
         let second_identifier = ast.identifier_reference(Span::new(5, 9), second_name);
         assert_eq!(first_identifier.name(&ast), second_identifier.name(&ast));

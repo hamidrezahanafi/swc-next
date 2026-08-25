@@ -176,6 +176,7 @@ impl Parser {
             "Span" => primitive("Span"),
             "ScopeId" => primitive("ScopeId"),
             "SymbolId" => primitive("SymbolId"),
+            "AstInternedUtf8" => primitive("AstInternedUtf8"),
             "AstUtf8" => primitive("AstUtf8"),
             "AstWtf8" => primitive("AstWtf8"),
             "ImportPhase" => primitive("ImportPhase"),
@@ -438,14 +439,8 @@ fn parse_field_attrs(attrs: &[Attribute]) -> AstFieldAttrs {
                 .parse_args_with(Punctuated::<Meta, Comma>::parse_terminated)
                 .expect("Unable to parse AST field attributes");
             for arg in args {
-                if let Meta::Path(path) = &arg
-                    && path.is_ident("intern")
-                {
-                    field_attrs.intern = true;
-                    continue;
-                }
                 let Meta::List(list) = arg else {
-                    panic!("AST field attributes must use path or list syntax");
+                    panic!("AST field attributes must use list syntax");
                 };
                 if !list.path.is_ident("invalidates") {
                     panic!(
@@ -479,17 +474,6 @@ fn validate_invalidations(schema: &Schema) {
             .collect::<HashMap<_, _>>();
 
         for field in &ast.fields {
-            if field.attrs.intern {
-                assert!(
-                    matches!(
-                        &schema.types[field.type_id],
-                        AstType::Primitive(primitive) if primitive.name == "AstUtf8"
-                    ),
-                    "`{}.{}` uses `#[ast(intern)]` but is not AstUtf8",
-                    ast.name,
-                    field.name
-                );
-            }
             let mut targets = HashSet::new();
             for target_name in &field.attrs.invalidates {
                 assert!(
