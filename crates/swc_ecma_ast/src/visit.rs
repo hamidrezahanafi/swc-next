@@ -1,6 +1,6 @@
 use crate::{
     Accessibility, AssignmentOperator, Ast, AstNode, AstUtf8, AstWtf8, BinaryOperator, ClassType,
-    FormalParameterKind, FunctionType, ImportOrExportKind, ImportPhase, LogicalOperator,
+    Expr, FormalParameterKind, FunctionType, ImportOrExportKind, ImportPhase, LogicalOperator,
     MethodDefinitionKind, NodeId, NodeKind, PropertyKind, SourceType, Span, TsMappedTypeModifier,
     TsMethodSignatureKind, TsModuleDeclarationKind, TsTypeOperatorKind, UnaryOperator,
     UpdateOperator, VariableKind, Visit, VisitMut, VisitMutWith, VisitWith,
@@ -29,6 +29,7 @@ pub struct TraverseCtx<'traverse, 'ast, State = ()> {
     pub state: State,
     pub ast: &'traverse mut Ast<'ast>,
     path: Vec<NodeId>,
+    expr_replacement: Option<(NodeId, NodeId)>,
 }
 
 impl<'traverse, 'ast, State> TraverseCtx<'traverse, 'ast, State> {
@@ -38,6 +39,7 @@ impl<'traverse, 'ast, State> TraverseCtx<'traverse, 'ast, State> {
             state,
             ast,
             path: Vec::new(),
+            expr_replacement: None,
         }
     }
 
@@ -84,6 +86,30 @@ impl<'traverse, 'ast, State> TraverseCtx<'traverse, 'ast, State> {
     #[inline]
     pub fn depth(&self) -> usize {
         self.path.len().saturating_sub(1)
+    }
+
+    /// Replaces the current expression through the parent field or sub-range
+    /// slot that is already being traversed.
+    ///
+    /// The replacement is not traversed during the current pass.
+    #[inline]
+    pub fn replace_current_expr(&mut self, replacement: Expr) {
+        let current = self
+            .current_node()
+            .expect("replace_current_expr must be called from a traversal hook");
+        assert!(
+            self.expr_replacement
+                .replace((current, replacement.node_id()))
+                .is_none(),
+            "the current node can only be replaced once"
+        );
+    }
+
+    #[inline]
+    pub(crate) fn take_expr_replacement(&mut self) -> Option<NodeId> {
+        self.expr_replacement
+            .take()
+            .map(|(_current, replacement)| replacement)
     }
 
     #[inline]

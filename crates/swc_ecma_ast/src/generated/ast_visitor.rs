@@ -19603,7 +19603,13 @@ impl<'a, State> TraverseWith<'a, State> for TypedSubRange<Expr> {
                 TraverseAction::Replace(replacement) => {
                     self.replace_slot(ctx.ast, child_idx, replacement);
                 }
-                TraverseAction::Proceed | TraverseAction::Skip => {}
+                TraverseAction::Proceed | TraverseAction::Skip => {
+                    if let Some(replacement) = ctx.take_expr_replacement() {
+                        self.replace_slot(ctx.ast, child_idx, unsafe {
+                            <Expr as AstNode>::from_node_id_unchecked(replacement)
+                        });
+                    }
+                }
             }
         }
         TraverseAction::Proceed
@@ -19997,7 +20003,17 @@ impl<'a, State> TraverseWith<'a, State> for TypedSubRange<Option<Argument>> {
                 TraverseAction::Replace(replacement) => {
                     self.replace_slot(ctx.ast, child_idx, Some(replacement));
                 }
-                TraverseAction::Proceed | TraverseAction::Skip => {}
+                TraverseAction::Proceed | TraverseAction::Skip => {
+                    if let Some(replacement) = ctx.take_expr_replacement() {
+                        self.replace_slot(
+                            ctx.ast,
+                            child_idx,
+                            Some(unsafe {
+                                <Argument as AstNode>::from_node_id_unchecked(replacement)
+                            }),
+                        );
+                    }
+                }
             }
         }
         TraverseAction::Proceed
@@ -20041,7 +20057,13 @@ impl<'a, State> TraverseWith<'a, State> for TypedSubRange<Argument> {
                 TraverseAction::Replace(replacement) => {
                     self.replace_slot(ctx.ast, child_idx, replacement);
                 }
-                TraverseAction::Proceed | TraverseAction::Skip => {}
+                TraverseAction::Proceed | TraverseAction::Skip => {
+                    if let Some(replacement) = ctx.take_expr_replacement() {
+                        self.replace_slot(ctx.ast, child_idx, unsafe {
+                            <Argument as AstNode>::from_node_id_unchecked(replacement)
+                        });
+                    }
+                }
             }
         }
         TraverseAction::Proceed
@@ -20848,7 +20870,14 @@ fn walk_template_literal<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(_) => {
                 unreachable!("sub-range traversal consumes child replacements")
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_expressions(
+                        ctx.ast,
+                        unreachable!("sub-range traversal consumes deferred replacements"),
+                    );
+                }
+            }
         }
         false
     };
@@ -21179,7 +21208,13 @@ fn walk_assignment_pattern<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_right(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_right(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -21475,7 +21510,13 @@ fn walk_binding_property<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_key(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_key(ctx.ast, unsafe {
+                        <PropertyKey as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.value(ctx.ast);
         match <BindingPattern as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -21534,7 +21575,13 @@ fn walk_binary_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_left(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_left(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.right(ctx.ast);
         match <Expr as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -21544,7 +21591,13 @@ fn walk_binary_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_right(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_right(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -21593,7 +21646,13 @@ fn walk_logical_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_left(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_left(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.right(ctx.ast);
         match <Expr as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -21603,7 +21662,13 @@ fn walk_logical_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_right(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_right(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -21652,7 +21717,13 @@ fn walk_conditional_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_test(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_test(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.consequent(ctx.ast);
         match <Expr as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -21662,7 +21733,13 @@ fn walk_conditional_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_consequent(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_consequent(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.alternate(ctx.ast);
         match <Expr as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -21672,7 +21749,13 @@ fn walk_conditional_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_alternate(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_alternate(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -21721,7 +21804,13 @@ fn walk_unary_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_argument(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_argument(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -21831,7 +21920,13 @@ fn walk_assignment_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_right(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_right(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -21941,7 +22036,14 @@ fn walk_variable_declarator<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_init(ctx.ast, Some(replacement));
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_init(
+                        ctx.ast,
+                        Some(unsafe { <Expr as AstNode>::from_node_id_unchecked(replacement) }),
+                    );
+                }
+            }
         }
         false
     };
@@ -21990,7 +22092,13 @@ fn walk_if_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_test(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_test(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.consequent(ctx.ast);
         match <Stmt as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -22059,7 +22167,13 @@ fn walk_switch_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_discriminant(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_discriminant(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.cases(ctx.ast);
         match <TypedSubRange<SwitchCase> as TraverseWith<'a, State>>::traverse_with(
@@ -22120,7 +22234,14 @@ fn walk_switch_case<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_test(ctx.ast, Some(replacement));
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_test(
+                        ctx.ast,
+                        Some(unsafe { <Expr as AstNode>::from_node_id_unchecked(replacement) }),
+                    );
+                }
+            }
         }
         let child = node.consequent(ctx.ast);
         match <TypedSubRange<Stmt> as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx)
@@ -22182,7 +22303,16 @@ fn walk_for_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_init(ctx.ast, Some(replacement));
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_init(
+                        ctx.ast,
+                        Some(unsafe {
+                            <ForStatementInit as AstNode>::from_node_id_unchecked(replacement)
+                        }),
+                    );
+                }
+            }
         }
         let child = node.test(ctx.ast);
         match <Option<Expr> as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -22192,7 +22322,14 @@ fn walk_for_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_test(ctx.ast, Some(replacement));
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_test(
+                        ctx.ast,
+                        Some(unsafe { <Expr as AstNode>::from_node_id_unchecked(replacement) }),
+                    );
+                }
+            }
         }
         let child = node.update(ctx.ast);
         match <Option<Expr> as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -22202,7 +22339,14 @@ fn walk_for_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_update(ctx.ast, Some(replacement));
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_update(
+                        ctx.ast,
+                        Some(unsafe { <Expr as AstNode>::from_node_id_unchecked(replacement) }),
+                    );
+                }
+            }
         }
         let child = node.body(ctx.ast);
         match <Stmt as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -22271,7 +22415,13 @@ fn walk_for_in_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_right(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_right(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.body(ctx.ast);
         match <Stmt as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -22340,7 +22490,13 @@ fn walk_for_of_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_right(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_right(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.body(ctx.ast);
         match <Stmt as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -22693,7 +22849,13 @@ fn walk_expression_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_expression(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_expression(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -22742,7 +22904,14 @@ fn walk_return_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_argument(ctx.ast, Some(replacement));
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_argument(
+                        ctx.ast,
+                        Some(unsafe { <Expr as AstNode>::from_node_id_unchecked(replacement) }),
+                    );
+                }
+            }
         }
         false
     };
@@ -22791,7 +22960,13 @@ fn walk_throw_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_argument(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_argument(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -22963,7 +23138,13 @@ fn walk_decorator<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_expression(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_expression(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -23048,7 +23229,14 @@ fn walk_class<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_super_class(ctx.ast, Some(replacement));
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_super_class(
+                        ctx.ast,
+                        Some(unsafe { <Expr as AstNode>::from_node_id_unchecked(replacement) }),
+                    );
+                }
+            }
         }
         let child = node.super_type_arguments(ctx.ast);
         match <Option<TsTypeParameterInstantiation> as TraverseWith<'a, State>>::traverse_with(
@@ -23194,7 +23382,13 @@ fn walk_method_definition<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_key(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_key(ctx.ast, unsafe {
+                        <PropertyKey as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.value(ctx.ast);
         match <Function as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -23265,7 +23459,13 @@ fn walk_property_definition<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_key(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_key(ctx.ast, unsafe {
+                        <PropertyKey as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.type_annotation(ctx.ast);
         match <Option<TsTypeAnnotation> as TraverseWith<'a, State>>::traverse_with(
@@ -23287,7 +23487,14 @@ fn walk_property_definition<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_value(ctx.ast, Some(replacement));
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_value(
+                        ctx.ast,
+                        Some(unsafe { <Expr as AstNode>::from_node_id_unchecked(replacement) }),
+                    );
+                }
+            }
         }
         false
     };
@@ -23593,7 +23800,13 @@ fn walk_while_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_test(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_test(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.body(ctx.ast);
         match <Stmt as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -23662,7 +23875,13 @@ fn walk_do_while_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_test(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_test(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -23711,7 +23930,13 @@ fn walk_with_statement<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_object(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_object(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.body(ctx.ast);
         match <Stmt as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -23886,7 +24111,14 @@ fn walk_array_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(_) => {
                 unreachable!("sub-range traversal consumes child replacements")
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_elements(
+                        ctx.ast,
+                        unreachable!("sub-range traversal consumes deferred replacements"),
+                    );
+                }
+            }
         }
         false
     };
@@ -23986,7 +24218,13 @@ fn walk_spread_element<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_argument(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_argument(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -24035,7 +24273,13 @@ fn walk_object_property<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_key(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_key(ctx.ast, unsafe {
+                        <PropertyKey as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.value(ctx.ast);
         match <Expr as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -24045,7 +24289,13 @@ fn walk_object_property<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_value(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_value(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -24094,7 +24344,13 @@ fn walk_parenthesized_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_expression(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_expression(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -24177,7 +24433,13 @@ fn walk_arrow_function_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_body(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_body(ctx.ast, unsafe {
+                        <ArrowFunctionBody as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -24227,7 +24489,14 @@ fn walk_sequence_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(_) => {
                 unreachable!("sub-range traversal consumes child replacements")
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_expressions(
+                        ctx.ast,
+                        unreachable!("sub-range traversal consumes deferred replacements"),
+                    );
+                }
+            }
         }
         false
     };
@@ -24276,7 +24545,13 @@ fn walk_member_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_object(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_object(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.property(ctx.ast);
         match <PropertyKey as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -24286,7 +24561,13 @@ fn walk_member_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_property(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_property(ctx.ast, unsafe {
+                        <PropertyKey as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -24335,7 +24616,13 @@ fn walk_call_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_callee(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_callee(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.type_arguments(ctx.ast);
         match <Option<TsTypeParameterInstantiation> as TraverseWith<'a, State>>::traverse_with(
@@ -24359,7 +24646,14 @@ fn walk_call_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(_) => {
                 unreachable!("sub-range traversal consumes child replacements")
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_arguments(
+                        ctx.ast,
+                        unreachable!("sub-range traversal consumes deferred replacements"),
+                    );
+                }
+            }
         }
         false
     };
@@ -24408,7 +24702,13 @@ fn walk_chain_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_expression(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_expression(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -24457,7 +24757,13 @@ fn walk_tagged_template_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_tag(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_tag(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.type_arguments(ctx.ast);
         match <Option<TsTypeParameterInstantiation> as TraverseWith<'a, State>>::traverse_with(
@@ -24528,7 +24834,13 @@ fn walk_new_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_callee(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_callee(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.type_arguments(ctx.ast);
         match <Option<TsTypeParameterInstantiation> as TraverseWith<'a, State>>::traverse_with(
@@ -24552,7 +24864,14 @@ fn walk_new_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(_) => {
                 unreachable!("sub-range traversal consumes child replacements")
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_arguments(
+                        ctx.ast,
+                        unreachable!("sub-range traversal consumes deferred replacements"),
+                    );
+                }
+            }
         }
         false
     };
@@ -24601,7 +24920,13 @@ fn walk_await_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_argument(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_argument(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -24650,7 +24975,14 @@ fn walk_yield_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_argument(ctx.ast, Some(replacement));
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_argument(
+                        ctx.ast,
+                        Some(unsafe { <Expr as AstNode>::from_node_id_unchecked(replacement) }),
+                    );
+                }
+            }
         }
         false
     };
@@ -24758,7 +25090,13 @@ fn walk_import_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_source(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_source(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.options(ctx.ast);
         match <Option<Expr> as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -24768,7 +25106,14 @@ fn walk_import_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_options(ctx.ast, Some(replacement));
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_options(
+                        ctx.ast,
+                        Some(unsafe { <Expr as AstNode>::from_node_id_unchecked(replacement) }),
+                    );
+                }
+            }
         }
         false
     };
@@ -25193,7 +25538,15 @@ fn walk_export_default_declaration<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_declaration(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_declaration(ctx.ast, unsafe {
+                        <ExportDefaultDeclarationKind as AstNode>::from_node_id_unchecked(
+                            replacement,
+                        )
+                    });
+                }
+            }
         }
         false
     };
@@ -25508,7 +25861,13 @@ fn walk_ts_method_definition<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_key(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_key(ctx.ast, unsafe {
+                        <PropertyKey as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.value(ctx.ast);
         match <TsFunction as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -26327,7 +26686,14 @@ fn walk_ts_import_type<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_options(ctx.ast, Some(replacement));
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_options(
+                        ctx.ast,
+                        Some(unsafe { <Expr as AstNode>::from_node_id_unchecked(replacement) }),
+                    );
+                }
+            }
         }
         let child = node.qualifier(ctx.ast);
         match <Option<TsImportTypeQualifier> as TraverseWith<'a, State>>::traverse_with(
@@ -27796,7 +28162,13 @@ fn walk_ts_property_signature<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_key(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_key(ctx.ast, unsafe {
+                        <PropertyKey as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.type_annotation(ctx.ast);
         match <Option<TsTypeAnnotation> as TraverseWith<'a, State>>::traverse_with(
@@ -27857,7 +28229,13 @@ fn walk_ts_method_signature<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_key(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_key(ctx.ast, unsafe {
+                        <PropertyKey as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.type_parameters(ctx.ast);
         match <Option<TsTypeParameterDeclaration> as TraverseWith<'a, State>>::traverse_with(
@@ -28352,7 +28730,13 @@ fn walk_ts_interface_heritage<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_expression(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_expression(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.type_arguments(ctx.ast);
         match <Option<TsTypeParameterInstantiation> as TraverseWith<'a, State>>::traverse_with(
@@ -28413,7 +28797,13 @@ fn walk_ts_class_implements<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_expression(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_expression(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.type_arguments(ctx.ast);
         match <Option<TsTypeParameterInstantiation> as TraverseWith<'a, State>>::traverse_with(
@@ -28584,7 +28974,13 @@ fn walk_ts_enum_member<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_id(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_id(ctx.ast, unsafe {
+                        <TsEnumMemberName as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.initializer(ctx.ast);
         match <Option<Expr> as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -28594,7 +28990,14 @@ fn walk_ts_enum_member<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_initializer(ctx.ast, Some(replacement));
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_initializer(
+                        ctx.ast,
+                        Some(unsafe { <Expr as AstNode>::from_node_id_unchecked(replacement) }),
+                    );
+                }
+            }
         }
         false
     };
@@ -28937,7 +29340,13 @@ fn walk_ts_as_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_expression(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_expression(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.type_annotation(ctx.ast);
         match <TsType as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -28996,7 +29405,13 @@ fn walk_ts_satisfies_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_expression(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_expression(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.type_annotation(ctx.ast);
         match <TsType as TraverseWith<'a, State>>::traverse_with(child, traverser, ctx) {
@@ -29065,7 +29480,13 @@ fn walk_ts_type_assertion<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_expression(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_expression(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -29114,7 +29535,13 @@ fn walk_ts_non_null_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_expression(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_expression(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -29163,7 +29590,13 @@ fn walk_ts_instantiation_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_expression(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_expression(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         let child = node.type_arguments(ctx.ast);
         match <TsTypeParameterInstantiation as TraverseWith<'a, State>>::traverse_with(
@@ -29224,7 +29657,13 @@ fn walk_ts_export_assignment<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_expression(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_expression(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -29990,7 +30429,13 @@ fn walk_jsx_spread_attribute<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_argument(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_argument(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -30039,7 +30484,13 @@ fn walk_jsx_expression_container<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_expression(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_expression(ctx.ast, unsafe {
+                        <JsxExpression as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };
@@ -30162,7 +30613,13 @@ fn walk_jsx_spread_child<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(replacement) => {
                 node.set_expression(ctx.ast, replacement);
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {}
+            TraverseAction::Proceed | TraverseAction::Skip => {
+                if let Some(replacement) = ctx.take_expr_replacement() {
+                    node.set_expression(ctx.ast, unsafe {
+                        <Expr as AstNode>::from_node_id_unchecked(replacement)
+                    });
+                }
+            }
         }
         false
     };

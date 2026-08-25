@@ -4,12 +4,13 @@
 //! initializer. Trailing blocks are saved in one closure and invoked after
 //! class evaluation, matching Babel's standalone transform.
 
+use std::collections::HashMap;
+
 use swc_next_ecma_ast::{
-    Accessibility, Argument, ArrowFunctionBody, ArrowFunctionExpression, AssignmentExpression,
-    AssignmentOperator, AssignmentPattern, Ast, AstUtf8, AstWtf8, BindingPattern, BlockStatement,
-    Class, ClassElement, DUMMY_SP, Decl, Expr, ExprData, Function, FunctionBody, GetSpan, NodeId,
-    ObjectProperty, Program, PropertyDefinition, PropertyKey, StaticBlock, Stmt, SwitchCase,
-    TypedSubRange, UnaryOperator, VariableDeclarator, VariableKind, VisitMut, VisitMutWith,
+    Accessibility, Argument, ArrowFunctionBody, AssignmentOperator, Ast, AstUtf8, AstWtf8,
+    BindingPattern, Class, ClassElement, ClassType, DUMMY_SP, Decl, Expr, GetSpan, NodeId,
+    NodeKindData, Program, PropertyDefinition, PropertyKey, StaticBlock, Stmt, Traverse,
+    TraverseCtx, TraverseWith, TypedSubRange, UnaryOperator, VariableKind,
 };
 use swc_next_ecma_semantic::Semantic;
 
@@ -22,94 +23,32 @@ pub(super) fn transform_program<'a>(
     ast: &mut Ast<'a>,
 ) {
     let mut transformer = StaticBlocks {
-        ast,
         semantic,
-        inferred_name: None,
-        inferred_name_target: None,
-        pending_statement_calls: Vec::new(),
-        var_scopes: Vec::new(),
+        var_scopes: HashMap::new(),
     };
-    transformer.enter_var_scope();
-    let body = transformer.transform_statement_list(program.body(transformer.ast));
-    let body = transformer.leave_var_scope(body);
-    program.set_body(transformer.ast, body);
-    debug_assert!(transformer.pending_statement_calls.is_empty());
+    let _ = program.traverse_with(&mut transformer, &mut TraverseCtx::new(ast, ()));
     debug_assert!(transformer.var_scopes.is_empty());
 }
 
-struct StaticBlocks<'visit, 'a> {
-    ast: &'visit mut Ast<'a>,
-    semantic: &'visit mut Semantic<'a>,
-    inferred_name: Option<AstWtf8>,
-    inferred_name_target: Option<NodeId>,
-    pending_statement_calls: Vec<Expr>,
-    var_scopes: Vec<Vec<AstUtf8>>,
+struct StaticBlocks<'semantic, 'a> {
+    semantic: &'semantic mut Semantic<'a>,
+    var_scopes: HashMap<NodeId, Vec<AstUtf8>>,
 }
 
-impl<'a> StaticBlocks<'_, 'a> {
-    fn transform_statement_list(&mut self, statements: TypedSubRange<Stmt>) -> TypedSubRange<Stmt> {
-        let mut output = Vec::with_capacity(statements.len());
-        for statement_id in statements.iter() {
-            let statement = self.ast.get_node_in_sub_range(statement_id);
-            let replacement = statement.visit_mut_with(self).unwrap_or(statement);
-            output.push(replacement);
-            output.extend(
-                self.pending_statement_calls
-                    .drain(..)
-                    .map(|call| self.ast.stmt_expression_statement(DUMMY_SP, call)),
-            );
-        }
-        self.ast.add_typed_sub_range(output)
-    }
+struct ClassTransform<'visit, 'a> {
+    ast: &'visit mut Ast<'a>,
+    semantic: &'visit mut Semantic<'a>,
+    closure_names: &'visit mut Vec<AstUtf8>,
+}
 
-    fn enter_var_scope(&mut self) {
-        self.var_scopes.push(Vec::new());
-    }
-
-    fn leave_var_scope(&mut self, body: TypedSubRange<Stmt>) -> TypedSubRange<Stmt> {
-        let names = self.var_scopes.pop().expect("var scope must be active");
-        if names.is_empty() {
-            return body;
-        }
-
-        let declarators: Vec<_> = names
-            .into_iter()
-            .map(|name| {
-                let identifier = self.ast.binding_identifier(
-                    DUMMY_SP,
-                    name,
-                    TypedSubRange::empty(),
-                    None,
-                    false,
-                );
-                let pattern = BindingPattern::BindingIdentifier(identifier);
-                self.ast.variable_declarator(DUMMY_SP, pattern, None, false)
-            })
-            .collect();
-        let declarators = self.ast.add_typed_sub_range(declarators);
-        let declaration =
-            self.ast
-                .variable_declaration(DUMMY_SP, VariableKind::Var, declarators, false);
-        let statement = Stmt::Declaration(Decl::VariableDeclaration(declaration));
-        let mut statements = Vec::with_capacity(body.len() + 1);
-        statements.push(statement);
-        statements.extend(
-            body.iter()
-                .map(|statement_id| self.ast.get_node_in_sub_range(statement_id)),
-        );
-        self.ast.add_typed_sub_range(statements)
-    }
-
+impl<'a> ClassTransform<'_, 'a> {
     fn next_closure_name(&mut self) -> AstUtf8 {
         // UsedNameState currently provides one conservative program-wide
-        // collision domain. `var_scopes` below still places each declaration
+        // collision domain. `closure_names` still places each declaration
         // in its nearest function, static-block, or program scope.
         let name = self.semantic.used_names_mut().next_name("_staticBlock", 2);
         let name = self.ast.add_utf8(name);
-        self.var_scopes
-            .last_mut()
-            .expect("generated closure must belong to a var scope")
-            .push(name);
+        self.closure_names.push(name);
         name
     }
 
@@ -425,239 +364,249 @@ impl<'a> StaticBlocks<'_, 'a> {
         self.ast
             .expr_call_expression(DUMMY_SP, callee, None, arguments, false)
     }
+}
 
-    fn enter_named_evaluation(
-        &mut self,
-        expression: Expr,
-        name: Option<AstWtf8>,
-    ) -> (Option<AstWtf8>, Option<NodeId>) {
-        let target = name.and_then(|_| {
-            expression
-                .as_class(self.ast)
-                .filter(|class| class.id(self.ast).is_none())
-                .map(|class| class.node_id())
-        });
-        let previous_name = std::mem::replace(&mut self.inferred_name, target.and(name));
-        let previous_target = std::mem::replace(&mut self.inferred_name_target, target);
-        (previous_name, previous_target)
+impl<'a> Traverse<'a> for StaticBlocks<'_, 'a> {
+    fn exit_class(&mut self, class: Class, ctx: &mut TraverseCtx<'_, 'a>) {
+        let is_expression = class.class_type(ctx.ast) == ClassType::ClassExpression;
+        let inferred_name = is_expression
+            .then(|| inferred_name(class, ctx.parent(), ctx.ast))
+            .flatten();
+        let var_scope = ctx
+            .ancestors()
+            .skip(1)
+            .find(|node| is_var_scope(*node, ctx.ast))
+            .expect("a class must belong to a generated-name var scope");
+        let closure_names = self.var_scopes.entry(var_scope).or_default();
+        let call = ClassTransform {
+            ast: ctx.ast,
+            semantic: self.semantic,
+            closure_names,
+        }
+        .transform_class(class, is_expression, inferred_name);
+
+        let Some(call) = call else {
+            return;
+        };
+        if is_expression {
+            let expressions = ctx.ast.add_typed_sub_range([Expr::Class(class), call]);
+            let replacement = ctx.ast.expr_sequence_expression(DUMMY_SP, expressions);
+            ctx.replace_current_expr(replacement);
+        } else {
+            insert_call_after_class(class.node_id(), call, ctx);
+        }
     }
 
-    fn leave_named_evaluation(&mut self, previous: (Option<AstWtf8>, Option<NodeId>)) {
-        self.inferred_name = previous.0;
-        self.inferred_name_target = previous.1;
-    }
-
-    fn property_key_name(&mut self, key: PropertyKey) -> Option<AstWtf8> {
-        if let Some(literal) = key.as_string_literal(self.ast) {
-            return Some(literal.value(self.ast));
+    fn exit_node(&mut self, node: NodeId, ctx: &mut TraverseCtx<'_, 'a>) {
+        if let Some(names) = self
+            .var_scopes
+            .remove(&node)
+            .filter(|names| !names.is_empty())
+        {
+            prepend_var_declaration(node, names, ctx.ast);
         }
-        if let Some(identifier) = key.as_identifier_name(self.ast) {
-            return Some(identifier.name(self.ast).into());
-        }
-        if let Some(private) = key.as_private_identifier(self.ast) {
-            let name = format!("#{}", self.ast.get_utf8(private.name(self.ast)));
-            return Some(self.ast.add_wtf8(name.as_str().into()));
-        }
-        None
-    }
-
-    fn assignment_target_name(
-        &mut self,
-        target: swc_next_ecma_ast::AssignmentTarget,
-    ) -> Option<AstWtf8> {
-        let target = target.as_simple_assignment_target(self.ast)?;
-        if let Some(identifier) = target.as_identifier_reference(self.ast) {
-            return Some(identifier.name(self.ast).into());
-        }
-        None
     }
 }
 
-impl<'a> VisitMut<'a> for StaticBlocks<'_, 'a> {
-    fn ast(&mut self) -> &mut Ast<'a> {
-        self.ast
-    }
+fn is_var_scope(node: NodeId, ast: &Ast<'_>) -> bool {
+    matches!(
+        ast.kind_data(node),
+        NodeKindData::Program(_)
+            | NodeKindData::Function(_)
+            | NodeKindData::ArrowFunctionExpression(_)
+            | NodeKindData::StaticBlock(_)
+    )
+}
 
-    fn visit_mut_class(&mut self, class: Class) -> Option<Class> {
-        let class = class.visit_mut_children_with(self).unwrap_or(class);
-        if let Some(call) = self.transform_class(class, false, None) {
-            self.pending_statement_calls.push(call);
+fn prepend_var_declaration<'a>(scope: NodeId, names: Vec<AstUtf8>, ast: &mut Ast<'a>) {
+    let declarators: Vec<_> = names
+        .into_iter()
+        .map(|name| {
+            let identifier =
+                ast.binding_identifier(DUMMY_SP, name, TypedSubRange::empty(), None, false);
+            let pattern = BindingPattern::BindingIdentifier(identifier);
+            ast.variable_declarator(DUMMY_SP, pattern, None, false)
+        })
+        .collect();
+    let declarators = ast.add_typed_sub_range(declarators);
+    let declaration = ast.variable_declaration(DUMMY_SP, VariableKind::Var, declarators, false);
+    let statement = Stmt::Declaration(Decl::VariableDeclaration(declaration));
+    match ast.kind_data(scope) {
+        NodeKindData::Program(program) => {
+            let body = prepend_statement(program.body(ast), statement, ast);
+            program.set_body(ast, body);
         }
-        None
-    }
-
-    fn visit_mut_expr(&mut self, expression: Expr) -> Option<Expr> {
-        if let ExprData::Class(class) = self.ast.expr_data(expression) {
-            let inferred_name = if self.inferred_name_target == Some(class.node_id()) {
-                self.inferred_name_target = None;
-                self.inferred_name.take()
+        NodeKindData::Function(function) => {
+            let body = function.body(ast);
+            let statements = prepend_statement(body.body(ast), statement, ast);
+            body.set_body(ast, statements);
+        }
+        NodeKindData::StaticBlock(block) => {
+            let body = prepend_statement(block.body(ast), statement, ast);
+            block.set_body(ast, body);
+        }
+        NodeKindData::ArrowFunctionExpression(arrow) => {
+            let body = arrow.body(ast);
+            if let Some(function_body) = body.as_function_body(ast) {
+                let statements = prepend_statement(function_body.body(ast), statement, ast);
+                function_body.set_body(ast, statements);
             } else {
+                let expression = body
+                    .as_expr(ast)
+                    .expect("arrow body must be an expression or function body");
+                let return_statement = ast.stmt_return_statement(DUMMY_SP, Some(expression));
+                let statements = ast.add_typed_sub_range([statement, return_statement]);
+                let function_body = ast.function_body(DUMMY_SP, TypedSubRange::empty(), statements);
+                arrow.set_expression(ast, false);
+                arrow.set_body(ast, ArrowFunctionBody::FunctionBody(function_body));
+            }
+        }
+        _ => unreachable!("generated var must belong to a var scope"),
+    }
+}
+
+fn prepend_statement<'a>(
+    body: TypedSubRange<Stmt>,
+    statement: Stmt,
+    ast: &mut Ast<'a>,
+) -> TypedSubRange<Stmt> {
+    let mut statements = Vec::with_capacity(body.len() + 1);
+    statements.push(statement);
+    statements.extend(body.iter().map(|id| ast.get_node_in_sub_range(id)));
+    ast.add_typed_sub_range(statements)
+}
+
+fn insert_call_after_class<'a>(class: NodeId, call: Expr, ctx: &mut TraverseCtx<'_, 'a>) {
+    let mut statement = class;
+    let (container, statement) = ctx
+        .ancestors()
+        .skip(1)
+        .find_map(|ancestor| {
+            if is_statement_container(ancestor, ctx.ast) {
+                Some((ancestor, statement))
+            } else {
+                statement = ancestor;
                 None
-            };
-            let class = class.visit_mut_children_with(self).unwrap_or(class);
-            let call = self.transform_class(class, true, inferred_name);
-            if let Some(call) = call {
-                let expressions = self.ast.add_typed_sub_range([Expr::Class(class), call]);
-                return Some(self.ast.expr_sequence_expression(DUMMY_SP, expressions));
             }
-            return None;
+        })
+        .expect("a class declaration must belong to a statement list");
+    let call = ctx.ast.stmt_expression_statement(DUMMY_SP, call);
+    let body = statement_list(container, ctx.ast);
+    let mut statements = Vec::with_capacity(body.len() + 1);
+    let mut inserted = false;
+    for id in body.iter() {
+        let item = ctx.ast.get_node_in_sub_range(id);
+        statements.push(item);
+        if item.node_id() == statement {
+            statements.push(call);
+            inserted = true;
         }
-
-        expression.visit_mut_children_with(self)
     }
+    assert!(
+        inserted,
+        "class declaration statement must exist in its parent body"
+    );
+    let body = ctx.ast.add_typed_sub_range(statements);
+    set_statement_list(container, body, ctx.ast);
+}
 
-    fn visit_mut_variable_declarator(
-        &mut self,
-        declarator: VariableDeclarator,
-    ) -> Option<VariableDeclarator> {
-        let id = declarator.id(self.ast);
-        if let Some(replacement) = id.visit_mut_with(self) {
-            declarator.set_id(self.ast, replacement);
-        }
+fn is_statement_container(node: NodeId, ast: &Ast<'_>) -> bool {
+    matches!(
+        ast.kind_data(node),
+        NodeKindData::Program(_)
+            | NodeKindData::FunctionBody(_)
+            | NodeKindData::BlockStatement(_)
+            | NodeKindData::StaticBlock(_)
+            | NodeKindData::SwitchCase(_)
+            | NodeKindData::TsModuleBlock(_)
+    )
+}
 
-        let name = declarator
-            .id(self.ast)
-            .as_binding_identifier(self.ast)
-            .map(|identifier| identifier.name(self.ast).into());
-        if let Some(initializer) = declarator.init(self.ast) {
-            let previous = self.enter_named_evaluation(initializer, name);
-            if let Some(replacement) = initializer.visit_mut_with(self) {
-                declarator.set_init(self.ast, Some(replacement));
-            }
-            self.leave_named_evaluation(previous);
-        }
-        None
+fn statement_list(node: NodeId, ast: &Ast<'_>) -> TypedSubRange<Stmt> {
+    match ast.kind_data(node) {
+        NodeKindData::Program(node) => node.body(ast),
+        NodeKindData::FunctionBody(node) => node.body(ast),
+        NodeKindData::BlockStatement(node) => node.body(ast),
+        NodeKindData::StaticBlock(node) => node.body(ast),
+        NodeKindData::SwitchCase(node) => node.consequent(ast),
+        NodeKindData::TsModuleBlock(node) => node.body(ast),
+        _ => unreachable!("node must be a statement container"),
     }
+}
 
-    fn visit_mut_object_property(&mut self, property: ObjectProperty) -> Option<ObjectProperty> {
-        let key = property.key(self.ast);
-        if let Some(replacement) = key.visit_mut_with(self) {
-            property.set_key(self.ast, replacement);
-        }
-        let name = self.property_key_name(property.key(self.ast));
-        let value = property.value(self.ast);
-        let previous = self.enter_named_evaluation(value, name);
-        if let Some(replacement) = value.visit_mut_with(self) {
-            property.set_value(self.ast, replacement);
-        }
-        self.leave_named_evaluation(previous);
-        None
+fn set_statement_list<'a>(node: NodeId, body: TypedSubRange<Stmt>, ast: &mut Ast<'a>) {
+    match ast.kind_data(node) {
+        NodeKindData::Program(node) => node.set_body(ast, body),
+        NodeKindData::FunctionBody(node) => node.set_body(ast, body),
+        NodeKindData::BlockStatement(node) => node.set_body(ast, body),
+        NodeKindData::StaticBlock(node) => node.set_body(ast, body),
+        NodeKindData::SwitchCase(node) => node.set_consequent(ast, body),
+        NodeKindData::TsModuleBlock(node) => node.set_body(ast, body),
+        _ => unreachable!("node must be a statement container"),
     }
+}
 
-    fn visit_mut_assignment_expression(
-        &mut self,
-        assignment: AssignmentExpression,
-    ) -> Option<AssignmentExpression> {
-        let name = (assignment.operator(self.ast) == AssignmentOperator::Assign)
-            .then(|| self.assignment_target_name(assignment.left(self.ast)))
-            .flatten();
-        let right = assignment.right(self.ast);
-        let previous = self.enter_named_evaluation(right, name);
-        let replacement = assignment.visit_mut_children_with(self);
-        self.leave_named_evaluation(previous);
-        replacement
+fn inferred_name(class: Class, parent: Option<NodeId>, ast: &mut Ast<'_>) -> Option<AstWtf8> {
+    if class.id(ast).is_some() {
+        return None;
     }
-
-    fn visit_mut_assignment_pattern(
-        &mut self,
-        pattern: AssignmentPattern,
-    ) -> Option<AssignmentPattern> {
-        let name = pattern
-            .left(self.ast)
-            .as_binding_identifier(self.ast)
-            .map(|identifier| identifier.name(self.ast).into());
-        let right = pattern.right(self.ast);
-        let previous = self.enter_named_evaluation(right, name);
-        let replacement = pattern.visit_mut_children_with(self);
-        self.leave_named_evaluation(previous);
-        replacement
-    }
-
-    fn visit_mut_property_definition(
-        &mut self,
-        property: PropertyDefinition,
-    ) -> Option<PropertyDefinition> {
-        let name = self.property_key_name(property.key(self.ast));
-        let Some(value) = property.value(self.ast) else {
-            return property.visit_mut_children_with(self);
-        };
-        let target = value
-            .as_class(self.ast)
-            .filter(|class| class.id(self.ast).is_none())
-            .map(|class| class.node_id());
-        let previous_name = std::mem::replace(&mut self.inferred_name, target.and(name));
-        let previous_target = std::mem::replace(&mut self.inferred_name_target, target);
-        let replacement = property.visit_mut_children_with(self);
-        self.inferred_name = previous_name;
-        self.inferred_name_target = previous_target;
-        replacement
-    }
-
-    fn visit_mut_function(&mut self, function: Function) -> Option<Function> {
-        self.enter_var_scope();
-        let function = function.visit_mut_children_with(self).unwrap_or(function);
-        let body = function.body(self.ast);
-        let statements = self.leave_var_scope(body.body(self.ast));
-        body.set_body(self.ast, statements);
-        None
-    }
-
-    fn visit_mut_arrow_function_expression(
-        &mut self,
-        arrow: ArrowFunctionExpression,
-    ) -> Option<ArrowFunctionExpression> {
-        self.enter_var_scope();
-        let arrow = arrow.visit_mut_children_with(self).unwrap_or(arrow);
-        let body = arrow.body(self.ast);
-        if let Some(function_body) = body.as_function_body(self.ast) {
-            let statements = self.leave_var_scope(function_body.body(self.ast));
-            function_body.set_body(self.ast, statements);
-        } else {
-            let expression = body
-                .as_expr(self.ast)
-                .expect("arrow body must be an expression or function body");
-            let return_statement = self.ast.stmt_return_statement(DUMMY_SP, Some(expression));
-            let statements = self.ast.add_typed_sub_range([return_statement]);
-            let statements = self.leave_var_scope(statements);
-            let function_body =
-                self.ast
-                    .function_body(DUMMY_SP, TypedSubRange::empty(), statements);
-            arrow.set_expression(self.ast, false);
-            arrow.set_body(self.ast, ArrowFunctionBody::FunctionBody(function_body));
-        }
-        None
-    }
-
-    fn visit_mut_function_body(&mut self, body: FunctionBody) -> Option<FunctionBody> {
-        let statements = self.transform_statement_list(body.body(self.ast));
-        body.set_body(self.ast, statements);
-        None
-    }
-
-    fn visit_mut_static_block(&mut self, block: StaticBlock) -> Option<StaticBlock> {
-        self.enter_var_scope();
-        let statements = self.transform_statement_list(block.body(self.ast));
-        let statements = self.leave_var_scope(statements);
-        block.set_body(self.ast, statements);
-        None
-    }
-
-    fn visit_mut_block_statement(&mut self, block: BlockStatement) -> Option<BlockStatement> {
-        let statements = self.transform_statement_list(block.body(self.ast));
-        block.set_body(self.ast, statements);
-        None
-    }
-
-    fn visit_mut_switch_case(&mut self, case: SwitchCase) -> Option<SwitchCase> {
-        if let Some(test) = case.test(self.ast)
-            && let Some(replacement) = test.visit_mut_with(self)
+    match ast.kind_data(parent?) {
+        NodeKindData::VariableDeclarator(node)
+            if node
+                .init(ast)
+                .is_some_and(|value| value.node_id() == class.node_id()) =>
         {
-            case.set_test(self.ast, Some(replacement));
+            node.id(ast)
+                .as_binding_identifier(ast)
+                .map(|identifier| identifier.name(ast).into())
         }
-        let statements = self.transform_statement_list(case.consequent(self.ast));
-        case.set_consequent(self.ast, statements);
-        None
+        NodeKindData::ObjectProperty(node) if node.value(ast).node_id() == class.node_id() => {
+            property_key_name(node.key(ast), ast)
+        }
+        NodeKindData::AssignmentExpression(node)
+            if node.operator(ast) == AssignmentOperator::Assign
+                && node.right(ast).node_id() == class.node_id() =>
+        {
+            assignment_target_name(node.left(ast), ast)
+        }
+        NodeKindData::AssignmentPattern(node) if node.right(ast).node_id() == class.node_id() => {
+            node.left(ast)
+                .as_binding_identifier(ast)
+                .map(|identifier| identifier.name(ast).into())
+        }
+        NodeKindData::PropertyDefinition(node)
+            if node
+                .value(ast)
+                .is_some_and(|value| value.node_id() == class.node_id()) =>
+        {
+            property_key_name(node.key(ast), ast)
+        }
+        _ => None,
     }
+}
+
+fn property_key_name(key: PropertyKey, ast: &mut Ast<'_>) -> Option<AstWtf8> {
+    if let Some(literal) = key.as_string_literal(ast) {
+        return Some(literal.value(ast));
+    }
+    if let Some(identifier) = key.as_identifier_name(ast) {
+        return Some(identifier.name(ast).into());
+    }
+    if let Some(private) = key.as_private_identifier(ast) {
+        let name = format!("#{}", ast.get_utf8(private.name(ast)));
+        return Some(ast.add_wtf8(name.as_str().into()));
+    }
+    None
+}
+
+fn assignment_target_name(
+    target: swc_next_ecma_ast::AssignmentTarget,
+    ast: &Ast<'_>,
+) -> Option<AstWtf8> {
+    let target = target.as_simple_assignment_target(ast)?;
+    target
+        .as_identifier_reference(ast)
+        .map(|identifier| identifier.name(ast).into())
 }
 
 #[derive(Clone, Copy)]

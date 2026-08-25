@@ -184,6 +184,18 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                     let getter_name = safe_ident(&field.name.to_case(Case::Snake));
                     let setter_name = format_ident!("set_{}", field.name.to_case(Case::Snake));
                     let replacement = wrap_replacement(field.type_id, quote!(replacement), schema);
+                    let deferred_replace_arm = if transparently_contains_expr(field.type_id, schema)
+                    {
+                        let replacement =
+                            replacement_from_node_id(field.type_id, quote!(replacement), schema);
+                        quote! {
+                            if let Some(replacement) = ctx.take_expr_replacement() {
+                                node.#setter_name(ctx.ast, #replacement);
+                            }
+                        }
+                    } else {
+                        TokenStream::new()
+                    };
                     let replace_arm = if matches!(field_ty, AstType::Vec(_)) {
                         quote! {
                             TraverseAction::Replace(_) => {
@@ -208,7 +220,9 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                                 break 'traverse_children true;
                             }
                             #replace_arm
-                            TraverseAction::Proceed | TraverseAction::Skip => {}
+                            TraverseAction::Proceed | TraverseAction::Skip => {
+                                #deferred_replace_arm
+                            }
                         }
                     });
                 }
@@ -513,6 +527,18 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                 };
                 let ty_ident = ty.repr_ident(schema);
                 let replacement = wrap_replacement(ast.inner_type_id, quote!(replacement), schema);
+                let deferred_replace_arm = if transparently_contains_expr(ast.inner_type_id, schema)
+                {
+                    let replacement =
+                        replacement_from_node_id(ast.inner_type_id, quote!(replacement), schema);
+                    quote! {
+                        if let Some(replacement) = ctx.take_expr_replacement() {
+                            self.replace_slot(ctx.ast, child_idx, #replacement);
+                        }
+                    }
+                } else {
+                    TokenStream::new()
+                };
 
                 // Visit/VisitMut
                 visit_functions.extend(quote! {
@@ -588,7 +614,9 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                                     TraverseAction::Replace(replacement) => {
                                         self.replace_slot(ctx.ast, child_idx, #replacement);
                                     }
-                                    TraverseAction::Proceed | TraverseAction::Skip => {}
+                                    TraverseAction::Proceed | TraverseAction::Skip => {
+                                        #deferred_replace_arm
+                                    }
                                 }
                             }
                             TraverseAction::Proceed
@@ -685,6 +713,22 @@ fn should_visit_type(type_id: TypeId, schema: &Schema) -> bool {
     }
 }
 
+fn transparently_contains_expr(type_id: TypeId, schema: &Schema) -> bool {
+    match &schema.types[type_id] {
+        AstType::Enum(ast) => {
+            ast.name == "Expr"
+                || ast.variants.iter().any(|variant| {
+                    variant
+                        .type_id
+                        .is_some_and(|type_id| transparently_contains_expr(type_id, schema))
+                })
+        }
+        AstType::Option(ast) => transparently_contains_expr(ast.inner_type_id, schema),
+        AstType::Vec(ast) => transparently_contains_expr(ast.inner_type_id, schema),
+        AstType::Struct(_) | AstType::Primitive(_) => false,
+    }
+}
+
 fn wrap_replacement(type_id: TypeId, replacement: TokenStream, schema: &Schema) -> TokenStream {
     match &schema.types[type_id] {
         AstType::Option(ast) => {
@@ -692,6 +736,34 @@ fn wrap_replacement(type_id: TypeId, replacement: TokenStream, schema: &Schema) 
             quote!(Some(#replacement))
         }
         AstType::Struct(_) | AstType::Enum(_) | AstType::Vec(_) => replacement,
+        AstType::Primitive(_) => unreachable!("primitive fields are not traversed"),
+    }
+}
+
+fn replacement_from_node_id(
+    type_id: TypeId,
+    replacement: TokenStream,
+    schema: &Schema,
+) -> TokenStream {
+    match &schema.types[type_id] {
+        AstType::Struct(_) | AstType::Enum(_) => {
+            let ty = schema.types[type_id].repr_ident(schema);
+            quote!(unsafe { <#ty as AstNode>::from_node_id_unchecked(#replacement) })
+        }
+        AstType::Option(option) => {
+            if matches!(schema.types[option.inner_type_id], AstType::Vec(_)) {
+                return quote!(unreachable!(
+                    "sub-range traversal consumes deferred replacements"
+                ));
+            }
+            let replacement = replacement_from_node_id(option.inner_type_id, replacement, schema);
+            quote!(Some(#replacement))
+        }
+        AstType::Vec(_) => {
+            quote!(unreachable!(
+                "sub-range traversal consumes deferred replacements"
+            ))
+        }
         AstType::Primitive(_) => unreachable!("primitive fields are not traversed"),
     }
 }
