@@ -623,7 +623,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_export_named_declaration(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         declaration: ExportNamedDeclaration,
     ) {
         // The declaration form always exports its binding, even when
@@ -644,7 +644,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_variable_declaration(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         declaration: VariableDeclaration,
         scope: &ScopeTracker<'a>,
     ) -> bool {
@@ -690,7 +690,7 @@ impl<'a> SymbolTracker<'a> {
         kind == VariableKind::Var && scope.var_write_crosses_with()
     }
 
-    pub fn enter_function(&mut self, tree: &Ast<'a>, function: Function, scope: &ScopeTracker<'a>) {
+    pub fn enter_function(&mut self, tree: &Ast, function: Function, scope: &ScopeTracker<'a>) {
         self.push_saved_context();
         let is_declaration = function.function_type(tree) == FunctionType::FunctionDeclaration;
         let target = if is_declaration {
@@ -759,7 +759,7 @@ impl<'a> SymbolTracker<'a> {
         };
     }
 
-    pub fn enter_class(&mut self, tree: &Ast<'a>, class: Class, scope: &ScopeTracker<'a>) {
+    pub fn enter_class(&mut self, tree: &Ast, class: Class, scope: &ScopeTracker<'a>) {
         self.push_saved_context();
         let is_declaration = class.class_type(tree) == ClassType::ClassDeclaration;
         self.pending = PendingBinding {
@@ -818,7 +818,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_import_declaration(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         declaration: ImportDeclaration,
         scope: &ScopeTracker<'a>,
     ) {
@@ -835,7 +835,7 @@ impl<'a> SymbolTracker<'a> {
         self.pending = import_pending(import_kind, scope.current);
     }
 
-    pub fn enter_import_specifier(&mut self, tree: &Ast<'a>, specifier: ImportSpecifier) {
+    pub fn enter_import_specifier(&mut self, tree: &Ast, specifier: ImportSpecifier) {
         self.push_saved_context();
         if specifier.import_kind(tree) == ImportOrExportKind::Type {
             self.pending.flags = SymbolFlags::TYPE_IMPORT;
@@ -854,7 +854,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_interface_declaration(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         declaration: TsInterfaceDeclaration,
         scope: &ScopeTracker<'a>,
     ) {
@@ -876,7 +876,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_type_alias_declaration(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         declaration: TsTypeAliasDeclaration,
         scope: &ScopeTracker<'a>,
     ) {
@@ -896,7 +896,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_enum_declaration(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         declaration: TsEnumDeclaration,
         scope: &ScopeTracker<'a>,
     ) {
@@ -922,7 +922,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_module_declaration(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         declaration: TsModuleDeclaration,
         scope: &ScopeTracker<'a>,
     ) {
@@ -964,7 +964,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_type_parameter(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         parent: Option<NodeId>,
         scope: &ScopeTracker<'a>,
     ) {
@@ -988,7 +988,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_mapped_type(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         parent: Option<NodeId>,
         scope: &ScopeTracker<'a>,
     ) {
@@ -1075,7 +1075,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn declare_binding_identifier(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         identifier: BindingIdentifier,
         scope: &ScopeTracker<'a>,
         space: ReferenceSpace,
@@ -1108,7 +1108,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_identifier_reference(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         identifier: IdentifierReference,
         scope: &ScopeTracker<'a>,
         flags: ReferenceFlags,
@@ -1125,7 +1125,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_var_write_reference(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         identifier: BindingIdentifier,
         scope: &ScopeTracker<'a>,
         flags: ReferenceFlags,
@@ -1143,7 +1143,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_local_export_reference(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         specifier: ExportSpecifier,
         scope: &ScopeTracker<'a>,
         flags: ReferenceFlags,
@@ -1163,7 +1163,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_ts_type_predicate_reference(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         predicate: TsTypePredicate,
         scope: &ScopeTracker<'a>,
     ) {
@@ -1201,7 +1201,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn declare_ts_enum_member(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         member: TsEnumMember,
         scope: &ScopeTracker<'a>,
     ) {
@@ -1235,7 +1235,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_jsx_opening_element_reference(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         element: JsxOpeningElement,
         scope: &ScopeTracker<'a>,
     ) {
@@ -1248,7 +1248,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_jsx_closing_element_reference(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         element: JsxClosingElement,
         scope: &ScopeTracker<'a>,
     ) {
@@ -1256,7 +1256,7 @@ impl<'a> SymbolTracker<'a> {
         self.add_jsx_reference(tree, element.name(tree), scope.current);
     }
 
-    fn add_jsx_reference(&mut self, tree: &Ast<'a>, name: JsxElementName, scope: ScopeId) {
+    fn add_jsx_reference(&mut self, tree: &Ast, name: JsxElementName, scope: ScopeId) {
         let Some(identifier) = jsx_tag_root(tree, tree.jsx_element_name_data(name)) else {
             return;
         };
@@ -1334,7 +1334,7 @@ impl<'a> SymbolTracker<'a> {
     /// Records an identifier reference at `node` in `scope`.
     pub fn add_reference(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         name: AstUtf8,
         scope: ScopeId,
         node: NodeId,
@@ -1419,7 +1419,7 @@ impl<'a> SymbolTracker<'a> {
     /// remains valid for the source tree's arena lifetime.
     pub fn finalize(
         mut self,
-        tree: &Ast<'a>,
+        tree: &Ast,
         scopes: ScopeTree<'a>,
         has_with_statement: bool,
         module_record: ModuleRecordBuilder<'a>,
