@@ -482,7 +482,9 @@ impl<'a> Ast<'a> {
     /// Replace `old` with a newly built `new` node.
     ///
     /// Within one store this discards the temporary node and preserves `old`'s
-    /// ID. Across stores it retires `old` and returns `new`'s typed ID.
+    /// ID. Across stores it returns `new`'s typed ID and leaves `old` detached;
+    /// stale speculative ranges may still contain a typed edge to `old`, so it
+    /// cannot safely become a hole until those ranges are compacted.
     ///
     /// # Safety
     ///
@@ -496,7 +498,8 @@ impl<'a> Ast<'a> {
     /// For same-store replacement, `new` must be unattached. No handle or AST
     /// edge may refer to `new` after this call, and the moved payload must not
     /// contain a reference to `new`, because its slot is retired before this
-    /// function returns. Cross-store replacement keeps `new` alive instead.
+    /// function returns. Cross-store replacement keeps both slots alive and
+    /// makes the caller responsible for attaching only `new`.
     #[inline]
     pub unsafe fn replace_data<Old: CommonAstNode, New: CommonAstNode>(
         &mut self,
@@ -507,7 +510,6 @@ impl<'a> Ast<'a> {
         let new_ast_id = new.ast_id();
         assert_ne!(old_ast_id, new_ast_id);
         if old_ast_id.store_tag() != new_ast_id.store_tag() {
-            self.retire_node(old_ast_id);
             return new;
         }
         let span = self.span(new_ast_id);
