@@ -7,16 +7,16 @@
 use std::collections::HashMap;
 
 use swc_next_ecma_ast::{
-    Accessibility, Argument, ArrowFunctionBody, AssignmentOperator, Ast, AstUtf8, AstWtf8,
-    BindingPattern, Class, ClassBody, ClassElement, ClassType, DUMMY_SP, Decl, Expr, GetSpan,
-    NodeId, NodeKindData, PropertyDefinition, PropertyKey, StaticBlock, Stmt, TraverseCtx,
-    TypedSubRange, UnaryOperator, VariableKind,
+    Accessibility, Argument, ArrowFunctionBody, AssignmentOperator, Ast, AstId, AstUtf8, AstWtf8,
+    BindingPattern, ClassElement, ClassId, ClassType, DUMMY_SP, Decl, Expr, GetSpan, NodeKindData,
+    PropertyDefinition, PropertyKey, StaticBlock, Stmt, TraverseCtx, TypedSubRange, UnaryOperator,
+    VariableKind,
 };
 use swc_next_ecma_semantic::Semantic;
 
 pub(super) struct StaticBlocks {
-    var_scopes: HashMap<NodeId, Vec<AstUtf8>>,
-    expression_calls: HashMap<NodeId, Expr>,
+    var_scopes: HashMap<AstId, Vec<AstUtf8>>,
+    expression_calls: HashMap<ClassId, Expr>,
 }
 
 struct ClassTransform<'visit, 'a> {
@@ -38,7 +38,7 @@ impl<'a> ClassTransform<'_, 'a> {
 
     fn transform_class(
         &mut self,
-        class: Class,
+        class: ClassId,
         is_expression: bool,
         inferred_name: Option<AstWtf8>,
     ) -> Option<Expr> {
@@ -119,10 +119,7 @@ impl<'a> ClassTransform<'_, 'a> {
         if let Some(property) = last_static_property {
             self.prepend_to_initializer(property, vec![assignment]);
         } else {
-            let private_name = self
-                .semantic
-                .class_mut()
-                .next_private_name(self.ast, class.node_id());
+            let private_name = self.semantic.class_mut().next_private_name(self.ast, class);
             let property = self.build_fallback_property(private_name, assignment);
             let output_id = elements
                 .get(write_index)
@@ -360,21 +357,13 @@ impl StaticBlocks {
 
     pub(super) fn enter_class_body<'a, State>(
         &mut self,
-        body: ClassBody,
+        class: ClassId,
         semantic: &mut Semantic<'a>,
         ctx: &mut TraverseCtx<'_, 'a, State>,
     ) {
-        let class = match ctx.ast.kind_data(
-            ctx.parent()
-                .expect("a class body must have its class as the parent"),
-        ) {
-            NodeKindData::Class(class) => class,
-            _ => unreachable!("a class body must have its class as the parent"),
-        };
-        debug_assert_eq!(class.body(ctx.ast).node_id(), body.node_id());
         let is_expression = class.class_type(ctx.ast) == ClassType::ClassExpression;
         let inferred_name = is_expression
-            .then(|| inferred_name(class, ctx.ancestor(2), ctx.ast))
+            .then(|| inferred_name(class, ctx.ancestor(1), ctx.ast))
             .flatten();
         let var_scope = ctx
             .ancestors()
@@ -394,22 +383,20 @@ impl StaticBlocks {
         };
         if is_expression {
             assert!(
-                self.expression_calls
-                    .insert(class.node_id(), call)
-                    .is_none(),
+                self.expression_calls.insert(class, call).is_none(),
                 "a class expression can only be transformed once"
             );
         } else {
-            insert_call_after_class(class.node_id(), call, ctx);
+            insert_call_after_class(class.ast_id(), call, ctx);
         }
     }
 
     pub(super) fn exit_class<'a, State>(
         &mut self,
-        class: Class,
+        class: ClassId,
         ctx: &mut TraverseCtx<'_, 'a, State>,
     ) {
-        let Some(call) = self.expression_calls.remove(&class.node_id()) else {
+        let Some(call) = self.expression_calls.remove(&class) else {
             return;
         };
         let expressions = ctx.ast.add_typed_sub_range([Expr::Class(class), call]);
@@ -419,7 +406,7 @@ impl StaticBlocks {
 
     pub(super) fn exit_node<'a, State>(
         &mut self,
-        node: NodeId,
+        node: AstId,
         ctx: &mut TraverseCtx<'_, 'a, State>,
     ) {
         if let Some(names) = self
@@ -436,7 +423,7 @@ impl StaticBlocks {
     }
 }
 
-fn is_var_scope(node: NodeId, ast: &Ast<'_>) -> bool {
+fn is_var_scope(node: AstId, ast: &Ast<'_>) -> bool {
     matches!(
         ast.kind_data(node),
         NodeKindData::Program(_)
@@ -446,7 +433,7 @@ fn is_var_scope(node: NodeId, ast: &Ast<'_>) -> bool {
     )
 }
 
-fn prepend_var_declaration<'a>(scope: NodeId, names: Vec<AstUtf8>, ast: &mut Ast<'a>) {
+fn prepend_var_declaration<'a>(scope: AstId, names: Vec<AstUtf8>, ast: &mut Ast<'a>) {
     let declarators: Vec<_> = names
         .into_iter()
         .map(|name| {
@@ -505,7 +492,7 @@ fn prepend_statement<'a>(
 }
 
 fn insert_call_after_class<'a, State>(
-    class: NodeId,
+    class: AstId,
     call: Expr,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) {
@@ -542,7 +529,7 @@ fn insert_call_after_class<'a, State>(
     set_statement_list(container, body, ctx.ast);
 }
 
-fn is_statement_container(node: NodeId, ast: &Ast<'_>) -> bool {
+fn is_statement_container(node: AstId, ast: &Ast<'_>) -> bool {
     matches!(
         ast.kind_data(node),
         NodeKindData::Program(_)
@@ -554,7 +541,7 @@ fn is_statement_container(node: NodeId, ast: &Ast<'_>) -> bool {
     )
 }
 
-fn statement_list(node: NodeId, ast: &Ast<'_>) -> TypedSubRange<Stmt> {
+fn statement_list(node: AstId, ast: &Ast<'_>) -> TypedSubRange<Stmt> {
     match ast.kind_data(node) {
         NodeKindData::Program(node) => node.body(ast),
         NodeKindData::FunctionBody(node) => node.body(ast),
@@ -566,7 +553,7 @@ fn statement_list(node: NodeId, ast: &Ast<'_>) -> TypedSubRange<Stmt> {
     }
 }
 
-fn set_statement_list<'a>(node: NodeId, body: TypedSubRange<Stmt>, ast: &mut Ast<'a>) {
+fn set_statement_list<'a>(node: AstId, body: TypedSubRange<Stmt>, ast: &mut Ast<'a>) {
     match ast.kind_data(node) {
         NodeKindData::Program(node) => node.set_body(ast, body),
         NodeKindData::FunctionBody(node) => node.set_body(ast, body),
@@ -578,7 +565,7 @@ fn set_statement_list<'a>(node: NodeId, body: TypedSubRange<Stmt>, ast: &mut Ast
     }
 }
 
-fn inferred_name(class: Class, parent: Option<NodeId>, ast: &mut Ast<'_>) -> Option<AstWtf8> {
+fn inferred_name(class: ClassId, parent: Option<AstId>, ast: &mut Ast<'_>) -> Option<AstWtf8> {
     if class.id(ast).is_some() {
         return None;
     }
@@ -586,30 +573,29 @@ fn inferred_name(class: Class, parent: Option<NodeId>, ast: &mut Ast<'_>) -> Opt
         NodeKindData::VariableDeclarator(node)
             if node
                 .init(ast)
-                .is_some_and(|value| value.node_id() == class.node_id()) =>
+                .is_some_and(|value| value.ast_id() == class.ast_id()) =>
         {
             node.id(ast)
                 .as_binding_identifier(ast)
                 .map(|identifier| identifier.name(ast).into())
         }
-        NodeKindData::ObjectProperty(node) if node.value(ast).node_id() == class.node_id() => {
+        NodeKindData::ObjectProperty(node) if node.value(ast).ast_id() == class.ast_id() => {
             property_key_name(node.key(ast), ast)
         }
         NodeKindData::AssignmentExpression(node)
             if node.operator(ast) == AssignmentOperator::Assign
-                && node.right(ast).node_id() == class.node_id() =>
+                && node.right(ast).ast_id() == class.ast_id() =>
         {
             assignment_target_name(node.left(ast), ast)
         }
-        NodeKindData::AssignmentPattern(node) if node.right(ast).node_id() == class.node_id() => {
-            node.left(ast)
-                .as_binding_identifier(ast)
-                .map(|identifier| identifier.name(ast).into())
-        }
+        NodeKindData::AssignmentPattern(node) if node.right(ast).ast_id() == class.ast_id() => node
+            .left(ast)
+            .as_binding_identifier(ast)
+            .map(|identifier| identifier.name(ast).into()),
         NodeKindData::PropertyDefinition(node)
             if node
                 .value(ast)
-                .is_some_and(|value| value.node_id() == class.node_id()) =>
+                .is_some_and(|value| value.ast_id() == class.ast_id()) =>
         {
             property_key_name(node.key(ast), ast)
         }

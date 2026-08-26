@@ -1,6 +1,5 @@
 use swc_next_ecma_ast::{
-    Ast, Class, ClassBody, NodeId, ObjectProperty, RegExpLiteral, Traverse, TraverseAction,
-    TraverseCtx, TraverseWith,
+    Ast, AstId, ClassId, ObjectProperty, RegExpLiteral, Traverse, TraverseCtx, TraverseWith,
 };
 use swc_next_ecma_semantic::{Semantic, SemanticFeatureFlags};
 
@@ -80,20 +79,15 @@ impl Transformer {
 }
 
 impl<'a> Traverse<'a, TransformerState> for TransformerImpl<'_, 'a> {
-    fn enter_class_body(
-        &mut self,
-        node: ClassBody,
-        ctx: &mut TransformerCtx<'_, 'a>,
-    ) -> TraverseAction<ClassBody> {
+    fn enter_class_body(&mut self, node: ClassId, ctx: &mut TransformerCtx<'_, 'a>) {
         self.x0_es2022.enter_class_body(node, self.semantic, ctx);
-        TraverseAction::Proceed
     }
 
-    fn exit_class(&mut self, node: Class, ctx: &mut TransformerCtx<'_, 'a>) {
+    fn exit_class(&mut self, node: ClassId, ctx: &mut TransformerCtx<'_, 'a>) {
         self.x0_es2022.exit_class(node, ctx);
     }
 
-    fn exit_node(&mut self, node: NodeId, ctx: &mut TransformerCtx<'_, 'a>) {
+    fn exit_node(&mut self, node: AstId, ctx: &mut TransformerCtx<'_, 'a>) {
         self.x0_es2022.exit_node(node, ctx);
     }
 

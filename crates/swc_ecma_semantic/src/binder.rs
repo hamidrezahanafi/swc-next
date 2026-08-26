@@ -1331,7 +1331,7 @@ impl<'a> SymbolTracker<'a> {
     /// Records an identifier reference at `node` in `scope`.
     pub fn add_reference(
         &mut self,
-        _tree: &Ast,
+        tree: &Ast,
         name: AstUtf8,
         scope: ScopeId,
         node: AstId,

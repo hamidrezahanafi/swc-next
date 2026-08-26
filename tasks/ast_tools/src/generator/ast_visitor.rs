@@ -294,7 +294,7 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                                 }
                             }
                          });
-                     } else {
+                    } else {
                         traverse_children.extend(quote! {
                             let child = node.#getter_name(ctx.ast);
                             match <#field_ty_ident as TraverseWith<'a, State>>::traverse_with(

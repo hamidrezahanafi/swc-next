@@ -2,9 +2,8 @@ use crate::{
     Accessibility, AssignmentOperator, Ast, AstId, AstNode, AstUtf8, AstWtf8, BinaryOperator,
     ClassType, Expr, FormalParameterKind, FunctionType, ImportOrExportKind, ImportPhase,
     LogicalOperator, MethodDefinitionKind, NodeKind, PropertyKind, SourceType, Span,
-    TsMappedTypeModifier,
-    TsMethodSignatureKind, TsModuleDeclarationKind, TsTypeOperatorKind, UnaryOperator,
-    UpdateOperator, VariableKind, Visit, VisitMut, VisitMutWith, VisitWith,
+    TsMappedTypeModifier, TsMethodSignatureKind, TsModuleDeclarationKind, TsTypeOperatorKind,
+    UnaryOperator, UpdateOperator, VariableKind, Visit, VisitMut, VisitMutWith, VisitWith,
 };
 
 /// Controls how traversal continues after an enter hook.
