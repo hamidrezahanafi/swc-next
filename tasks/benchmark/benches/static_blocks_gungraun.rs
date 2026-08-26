@@ -13,23 +13,23 @@ mod static_blocks_support;
 use static_blocks_support::{CLASS_HEAVY, SINGLE_CLASS, TransformCase};
 
 #[library_benchmark]
-#[bench::single_class(static_blocks_support::setup_case(SINGLE_CLASS))]
-#[bench::class_heavy(static_blocks_support::setup_case(CLASS_HEAVY))]
-fn bench_transform(mut case: TransformCase) {
+#[bench::single_class(static_blocks_support::setup_static_case(SINGLE_CLASS))]
+#[bench::class_heavy(static_blocks_support::setup_static_case(CLASS_HEAVY))]
+fn bench_transform(mut case: TransformCase<'static>) {
     static_blocks_support::transform_case(&mut case);
     black_box(case);
 }
 
 #[library_benchmark]
-#[bench::single_class(static_blocks_support::setup_transformed(SINGLE_CLASS))]
-#[bench::class_heavy(static_blocks_support::setup_transformed(CLASS_HEAVY))]
+#[bench::single_class(static_blocks_support::setup_static_transformed(SINGLE_CLASS))]
+#[bench::class_heavy(static_blocks_support::setup_static_transformed(CLASS_HEAVY))]
 fn bench_post_transform_visit(ast: Ast<'static>) {
     black_box(static_blocks_support::count_identifier_references(&ast));
 }
 
 #[library_benchmark]
-#[bench::single_class(static_blocks_support::setup_transformed(SINGLE_CLASS))]
-#[bench::class_heavy(static_blocks_support::setup_transformed(CLASS_HEAVY))]
+#[bench::single_class(static_blocks_support::setup_static_transformed(SINGLE_CLASS))]
+#[bench::class_heavy(static_blocks_support::setup_static_transformed(CLASS_HEAVY))]
 fn bench_post_transform_codegen(ast: Ast<'static>) {
     black_box(static_blocks_support::codegen_len(&ast));
 }

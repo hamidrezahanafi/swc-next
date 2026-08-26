@@ -19,9 +19,9 @@ class Example {
 
 pub const CLASS_HEAVY: &str = include_str!("../../files/static-block-heavy.js");
 
-pub struct TransformCase {
-    pub ast: Ast<'static>,
-    pub semantic: Semantic<'static>,
+pub struct TransformCase<'a> {
+    pub ast: Ast<'a>,
+    pub semantic: Semantic<'a>,
 }
 
 fn transformer_options() -> TransformerOptions {
@@ -33,8 +33,7 @@ fn transformer_options() -> TransformerOptions {
     }
 }
 
-pub fn setup_case(source: &'static str) -> TransformCase {
-    let allocator = Box::leak(Box::new(Allocator::new()));
+pub fn setup_case<'a>(allocator: &'a Allocator, source: &'a str) -> TransformCase<'a> {
     let parsed = Parser::init(
         allocator,
         source,
@@ -67,14 +66,24 @@ pub fn setup_case(source: &'static str) -> TransformCase {
     }
 }
 
-pub fn transform_case(case: &mut TransformCase) {
+pub fn setup_static_case(source: &'static str) -> TransformCase<'static> {
+    let allocator = Box::leak(Box::new(Allocator::new()));
+    setup_case(allocator, source)
+}
+
+pub fn transform_case(case: &mut TransformCase<'_>) {
     Transformer::transform(&mut case.ast, &mut case.semantic, transformer_options());
 }
 
-pub fn setup_transformed(source: &'static str) -> Ast<'static> {
-    let mut case = setup_case(source);
+pub fn setup_transformed<'a>(allocator: &'a Allocator, source: &'a str) -> Ast<'a> {
+    let mut case = setup_case(allocator, source);
     transform_case(&mut case);
     case.ast
+}
+
+pub fn setup_static_transformed(source: &'static str) -> Ast<'static> {
+    let allocator = Box::leak(Box::new(Allocator::new()));
+    setup_transformed(allocator, source)
 }
 
 pub fn count_identifier_references(ast: &Ast<'_>) -> usize {
@@ -105,7 +114,8 @@ pub fn codegen_len(ast: &Ast<'_>) -> usize {
 }
 
 pub fn end_to_end(source: &'static str) -> usize {
-    let mut case = setup_case(source);
+    let allocator = Allocator::new();
+    let mut case = setup_case(&allocator, source);
     transform_case(&mut case);
     codegen_len(&case.ast)
 }

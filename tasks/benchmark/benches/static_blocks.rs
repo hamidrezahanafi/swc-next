@@ -4,8 +4,10 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 use std::{hint::black_box, time::Instant};
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use swc_next_allocator::Allocator;
 
 #[path = "support/static_blocks.rs"]
+#[allow(dead_code)]
 mod static_blocks_support;
 
 use static_blocks_support::{CLASS_HEAVY, SINGLE_CLASS};
@@ -20,7 +22,8 @@ fn bench_static_blocks(c: &mut Criterion) {
                 b.iter_custom(|iterations| {
                     let mut elapsed = std::time::Duration::ZERO;
                     for _ in 0..iterations {
-                        let mut case = static_blocks_support::setup_case(source);
+                        let allocator = Allocator::new();
+                        let mut case = static_blocks_support::setup_case(&allocator, source);
                         let start = Instant::now();
                         static_blocks_support::transform_case(&mut case);
                         elapsed += start.elapsed();
@@ -38,7 +41,8 @@ fn bench_static_blocks(c: &mut Criterion) {
                 b.iter_custom(|iterations| {
                     let mut elapsed = std::time::Duration::ZERO;
                     for _ in 0..iterations {
-                        let ast = static_blocks_support::setup_transformed(source);
+                        let allocator = Allocator::new();
+                        let ast = static_blocks_support::setup_transformed(&allocator, source);
                         let start = Instant::now();
                         black_box(static_blocks_support::count_identifier_references(&ast));
                         elapsed += start.elapsed();
@@ -55,7 +59,8 @@ fn bench_static_blocks(c: &mut Criterion) {
                 b.iter_custom(|iterations| {
                     let mut elapsed = std::time::Duration::ZERO;
                     for _ in 0..iterations {
-                        let ast = static_blocks_support::setup_transformed(source);
+                        let allocator = Allocator::new();
+                        let ast = static_blocks_support::setup_transformed(&allocator, source);
                         let start = Instant::now();
                         black_box(static_blocks_support::codegen_len(&ast));
                         elapsed += start.elapsed();
