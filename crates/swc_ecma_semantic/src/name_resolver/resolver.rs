@@ -96,13 +96,13 @@ impl JsNameResolver<'_> {
 }
 
 #[derive(Debug)]
-struct Scope<'ast> {
+struct Scope {
     parent: Option<ScopeId>,
     kind: ScopeKind,
-    declared_symbols: HashMap<&'ast [u8], DeclKind, FxBuildHasher>,
+    declared_symbols: HashMap<AstInternedUtf8, DeclKind, FxBuildHasher>,
 }
 
-impl<'ast> Scope<'ast> {
+impl Scope {
     fn new(kind: ScopeKind, parent: Option<ScopeId>) -> Self {
         Self {
             parent,
@@ -204,7 +204,7 @@ impl ScopeOwner {
 /// resolved while walking the source in order.
 struct Resolver<'ast> {
     ast: &'ast Ast<'ast>,
-    scopes: IndexVec<ScopeId, Scope<'ast>>,
+    scopes: IndexVec<ScopeId, Scope>,
     node_scopes: ArenaVec<'ast, Option<ScopeId>>,
     top_level_scope_id: ScopeId,
     unresolved_scope_id: ScopeId,
@@ -216,15 +216,15 @@ struct Resolver<'ast> {
 }
 
 impl<'ast> Resolver<'ast> {
-    fn name(&self, name: AstUtf8) -> &'ast [u8] {
-        self.ast.get_utf8(name).as_bytes()
+    fn name_text(&self, name: AstInternedUtf8) -> &'ast [u8] {
+        self.ast.get_interned_utf8(name).as_bytes()
     }
 
-    fn is_declared(&self, name: &[u8], start_scope: ScopeId) -> Option<DeclKind> {
+    fn is_declared(&self, name: AstInternedUtf8, start_scope: ScopeId) -> Option<DeclKind> {
         let mut scope = Some(start_scope);
         while let Some(scope_id) = scope {
             let current = &self.scopes[scope_id];
-            if let Some(kind) = current.declared_symbols.get(name) {
+            if let Some(kind) = current.declared_symbols.get(&name) {
                 return Some(*kind);
             }
             scope = current.parent;
@@ -266,7 +266,7 @@ impl<'ast> Resolver<'ast> {
         self.set_scope_once(owner.node_id(), scope);
     }
 
-    fn scope_of_name(&self, name: &[u8], stop_at_fn_scope: bool) -> Option<ScopeId> {
+    fn scope_of_name(&self, name: AstInternedUtf8, stop_at_fn_scope: bool) -> Option<ScopeId> {
         // Every scope uses the same stateless FxBuildHasher, so reuse the hash
         // instead of hashing the identifier again for each ancestor scope.
         let hash = self.scopes[self.current]
@@ -282,7 +282,10 @@ impl<'ast> Resolver<'ast> {
                 .from_hash(hash, |candidate| *candidate == name)
                 .is_some()
             {
-                return if (name == b"undefined" || name == b"NaN" || name == b"Infinity")
+                let name_text = self.name_text(name);
+                return if (name_text == b"undefined"
+                    || name_text == b"NaN"
+                    || name_text == b"Infinity")
                     && scope_id == self.top_level_scope_id
                     && !self.is_module
                 {
@@ -300,48 +303,59 @@ impl<'ast> Resolver<'ast> {
     }
 
     fn declare(&mut self, identifier: BindingIdentifier, kind: DeclKind) {
-        if self.node_scopes[identifier.node_id().index()].is_some() {
+        let node_index = identifier.node_id().index();
+        if self.node_scopes[node_index].is_some() {
             return;
         }
 
-        let name = self.name(identifier.name(self.ast));
+        let name = identifier.name(self.ast);
         self.scopes[self.current]
             .declared_symbols
             .insert(name, kind);
-        self.set_symbol_scope_once(SymbolNode::BindingIdentifier(identifier), self.current);
+        self.node_scopes[node_index] = Some(self.current);
+    }
+
+    fn predeclare_parameters(&mut self, parameters: FormalParameters) {
+        for id in parameters.items(self.ast).iter() {
+            let item = self.ast.get_node_in_sub_range(id);
+            let pattern = match self.ast.formal_parameter_item_data(item) {
+                FormalParameterItemData::FormalParameter(parameter) => {
+                    let FormalParameterPatternData::BindingPattern(pattern) = self
+                        .ast
+                        .formal_parameter_pattern_data(parameter.pattern(self.ast))
+                    else {
+                        continue;
+                    };
+                    pattern
+                }
+                FormalParameterItemData::TsParameterProperty(property) => {
+                    property.parameter(self.ast)
+                }
+            };
+            let ast = self.ast;
+            for_each_binding_id(ast, pattern, |identifier| {
+                self.declare(identifier, DeclKind::Param);
+            });
+        }
+
+        if let Some(rest) = parameters.rest(self.ast) {
+            let ast = self.ast;
+            for_each_binding_id(ast, rest.argument(ast), |identifier| {
+                self.declare(identifier, DeclKind::Param);
+            });
+        }
     }
 
     fn has_use_strict(&self, directives: TypedSubRange<Directive>) -> bool {
         directives.iter().any(|id| {
             let directive = self.ast.get_node_in_sub_range(id);
-            self.name(directive.value(self.ast)) == b"use strict"
+            self.ast.get_utf8(directive.value(self.ast)).as_bytes() == b"use strict"
         })
     }
 
     fn visit_function_contents(&mut self, function: Function) {
         let parameters = function.params(self.ast);
-        for id in parameters.items(self.ast).iter() {
-            let item = self.ast.get_node_in_sub_range(id);
-            let FormalParameterItemData::FormalParameter(parameter) =
-                self.ast.formal_parameter_item_data(item)
-            else {
-                continue;
-            };
-            let FormalParameterPatternData::BindingPattern(pattern) = self
-                .ast
-                .formal_parameter_pattern_data(parameter.pattern(self.ast))
-            else {
-                continue;
-            };
-            let ast = self.ast;
-            let current = self.current;
-            for_each_binding_id(ast, pattern, |identifier| {
-                let name = ast.get_utf8(identifier.name(ast)).as_bytes();
-                self.scopes[current]
-                    .declared_symbols
-                    .insert(name, DeclKind::Param);
-            });
-        }
+        self.predeclare_parameters(parameters);
         let old_kind = self.decl_kind;
         self.decl_kind = DeclKind::Param;
         parameters.visit_with(self);
@@ -398,18 +412,21 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
     }
 
     fn visit_identifier_reference(&mut self, reference: IdentifierReference) {
-        if self.node_scopes[reference.node_id().index()].is_some() {
+        let node_index = reference.node_id().index();
+        if self.node_scopes[node_index].is_some() {
             return;
         }
-        let name = self.name(reference.name(self.ast));
+        let name = reference.name(self.ast);
         let scope = self
             .scope_of_name(name, false)
             .unwrap_or(self.unresolved_scope_id);
-        self.set_symbol_scope_once(SymbolNode::IdentifierReference(reference), scope);
+        self.node_scopes[node_index] = Some(scope);
     }
 
     fn visit_binding_identifier(&mut self, identifier: BindingIdentifier) {
-        self.declare(identifier, self.decl_kind);
+        if self.decl_kind != DeclKind::Param {
+            self.declare(identifier, self.decl_kind);
+        }
     }
 
     fn visit_label_identifier(&mut self, label: LabelIdentifier) {
@@ -419,8 +436,12 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
     fn visit_jsx_element_name(&mut self, name: JsxElementName) {
         match self.ast.jsx_element_name_data(name) {
             JsxElementNameData::JsxIdentifier(identifier) => {
-                let name = self.name(identifier.name(self.ast));
-                let scope = if name.first().is_some_and(u8::is_ascii_lowercase) {
+                let name = identifier.name(self.ast);
+                let scope = if self
+                    .name_text(name)
+                    .first()
+                    .is_some_and(u8::is_ascii_lowercase)
+                {
                     self.unresolved_scope_id
                 } else {
                     self.scope_of_name(name, false)
@@ -438,7 +459,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
     fn visit_jsx_member_expression_object(&mut self, object: JsxMemberExpressionObject) {
         match self.ast.jsx_member_expression_object_data(object) {
             JsxMemberExpressionObjectData::JsxIdentifier(identifier) => {
-                let name = self.name(identifier.name(self.ast));
+                let name = identifier.name(self.ast);
                 let scope = self
                     .scope_of_name(name, false)
                     .unwrap_or(self.unresolved_scope_id);
@@ -495,28 +516,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
     fn visit_arrow_function_expression(&mut self, arrow: ArrowFunctionExpression) {
         self.with_child(ScopeOwner::ArrowFunctionExpression(arrow), |child| {
             let parameters = arrow.params(child.ast);
-            for id in parameters.items(child.ast).iter() {
-                let item = child.ast.get_node_in_sub_range(id);
-                let FormalParameterItemData::FormalParameter(parameter) =
-                    child.ast.formal_parameter_item_data(item)
-                else {
-                    continue;
-                };
-                let FormalParameterPatternData::BindingPattern(pattern) = child
-                    .ast
-                    .formal_parameter_pattern_data(parameter.pattern(child.ast))
-                else {
-                    continue;
-                };
-                let ast = child.ast;
-                let current = child.current;
-                for_each_binding_id(ast, pattern, |identifier| {
-                    let name = ast.get_utf8(identifier.name(ast)).as_bytes();
-                    child.scopes[current]
-                        .declared_symbols
-                        .insert(name, DeclKind::Param);
-                });
-            }
+            child.predeclare_parameters(parameters);
             let old_kind = child.decl_kind;
             child.decl_kind = DeclKind::Param;
             parameters.visit_with(child);
@@ -617,28 +617,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
             PropertyKind::Set => {
                 self.with_child(ScopeOwner::Function(function), |child| {
                     let parameters = function.params(child.ast);
-                    for id in parameters.items(child.ast).iter() {
-                        let item = child.ast.get_node_in_sub_range(id);
-                        let FormalParameterItemData::FormalParameter(parameter) =
-                            child.ast.formal_parameter_item_data(item)
-                        else {
-                            continue;
-                        };
-                        let FormalParameterPatternData::BindingPattern(pattern) = child
-                            .ast
-                            .formal_parameter_pattern_data(parameter.pattern(child.ast))
-                        else {
-                            continue;
-                        };
-                        let ast = child.ast;
-                        let current = child.current;
-                        for_each_binding_id(ast, pattern, |identifier| {
-                            let name = ast.get_utf8(identifier.name(ast)).as_bytes();
-                            child.scopes[current]
-                                .declared_symbols
-                                .insert(name, DeclKind::Param);
-                        });
-                    }
+                    child.predeclare_parameters(parameters);
                     let old_kind = child.decl_kind;
                     child.decl_kind = DeclKind::Param;
                     parameters.visit_with(child);
@@ -772,7 +751,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
         if let ModuleExportNameData::IdentifierName(identifier) =
             self.ast.module_export_name_data(local)
         {
-            let name = self.name(identifier.name(self.ast));
+            let name = identifier.name(self.ast);
             let scope = self
                 .scope_of_name(name, false)
                 .unwrap_or(self.unresolved_scope_id);
@@ -783,7 +762,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
             && let ModuleExportNameData::IdentifierName(identifier) =
                 self.ast.module_export_name_data(exported)
         {
-            let name = self.name(identifier.name(self.ast));
+            let name = identifier.name(self.ast);
             let scope = self
                 .scope_of_name(name, false)
                 .unwrap_or(self.unresolved_scope_id);
@@ -813,21 +792,22 @@ struct Hoister<'resolver, 'ast> {
     kind: DeclKind,
     in_block: bool,
     in_catch_body: bool,
-    excluded_from_catch: FxHashSet<&'ast [u8]>,
-    catch_param_decls: FxHashSet<&'ast [u8]>,
+    excluded_from_catch: FxHashSet<AstInternedUtf8>,
+    catch_param_decls: FxHashSet<AstInternedUtf8>,
 }
 
 impl<'resolver, 'ast> Hoister<'resolver, 'ast> {
     fn add_binding(&mut self, identifier: BindingIdentifier) {
-        let name = self.resolver.name(identifier.name(self.resolver.ast));
+        let name = identifier.name(self.resolver.ast);
         if self.in_catch_body {
             if self.resolver.scope_of_name(name, true).is_some()
-                && self.catch_param_decls.contains(name)
+                && self.catch_param_decls.contains(&name)
             {
                 return;
             }
             self.excluded_from_catch.insert(name);
-        } else if self.catch_param_decls.contains(name) && !self.excluded_from_catch.contains(name)
+        } else if self.catch_param_decls.contains(&name)
+            && !self.excluded_from_catch.contains(&name)
         {
             return;
         }
@@ -888,8 +868,8 @@ impl<'ast> Visit<'ast> for Hoister<'_, 'ast> {
         let Some(identifier) = function.id(self.resolver.ast) else {
             return;
         };
-        let name = self.resolver.name(identifier.name(self.resolver.ast));
-        if self.catch_param_decls.contains(name) {
+        let name = identifier.name(self.resolver.ast);
+        if self.catch_param_decls.contains(&name) {
             return;
         }
         if self.in_block {
@@ -953,7 +933,7 @@ impl<'ast> Visit<'ast> for Hoister<'_, 'ast> {
         if let Some(param) = catch.param(self.resolver.ast) {
             let ast = self.resolver.ast;
             for_each_binding_id(ast, param, |identifier| {
-                let name = ast.get_utf8(identifier.name(ast)).as_bytes();
+                let name = identifier.name(ast);
                 self.catch_param_decls.insert(name);
             });
         }
@@ -1025,4 +1005,69 @@ impl<'ast> Visit<'ast> for Hoister<'_, 'ast> {
     fn visit_static_block(&mut self, _: StaticBlock) {}
 
     fn visit_assignment_target(&mut self, _: AssignmentTarget) {}
+}
+#[cfg(test)]
+mod tests {
+    use swc_next_allocator::Allocator;
+    use swc_next_ecma_ast::{
+        Ast, BindingIdentifier, IdentifierReference, Lang, SourceType, Visit, VisitWith,
+    };
+    use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
+
+    use super::{SymbolNode, resolver};
+
+    #[test]
+    fn escaped_and_plain_identifiers_share_the_interned_name() {
+        let allocator = Allocator::new();
+        let parse = Parser::init(
+            &allocator,
+            "let value; \\u0076alue;",
+            Options {
+                source_type: SourceType::Script,
+                lang: Lang::Js,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+
+        struct Names<'ast> {
+            ast: &'ast Ast<'ast>,
+            binding: Option<BindingIdentifier>,
+            reference: Option<IdentifierReference>,
+        }
+
+        impl<'ast> Visit<'ast> for Names<'ast> {
+            fn ast(&self) -> &Ast<'ast> {
+                self.ast
+            }
+
+            fn visit_binding_identifier(&mut self, node: BindingIdentifier) {
+                self.binding = Some(node);
+                node.visit_children_with(self);
+            }
+
+            fn visit_identifier_reference(&mut self, node: IdentifierReference) {
+                self.reference = Some(node);
+            }
+        }
+
+        let ast = parse.ast;
+        let mut names = Names {
+            ast: &ast,
+            binding: None,
+            reference: None,
+        };
+        ast.root_program().visit_with(&mut names);
+        let binding = names.binding.unwrap();
+        let reference = names.reference.unwrap();
+        assert_eq!(binding.name(&ast), reference.name(&ast));
+
+        let resolved = resolver(&ast);
+        assert_eq!(
+            resolved.symbol_scope(SymbolNode::BindingIdentifier(binding)),
+            resolved.symbol_scope(SymbolNode::IdentifierReference(reference))
+        );
+    }
 }

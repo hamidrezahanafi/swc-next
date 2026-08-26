@@ -1,5 +1,5 @@
 use swc_next_allocator::{Allocator, hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec};
-use swc_next_ecma_ast::{Ast, AstUtf8, NodeId, PropertyKey};
+use swc_next_ecma_ast::{Ast, AstInternedUtf8, NodeId, PropertyKey};
 
 use crate::UsedNameState;
 
@@ -59,7 +59,7 @@ impl<'a> ClassSemantic<'a> {
     /// The returned name does not include the leading `#`. Reserving and
     /// returning the name in one operation keeps generated class elements and
     /// semantic state synchronized.
-    pub fn next_private_name(&mut self, ast: &mut Ast<'_>, class: NodeId) -> AstUtf8 {
+    pub fn next_private_name(&mut self, ast: &mut Ast<'_>, class: NodeId) -> AstInternedUtf8 {
         assert!(
             self.enabled,
             "class semantic collection must be enabled before allocating names"
@@ -69,7 +69,7 @@ impl<'a> ClassSemantic<'a> {
             .get_mut(&class)
             .expect("class semantic entry must exist for an analyzed class");
         let name = info.used_names.next_name("_", 2);
-        ast.add_utf8(name)
+        ast.intern_utf8(name)
     }
 
     pub(crate) fn enter_class(&mut self, class: NodeId) {
@@ -103,7 +103,7 @@ impl<'a> ClassSemantic<'a> {
         let Some(private) = key.as_private_identifier(ast) else {
             return;
         };
-        let name = ast.get_utf8(private.name(ast)).as_bytes();
+        let name = ast.get_interned_utf8(private.name(ast)).as_bytes();
         let info = self
             .classes
             .get_mut(&class)

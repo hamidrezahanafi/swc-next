@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use swc_next_ecma_ast::{
-    Accessibility, Argument, ArrowFunctionBody, AssignmentOperator, Ast, AstUtf8, AstWtf8,
+    Accessibility, Argument, ArrowFunctionBody, AssignmentOperator, Ast, AstInternedUtf8, AstWtf8,
     BindingPattern, Class, ClassBody, ClassElement, ClassType, DUMMY_SP, Decl, Expr, GetSpan,
     NodeId, NodeKindData, PropertyDefinition, PropertyKey, StaticBlock, Stmt, TraverseCtx,
     TypedSubRange, UnaryOperator, VariableKind,
@@ -15,23 +15,23 @@ use swc_next_ecma_ast::{
 use swc_next_ecma_semantic::Semantic;
 
 pub(super) struct StaticBlocks {
-    var_scopes: HashMap<NodeId, Vec<AstUtf8>>,
+    var_scopes: HashMap<NodeId, Vec<AstInternedUtf8>>,
     expression_calls: HashMap<NodeId, Expr>,
 }
 
 struct ClassTransform<'visit, 'a> {
     ast: &'visit mut Ast<'a>,
     semantic: &'visit mut Semantic<'a>,
-    closure_names: &'visit mut Vec<AstUtf8>,
+    closure_names: &'visit mut Vec<AstInternedUtf8>,
 }
 
 impl<'a> ClassTransform<'_, 'a> {
-    fn next_closure_name(&mut self) -> AstUtf8 {
+    fn next_closure_name(&mut self) -> AstInternedUtf8 {
         // UsedNameState currently provides one conservative program-wide
         // collision domain. `closure_names` still places each declaration
         // in its nearest function, static-block, or program scope.
         let name = self.semantic.used_names_mut().next_name("_staticBlock", 2);
-        let name = self.ast.add_utf8(name);
+        let name = self.ast.intern_utf8(name);
         self.closure_names.push(name);
         name
     }
@@ -284,7 +284,7 @@ impl<'a> ClassTransform<'_, 'a> {
 
     fn build_assignment(
         &mut self,
-        name: AstUtf8,
+        name: AstInternedUtf8,
         value: Expr,
         span: swc_next_ecma_ast::Span,
     ) -> Expr {
@@ -295,7 +295,7 @@ impl<'a> ClassTransform<'_, 'a> {
             .expr_assignment_expression(span, left, value, AssignmentOperator::Assign)
     }
 
-    fn build_call(&mut self, name: AstUtf8) -> Expr {
+    fn build_call(&mut self, name: AstInternedUtf8) -> Expr {
         let callee = self.ast.expr_identifier_reference(DUMMY_SP, name);
         self.ast
             .expr_call_expression(DUMMY_SP, callee, None, TypedSubRange::empty(), false)
@@ -303,7 +303,7 @@ impl<'a> ClassTransform<'_, 'a> {
 
     fn build_fallback_property(
         &mut self,
-        private_name: AstUtf8,
+        private_name: AstInternedUtf8,
         initializer: Expr,
     ) -> PropertyDefinition {
         let key = self
@@ -329,9 +329,9 @@ impl<'a> ClassTransform<'_, 'a> {
     }
 
     fn build_set_function_name(&mut self, name: AstWtf8) -> Expr {
-        let helpers_name = self.ast.add_utf8("babelHelpers");
+        let helpers_name = self.ast.intern_utf8("babelHelpers");
         let helpers = self.ast.expr_identifier_reference(DUMMY_SP, helpers_name);
-        let function_name = self.ast.add_utf8("setFunctionName");
+        let function_name = self.ast.intern_utf8("setFunctionName");
         let property = self
             .ast
             .property_key_identifier_name(DUMMY_SP, function_name);
@@ -446,7 +446,7 @@ fn is_var_scope(node: NodeId, ast: &Ast<'_>) -> bool {
     )
 }
 
-fn prepend_var_declaration<'a>(scope: NodeId, names: Vec<AstUtf8>, ast: &mut Ast<'a>) {
+fn prepend_var_declaration<'a>(scope: NodeId, names: Vec<AstInternedUtf8>, ast: &mut Ast<'a>) {
     let declarators: Vec<_> = names
         .into_iter()
         .map(|name| {
@@ -625,7 +625,7 @@ fn property_key_name(key: PropertyKey, ast: &mut Ast<'_>) -> Option<AstWtf8> {
         return Some(identifier.name(ast).into());
     }
     if let Some(private) = key.as_private_identifier(ast) {
-        let name = format!("#{}", ast.get_utf8(private.name(ast)));
+        let name = format!("#{}", ast.get_interned_utf8(private.name(ast)));
         return Some(ast.add_wtf8(name.as_str().into()));
     }
     None

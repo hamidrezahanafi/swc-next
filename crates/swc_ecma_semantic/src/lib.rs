@@ -538,7 +538,7 @@ mod tests {
         let allocator = Allocator::new();
         let (ast, semantic) = analyze_source(
             &allocator,
-            "interface A {} interface B {} interface A {} interface A {}",
+            "interface A {} interface B {} interface A {} interface \\u0041 {}",
             Lang::Ts,
             SourceType::Script,
         );
@@ -630,7 +630,7 @@ mod tests {
 
         let reference = semantic
             .iter_references()
-            .find(|entry| ast.get_utf8(entry.reference.name).as_bytes() == b"T")
+            .find(|entry| ast.get_interned_utf8(entry.reference.name).as_bytes() == b"T")
             .unwrap()
             .reference;
         assert_eq!(reference.flags.space, ReferenceSpace::Type);
@@ -645,7 +645,7 @@ mod tests {
         );
         let reference = semantic
             .iter_references()
-            .find(|entry| ast.get_utf8(entry.reference.name).as_bytes() == b"T")
+            .find(|entry| ast.get_interned_utf8(entry.reference.name).as_bytes() == b"T")
             .unwrap()
             .reference;
         assert_eq!(reference.flags.space, ReferenceSpace::Value);
@@ -741,7 +741,7 @@ mod tests {
         let value_symbol = semantic.binding(ScopeId::ROOT, b"value").unwrap();
         let value = semantic
             .iter_references()
-            .find(|entry| ast.get_utf8(entry.reference.name).as_bytes() == b"value")
+            .find(|entry| ast.get_interned_utf8(entry.reference.name).as_bytes() == b"value")
             .unwrap()
             .reference;
         assert!(value.flags.is_dynamic());
@@ -765,7 +765,7 @@ mod tests {
         );
         let reference = semantic
             .iter_references()
-            .find(|entry| ast.get_utf8(entry.reference.name).as_bytes() == b"value")
+            .find(|entry| ast.get_interned_utf8(entry.reference.name).as_bytes() == b"value")
             .unwrap()
             .reference;
         assert!(!reference.flags.is_dynamic());

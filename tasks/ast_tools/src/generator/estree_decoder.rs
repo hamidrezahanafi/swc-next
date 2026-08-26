@@ -206,7 +206,9 @@ fn read_expression(ty: &AstType, schema: &Schema, location: &str, aligned_u32: b
                 let end = read_u32(&format!("{location} + 4"), aligned_u32);
                 format!("{{ start: pos({start}), end: pos({end}) }}")
             }
-            AstType::Primitive(primitive) if primitive.name == "AstUtf8" => {
+            AstType::Primitive(primitive)
+                if matches!(primitive.name, "AstInternedUtf8" | "AstUtf8") =>
+            {
                 let start = read_u32(location, aligned_u32);
                 let end = read_u32(&format!("{location} + 4"), aligned_u32);
                 format!("{start} === NULL && {end} === 0 ? null : str({start}, {end})")
@@ -214,7 +216,7 @@ fn read_expression(ty: &AstType, schema: &Schema, location: &str, aligned_u32: b
             inner => panic!("unsupported optional decoder type: {}", inner.name()),
         },
         AstType::Primitive(primitive) => match primitive.name {
-            "AstUtf8" | "AstWtf8" => {
+            "AstInternedUtf8" | "AstUtf8" | "AstWtf8" => {
                 let start = read_u32(location, aligned_u32);
                 let end = read_u32(&format!("{location} + 4"), aligned_u32);
                 format!("str({start}, {end})")
@@ -873,7 +875,7 @@ function decodePool(bytes) {
   return result;
 }
 
-export function decode(buffer, source, rootName = "program") {
+export function decode(buffer, source) {
   const arrayBuffer = buffer instanceof ArrayBuffer ? buffer : buffer.buffer;
   const byteOffset = buffer.byteOffset ?? 0;
   const byteLength = buffer.byteLength;
@@ -885,7 +887,7 @@ export function decode(buffer, source, rootName = "program") {
   const stringPoolLength = _u32[2];
   const sourceLength = _u32[3];
   const commentCount = _u32[4];
-  const rootIndex = _u32[7];
+  const programIndex = _u32[7];
   const isTs = (_u32[8] & 1) !== 0;
 
   const spans = HEADER_SIZE;
@@ -958,12 +960,12 @@ const POSTAMBLE: &str = r#"      default:
     return result;
   }
 
-  let _root, _comments;
+  let _program, _comments;
   return {
-    get [rootName]() {
-      return _root !== undefined
-        ? _root
-        : (_root = node(rootIndex));
+    get program() {
+      return _program !== undefined
+        ? _program
+        : (_program = node(programIndex));
     },
     get comments() {
       return _comments !== undefined

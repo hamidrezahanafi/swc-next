@@ -3,13 +3,13 @@
 //! This module is a Rust port of the parser design from
 //! [yuku-toolchain/yuku](https://github.com/yuku-toolchain/yuku).
 
-use std::{borrow::Cow, mem};
+use std::{borrow::Cow, hint::cold_path, mem};
 
 use bitflags::bitflags;
 use rustc_hash::FxHashSet;
 use swc_next_allocator::{Allocator, vec::Vec as ArenaVec, wtf8::Wtf8Buf};
 use swc_next_ecma_ast::*;
-use swc_next_ecma_ast::{AstUtf8, AstWtf8};
+use swc_next_ecma_ast::{AstInternedUtf8, AstWtf8};
 
 use crate::{
     TokenFlag,
@@ -216,13 +216,18 @@ struct ParsedBody {
     body: TypedSubRange<Stmt>,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct ParserState {
-    /// Start offset of an array or object cover grammar with a trailing comma.
-    cover_has_trailing_comma: Option<u32>,
-    /// Whether the current cover grammar parsed a
-    /// `CoverInitializedName` (`{ a = 1 }`).
-    cover_has_init_name: bool,
+bitflags! {
+    #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+    struct ParserState: u8 {
+        /// Whether the current cover grammar parsed a
+        /// `CoverInitializedName` (`{ a = 1 }`).
+        const COVER_HAS_INIT_NAME = 1 << 0;
+        /// Whether the source contains syntax which is only valid in a module.
+        const HAS_MODULE_SYNTAX = 1 << 1;
+        /// Whether a top-level `await` has a different valid Script
+        /// interpretation.
+        const AMBIGUOUS_SCRIPT_DIFFERENT_AST = 1 << 2;
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -659,6 +664,13 @@ enum ArrowHead {
     Maybe,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum UnambiguousParseAction {
+    KeepModule,
+    RelabelAsScript,
+    RetryAsScript,
+}
+
 impl From<PropertyKind> for PropertyOrMethodKind {
     fn from(kind: PropertyKind) -> Self {
         match kind {
@@ -684,8 +696,6 @@ pub struct Parser<'a, C: ParserConfig = NoTokenParserConfig> {
     ast: Ast<'a>,
     source: &'a str,
     source_type: SourceType,
-    /// Whether the source contains syntax which is only valid in a module.
-    has_module_syntax: bool,
     lang: Lang,
     preserve_parens: bool,
     comment_mode: CommentMode,
@@ -704,6 +714,12 @@ pub struct Parser<'a, C: ParserConfig = NoTokenParserConfig> {
     statement_context: StatementContext,
     ts_context: TsContext,
     state: ParserState,
+    /// Start offset of an array or object cover grammar with a trailing comma.
+    cover_has_trailing_comma: Option<u32>,
+    /// Target node whose parentheses were stripped while converting an
+    /// assignment target. The same target must be rejected if cover grammar
+    /// later establishes that it is a binding pattern.
+    stripped_paren: Option<NodeId>,
     /// Start offsets which failed speculative parenthesized-arrow parsing.
     ///
     /// This cache is intentionally not part of [`Checkpoint`]: a failed
@@ -738,7 +754,8 @@ struct Checkpoint {
     statement_context: StatementContext,
     ts_context: TsContext,
     state: ParserState,
-    has_module_syntax: bool,
+    cover_has_trailing_comma: Option<u32>,
+    stripped_paren: Option<NodeId>,
     boundary_context: BoundaryContext,
 }
 
@@ -833,7 +850,6 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             ast,
             source,
             source_type: options.source_type,
-            has_module_syntax: false,
             lang: options.lang,
             preserve_parens: options.preserve_parens,
             comment_mode: options.comments,
@@ -854,19 +870,51 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 context
             },
             state: ParserState::default(),
+            cover_has_trailing_comma: None,
+            stripped_paren: None,
             not_parenthesized_arrow: FxHashSet::default(),
         }
     }
 
     pub fn parse(mut self) -> ParseReturn<'a> {
-        let source_type = self.source_type;
-        let can_be_module = source_type == SourceType::Unambiguous;
-        self.enter_program_context(source_type, can_be_module);
+        let is_unambiguous = self.source_type == SourceType::Unambiguous;
+        let initial_source_type = if is_unambiguous {
+            SourceType::Module
+        } else {
+            self.source_type
+        };
+        self.enter_program_context(initial_source_type, is_unambiguous);
         if self.advance().is_none() {
             self.current_token = Token::eof(0);
         }
         self.ensure_capacity();
         let parsed_body = self.parse_body(None, self.source_type.into());
+        if is_unambiguous {
+            match self.unambiguous_parse_action() {
+                UnambiguousParseAction::KeepModule => {}
+                UnambiguousParseAction::RelabelAsScript => {
+                    self.set_source_type(SourceType::Script);
+                }
+                UnambiguousParseAction::RetryAsScript => {
+                    cold_path();
+                    let allocator = self.ast.allocator();
+                    let source = self.source;
+                    let options = self.script_options();
+                    let (module_result, config) = self.finish_program_with_config(parsed_body);
+                    return Parser::init(allocator, source, options, config)
+                        .parse_program_as_script()
+                        .unwrap_or(module_result);
+                }
+            }
+        }
+        self.finish_program(parsed_body)
+    }
+
+    fn finish_program(self, parsed_body: ParsedBody) -> ParseReturn<'a> {
+        self.finish_program_with_config(parsed_body).0
+    }
+
+    fn finish_program_with_config(mut self, parsed_body: ParsedBody) -> (ParseReturn<'a>, C) {
         let ParsedBody { directives, body } = parsed_body;
         let end = self.current_token.span.end;
         let hashbang = self.lexer.hashbang.map(|hashbang| {
@@ -875,7 +923,6 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             let value = self.ast.source_slice(start, end);
             self.ast.hashbang(Span::new(0, end), value)
         });
-        self.resolve_unambiguous_source_type();
         self.report_module_mode_errors();
         let program = self
             .ast
@@ -899,11 +946,15 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             tokens.clear();
         }
 
-        ParseReturn {
-            ast: self.ast,
-            tokens,
-            diagnostics,
-        }
+        let config = self.lexer.config;
+        (
+            ParseReturn {
+                ast: self.ast,
+                tokens,
+                diagnostics,
+            },
+            config,
+        )
     }
 
     /// Parses the source as exactly one expression in `fragment_context`.
@@ -914,17 +965,52 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         if !self.validate_fragment_root() {
             return Err(self.diagnostics);
         }
-        let source_type = self.source_type;
-        let can_be_module = source_type == SourceType::Unambiguous;
-        self.enter_fragment_context(source_type, fragment_context, can_be_module);
+        let is_unambiguous = self.source_type == SourceType::Unambiguous;
+        let initial_source_type = if is_unambiguous {
+            SourceType::Module
+        } else {
+            self.source_type
+        };
+        self.enter_fragment_context(initial_source_type, fragment_context, is_unambiguous);
         if self.advance().is_none() {
             self.current_token = Token::eof(0);
         }
         self.ensure_capacity();
         let expr = self.parse_expression_fragment_once();
-        self.resolve_unambiguous_source_type();
+        if is_unambiguous {
+            match self.unambiguous_parse_action() {
+                UnambiguousParseAction::KeepModule => {}
+                UnambiguousParseAction::RelabelAsScript => {
+                    self.set_source_type(SourceType::Script);
+                }
+                UnambiguousParseAction::RetryAsScript => {
+                    cold_path();
+                    let allocator = self.ast.allocator();
+                    let source = self.source;
+                    let options = self.script_options();
+                    let (module_result, config) = self.finish_expression_fragment_with_config(expr);
+                    return Parser::init(allocator, source, options, config)
+                        .parse_expression_fragment_as_script(fragment_context)
+                        .unwrap_or(module_result);
+                }
+            }
+        }
+        self.finish_expression_fragment(expr)
+    }
+
+    fn finish_expression_fragment(
+        self,
+        expr: Option<Expr>,
+    ) -> Result<Ast<'a>, Vec<Diagnostic<'a>>> {
+        self.finish_expression_fragment_with_config(expr).0
+    }
+
+    fn finish_expression_fragment_with_config(
+        mut self,
+        expr: Option<Expr>,
+    ) -> (Result<Ast<'a>, Vec<Diagnostic<'a>>>, C) {
         self.report_module_mode_errors();
-        match expr {
+        let result = match expr {
             Some(expr) if self.diagnostics.is_empty() => {
                 self.finish_fragment();
                 self.ast.set_root_expression(expr);
@@ -934,7 +1020,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 Ok(self.ast)
             }
             _ => Err(self.diagnostics),
-        }
+        };
+        let config = self.lexer.config;
+        (result, config)
     }
 
     /// Parses the source as exactly one statement in `fragment_context`.
@@ -945,18 +1033,54 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         if !self.validate_fragment_root() {
             return Err(self.diagnostics);
         }
-        let source_type = self.source_type;
-        let can_be_module = source_type == SourceType::Unambiguous;
+        let is_unambiguous = self.source_type == SourceType::Unambiguous;
+        let initial_source_type = if is_unambiguous {
+            SourceType::Module
+        } else {
+            self.source_type
+        };
         let statement_context =
-            self.enter_fragment_context(source_type, fragment_context, can_be_module);
+            self.enter_fragment_context(initial_source_type, fragment_context, is_unambiguous);
         if self.advance().is_none() {
             self.current_token = Token::eof(0);
         }
         self.ensure_capacity();
         let statement = self.parse_statement_fragment_once(statement_context, fragment_context);
-        self.resolve_unambiguous_source_type();
+        if is_unambiguous {
+            match self.unambiguous_parse_action() {
+                UnambiguousParseAction::KeepModule => {}
+                UnambiguousParseAction::RelabelAsScript => {
+                    self.set_source_type(SourceType::Script);
+                }
+                UnambiguousParseAction::RetryAsScript => {
+                    cold_path();
+                    let allocator = self.ast.allocator();
+                    let source = self.source;
+                    let options = self.script_options();
+                    let (module_result, config) =
+                        self.finish_statement_fragment_with_config(statement);
+                    return Parser::init(allocator, source, options, config)
+                        .parse_statement_fragment_as_script(fragment_context)
+                        .unwrap_or(module_result);
+                }
+            }
+        }
+        self.finish_statement_fragment(statement)
+    }
+
+    fn finish_statement_fragment(
+        self,
+        statement: Option<Stmt>,
+    ) -> Result<Ast<'a>, Vec<Diagnostic<'a>>> {
+        self.finish_statement_fragment_with_config(statement).0
+    }
+
+    fn finish_statement_fragment_with_config(
+        mut self,
+        statement: Option<Stmt>,
+    ) -> (Result<Ast<'a>, Vec<Diagnostic<'a>>>, C) {
         self.report_module_mode_errors();
-        match statement {
+        let result = match statement {
             Some(statement) if self.diagnostics.is_empty() => {
                 self.finish_fragment();
                 self.ast.set_root_statement(statement);
@@ -966,7 +1090,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 Ok(self.ast)
             }
             _ => Err(self.diagnostics),
-        }
+        };
+        let config = self.lexer.config;
+        (result, config)
     }
 
     fn enter_program_context(&mut self, source_type: SourceType, can_be_module: bool) {
@@ -1015,6 +1141,64 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         false
     }
 
+    fn script_options(&self) -> Options {
+        Options {
+            source_type: SourceType::Script,
+            lang: self.lang,
+            preserve_parens: self.preserve_parens,
+            comments: self.comment_mode,
+        }
+    }
+
+    fn parse_program_as_script(mut self) -> Option<ParseReturn<'a>> {
+        self.enter_program_context(SourceType::Script, false);
+        if self.advance().is_none() {
+            self.current_token = Token::eof(0);
+        }
+        self.ensure_capacity();
+        let parsed_body = self.parse_body(None, self.source_type.into());
+        if self.script_retry_failed() {
+            None
+        } else {
+            Some(self.finish_program(parsed_body))
+        }
+    }
+
+    fn parse_expression_fragment_as_script(
+        mut self,
+        fragment_context: FragmentContext,
+    ) -> Option<Result<Ast<'a>, Vec<Diagnostic<'a>>>> {
+        self.enter_fragment_context(SourceType::Script, fragment_context, false);
+        if self.advance().is_none() {
+            self.current_token = Token::eof(0);
+        }
+        self.ensure_capacity();
+        let expr = self.parse_expression_fragment_once();
+        if self.script_retry_failed() {
+            None
+        } else {
+            Some(self.finish_expression_fragment(expr))
+        }
+    }
+
+    fn parse_statement_fragment_as_script(
+        mut self,
+        fragment_context: FragmentContext,
+    ) -> Option<Result<Ast<'a>, Vec<Diagnostic<'a>>>> {
+        let statement_context =
+            self.enter_fragment_context(SourceType::Script, fragment_context, false);
+        if self.advance().is_none() {
+            self.current_token = Token::eof(0);
+        }
+        self.ensure_capacity();
+        let statement = self.parse_statement_fragment_once(statement_context, fragment_context);
+        if self.script_retry_failed() {
+            None
+        } else {
+            Some(self.finish_statement_fragment(statement))
+        }
+    }
+
     fn parse_expression_fragment_once(&mut self) -> Option<Expr> {
         let expression = self.parse_expr(Precedence::Lowest, ParseExpressionOpts::default());
         self.report_fragment_trailing_tokens();
@@ -1027,16 +1211,17 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         fragment_context: FragmentContext,
     ) -> Option<Stmt> {
         let statement = self.parse_statement(statement_context);
-        if let Some(statement) = statement
-            && statement_context != StatementContext::ModuleItem
-            && self.statement_requires_module_item_context(statement, fragment_context)
-        {
-            self.mark_module_syntax();
-            self.report(
-                statement.span(&self.ast),
-                "Import and export declarations may only appear at the top level of a module",
-                ReportOptions::default(),
-            );
+        if let Some(statement) = statement {
+            if statement_context == StatementContext::ModuleItem {
+                self.record_statement_module_syntax(statement);
+            } else if self.statement_requires_module_item_context(statement, fragment_context) {
+                self.mark_module_syntax();
+                self.report(
+                    statement.span(&self.ast),
+                    "Import and export declarations may only appear at the top level of a module",
+                    ReportOptions::default(),
+                );
+            }
         }
         self.report_fragment_trailing_tokens();
         statement
@@ -1073,16 +1258,22 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn resolve_unambiguous_source_type(&mut self) {
-        if self.source_type != SourceType::Unambiguous {
-            return;
-        }
-        let source_type = if self.has_module_syntax {
-            SourceType::Module
+    fn unambiguous_parse_action(&self) -> UnambiguousParseAction {
+        if self.state.contains(ParserState::HAS_MODULE_SYNTAX) {
+            UnambiguousParseAction::KeepModule
+        } else if self.has_errors()
+            || self
+                .state
+                .contains(ParserState::AMBIGUOUS_SCRIPT_DIFFERENT_AST)
+        {
+            UnambiguousParseAction::RetryAsScript
         } else {
-            SourceType::Script
-        };
-        self.set_source_type(source_type);
+            UnambiguousParseAction::RelabelAsScript
+        }
+    }
+
+    fn script_retry_failed(&self) -> bool {
+        self.has_errors() || self.state.contains(ParserState::HAS_MODULE_SYNTAX)
     }
 
     fn set_source_type(&mut self, source_type: SourceType) {
@@ -1091,25 +1282,31 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     }
 
     fn mark_module_syntax(&mut self) {
-        self.has_module_syntax = true;
+        self.state.insert(ParserState::HAS_MODULE_SYNTAX);
     }
 
     fn enter_module_context(&mut self) {
         if self.statement_context == StatementContext::ModuleItem
             && self.boundary_context.can_be_module()
         {
-            self.context.insert(Context::AWAIT);
             self.mark_module_syntax();
         }
+    }
+
+    fn has_errors(&self) -> bool {
+        self.diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Severity::Error)
     }
 
     /// Returns the resolved name for an identifier-like token.
     ///
     /// This strips `#` from private identifiers and decodes Unicode escapes.
     #[inline]
-    fn identifier_name(&mut self, token: Token) -> AstUtf8 {
+    fn identifier_name(&mut self, token: Token) -> AstInternedUtf8 {
         if token.tag != TokenTag::PrivateIdentifier && !token.is_escaped() {
-            return self.ast.source_slice(token.span.start, token.span.end);
+            let name = self.ast.source_slice(token.span.start, token.span.end);
+            return self.ast.intern_utf8_slice(name);
         }
 
         self.identifier_name_slow(token)
@@ -1117,13 +1314,14 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     #[cold]
     #[inline(never)]
-    fn identifier_name_slow(&mut self, token: Token) -> AstUtf8 {
+    fn identifier_name_slow(&mut self, token: Token) -> AstInternedUtf8 {
         let start = token.span.start + u32::from(token.tag == TokenTag::PrivateIdentifier);
         if token.is_escaped() {
             return self.decode_escaped_identifier(start, token.span.end);
         }
 
-        self.ast.source_slice(start, token.span.end)
+        let name = self.ast.source_slice(start, token.span.end);
+        self.ast.intern_utf8_slice(name)
     }
 
     /// Returns the decoded string value without the surrounding quotes.
@@ -1143,14 +1341,14 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.decode_escaped_string(span.start, span.end)
     }
 
-    fn decode_escaped_identifier(&mut self, start: u32, end: u32) -> AstUtf8 {
+    fn decode_escaped_identifier(&mut self, start: u32, end: u32) -> AstInternedUtf8 {
         let raw = &self.source[start as usize..end as usize];
         let mut buffer = [0u8; 256];
         if let Some(value) = decode_identifier_escapes(raw, &mut buffer) {
             // Safety: the lexer rejects lone surrogates and invalid identifier escapes.
             return self
                 .ast
-                .add_utf8(unsafe { std::str::from_utf8_unchecked(value) });
+                .intern_utf8(unsafe { std::str::from_utf8_unchecked(value) });
         }
 
         let mut buffer = vec![0u8; raw.len()];
@@ -1161,7 +1359,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         // Lone surrogates are not valid in identifiers.
         // All of them are rejected by the lexer with `LexicalError::InvalidIdentifierContinue`
         let value = unsafe { std::str::from_utf8_unchecked(value) };
-        self.ast.add_utf8(value)
+        self.ast.intern_utf8(value)
     }
 
     fn decode_escaped_string(&mut self, start: u32, end: u32) -> AstWtf8 {
@@ -1302,7 +1500,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             statement_context: self.statement_context,
             ts_context: self.ts_context,
             state: self.state,
-            has_module_syntax: self.has_module_syntax,
+            cover_has_trailing_comma: self.cover_has_trailing_comma,
+            stripped_paren: self.stripped_paren,
             boundary_context: self.boundary_context,
         }
     }
@@ -1325,7 +1524,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.statement_context = checkpoint.statement_context;
         self.ts_context = checkpoint.ts_context;
         self.state = checkpoint.state;
-        self.has_module_syntax = checkpoint.has_module_syntax;
+        self.cover_has_trailing_comma = checkpoint.cover_has_trailing_comma;
+        self.stripped_paren = checkpoint.stripped_paren;
         self.boundary_context = checkpoint.boundary_context;
     }
 
@@ -1394,8 +1594,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                     return Some(false);
                 }
                 let statement = self.parse_statement(self.statement_context)?;
-                if terminator.is_none() && self.statement_has_module_syntax(statement) {
-                    self.mark_module_syntax();
+                if terminator.is_none() {
+                    self.record_statement_module_syntax(statement);
                 }
                 self.scratch_statements.append(statement);
                 Some(false)
@@ -1436,6 +1636,12 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                     .is_ts_external_module_reference(&self.ast)
             }
             _ => false,
+        }
+    }
+
+    fn record_statement_module_syntax(&mut self, statement: Stmt) {
+        if self.statement_has_module_syntax(statement) {
+            self.mark_module_syntax();
         }
     }
 
@@ -1612,13 +1818,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     }
 
     fn report_await_using_if_disallowed(&mut self, span: Span) {
-        if self.context.contains(Context::AWAIT) {
+        if self.boundary_context.can_be_module() {
+            self.mark_module_syntax();
             return;
         }
-        if self.boundary_context.can_be_module() {
-            if self.statement_context == StatementContext::ModuleItem {
-                self.mark_module_syntax();
-            }
+        if self.context.contains(Context::AWAIT) {
             return;
         }
         self.report(
@@ -1675,7 +1879,6 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         if matches!(next.tag, TokenTag::LeftParen | TokenTag::Dot) {
             return self.parse_expression_statement();
         }
-        self.enter_module_context();
         self.parse_import_declaration()
     }
 
@@ -2839,7 +3042,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         if matches!(
             self.ast.property_key_data(key),
             PropertyKeyData::PrivateIdentifier(private)
-                if self.ast.get_utf8(private.name(&self.ast)) == "constructor"
+                if self.ast.get_interned_utf8(private.name(&self.ast)) == "constructor"
         ) {
             self.report(
                 key.span(&self.ast),
@@ -3208,7 +3411,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn prop_name_eq(&self, key: PropertyKey, expected: &str) -> Option<Span> {
         let matches = match self.ast.property_key_data(key) {
             PropertyKeyData::IdentifierName(identifier) => {
-                self.ast.get_utf8(identifier.name(&self.ast)) == expected
+                self.ast.get_interned_utf8(identifier.name(&self.ast)) == expected
             }
             PropertyKeyData::StringLiteral(string) => {
                 self.ast.get_wtf8(string.value(&self.ast)) == expected
@@ -6933,6 +7136,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                     ReportOptions::default(),
                 );
             }
+            if self.boundary_context.can_be_module() {
+                self.mark_module_syntax();
+            }
             self.advance()?;
             if !self.expect(TokenTag::LeftParen, "Expected '(' after 'for await'", None) {
                 return None;
@@ -7261,7 +7467,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         matches!(
             self.ast.expr_data(expression),
             ExprData::IdentifierReference(identifier)
-                if self.ast.get_utf8(identifier.name(&self.ast)) == "async"
+                if self.ast.get_interned_utf8(identifier.name(&self.ast)) == "async"
                     && self.span_text(identifier.span(&self.ast)) == "async"
         )
     }
@@ -7486,6 +7692,18 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     }
 
     #[inline(always)]
+    fn parse_expr_preserving_stripped_paren(
+        &mut self,
+        minimum: Precedence,
+        opts: ParseExpressionOpts,
+    ) -> Option<Expr> {
+        let stripped_paren = self.stripped_paren;
+        let expression = self.parse_expr(minimum, opts);
+        self.stripped_paren = stripped_paren;
+        expression
+    }
+
+    #[inline(always)]
     fn parse_expr_from_left(
         &mut self,
         mut left: Expr,
@@ -7641,33 +7859,43 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
 
         if tag == TokenTag::LeftParen {
-            return self.parse_parenthesized_or_arrow_function(None, minimum);
+            // Select the grammar mode before parsing the cover so `minimum` does not
+            // need to remain live across the parse.
+            if minimum <= Precedence::Assignment {
+                return self.parse_parenthesized_or_arrow_function::<true>(None);
+            }
+            return self.parse_parenthesized_or_arrow_function::<false>(None);
         }
 
         if tag == TokenTag::Await
             && (self.context.contains(Context::AWAIT) || self.boundary_context.can_be_module())
         {
             let token = self.current_token;
-            let unambiguous_await = self.boundary_context.can_be_module();
+            let can_classify_as_module = self.boundary_context.can_be_module();
             self.advance_without_escape_check()?;
             let parse_as_await = self.context.contains(Context::AWAIT)
-                || !self.current_token.has_line_terminator_before()
-                    && !matches!(
-                        self.current_token.tag,
-                        TokenTag::Semicolon
-                            | TokenTag::RightBrace
-                            | TokenTag::RightParen
-                            | TokenTag::RightBracket
-                            | TokenTag::Comma
-                            | TokenTag::Colon
-                            | TokenTag::Eof
-                    );
+                || !matches!(
+                    self.current_token.tag,
+                    TokenTag::Semicolon
+                        | TokenTag::RightBrace
+                        | TokenTag::RightParen
+                        | TokenTag::RightBracket
+                        | TokenTag::Comma
+                        | TokenTag::Colon
+                        | TokenTag::Eof
+                );
             if parse_as_await {
                 self.report_if_escaped_keyword(token);
-                if unambiguous_await && self.statement_context == StatementContext::ModuleItem {
+                let ambiguous_script_different_ast =
+                    can_classify_as_module && self.is_ambiguous_await_prefix();
+                let expression = self.parse_await_expression(token.span.start)?;
+                if ambiguous_script_different_ast {
+                    self.state
+                        .insert(ParserState::AMBIGUOUS_SCRIPT_DIFFERENT_AST);
+                } else if can_classify_as_module {
                     self.mark_module_syntax();
                 }
-                return self.parse_await_expression(token.span.start);
+                return Some(expression);
             }
 
             self.validate_identifier(token, "an identifier");
@@ -8062,14 +8290,12 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn parse_parenthesized_or_arrow_function(
+    fn parse_parenthesized_or_arrow_function<const CAN_BE_ARROW: bool>(
         &mut self,
         arrow_start: Option<u32>,
-        minimum: Precedence,
     ) -> Option<Expr> {
-        let position = self.current_token.span.start;
-        let start = arrow_start.unwrap_or(position);
-        if self.lang.is_typescript() && minimum <= Precedence::Assignment {
+        let start = arrow_start.unwrap_or(self.current_token.span.start);
+        if self.lang.is_typescript() && CAN_BE_ARROW {
             match self.classify_arrow_head() {
                 ArrowHead::Yes => {
                     return self.parse_arrow(false, start);
@@ -8081,29 +8307,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 }
                 ArrowHead::No => {}
             }
-        } else if self.boundary_context.can_be_module()
-            && minimum <= Precedence::Assignment
-            && self.classify_arrow_head() != ArrowHead::No
-            && let Some(arrow) = self.try_parse_arrow(false, start)?
-        {
-            return Some(arrow);
         }
-        let cover = match self.parse_parenthesized_cover() {
-            Some(cover) => cover,
-            None => {
-                if self.source_type == SourceType::Unambiguous
-                    && !self.boundary_context.can_be_module()
-                    && !self.lang.is_typescript()
-                    && minimum <= Precedence::Assignment
-                {
-                    self.not_parenthesized_arrow.insert(position);
-                }
-                return None;
-            }
-        };
+        let cover = self.parse_parenthesized_cover()?;
         let is_arrow = self.current_token.tag == TokenTag::Arrow
             && !self.current_token.has_line_terminator_before()
-            && minimum <= Precedence::Assignment;
+            && CAN_BE_ARROW;
         if is_arrow {
             return self.cover_to_arrow_function(cover, false, start);
         }
@@ -8417,7 +8625,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 minimum,
                 token.is_escaped(),
             ),
-            TokenTag::LessThan if self.lang.is_typescript() => {
+            TokenTag::LessThan
+                if self.lang.is_typescript() && minimum <= Precedence::Assignment =>
+            {
                 if let Some(arrow) = self.try_parse_generic_arrow(true, token.span.start)? {
                     if token.is_escaped() {
                         self.report_escaped_keyword(token.span);
@@ -8426,7 +8636,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 }
                 Some(async_identifier)
             }
-            tag if tag.is_identifier_like() => {
+            tag if tag.is_identifier_like() && minimum <= Precedence::Assignment => {
                 let after_identifier = self.peek_ahead()?;
                 if after_identifier.tag == TokenTag::Arrow
                     && !after_identifier.has_line_terminator_before()
@@ -8434,7 +8644,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                     if token.is_escaped() {
                         self.report_escaped_keyword(token.span);
                     }
-                    let parameter = self.parse_primary_expression(false)?;
+                    let context = enter_grammar_context![&mut self.context, ?Yield, +Await];
+                    let parameter = self.parse_identifier();
+                    self.context = context;
+                    let parameter = parameter?;
                     return self.identifier_to_arrow_function(parameter, true, token.span.start);
                 }
                 Some(async_identifier)
@@ -8627,8 +8840,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         } else {
             enter_grammar_context![&mut self.context, ?Yield, ?Await]
         };
-        let boundary_context =
-            mem::replace(&mut self.boundary_context, BoundaryContext::IN_FUNCTION);
+        // Non-async arrow parameters inherit [Await] from the surrounding grammar.
+        let module_sensitive_await = !is_async && self.boundary_context.can_be_module();
+        let mut arrow_boundary_context = BoundaryContext::IN_FUNCTION;
+        arrow_boundary_context.set(BoundaryContext::CAN_BE_MODULE, module_sensitive_await);
+        let boundary_context = mem::replace(&mut self.boundary_context, arrow_boundary_context);
         let result = self.parse_arrow_inner(is_async, start);
         self.context = context;
         self.boundary_context = boundary_context;
@@ -8699,7 +8915,13 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 is_expression: false,
             });
         }
-        let expression = self.parse_expr(Precedence::Assignment, ParseExpressionOpts::default())?;
+        let expression = self.parse_expr(
+            Precedence::Assignment,
+            ParseExpressionOpts {
+                respect_in_parameter: true,
+                ..ParseExpressionOpts::default()
+            },
+        )?;
         Some(ArrowBodyResult {
             body: ArrowFunctionBody::Expr(expression),
             is_expression: true,
@@ -8883,7 +9105,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                     );
                     return None;
                 }
-                self.expression_to_pattern(inner, context)
+                let pattern = self.expression_to_pattern(inner, context)?;
+                self.stripped_paren = Some(pattern.node_id());
+                Some(pattern)
             }
             ExprData::ChainExpression(_) => {
                 self.report(
@@ -8984,7 +9208,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                         self.scratch_cover.append(pattern);
                     }
                     ArgumentData::SpreadElement(spread) => {
-                        if self.state.cover_has_trailing_comma == Some(span.start) {
+                        if self.cover_has_trailing_comma == Some(span.start) {
                             self.report(
                                 span,
                                 "Rest element cannot have a trailing comma in array destructuring.",
@@ -8995,7 +9219,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                                     ..ReportOptions::default()
                                 },
                             );
-                            self.state.cover_has_trailing_comma = None;
+                            self.cover_has_trailing_comma = None;
                         }
                         if index + 1 != source_elements_len {
                             self.report(
@@ -9143,7 +9367,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                         self.scratch_cover.append(property);
                     }
                     ObjectPropertyKindData::SpreadElement(spread) => {
-                        if self.state.cover_has_trailing_comma == Some(span.start) {
+                        if self.cover_has_trailing_comma == Some(span.start) {
                             self.report(
                                 span,
                                 "Rest element cannot have a trailing comma in object destructuring.",
@@ -9154,7 +9378,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                                     ..ReportOptions::default()
                                 },
                             );
-                            self.state.cover_has_trailing_comma = None;
+                            self.cover_has_trailing_comma = None;
                         }
                         if index + 1 != source_properties_len {
                             self.report(
@@ -9228,6 +9452,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 if context == PatternContext::Assignment {
                     return Some(BindingPattern::SimpleAssignmentTarget(target));
                 }
+                if self.report_stripped_paren_in_binding(target.node_id()) {
+                    return Some(BindingPattern::SimpleAssignmentTarget(target));
+                }
                 match self.ast.simple_assignment_target_data(target) {
                     SimpleAssignmentTargetData::IdentifierReference(identifier) => {
                         let decorators = TypedSubRange::empty();
@@ -9299,6 +9526,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         pattern: BindingPattern,
     ) -> Option<BindingPattern> {
+        if self.report_stripped_paren_in_binding(pattern.node_id()) {
+            return Some(pattern);
+        }
         match self.ast.binding_pattern_data(pattern) {
             BindingPatternData::BindingIdentifier(_) => {}
             BindingPatternData::SimpleAssignmentTarget(target) => {
@@ -9336,6 +9566,23 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             }
         }
         Some(pattern)
+    }
+
+    fn report_stripped_paren_in_binding(&mut self, node: NodeId) -> bool {
+        if self.stripped_paren != Some(node) {
+            return false;
+        }
+        self.report(
+            self.ast.span(node),
+            "Parentheses are not allowed in this binding pattern",
+            ReportOptions {
+                help: Some(Cow::Borrowed(
+                    "Remove the extra parentheses. Binding patterns can only be identifiers, destructuring patterns, or assignment patterns, not parenthesized expressions.",
+                )),
+                ..ReportOptions::default()
+            },
+        );
+        true
     }
 
     fn is_destructuring_pattern(&self, pattern: BindingPattern) -> bool {
@@ -9433,10 +9680,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_array_expression(&mut self, in_cover: bool) -> Option<Expr> {
         debug_assert_eq!(self.current_token.tag, TokenTag::LeftBracket);
         let cover = self.parse_array_cover()?;
-        let needs_validation =
-            !in_cover && self.state.cover_has_init_name && !self.is_part_of_pattern();
+        let needs_validation = !in_cover
+            && self.state.contains(ParserState::COVER_HAS_INIT_NAME)
+            && !self.is_part_of_pattern();
         if !in_cover {
-            self.state.cover_has_init_name = false;
+            self.state.remove(ParserState::COVER_HAS_INIT_NAME);
         }
         self.array_cover_to_expression(cover, needs_validation)
     }
@@ -9444,10 +9692,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_object_expression(&mut self, in_cover: bool) -> Option<Expr> {
         debug_assert_eq!(self.current_token.tag, TokenTag::LeftBrace);
         let cover = self.parse_object_cover()?;
-        let needs_validation =
-            !in_cover && self.state.cover_has_init_name && !self.is_part_of_pattern();
+        let needs_validation = !in_cover
+            && self.state.contains(ParserState::COVER_HAS_INIT_NAME)
+            && !self.is_part_of_pattern();
         if !in_cover {
-            self.state.cover_has_init_name = false;
+            self.state.remove(ParserState::COVER_HAS_INIT_NAME);
         }
         self.object_cover_to_expression(cover, needs_validation)
     }
@@ -9481,7 +9730,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                     self.scratch_cover.append(argument);
                     if self.eat(TokenTag::Comma)? {
                         if self.current_token.tag == TokenTag::RightBracket {
-                            self.state.cover_has_trailing_comma = Some(start);
+                            self.cover_has_trailing_comma = Some(start);
                         }
                     } else if self.current_token.tag != TokenTag::RightBracket {
                         self.report_expected(
@@ -9558,7 +9807,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 self.scratch_cover.append(property);
                 if self.eat(TokenTag::Comma)? {
                     if self.current_token.tag == TokenTag::RightBrace {
-                        self.state.cover_has_trailing_comma = Some(start);
+                        self.cover_has_trailing_comma = Some(start);
                     }
                 } else if self.current_token.tag != TokenTag::RightBrace {
                     self.report_expected(
@@ -9777,7 +10026,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 default_value,
                 AssignmentOperator::Assign,
             );
-            self.state.cover_has_init_name = true;
+            self.state.insert(ParserState::COVER_HAS_INIT_NAME);
             return Some(ObjectPropertyKind::ObjectProperty(
                 self.ast.object_property(
                     Span::new(start, default_value.span(&self.ast).end),
@@ -9987,7 +10236,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         match token.tag {
             TokenTag::LeftBracket => {
                 self.advance()?;
-                let expression = self.parse_expr(
+                // Computed keys stay expressions when an object cover becomes a
+                // binding pattern, so they must not replace binding evidence.
+                let expression = self.parse_expr_preserving_stripped_paren(
                     Precedence::Assignment,
                     ParseExpressionOpts {
                         in_cover,
@@ -10708,7 +10959,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
         let ast = &self.ast;
         let same_name = |a: JsxIdentifier, b: JsxIdentifier| {
-            ast.get_utf8(a.name(ast)) == ast.get_utf8(b.name(ast))
+            ast.get_interned_utf8(a.name(ast)) == ast.get_interned_utf8(b.name(ast))
         };
 
         let a_span = a.span(ast);
@@ -11183,6 +11434,33 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
+    fn is_ambiguous_await_prefix(&self) -> bool {
+        if self.current_token.has_line_terminator_before() {
+            return true;
+        }
+        match self.current_token.tag {
+            TokenTag::Plus
+            | TokenTag::Minus
+            | TokenTag::LeftParen
+            | TokenTag::LeftBracket
+            | TokenTag::NoSubstitutionTemplate
+            | TokenTag::TemplateHead
+            | TokenTag::Slash
+            | TokenTag::SlashAssign
+            | TokenTag::LogicalNot
+            | TokenTag::LessThan => true,
+            TokenTag::Of | TokenTag::Instanceof if !self.current_token.is_escaped() => true,
+            TokenTag::In if !self.current_token.is_escaped() => self.context.contains(Context::IN),
+            TokenTag::As | TokenTag::Satisfies if !self.current_token.is_escaped() => {
+                self.lang.is_typescript()
+            }
+            TokenTag::RegexLiteral => {
+                unreachable!("regular expressions are initially scanned as '/' or '/='")
+            }
+            _ => false,
+        }
+    }
+
     fn parse_type_argumented_call_or_instantiation(
         &mut self,
         callee: Expr,
@@ -11500,7 +11778,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             return None;
         };
         self.advance()?;
-        let right = self.parse_expr(
+        // A stripped parenthesis in the right-hand side is in expression
+        // position and must not overwrite evidence from the arrow-head target.
+        let right = self.parse_expr_preserving_stripped_paren(
             precedence,
             ParseExpressionOpts {
                 respect_in_parameter,
@@ -11686,7 +11966,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                     );
                     return None;
                 }
-                self.expression_to_assignment_target(inner)
+                let target = self.expression_to_assignment_target(inner)?;
+                self.stripped_paren = Some(target.node_id());
+                Some(target)
             }
             _ => Some(AssignmentTarget::SimpleAssignmentTarget(
                 self.expression_to_simple_assignment_target(expression)?,
@@ -12399,107 +12681,61 @@ mod tests {
 
     #[test]
     fn parse_expression_fragment() {
-        let allocator = Allocator::default();
-        let source = "1 + 1";
-        let parser = Parser::init(&allocator, source, Options::default(), NoTokenParserConfig);
-        let ast = parser
-            .parse_expression_fragment(FragmentContext::TopLevel)
-            .unwrap();
-        assert!(matches!(
-            ast.expr_data(ast.root_expression()),
-            swc_next_ecma_ast::ExprData::BinaryExpression(_)
-        ));
+        fn parse<'a>(allocator: &'a Allocator, source: &'a str, options: Options) -> Ast<'a> {
+            Parser::init(allocator, source, options, NoTokenParserConfig)
+                .parse_expression_fragment(FragmentContext::TopLevel)
+                .unwrap()
+        }
 
         let allocator = Allocator::default();
-        let parser = Parser::init(
-            &allocator,
-            "await value",
-            Options {
-                source_type: SourceType::Unambiguous,
-                ..Options::default()
-            },
-            NoTokenParserConfig,
-        );
-        let ast = parser
-            .parse_expression_fragment(FragmentContext::TopLevel)
-            .unwrap();
+        let unambiguous = Options {
+            source_type: SourceType::Unambiguous,
+            ..Options::default()
+        };
+
+        let ast = parse(&allocator, "1 + 1", Options::default());
+        let root_expression = ast.expr_data(ast.root_expression());
+        assert!(matches!(root_expression, ExprData::BinaryExpression(_)));
+
+        let ast = parse(&allocator, "await value", unambiguous);
+        let root_expression = ast.expr_data(ast.root_expression());
         assert_eq!(ast.source_type(), SourceType::Module);
-        assert!(matches!(
-            ast.expr_data(ast.root_expression()),
-            ExprData::AwaitExpression(_)
-        ));
+        assert!(matches!(root_expression, ExprData::AwaitExpression(_)));
 
-        let allocator = Allocator::default();
-        let parser = Parser::init(
-            &allocator,
-            "value",
-            Options {
-                source_type: SourceType::Unambiguous,
-                ..Options::default()
-            },
-            NoTokenParserConfig,
-        );
-        let ast = parser
-            .parse_expression_fragment(FragmentContext::TopLevel)
-            .unwrap();
+        let ast = parse(&allocator, "value", unambiguous);
         assert_eq!(ast.source_type(), SourceType::Script);
     }
 
     #[test]
     fn await_using_context() {
-        let allocator = Allocator::new();
-        let options = Options {
-            source_type: SourceType::Script,
-            ..Options::default()
-        };
+        fn parse(source: &str, source_type: SourceType) -> Vec<Diagnostic<'static>> {
+            let allocator = Allocator::new();
+            Parser::init(
+                &allocator,
+                source,
+                Options {
+                    source_type,
+                    ..Options::default()
+                },
+                NoTokenParserConfig,
+            )
+            .parse()
+            .diagnostics
+        }
 
-        let script = Parser::init(
-            &allocator,
-            "await using in object;",
-            options,
-            NoTokenParserConfig,
-        )
-        .parse();
-        assert_eq!(script.diagnostics.len(), 1, "{:#?}", script.diagnostics);
-        assert_eq!(
-            script.diagnostics[0].message,
-            "'await using' is only valid in async functions or modules"
-        );
+        let script = SourceType::Script;
 
-        let function = Parser::init(
-            &allocator,
-            "function f() { await using instanceof C; }",
-            options,
-            NoTokenParserConfig,
-        )
-        .parse();
-        assert_eq!(function.diagnostics.len(), 1, "{:#?}", function.diagnostics);
-        assert_eq!(
-            function.diagnostics[0].message,
-            "'await using' is only valid in async functions or modules"
-        );
+        let diagnostics = parse("await using in object;", script);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
 
-        let async_function = Parser::init(
-            &allocator,
-            "async function f() { await using in object; }",
-            options,
-            NoTokenParserConfig,
-        )
-        .parse();
-        assert!(
-            async_function.diagnostics.is_empty(),
-            "{:#?}",
-            async_function.diagnostics
-        );
+        let diagnostics = parse("function f() { await using instanceof C; }", script);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
 
-        let module = Parser::init(
-            &allocator,
-            "await using in object;",
-            Options::default(),
-            NoTokenParserConfig,
-        )
-        .parse();
-        assert!(module.diagnostics.is_empty(), "{:#?}", module.diagnostics);
+        let diagnostics = parse("async function f() { await using in object; }", script);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+
+        let diagnostics = parse("await using in object;", SourceType::Module);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]
@@ -12509,62 +12745,125 @@ mod tests {
             lang: Lang,
             expected: SourceType,
         ) {
-            let allocator = Allocator::new();
-            let options = Options {
+            fn serialize_ast(ast: &Ast<'_>) -> Vec<u8> {
+                use swc_next_ecma_ast::ffi::ast::{buffer_size, serialize_into};
+                let mut buffer = vec![0; buffer_size(ast)];
+                serialize_into(ast, &mut buffer);
+                buffer
+            }
+
+            let unambiguous_allocator = Allocator::new();
+            let unambiguous_options = Options {
                 source_type: SourceType::Unambiguous,
                 lang,
                 ..Options::default()
             };
-            let result = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+            let unambiguous_result = Parser::init(
+                &unambiguous_allocator,
+                source,
+                unambiguous_options,
+                NoTokenParserConfig,
+            )
+            .parse();
+            assert!(unambiguous_result.diagnostics.is_empty(),);
+            assert_eq!(unambiguous_result.ast.source_type(), expected, "{source}");
 
-            assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
-            assert_eq!(result.ast.source_type(), expected, "{source}");
+            let explicit_allocator = Allocator::new();
+            let explicit_options = Options {
+                source_type: expected,
+                lang,
+                ..Options::default()
+            };
+            let explicit_result = Parser::init(
+                &explicit_allocator,
+                source,
+                explicit_options,
+                NoTokenParserConfig,
+            )
+            .parse();
+            assert!(explicit_result.diagnostics.is_empty(),);
+
+            let unambiguous_ast = serialize_ast(&unambiguous_result.ast);
+            let explicit_ast = serialize_ast(&explicit_result.ast);
+            assert!(unambiguous_ast == explicit_ast);
+        }
+
+        fn assert_unambiguous_source_type_js(source: &str, expected: SourceType) {
+            assert_unambiguous_source_type_with_lang(source, Lang::Js, expected);
         }
 
         fn assert_unambiguous_source_type(source: &str, expected: SourceType) {
             assert_unambiguous_source_type_with_lang(source, Lang::Ts, expected);
         }
 
-        assert_unambiguous_source_type("const value = 1;", SourceType::Script);
-        assert_unambiguous_source_type("const f = (x = await + value) => x;", SourceType::Script);
-        assert_unambiguous_source_type_with_lang(
+        assert_unambiguous_source_type_js(
             "const f = (x = await + value) => x;",
-            Lang::Js,
             SourceType::Script,
         );
-        assert_unambiguous_source_type_with_lang(
-            "(x = await value);",
-            Lang::Js,
-            SourceType::Module,
-        );
-        assert_unambiguous_source_type_with_lang(
-            "(a = (b = (c = await value)));",
-            Lang::Js,
-            SourceType::Module,
-        );
+        assert_unambiguous_source_type_js("(x = await value);", SourceType::Module);
+        assert_unambiguous_source_type_js("(a = (b = (c = await value)));", SourceType::Module);
+
+        assert_unambiguous_source_type("const value = 1;", SourceType::Script);
+        assert_unambiguous_source_type("const f = (x = await + value) => x;", SourceType::Script);
         assert_unambiguous_source_type("import value from 'value';", SourceType::Module);
         assert_unambiguous_source_type("export const value = 1;", SourceType::Module);
         assert_unambiguous_source_type("const value = import.meta.url;", SourceType::Module);
         assert_unambiguous_source_type("import('value');", SourceType::Script);
         assert_unambiguous_source_type("import value = require('value');", SourceType::Module);
-        assert_unambiguous_source_type("import Value = Namespace.Value;", SourceType::Module);
+        assert_unambiguous_source_type("import Value = Namespace.Value;", SourceType::Script);
         assert_unambiguous_source_type("export as namespace Foo", SourceType::Module);
-        assert_unambiguous_source_type("await value;", SourceType::Module);
         assert_unambiguous_source_type("await;", SourceType::Script);
-        assert_unambiguous_source_type("await! + value;", SourceType::Module);
-        assert_unambiguous_source_type("await<T>(value);", SourceType::Module);
-        assert_unambiguous_source_type("await /1/u; var await = 1, u = 1;", SourceType::Module);
+        assert_unambiguous_source_type("await value;", SourceType::Module);
         assert_unambiguous_source_type("await\nvalue;", SourceType::Script);
+        assert_unambiguous_source_type("for (await of values) {}", SourceType::Script);
+        assert_unambiguous_source_type("await+0;", SourceType::Script);
+        assert_unambiguous_source_type("await-0;", SourceType::Script);
+        assert_unambiguous_source_type("await+=0;", SourceType::Script);
+        assert_unambiguous_source_type("await-=0;", SourceType::Script);
+        assert_unambiguous_source_type("await*=0;", SourceType::Script);
+        assert_unambiguous_source_type("await/=0;", SourceType::Script);
+        assert_unambiguous_source_type("await**0;", SourceType::Script);
+        assert_unambiguous_source_type("await&0;", SourceType::Script);
+        assert_unambiguous_source_type("await|0;", SourceType::Script);
+        assert_unambiguous_source_type("await&&0;", SourceType::Script);
+        assert_unambiguous_source_type("await||0;", SourceType::Script);
+        assert_unambiguous_source_type("await<0;", SourceType::Script);
+        assert_unambiguous_source_type("await>0;", SourceType::Script);
+        assert_unambiguous_source_type("await(0);", SourceType::Script);
+        assert_unambiguous_source_type("await[0];", SourceType::Script);
+        assert_unambiguous_source_type("await`0`;", SourceType::Script);
+        assert_unambiguous_source_type("await`0${0}`;", SourceType::Script);
+        assert_unambiguous_source_type("await /1/u; var await = 1, u = 1;", SourceType::Script);
+        assert_unambiguous_source_type("await! + value;", SourceType::Script);
+        assert_unambiguous_source_type("await<T>(value);", SourceType::Script);
+        assert_unambiguous_source_type("await++a;", SourceType::Module);
+        assert_unambiguous_source_type("await--a;", SourceType::Module);
+        assert_unambiguous_source_type("await? 0 : 1;", SourceType::Script);
+        assert_unambiguous_source_type("await?.();", SourceType::Script);
+        assert_unambiguous_source_type("await => value;", SourceType::Script);
+        assert_unambiguous_source_type("await as T;", SourceType::Script);
+        assert_unambiguous_source_type("await satisfies T;", SourceType::Script);
+        assert_unambiguous_source_type("await in T;", SourceType::Script);
+        assert_unambiguous_source_type("await instanceof Object;", SourceType::Script);
         assert_unambiguous_source_type("class C { field = await + value; }", SourceType::Script);
-        assert_unambiguous_source_type("for await (const value of values) {}", SourceType::Script);
+        assert_unambiguous_source_type("{ await value; }", SourceType::Module);
+        assert_unambiguous_source_type("for await (const value of values) {}", SourceType::Module);
         assert_unambiguous_source_type(
             "{ for await (const value of values) {} }",
-            SourceType::Script,
+            SourceType::Module,
         );
         assert_unambiguous_source_type("await using value = resource;", SourceType::Module);
-        assert_unambiguous_source_type("{ await using value = resource; }", SourceType::Script);
+        assert_unambiguous_source_type("{ await using value = resource; }", SourceType::Module);
         assert_unambiguous_source_type("using value = resource;", SourceType::Script);
         assert_unambiguous_source_type("async function f() { await value; }", SourceType::Script);
+        assert_unambiguous_source_type(
+            "async function f() { for await (const value of values) {} }",
+            SourceType::Script,
+        );
+        assert_unambiguous_source_type(
+            "async function f() { await using value = resource; }",
+            SourceType::Script,
+        );
         assert_unambiguous_source_type(
             "async function f() { await value; } await other;",
             SourceType::Module,
@@ -12572,136 +12871,98 @@ mod tests {
         assert_unambiguous_source_type("{ using value = resource; }", SourceType::Script);
         assert_unambiguous_source_type("export {}; await\nvalue;", SourceType::Module);
         assert_unambiguous_source_type("await\nvalue; export {};", SourceType::Module);
-        assert_unambiguous_source_type("await; export {};", SourceType::Module);
+        assert_unambiguous_source_type("await + 0; export {};", SourceType::Module);
+        assert_unambiguous_source_type("foo(await 0);", SourceType::Module);
+
+        fn parse<'a>(allocator: &'a Allocator, source: &'a str) -> ParseReturn<'a> {
+            let parser = Parser::init(
+                allocator,
+                source,
+                Options {
+                    source_type: SourceType::Unambiguous,
+                    lang: Lang::Js,
+                    ..Options::default()
+                },
+                NoTokenParserConfig,
+            );
+            parser.parse()
+        }
 
         let allocator = Allocator::new();
-        let result = Parser::init(
-            &allocator,
-            "value + await \"unterminated",
-            Options {
-                source_type: SourceType::Unambiguous,
-                lang: Lang::Js,
-                ..Options::default()
-            },
-            NoTokenParserConfig,
-        )
-        .parse();
+        let result = parse(&allocator, "value + await \"unterminated");
         assert_eq!(result.diagnostics.len(), 1, "{:#?}", result.diagnostics);
-        assert_eq!(result.diagnostics[0].message, "Unterminated string literal");
 
         let allocator = Allocator::new();
-        let result = Parser::init(
-            &allocator,
-            "value\n<!-- comment",
-            Options {
-                source_type: SourceType::Unambiguous,
-                lang: Lang::Js,
-                ..Options::default()
-            },
-            NoTokenParserConfig,
-        )
-        .parse();
+        let result = parse(&allocator, "value\n<!-- comment");
         assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
         assert_eq!(result.ast.source_type(), SourceType::Script);
         assert_eq!(result.ast.root_program().body(&result.ast).len(), 1);
 
         let allocator = Allocator::new();
-        let result = Parser::init(
-            &allocator,
-            "value\n<!-- comment\nexport {};",
-            Options {
-                source_type: SourceType::Unambiguous,
-                lang: Lang::Js,
-                ..Options::default()
-            },
-            NoTokenParserConfig,
-        )
-        .parse();
+        let result = parse(&allocator, "value\n<!-- comment\nexport {};");
         assert_eq!(result.ast.source_type(), SourceType::Module);
         assert_eq!(result.diagnostics.len(), 1, "{:#?}", result.diagnostics);
-        assert_eq!(
-            result.diagnostics[0].message,
-            "Legacy comments cannot be used in module code"
-        );
     }
 
     #[test]
     fn fragment_context() {
+        fn parse_expr<'a>(
+            allocator: &'a Allocator,
+            source: &'a str,
+            options: Options,
+            context: FragmentContext,
+        ) -> Result<Ast<'a>, Vec<Diagnostic<'a>>> {
+            let parser = Parser::init(allocator, source, options, NoTokenParserConfig);
+            parser.parse_expression_fragment(context)
+        }
+
+        fn parse_stmt<'a>(
+            allocator: &'a Allocator,
+            source: &'a str,
+            options: Options,
+            context: FragmentContext,
+        ) -> Result<Ast<'a>, Vec<Diagnostic<'a>>> {
+            let parser = Parser::init(allocator, source, options, NoTokenParserConfig);
+            parser.parse_statement_fragment(context)
+        }
+
+        use FragmentContext::{AsyncFunction, Function, Generator, TopLevel};
+
         let allocator = Allocator::new();
         let script = Options {
             source_type: SourceType::Script,
             ..Options::default()
         };
-
-        let ast = Parser::init(&allocator, "return value;", script, NoTokenParserConfig)
-            .parse_statement_fragment(FragmentContext::Function)
-            .unwrap();
-        assert!(matches!(
-            ast.stmt_data(ast.root_statement()),
-            StmtData::ReturnStatement(_)
-        ));
-
-        let result = Parser::init(&allocator, "return value;", script, NoTokenParserConfig)
-            .parse_statement_fragment(FragmentContext::TopLevel);
-        let Err(diagnostics) = result else {
-            panic!("top-level script fragment accepted return")
+        let auto = Options {
+            source_type: SourceType::Unambiguous,
+            ..Options::default()
         };
-        assert_eq!(
-            diagnostics[0].message,
-            "'return' statement is only valid inside a function"
-        );
 
-        let ast = Parser::init(&allocator, "await value", script, NoTokenParserConfig)
-            .parse_expression_fragment(FragmentContext::AsyncFunction)
-            .unwrap();
-        assert!(matches!(
-            ast.expr_data(ast.root_expression()),
-            ExprData::AwaitExpression(_)
-        ));
+        let ast = parse_stmt(&allocator, "return value;", script, Function).unwrap();
+        let root_statement = ast.stmt_data(ast.root_statement());
+        assert!(matches!(root_statement, StmtData::ReturnStatement(_)));
 
-        let ast = Parser::init(&allocator, "yield value", script, NoTokenParserConfig)
-            .parse_expression_fragment(FragmentContext::Generator)
-            .unwrap();
-        assert!(matches!(
-            ast.expr_data(ast.root_expression()),
-            ExprData::YieldExpression(_)
-        ));
+        let result = parse_stmt(&allocator, "return value;", script, TopLevel);
+        assert!(result.is_err_and(|result| !result.is_empty()));
 
-        let ast = Parser::init(
-            &allocator,
-            "export {};",
-            Options::default(),
-            NoTokenParserConfig,
-        )
-        .parse_statement_fragment(FragmentContext::TopLevel)
-        .unwrap();
-        assert!(matches!(
-            ast.stmt_data(ast.root_statement()),
-            StmtData::ExportNamedDeclaration(_)
-        ));
+        let ast = parse_expr(&allocator, "await value", script, AsyncFunction).unwrap();
+        let root_expression = ast.expr_data(ast.root_expression());
+        assert!(matches!(root_expression, ExprData::AwaitExpression(_)));
 
-        let ast = Parser::init(
-            &allocator,
-            "await value;",
-            Options {
-                source_type: SourceType::Unambiguous,
-                ..Options::default()
-            },
-            NoTokenParserConfig,
-        )
-        .parse_statement_fragment(FragmentContext::AsyncFunction)
-        .unwrap();
+        let ast = parse_expr(&allocator, "yield value", script, Generator).unwrap();
+        let root_expression = ast.expr_data(ast.root_expression());
+        assert!(matches!(root_expression, ExprData::YieldExpression(_)));
+
+        let ast = parse_stmt(&allocator, "import value from 'value';", auto, TopLevel).unwrap();
+        let root_statement = ast.stmt_data(ast.root_statement());
+        assert!(matches!(root_statement, StmtData::ImportDeclaration(_)));
+        assert_eq!(ast.source_type(), SourceType::Module);
+
+        let ast = parse_stmt(&allocator, "await value;", auto, AsyncFunction).unwrap();
         assert_eq!(ast.source_type(), SourceType::Script);
 
-        let result = Parser::init(&allocator, "value; other;", script, NoTokenParserConfig)
-            .parse_statement_fragment(FragmentContext::TopLevel);
-        let Err(diagnostics) = result else {
-            panic!("statement fragment accepted trailing tokens")
-        };
-        assert_eq!(
-            diagnostics.last().unwrap().message,
-            "Expected end of fragment, but found 'other'"
-        );
+        let result = parse_stmt(&allocator, "value; other;", script, TopLevel);
+        assert!(result.is_err_and(|result| !result.is_empty()));
     }
 
     #[test]

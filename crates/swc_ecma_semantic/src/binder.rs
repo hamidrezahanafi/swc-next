@@ -3,7 +3,7 @@ use std::hash::BuildHasher;
 use oxc_index::Idx;
 use swc_next_allocator::{Allocator, CloneIn, vec::Vec as ArenaVec};
 use swc_next_ecma_ast::{
-    Ast, AstUtf8, AstWtf8, BindingIdentifier, Class, ClassType, ExportNamedDeclaration,
+    Ast, AstInternedUtf8, AstWtf8, BindingIdentifier, Class, ClassType, ExportNamedDeclaration,
     ExportSpecifier, Function, FunctionType, IdentifierReference, ImportDeclaration,
     ImportOrExportKind, ImportSpecifier, JsxClosingElement, JsxElementName, JsxElementNameData,
     JsxIdentifier, JsxMemberExpressionObjectData, JsxOpeningElement, NodeId, NodeKind,
@@ -348,7 +348,7 @@ impl Excludes {
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct Reference {
-    pub name: AstUtf8,
+    pub name: AstInternedUtf8,
     /// The scope the reference appears in.
     pub scope: ScopeId,
     /// The referencing node.
@@ -1088,12 +1088,15 @@ impl<'a> SymbolTracker<'a> {
             return None;
         }
         let name = identifier.name(tree);
-        let symbol_id = self.declare(tree, name.into(), node);
+        let symbol_id = self.declare(tree, name, node);
 
         // Register a hoisting var in every block it passes through so
         // block-scoped redeclarations see it.
         if self.pending.flags.is_hoisting_var() && scope.current != self.pending.scope {
-            let name = tree.get_utf8(name).as_bytes().clone_in(self.allocator);
+            let name = tree
+                .get_interned_utf8(name)
+                .as_bytes()
+                .clone_in(self.allocator);
             for scope_id in scope.ancestors(Some(scope.current)) {
                 if scope_id == self.pending.scope {
                     break;
@@ -1179,7 +1182,8 @@ impl<'a> SymbolTracker<'a> {
             return;
         };
         let name = parameter_name.name(tree);
-        let Some(parameter) = self.own_binding(scope.current, tree.get_utf8(name).as_bytes())
+        let Some(parameter) =
+            self.own_binding(scope.current, tree.get_interned_utf8(name).as_bytes())
         else {
             return;
         };
@@ -1229,7 +1233,7 @@ impl<'a> SymbolTracker<'a> {
             excludes: Excludes::ENUM_MEMBER,
             scope: scope.current,
         };
-        self.declare(tree, name, member.node_id());
+        self.declare_wtf8(tree, name, member.node_id());
         self.pending = saved;
     }
 
@@ -1260,7 +1264,7 @@ impl<'a> SymbolTracker<'a> {
         let Some(identifier) = jsx_tag_root(tree, tree.jsx_element_name_data(name)) else {
             return;
         };
-        let text = tree.get_utf8(identifier.name(tree));
+        let text = tree.get_interned_utf8(identifier.name(tree));
         if text.as_bytes().first().is_some_and(u8::is_ascii_uppercase) {
             self.add_reference(
                 tree,
@@ -1276,15 +1280,23 @@ impl<'a> SymbolTracker<'a> {
     /// existing binding is merged. On conflict, its flags remain unchanged
     /// because the caller reports the diagnostic. Every node is still stored
     /// as a declaration for error recovery.
-    pub fn declare(&mut self, tree: &Ast, name: AstWtf8, node: NodeId) -> SymbolId {
-        let target = self.pending.scope;
+    pub fn declare(&mut self, tree: &Ast, name: AstInternedUtf8, node: NodeId) -> SymbolId {
         debug_assert!(node.index() < tree.node_count());
+        self.declare_name(name.into(), tree.get_interned_utf8(name).as_bytes(), node)
+    }
+
+    fn declare_wtf8(&mut self, tree: &Ast, name: AstWtf8, node: NodeId) -> SymbolId {
+        debug_assert!(node.index() < tree.node_count());
+        self.declare_name(name, tree.get_wtf8(name).as_bytes(), node)
+    }
+
+    fn declare_name(&mut self, name: AstWtf8, name_text: &[u8], node: NodeId) -> SymbolId {
+        let target = self.pending.scope;
 
         let mut declaration_flags = self.pending.flags;
         declaration_flags.set(SymbolFlags::EXPORTED, self.export_state.is_exported());
         declaration_flags.set(SymbolFlags::IS_DEFAULT, self.export_state.is_default());
 
-        let name_text = tree.get_wtf8(name).as_bytes();
         if self.collect_used_names {
             self.used_names.observe(name_text);
         }
@@ -1317,7 +1329,7 @@ impl<'a> SymbolTracker<'a> {
                 scope: target,
                 declaration: declaration_id,
             });
-            let key = tree.get_wtf8(name).as_bytes().clone_in(self.allocator);
+            let key = name_text.clone_in(self.allocator);
             self.scope_maps[target.index()].insert(key, new_id);
             new_id
         };
@@ -1335,7 +1347,7 @@ impl<'a> SymbolTracker<'a> {
     pub fn add_reference(
         &mut self,
         tree: &Ast,
-        name: AstUtf8,
+        name: AstInternedUtf8,
         scope: ScopeId,
         node: NodeId,
         flags: ReferenceFlags,
@@ -1351,7 +1363,8 @@ impl<'a> SymbolTracker<'a> {
             flags
         };
         if self.collect_used_names {
-            self.used_names.observe(tree.get_utf8(name).as_bytes());
+            self.used_names
+                .observe(tree.get_interned_utf8(name).as_bytes());
         }
         let id = reference_id(self.references.len());
         self.references.push(Reference {
@@ -1401,13 +1414,12 @@ impl<'a> SymbolTracker<'a> {
     }
 
     fn sync_scope_maps(&mut self, count: usize) {
-        self.scope_maps.reserve(count - self.scope_maps.len());
-        while self.scope_maps.len() < count {
+        debug_assert_eq!(self.scope_maps.len(), self.hoisting_variables.len());
+        let additional = count - self.scope_maps.len();
+        self.scope_maps.reserve(additional);
+        self.hoisting_variables.reserve(additional);
+        for _ in 0..additional {
             self.scope_maps.push(ScopeMap::new_in(self.allocator));
-        }
-        self.hoisting_variables
-            .reserve(count - self.hoisting_variables.len());
-        while self.hoisting_variables.len() < count {
             self.hoisting_variables
                 .push(ScopeMap::new_in(self.allocator));
         }
@@ -1439,13 +1451,14 @@ impl<'a> SymbolTracker<'a> {
         let node_count = tree.node_count();
         let mut node_references = ArenaVec::with_capacity_in(node_count, self.allocator);
         node_references.resize(node_count, None);
-        for (index, reference) in self.references.iter().enumerate() {
-            node_references[reference.node.index()] = Some(reference_id(index));
-        }
+
+        let mut use_ranges = ArenaVec::with_capacity_in(symbol_count, self.allocator);
+        use_ranges.resize(symbol_count, Range::default());
 
         for reference_index in 0..self.references.len() {
             let reference = self.references[reference_index];
-            let name = tree.get_utf8(reference.name).as_bytes();
+            node_references[reference.node.index()] = Some(reference_id(reference_index));
+            let name = tree.get_interned_utf8(reference.name).as_bytes();
             let hash = self.scope_maps[ScopeId::ROOT.index()]
                 .hasher()
                 .hash_one(name);
@@ -1475,6 +1488,9 @@ impl<'a> SymbolTracker<'a> {
                 }
             }
             self.references[reference_index].symbol = resolved;
+            if let Some(symbol) = resolved {
+                use_ranges[symbol.index()].len += 1;
+            }
             if reference.flags.space == ReferenceSpace::Any
                 && resolved.is_some_and(|symbol| {
                     let flags = self.symbols[symbol.index()].flags;
@@ -1499,7 +1515,7 @@ impl<'a> SymbolTracker<'a> {
                 let target_with = if let Some(symbol) = reference.symbol {
                     let scope = self.symbols[symbol.index()].scope;
                     with_ancestry[scope.index()].lexical
-                } else if tree.get_utf8(reference.name).as_bytes() == b"arguments" {
+                } else if tree.get_interned_utf8(reference.name).as_bytes() == b"arguments" {
                     reference_ancestors.arguments
                 } else {
                     None
@@ -1510,15 +1526,8 @@ impl<'a> SymbolTracker<'a> {
             }
         }
 
-        // Use index: count, prefix-sum, fill. `len` doubles as the write
-        // cursor during the fill.
-        let mut use_ranges = ArenaVec::with_capacity_in(symbol_count, self.allocator);
-        use_ranges.resize(symbol_count, Range::default());
-        for reference in &self.references {
-            if let Some(symbol) = reference.symbol {
-                use_ranges[symbol.index()].len += 1;
-            }
-        }
+        // Use index: prefix-sum and fill. Resolution counted uses above;
+        // `len` now doubles as the write cursor during the fill.
         let mut use_offset = 0u32;
         for range in &mut use_ranges {
             range.start = use_offset;
