@@ -7,6 +7,7 @@ version = "0.1.0"
 [features]
 codspeed                  = []
 hole-profile-0            = ["swc_next_ecma_ast/hole-profile-0"]
+hole-profile-hot-4        = ["swc_next_ecma_ast/hole-profile-hot-4"]
 hole-profile-hot-2        = ["swc_next_ecma_ast/hole-profile-hot-2"]
 hole-profile-expression-only = ["swc_next_ecma_ast/hole-profile-expression-only"]
 hole-profile-statement-only  = ["swc_next_ecma_ast/hole-profile-statement-only"]

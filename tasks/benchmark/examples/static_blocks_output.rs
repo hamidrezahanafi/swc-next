@@ -14,8 +14,5 @@ fn main() {
         "identifiers={}",
         static_blocks_support::count_identifier_references(&case.ast)
     );
-    print!(
-        "{}",
-        print(&allocator, &case.ast, Options::default()).code
-    );
+    print!("{}", print(&allocator, &case.ast, Options::default()).code);
 }
