@@ -159,12 +159,12 @@ fn main() -> Result<(), String> {
         preserve_parens: false,
         ..ParserOptions::default()
     };
-    let parse =
+    let mut parse =
         EcmaParser::init(&allocator, &source_text, parse_options, NoTokenParserConfig).parse();
     assert!(parse.diagnostics.is_empty());
 
     let semantic = analyze(
-        &parse.ast,
+        &mut parse.ast,
         AnalyzeOptions {
             check_syntax: true,
             ..AnalyzeOptions::default()

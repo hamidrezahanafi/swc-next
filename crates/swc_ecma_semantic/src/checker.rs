@@ -5,15 +5,15 @@ use std::{borrow::Cow, collections::HashMap};
 use swc_next_allocator::Allocator;
 use swc_next_ecma_ast::{
     ArrayPattern, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator,
-    AssignmentPattern, Ast, AstWtf8, BinaryOperator, BindingIdentifier, BindingProperty,
-    BindingRestElement, BlockStatement, CallExpression, CatchClause, Class, ClassBody, Decorator,
-    Diagnostic, Directive, ExportAllDeclaration, ExportDefaultDeclaration, ExportNamedDeclaration,
-    ExportSpecifier, ForInStatement, ForOfStatement, ForStatement, FormalParameters, Function,
-    FunctionBody, FunctionType, IdentifierReference, ImportDeclaration, ImportOrExportKind,
-    ImportSpecifier, JsxClosingElement, JsxOpeningElement, Label, MemberExpression,
-    MethodDefinition, NodeId, NodeKind, NodeKindData, ObjectPattern, ParenthesizedExpression,
-    PropertyDefinition, PropertyKey, ScopeId, Severity, Span, StaticBlock, SwitchCase,
-    SwitchStatement, SymbolId, TsArrayType, TsAsExpression, TsCallSignatureDeclaration,
+    AssignmentPattern, Ast, AstInternedUtf8, AstWtf8, BinaryOperator, BindingIdentifier,
+    BindingProperty, BindingRestElement, BlockStatement, CallExpression, CatchClause, Class,
+    ClassBody, Decorator, Diagnostic, Directive, ExportAllDeclaration, ExportDefaultDeclaration,
+    ExportNamedDeclaration, ExportSpecifier, ForInStatement, ForOfStatement, ForStatement,
+    FormalParameters, Function, FunctionBody, FunctionType, IdentifierReference, ImportDeclaration,
+    ImportOrExportKind, ImportSpecifier, JsxClosingElement, JsxOpeningElement, Label,
+    MemberExpression, MethodDefinition, NodeId, NodeKind, NodeKindData, ObjectPattern,
+    ParenthesizedExpression, PropertyDefinition, PropertyKey, ScopeId, Severity, Span, StaticBlock,
+    SwitchCase, SwitchStatement, SymbolId, TsArrayType, TsAsExpression, TsCallSignatureDeclaration,
     TsClassImplements, TsConditionalType, TsConstructSignatureDeclaration, TsConstructorType,
     TsEnumBody, TsEnumDeclaration, TsEnumMember, TsExportAssignment, TsFunction, TsFunctionType,
     TsGlobalDeclaration, TsImportEqualsDeclaration, TsImportType, TsIndexSignature,
@@ -51,17 +51,15 @@ struct CheckerState<'a> {
 
 impl<'traverse, 'a> Checker<'traverse, 'a> {
     pub fn new(
-        ast: &'traverse Ast<'a>,
+        ast: &'traverse mut Ast<'a>,
         check_syntax: bool,
         build_module_record: bool,
         features: SemanticFeatureFlags,
     ) -> Self {
+        let state = SemanticContext::init(ast, build_module_record, features);
         Self {
             checks: CheckerState::new(),
-            context: SemanticVisitCtx::new(
-                ast,
-                SemanticContext::init(ast, build_module_record, features),
-            ),
+            context: SemanticVisitCtx::new(ast, state),
             check_syntax,
             in_ts_module_name: false,
         }
@@ -161,7 +159,7 @@ fn is_direct_eval_call(tree: &Ast<'_>, call: CallExpression) -> bool {
     loop {
         callee = match tree.kind_data(callee) {
             NodeKindData::IdentifierReference(identifier) => {
-                return tree.get_interned_utf8(identifier.name(tree)).as_bytes() == b"eval";
+                return tree.get_utf8(identifier.name(tree)).as_bytes() == b"eval";
             }
             NodeKindData::ParenthesizedExpression(wrapper) => wrapper.expression(tree).node_id(),
             NodeKindData::TsAsExpression(wrapper) => wrapper.expression(tree).node_id(),
@@ -192,7 +190,7 @@ impl<'a> CheckerState<'a> {
     /// declared bindings.
     pub fn check_unresolved_exports(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &mut Ast<'a>,
         symbols: &crate::binder::SymbolTracker<'a>,
     ) {
         if !tree.is_module() {
@@ -200,10 +198,14 @@ impl<'a> CheckerState<'a> {
         }
         for index in 0..self.export_specifiers.len() {
             let specifier = &self.export_specifiers[index];
-            let binding = symbols.binding(
-                ScopeId::MODULE,
-                tree.get_wtf8(specifier.local_name).as_bytes(),
-            );
+            let local_name = tree
+                .get_wtf8(specifier.local_name)
+                .as_str()
+                .map(str::to_owned);
+            let binding = local_name
+                .as_deref()
+                .map(|name| tree.intern_utf8(name))
+                .and_then(|name| symbols.binding(ScopeId::MODULE, name));
             if binding.is_none() {
                 let local_name = tree.get_wtf8(specifier.local_name).as_bytes();
                 let message = self.fmt(format_args!(
@@ -228,7 +230,7 @@ impl<'a> CheckerState<'a> {
         existing: Symbol,
         context: &SemanticContext<'a>,
     ) {
-        let name = tree.get_interned_utf8(identifier.name(tree)).as_bytes();
+        let name = tree.get_utf8(identifier.name(tree)).as_bytes();
         let current_span = tree.span(node);
         let existing_span = tree.span(context.symbols.first_decl_of(existing_id));
         let kind = existing.flags.to_string();
@@ -313,7 +315,7 @@ fn private_element_name<'a>(tree: &'a Ast<'_>, node: NodeId) -> Option<&'a [u8]>
     let NodeKindData::PrivateIdentifier(identifier) = tree.kind_data(key) else {
         return None;
     };
-    Some(tree.get_interned_utf8(identifier.name(tree)).as_bytes())
+    Some(tree.get_utf8(identifier.name(tree)).as_bytes())
 }
 
 fn private_element_kind(tree: &Ast<'_>, node: NodeId) -> PrivateElementKind {
@@ -380,7 +382,7 @@ fn is_eval_or_arguments_reference(tree: &Ast<'_>, node: NodeId) -> bool {
     let NodeKindData::IdentifierReference(identifier) = tree.kind_data(node) else {
         return false;
     };
-    is_eval_or_arguments(tree.get_interned_utf8(identifier.name(tree)).as_bytes())
+    is_eval_or_arguments(tree.get_utf8(identifier.name(tree)).as_bytes())
 }
 
 fn unwrap_parentheses(tree: &Ast<'_>, node: NodeId) -> NodeId {
@@ -558,7 +560,7 @@ fn find_label(context: &SemanticVisitCtx<'_, '_>, name: &[u8]) -> LabelSearch {
             NodeKindData::LabeledStatement(statement) => {
                 let label = context
                     .ast
-                    .get_interned_utf8(statement.label(context.ast).name(context.ast))
+                    .get_utf8(statement.label(context.ast).name(context.ast))
                     .as_bytes();
                 if label == name {
                     return if crossed_boundary {
@@ -593,7 +595,7 @@ fn find_label_for_continue(context: &SemanticVisitCtx<'_, '_>, name: &[u8]) -> C
             NodeKindData::LabeledStatement(statement) => {
                 let label = context
                     .ast
-                    .get_interned_utf8(statement.label(context.ast).name(context.ast))
+                    .get_utf8(statement.label(context.ast).name(context.ast))
                     .as_bytes();
                 if label == name {
                     if crossed_boundary {
@@ -725,6 +727,16 @@ impl Default for ReportOptions<'_> {
 }
 
 impl Checker<'_, '_> {
+    fn record_private_key(&mut self, key: PropertyKey) {
+        let Some(private) = key.as_private_identifier(self.context.ast) else {
+            return;
+        };
+        let name = private.name(self.context.ast);
+        let context = &mut self.context;
+        let name = context.state.symbols.canonicalize_name(context.ast, name);
+        context.state.class.record_private_name(name);
+    }
+
     fn check(&mut self, node: NodeId) {
         let checks = &mut self.checks;
         let context = &mut self.context;
@@ -809,7 +821,7 @@ impl Checker<'_, '_> {
                 let node_id = identifier.node_id();
                 let name = context
                     .ast
-                    .get_interned_utf8(identifier.name(context.ast))
+                    .get_utf8(identifier.name(context.ast))
                     .as_bytes();
                 checks.check_strict_reserved(name, node_id, context, "an identifier");
                 if name == b"arguments" && !is_arguments_available(context) {
@@ -822,10 +834,11 @@ impl Checker<'_, '_> {
             }
             NodeKindData::BindingIdentifier(identifier) => {
                 let node_id = identifier.node_id();
-                let name = context
-                    .ast
-                    .get_interned_utf8(identifier.name(context.ast))
-                    .as_bytes();
+                let name_id = context
+                    .state
+                    .symbols
+                    .canonicalize_name(context.ast, identifier.name(context.ast));
+                let name = context.ast.get_interned_utf8(name_id).as_bytes();
                 let flags = context.state.symbols.pending.flags;
                 if context.state.in_type_position() && !flags.contains(SymbolFlags::TYPE_PARAMETER)
                 {
@@ -850,8 +863,10 @@ impl Checker<'_, '_> {
                 let existing = context
                     .state
                     .symbols
-                    .binding(context.state.symbols.pending.scope, name);
-                checks.check_redeclaration(identifier, node_id, name, flags, context, existing);
+                    .binding(context.state.symbols.pending.scope, name_id);
+                checks.check_redeclaration(
+                    identifier, node_id, name_id, name, flags, context, existing,
+                );
                 if context.state.symbols.export_state.named().is_some() {
                     let skip = existing.is_some() && context.ast.is_ts();
                     if !skip {
@@ -862,7 +877,7 @@ impl Checker<'_, '_> {
             NodeKindData::LabelIdentifier(identifier) => {
                 let name = context
                     .ast
-                    .get_interned_utf8(identifier.name(context.ast))
+                    .get_utf8(identifier.name(context.ast))
                     .as_bytes();
                 checks.check_strict_reserved(name, identifier.node_id(), context, "a label");
             }
@@ -873,7 +888,7 @@ impl Checker<'_, '_> {
                 {
                     let name = context
                         .ast
-                        .get_interned_utf8(identifier.name(context.ast))
+                        .get_utf8(identifier.name(context.ast))
                         .as_bytes();
                     if !is_private_name_declared(context, name) {
                         let message = checks.fmt(format_args!(
@@ -1005,10 +1020,7 @@ impl Checker<'_, '_> {
             }
             NodeKindData::BreakStatement(statement) => {
                 if let Some(label) = statement.label(context.ast) {
-                    let name = context
-                        .ast
-                        .get_interned_utf8(label.name(context.ast))
-                        .as_bytes();
+                    let name = context.ast.get_utf8(label.name(context.ast)).as_bytes();
                     let result = find_label(context, name);
                     if result != LabelSearch::Found {
                         let message = match result {
@@ -1043,10 +1055,7 @@ impl Checker<'_, '_> {
             }
             NodeKindData::ContinueStatement(statement) => {
                 if let Some(label) = statement.label(context.ast) {
-                    let name = context
-                        .ast
-                        .get_interned_utf8(label.name(context.ast))
-                        .as_bytes();
+                    let name = context.ast.get_utf8(label.name(context.ast)).as_bytes();
                     let result = find_label_for_continue(context, name);
                     if result != ContinueLabelSearch::Found {
                         let (message, help) = match result {
@@ -1100,7 +1109,7 @@ impl Checker<'_, '_> {
             NodeKindData::LabeledStatement(statement) => {
                 let name = context
                     .ast
-                    .get_interned_utf8(statement.label(context.ast).name(context.ast))
+                    .get_utf8(statement.label(context.ast).name(context.ast))
                     .as_bytes();
                 let duplicate = {
                     let mut ancestors = context.ancestors();
@@ -1111,7 +1120,7 @@ impl Checker<'_, '_> {
                             NodeKindData::LabeledStatement(outer) => {
                                 let outer_name = context
                                     .ast
-                                    .get_interned_utf8(outer.label(context.ast).name(context.ast))
+                                    .get_utf8(outer.label(context.ast).name(context.ast))
                                     .as_bytes();
                                 if outer_name == name {
                                     duplicate = true;
@@ -1330,7 +1339,7 @@ impl Checker<'_, '_> {
                     let name = match context.ast.kind_data(item.key(context.ast).node_id()) {
                         NodeKindData::IdentifierName(identifier) => context
                             .ast
-                            .get_interned_utf8(identifier.name(context.ast))
+                            .get_utf8(identifier.name(context.ast))
                             .as_bytes(),
                         NodeKindData::StringLiteral(string) => {
                             context.ast.get_wtf8(string.value(context.ast)).as_bytes()
@@ -1379,7 +1388,7 @@ impl Checker<'_, '_> {
                 {
                     let name = context
                         .ast
-                        .get_interned_utf8(identifier.name(context.ast))
+                        .get_utf8(identifier.name(context.ast))
                         .as_bytes();
                     if context.ast.node_kind(object) == NodeKind::Super {
                         checks.report(
@@ -1471,7 +1480,7 @@ impl Checker<'_, '_> {
             NodeKindData::MetaProperty(property) => {
                 let name = context
                     .ast
-                    .get_interned_utf8(property.meta(context.ast).name(context.ast));
+                    .get_utf8(property.meta(context.ast).name(context.ast));
                 if name == "import" && !context.ast.is_module() {
                     checks.report(
                         context.ast.span(property.node_id()),
@@ -1658,10 +1667,7 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
     #[inline]
     fn visit_property_definition(&mut self, node: PropertyDefinition) {
         self.context.enter_node(node.node_id());
-        self.context
-            .state
-            .class
-            .record_private_key(self.context.ast, node.key(self.context.ast));
+        self.record_private_key(node.key(self.context.ast));
         let decorators = node.decorators(self.context.ast);
         decorators.visit_with(self);
         let key = node.key(self.context.ast);
@@ -1682,20 +1688,14 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
     #[inline]
     fn visit_method_definition(&mut self, node: MethodDefinition) {
         self.context.enter_node(node.node_id());
-        self.context
-            .state
-            .class
-            .record_private_key(self.context.ast, node.key(self.context.ast));
+        self.record_private_key(node.key(self.context.ast));
         node.visit_children_with(self);
         self.leave_node(node.node_id());
     }
     #[inline]
     fn visit_ts_method_definition(&mut self, node: TsMethodDefinition) {
         self.context.enter_node(node.node_id());
-        self.context
-            .state
-            .class
-            .record_private_key(self.context.ast, node.key(self.context.ast));
+        self.record_private_key(node.key(self.context.ast));
         let decorators = node.decorators(self.context.ast);
         decorators.visit_with(self);
         self.visit_erased_member_key(
@@ -2646,9 +2646,10 @@ impl<'a> CheckerState<'a> {
         &mut self,
         identifier: BindingIdentifier,
         node: NodeId,
+        name_id: AstInternedUtf8,
         name: &[u8],
         flags: SymbolFlags,
-        context: &mut SemanticVisitCtx<'_, 'a>,
+        context: &SemanticVisitCtx<'_, 'a>,
         existing_id: Option<SymbolId>,
     ) {
         debug_assert!(!name.is_empty());
@@ -2734,7 +2735,7 @@ impl<'a> CheckerState<'a> {
             });
             if outer_holds_parameters
                 && let Some(outer) = outer
-                && let Some(symbol_id) = context.state.symbols.own_binding(outer, name)
+                && let Some(symbol_id) = context.state.symbols.own_binding(outer, name_id)
             {
                 let existing = context.state.symbols.symbol(symbol_id);
                 if existing
@@ -2765,7 +2766,7 @@ impl<'a> CheckerState<'a> {
                 if scope_id == target {
                     break;
                 }
-                let Some(symbol_id) = context.state.symbols.own_binding(scope_id, name) else {
+                let Some(symbol_id) = context.state.symbols.own_binding(scope_id, name_id) else {
                     continue;
                 };
                 let existing = context.state.symbols.symbol(symbol_id);
@@ -2813,7 +2814,7 @@ impl<'a> CheckerState<'a> {
         &mut self,
         name: &[u8],
         node: NodeId,
-        context: &mut SemanticVisitCtx<'_, 'a>,
+        context: &SemanticVisitCtx<'_, 'a>,
         as_what: &'static str,
     ) {
         if !context.state.scope.is_strict() {
@@ -2832,7 +2833,7 @@ impl<'a> CheckerState<'a> {
     /// Annex B.3.5, may not have an Initializer.
     fn check_for_in_of_initializer(
         &mut self,
-        context: &mut SemanticVisitCtx<'_, 'a>,
+        context: &SemanticVisitCtx<'_, 'a>,
         left: NodeId,
         is_for_in: bool,
     ) {
@@ -2882,7 +2883,7 @@ impl<'a> CheckerState<'a> {
                 if is_eval_or_arguments(
                     context
                         .ast
-                        .get_interned_utf8(identifier.name(context.ast))
+                        .get_utf8(identifier.name(context.ast))
                         .as_bytes(),
                 ) {
                     self.report(
@@ -2973,7 +2974,7 @@ impl<'a> CheckerState<'a> {
             let key_name = match context.ast.kind_data(key) {
                 NodeKindData::IdentifierName(identifier) => context
                     .ast
-                    .get_interned_utf8(identifier.name(context.ast))
+                    .get_utf8(identifier.name(context.ast))
                     .as_bytes(),
                 NodeKindData::StringLiteral(string) => {
                     context.ast.get_wtf8(string.value(context.ast)).as_bytes()
@@ -2990,7 +2991,7 @@ impl<'a> CheckerState<'a> {
                         NodeKindData::IdentifierName(identifier) => (
                             context
                                 .ast
-                                .get_interned_utf8(identifier.name(context.ast))
+                                .get_utf8(identifier.name(context.ast))
                                 .as_bytes(),
                             false,
                         ),
@@ -3031,7 +3032,7 @@ impl<'a> CheckerState<'a> {
         &mut self,
         name: &[u8],
         node: NodeId,
-        context: &mut SemanticVisitCtx<'_, 'a>,
+        context: &SemanticVisitCtx<'_, 'a>,
     ) {
         // TypeScript declarations can merge across the type and value namespaces. Duplicate
         // exports are therefore checker diagnostics rather than parser-level early errors.

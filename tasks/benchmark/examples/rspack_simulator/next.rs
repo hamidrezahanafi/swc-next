@@ -1,7 +1,7 @@
 use rustc_hash::FxHashSet;
 use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
 use swc_next_ecma_ast::{
-    Ast, AstInternedUtf8, BindingIdentifier, BreakStatement, ClassElement, ClassElementData,
+    Ast, AstUtf8, BindingIdentifier, BreakStatement, ClassElement, ClassElementData,
     ContinueStatement, DebuggerStatement, ExportAllDeclaration, ExportDefaultDeclaration,
     ExportNamedDeclaration, ExpressionStatement, GetSpan, IdentifierReference, ImportDeclaration,
     LabelIdentifier, ReturnStatement, Span, ThrowStatement, UpdateExpression, VariableDeclaration,
@@ -37,12 +37,12 @@ fn run_parse<'a>(src: &'a str, allocator: &'a Allocator) -> (Ast<'a>, ArenaVec<'
 
 #[inline(never)]
 #[allow(dead_code)]
-fn run_semantic<'a>(ast: &Ast<'a>) -> Semantic<'a> {
+fn run_semantic<'a>(ast: &mut Ast<'a>) -> Semantic<'a> {
     analyze(ast, AnalyzeOptions::default()).semantic
 }
 
 #[inline(never)]
-fn run_scan_dependencies(ast: &Ast<'_>) -> Vec<AstInternedUtf8> {
+fn run_scan_dependencies(ast: &Ast<'_>) -> Vec<AstUtf8> {
     let mut parser = JavascriptParser {
         ast,
         idents: Vec::new(),
@@ -203,7 +203,7 @@ impl<'ast> Visit<'ast> for InsertedSemicolons<'_, 'ast, '_> {
 
 struct JavascriptParser<'visit, 'ast> {
     ast: &'visit Ast<'ast>,
-    idents: Vec<AstInternedUtf8>,
+    idents: Vec<AstUtf8>,
 }
 
 impl<'ast> Visit<'ast> for JavascriptParser<'_, 'ast> {

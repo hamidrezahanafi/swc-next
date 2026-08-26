@@ -146,7 +146,7 @@ pub struct JsxClosingFragment {}
 /// The tag `Foo` is also a `jsx_identifier`.
 #[ast]
 pub struct JsxIdentifier {
-    name: AstInternedUtf8,
+    name: AstUtf8,
 }
 
 /// A JSX name of the form `namespace:name`.

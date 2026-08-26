@@ -109,7 +109,7 @@ fn transform_input(case: &BabelTransformCase) -> Result<String, String> {
     let mut ast = parse_program(source, &allocator, case)?;
     let options: TransformerOptions = case.options.clone().into();
     let mut semantic_ret = analyze(
-        &ast,
+        &mut ast,
         AnalyzeOptions {
             check_syntax: true,
             features: options.semantic_features(),
