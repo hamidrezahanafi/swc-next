@@ -15,6 +15,9 @@ use swc_next_ecma_codegen::{Options as CodegenOptions, print};
 use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
 use swc_next_ecma_semantic::{AnalyzeOptions, analyze, name_resolver::resolver as resolve_names};
 
+#[path = "support/insertion.rs"]
+mod insertion_support;
+
 const ANGULAR: &str = include_str!("../files/angular-1.2.5.js");
 const BACKBONE: &str = include_str!("../files/backbone-1.1.0.js");
 const JQUERY: &str = include_str!("../files/jquery-1.9.1.js");
@@ -101,6 +104,24 @@ fn bench_resolver(ast: Ast<'static>) {
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
 fn bench_codegen(ast: Ast<'static>) {
     black_box(print(ast.allocator(), &ast, CodegenOptions::default()));
+}
+
+#[library_benchmark]
+#[bench::statements_64(insertion_support::setup_program(), 64)]
+#[bench::statements_512(insertion_support::setup_program(), 512)]
+fn bench_detached_node_insertion(mut ast: Ast<'static>, count: usize) {
+    black_box(insertion_support::build_detached_statements(
+        &mut ast, count,
+    ));
+}
+
+#[library_benchmark]
+#[bench::statements_64(insertion_support::setup_program(), 64)]
+#[bench::statements_512(insertion_support::setup_program(), 512)]
+fn bench_program_statement_insertion(mut ast: Ast<'static>, count: usize) {
+    black_box(insertion_support::insert_program_statements(
+        &mut ast, count,
+    ));
 }
 
 struct VisitCounter<'visit, 'ast> {
@@ -266,6 +287,19 @@ fn bench_traverse(mut ast: Ast<'static>) {
     black_box(counter.count);
 }
 
+#[library_benchmark]
+#[bench::statements_64(insertion_support::setup_inserted_program(64))]
+#[bench::statements_512(insertion_support::setup_inserted_program(512))]
+fn bench_post_insert_visit(ast: Ast<'static>) {
+    let program = ast.root_program();
+    let mut counter = VisitCounter {
+        ast: &ast,
+        count: 0,
+    };
+    program.visit_with(&mut counter);
+    black_box(counter.count);
+}
+
 library_benchmark_group!(name = parser, benchmarks = bench_parser);
 
 library_benchmark_group!(
@@ -278,6 +312,28 @@ library_benchmark_group!(name = resolver, benchmarks = bench_resolver);
 library_benchmark_group!(name = codegen, benchmarks = bench_codegen);
 
 library_benchmark_group!(
+    name = insertion,
+    benchmarks = [
+        bench_detached_node_insertion,
+        bench_program_statement_insertion
+    ]
+);
+
+library_benchmark_group!(
+    name = insertion_locality,
+    config = LibraryBenchmarkConfig::default().tool(
+        Callgrind::with_args(["--branch-sim=yes", "--cache-sim=yes",]).format([
+            EventKind::Ir,
+            EventKind::D1mr,
+            EventKind::DLmr,
+            EventKind::Bc,
+            EventKind::Bcm,
+        ]),
+    ),
+    benchmarks = bench_post_insert_visit
+);
+
+library_benchmark_group!(
     name = visit,
     benchmarks = [bench_visit, bench_visit_mut, bench_traverse]
 );
@@ -287,5 +343,13 @@ main!(
         LibraryBenchmarkConfig::default().tool(
             Callgrind::with_args(["--branch-sim=no", "--cache-sim=no",]).format([EventKind::Ir]),
         ),
-    library_benchmark_groups = [parser, semantic, resolver, codegen, visit]
+    library_benchmark_groups = [
+        parser,
+        semantic,
+        resolver,
+        codegen,
+        insertion,
+        insertion_locality,
+        visit
+    ]
 );

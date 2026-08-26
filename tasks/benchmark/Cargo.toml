@@ -40,3 +40,7 @@ name    = "visit"
 [[bench]]
 harness = false
 name    = "semantic"
+
+[[bench]]
+harness = false
+name    = "insertion"
