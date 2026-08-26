@@ -363,9 +363,21 @@ impl<'a> Ast<'a> {
         AstInternedUtf8::from_raw(value.raw())
     }
 
+    /// Canonicalizes an existing UTF-8 handle without copying its value into string storage.
+    #[inline]
+    pub fn intern_utf8_range(&mut self, value: AstUtf8) -> AstInternedUtf8 {
+        self.strings.intern_utf8_range(value)
+    }
+
     #[inline]
     pub fn add_wtf8(&mut self, value: &swc_next_allocator::wtf8::Wtf8) -> AstWtf8 {
         self.strings.add_wtf8(value)
+    }
+
+    /// Canonicalizes an existing WTF-8 handle without copying its value into string storage.
+    #[inline]
+    pub fn intern_wtf8_range(&mut self, value: AstWtf8) -> AstWtf8 {
+        self.strings.intern_wtf8_range(value)
     }
 
     #[inline]
@@ -381,6 +393,11 @@ impl<'a> Ast<'a> {
     #[inline]
     pub fn get_wtf8(&self, id: AstWtf8) -> &swc_next_allocator::wtf8::Wtf8 {
         self.strings.get_wtf8(id)
+    }
+
+    #[inline]
+    pub fn as_utf8(&self, id: AstWtf8) -> Option<AstUtf8> {
+        self.strings.as_utf8(id)
     }
 
     #[inline]
