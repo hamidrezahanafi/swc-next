@@ -12764,10 +12764,8 @@ fn strip_parenthesized_nodes(ast: &mut Ast<'_>, comments: &mut [Comment]) {
             };
             let parenthesized_span = ast.span(node);
             let replacement_span = ast.span(replacement);
-            let replacement_is_dedicated = matches!(
-                replacement.ast_id().store_tag(),
-                StoreTag::Class | StoreTag::Function
-            );
+            let replacement_uses_another_store =
+                replacement.ast_id().store_tag() != node.ast_id().store_tag();
 
             let leading_from = parenthesized_span.start;
             let leading_comment_index =
@@ -12794,7 +12792,10 @@ fn strip_parenthesized_nodes(ast: &mut Ast<'_>, comments: &mut [Comment]) {
             }
 
             let replacement = replacement.node_id();
-            if replacement_is_dedicated {
+            if replacement_uses_another_store {
+                // The following typed visitor updates every reachable parent
+                // edge. Unreachable wrappers need no replacement, and copying
+                // a cross-store payload here would forge an invalid typed ID.
                 continue;
             }
             // SAFETY: parsing has not exposed any concrete handles yet. This pass
