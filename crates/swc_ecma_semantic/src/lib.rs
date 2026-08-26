@@ -50,6 +50,10 @@ struct NodeSideTable<'a, T> {
     common: ArenaVec<'a, T>,
     expressions: ArenaVec<'a, T>,
     statements: ArenaVec<'a, T>,
+    name_patterns: ArenaVec<'a, T>,
+    class_elements: ArenaVec<'a, T>,
+    type_jsx: ArenaVec<'a, T>,
+    program_aux: ArenaVec<'a, T>,
     classes: ArenaVec<'a, T>,
     functions: ArenaVec<'a, T>,
 }
@@ -66,6 +70,10 @@ impl<'a, T: Copy> NodeSideTable<'a, T> {
             common: make(tree.common_node_count()),
             expressions: make(tree.store_node_count(StoreTag::Expression)),
             statements: make(tree.store_node_count(StoreTag::Statement)),
+            name_patterns: make(tree.store_node_count(StoreTag::NamePattern)),
+            class_elements: make(tree.store_node_count(StoreTag::ClassElement)),
+            type_jsx: make(tree.store_node_count(StoreTag::TypeJsx)),
+            program_aux: make(tree.store_node_count(StoreTag::ProgramAux)),
             classes: make(tree.class_count()),
             functions: make(tree.function_count()),
         }
@@ -79,9 +87,12 @@ impl<'a, T: Copy> NodeSideTable<'a, T> {
             StoreTag::Common => self.common.get(node.index()),
             StoreTag::Expression => self.expressions.get(node.index()),
             StoreTag::Statement => self.statements.get(node.index()),
+            StoreTag::NamePattern => self.name_patterns.get(node.index()),
+            StoreTag::ClassElement => self.class_elements.get(node.index()),
+            StoreTag::TypeJsx => self.type_jsx.get(node.index()),
+            StoreTag::ProgramAux => self.program_aux.get(node.index()),
             StoreTag::Class => self.classes.get(node.index()),
             StoreTag::Function => self.functions.get(node.index()),
-            _ => None,
         }
     }
 
@@ -90,9 +101,12 @@ impl<'a, T: Copy> NodeSideTable<'a, T> {
             StoreTag::Common => &mut self.common[node.index()],
             StoreTag::Expression => &mut self.expressions[node.index()],
             StoreTag::Statement => &mut self.statements[node.index()],
+            StoreTag::NamePattern => &mut self.name_patterns[node.index()],
+            StoreTag::ClassElement => &mut self.class_elements[node.index()],
+            StoreTag::TypeJsx => &mut self.type_jsx[node.index()],
+            StoreTag::ProgramAux => &mut self.program_aux[node.index()],
             StoreTag::Class => &mut self.classes[node.index()],
             StoreTag::Function => &mut self.functions[node.index()],
-            _ => panic!("AST store is not supported by semantic side tables"),
         }
     }
 }

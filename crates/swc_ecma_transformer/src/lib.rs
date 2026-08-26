@@ -57,6 +57,7 @@ impl Transformer {
             "semantic analysis did not collect all features required by the transformer"
         );
         let program = ast.root_program();
+        ast.begin_transform();
 
         Normalizer::normalize(program, ast);
         let mut transformer = TransformerImpl {

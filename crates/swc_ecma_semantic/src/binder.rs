@@ -1528,9 +1528,9 @@ impl<'a> SymbolTracker<'a> {
         }
 
         let module_record = module_record.finalize(
-            &node_symbols.common,
+            &node_symbols.name_patterns,
             &self.references,
-            &node_references.common,
+            &node_references.name_patterns,
         );
 
         Semantic {

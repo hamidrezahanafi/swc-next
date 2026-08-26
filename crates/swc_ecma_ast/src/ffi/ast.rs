@@ -74,6 +74,7 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
         return required;
     }
 
+    let wire_map = WireMap::new(tree);
     let node_count = u32::try_from(wire_node_count(tree)).expect("AST wire node count exceeds u32");
     let node_edge_count =
         u32::try_from(tree.node_edge_count()).expect("AST node-edge count exceeds u32");
@@ -93,16 +94,20 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
         comment_count,
         0, // attached_comment_count
         0, // diag_count
-        wire_node_id(tree, tree.root_program().ast_id()),
+        wire_map.node_id(tree.root_program().ast_id()),
         (if tree.is_ts() { FLAG_TS } else { 0 })
             | ((tree.source_type() as u32) << FLAG_SOURCE_TYPE_SHIFT),
     ] {
         write_u32(buf, &mut pos, value);
     }
 
-    copy_node_spans(buf, &mut pos, &tree.nodes);
-    copy_node_spans(buf, &mut pos, &tree.expressions);
-    copy_node_spans(buf, &mut pos, &tree.statements);
+    write_node_spans(buf, &mut pos, &tree.nodes.data);
+    write_node_spans(buf, &mut pos, &tree.expressions.data);
+    write_node_spans(buf, &mut pos, &tree.statements.data);
+    write_node_spans(buf, &mut pos, &tree.name_patterns.data);
+    write_node_spans(buf, &mut pos, &tree.class_elements.data);
+    write_node_spans(buf, &mut pos, &tree.type_jsx.data);
+    write_node_spans(buf, &mut pos, &tree.program_aux.data);
     let function_spans = unsafe {
         slice::from_raw_parts(
             tree.functions.span.as_ptr().cast::<u8>(),
@@ -124,9 +129,13 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
         write_span(buf, &mut pos, class.body_span);
     }
 
-    write_node_kinds(buf, &mut pos, &tree.nodes);
-    write_node_kinds(buf, &mut pos, &tree.expressions);
-    write_node_kinds(buf, &mut pos, &tree.statements);
+    write_node_kinds(buf, &mut pos, &tree.nodes.data);
+    write_node_kinds(buf, &mut pos, &tree.expressions.data);
+    write_node_kinds(buf, &mut pos, &tree.statements.data);
+    write_node_kinds(buf, &mut pos, &tree.name_patterns.data);
+    write_node_kinds(buf, &mut pos, &tree.class_elements.data);
+    write_node_kinds(buf, &mut pos, &tree.type_jsx.data);
+    write_node_kinds(buf, &mut pos, &tree.program_aux.data);
     for _ in 0..tree.function_count() {
         buf[pos] = wire_kind(NodeKind::Function);
         pos += 1;
@@ -144,26 +153,58 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
     let mut compatibility_extra = tree.extra_data.as_slice().to_vec();
     let class_extra_base = tree.node_edge_count() + tree.extra_data_count();
     write_node_payloads(
-        tree,
+        &wire_map,
         buf,
         &mut pos,
-        &tree.nodes,
+        &tree.nodes.data,
         &mut compatibility_extra,
         node_edge_count,
     );
     write_node_payloads(
-        tree,
+        &wire_map,
         buf,
         &mut pos,
-        &tree.expressions,
+        &tree.expressions.data,
         &mut compatibility_extra,
         node_edge_count,
     );
     write_node_payloads(
-        tree,
+        &wire_map,
         buf,
         &mut pos,
-        &tree.statements,
+        &tree.statements.data,
+        &mut compatibility_extra,
+        node_edge_count,
+    );
+    write_node_payloads(
+        &wire_map,
+        buf,
+        &mut pos,
+        &tree.name_patterns.data,
+        &mut compatibility_extra,
+        node_edge_count,
+    );
+    write_node_payloads(
+        &wire_map,
+        buf,
+        &mut pos,
+        &tree.class_elements.data,
+        &mut compatibility_extra,
+        node_edge_count,
+    );
+    write_node_payloads(
+        &wire_map,
+        buf,
+        &mut pos,
+        &tree.type_jsx.data,
+        &mut compatibility_extra,
+        node_edge_count,
+    );
+    write_node_payloads(
+        &wire_map,
+        buf,
+        &mut pos,
+        &tree.program_aux.data,
         &mut compatibility_extra,
         node_edge_count,
     );
@@ -172,7 +213,7 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
     for &payload in function_payloads {
         let mut payload = payload;
         NodeKind::Function.map_ast_ids(&mut payload, &mut compatibility_extra, |id| {
-            AstId::from_raw(wire_node_id(tree, id))
+            AstId::from_raw(wire_map.node_id(id))
         });
         let extra_id = (payload.0 >> 96) as u32;
         let relocated = extra_id
@@ -186,10 +227,10 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
             .expect("class compatibility extra-data index exceeds u32");
         let id = class
             .id
-            .map_or(u32::MAX, |node| wire_node_id(tree, node.ast_id()));
+            .map_or(u32::MAX, |node| wire_map.node_id(node.ast_id()));
         let type_parameters = class
             .type_parameters
-            .map_or(u32::MAX, |node| wire_node_id(tree, node.ast_id()));
+            .map_or(u32::MAX, |node| wire_map.node_id(node.ast_id()));
         write_payload(
             buf,
             &mut pos,
@@ -208,7 +249,7 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
     }
 
     for edge in tree.node_edges.as_slice() {
-        write_u32(buf, &mut pos, wire_node_id(tree, *edge));
+        write_u32(buf, &mut pos, wire_map.node_id(*edge));
         write_u32(buf, &mut pos, 0);
     }
     for extra in &compatibility_extra {
@@ -217,10 +258,10 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
     for (index, class) in classes.iter().enumerate() {
         for word in [
             range_word(class.decorators),
-            optional_wire_node(tree, class.super_class),
-            optional_wire_node(tree, class.super_type_arguments),
+            optional_wire_node(&wire_map, class.super_class),
+            optional_wire_node(&wire_map, class.super_type_arguments),
             range_word(class.implements),
-            wire_class_body_id(tree, index) as u64,
+            wire_map.class_body_id(index) as u64,
         ] {
             write_u64(buf, &mut pos, word);
         }
@@ -244,72 +285,125 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
     required
 }
 
-#[inline]
-fn wire_class_body_id(tree: &Ast<'_>, index: usize) -> u32 {
-    u32::try_from(
-        tree.common_node_count()
-            + tree.store_node_count(crate::StoreTag::Expression)
-            + tree.store_node_count(crate::StoreTag::Statement)
-            + tree.function_count()
-            + tree.class_count()
-            + index,
-    )
-    .expect("class body wire node index exceeds u32")
+struct WireMap {
+    common: Vec<u32>,
+    expressions: Vec<u32>,
+    statements: Vec<u32>,
+    name_patterns: Vec<u32>,
+    class_elements: Vec<u32>,
+    type_jsx: Vec<u32>,
+    program_aux: Vec<u32>,
+    function_base: u32,
+    class_base: u32,
+    class_body_base: u32,
+}
+
+impl WireMap {
+    fn new(tree: &Ast<'_>) -> Self {
+        fn map_store(nodes: &crate::NodeData<'_>, next: &mut u32) -> Vec<u32> {
+            let kinds = unsafe { slice::from_raw_parts(nodes.kind.as_ptr(), nodes.len()) };
+            kinds
+                .iter()
+                .map(|&kind| {
+                    if kind == NodeKind::Hole {
+                        u32::MAX
+                    } else {
+                        let id = *next;
+                        *next = next
+                            .checked_add(1)
+                            .expect("AST wire node count exceeds u32");
+                        id
+                    }
+                })
+                .collect()
+        }
+
+        let mut next = 0;
+        let common = map_store(&tree.nodes.data, &mut next);
+        let expressions = map_store(&tree.expressions.data, &mut next);
+        let statements = map_store(&tree.statements.data, &mut next);
+        let name_patterns = map_store(&tree.name_patterns.data, &mut next);
+        let class_elements = map_store(&tree.class_elements.data, &mut next);
+        let type_jsx = map_store(&tree.type_jsx.data, &mut next);
+        let program_aux = map_store(&tree.program_aux.data, &mut next);
+        let function_base = next;
+        next = next
+            .checked_add(tree.function_count() as u32)
+            .expect("AST wire node count exceeds u32");
+        let class_base = next;
+        next = next
+            .checked_add(tree.class_count() as u32)
+            .expect("AST wire node count exceeds u32");
+        Self {
+            common,
+            expressions,
+            statements,
+            name_patterns,
+            class_elements,
+            type_jsx,
+            program_aux,
+            function_base,
+            class_base,
+            class_body_base: next,
+        }
+    }
+
+    #[inline]
+    fn node_id(&self, id: AstId) -> u32 {
+        if id.is_none() {
+            return u32::MAX;
+        }
+        let wire = match id.store_tag() {
+            crate::StoreTag::Common => self.common[id.index()],
+            crate::StoreTag::Expression => self.expressions[id.index()],
+            crate::StoreTag::Statement => self.statements[id.index()],
+            crate::StoreTag::NamePattern => self.name_patterns[id.index()],
+            crate::StoreTag::ClassElement => self.class_elements[id.index()],
+            crate::StoreTag::TypeJsx => self.type_jsx[id.index()],
+            crate::StoreTag::ProgramAux => self.program_aux[id.index()],
+            crate::StoreTag::Function => self.function_base + id.index() as u32,
+            crate::StoreTag::Class => self.class_base + id.index() as u32,
+        };
+        assert_ne!(
+            wire,
+            u32::MAX,
+            "AST edge references a hole: store={:?}, index={}",
+            id.store_tag(),
+            id.index()
+        );
+        wire
+    }
+
+    #[inline]
+    fn class_body_id(&self, index: usize) -> u32 {
+        self.class_body_base + index as u32
+    }
 }
 
 #[inline]
-fn wire_node_id(tree: &Ast<'_>, id: AstId) -> u32 {
-    if id.is_none() {
-        return u32::MAX;
+fn write_node_spans(buf: &mut [u8], pos: &mut usize, nodes: &crate::NodeData<'_>) {
+    let spans = unsafe { slice::from_raw_parts(nodes.span.as_ptr(), nodes.len()) };
+    let kinds = unsafe { slice::from_raw_parts(nodes.kind.as_ptr(), nodes.len()) };
+    for (&span, &kind) in spans.iter().zip(kinds) {
+        if kind != NodeKind::Hole {
+            write_span(buf, pos, span);
+        }
     }
-    match id.store_tag() {
-        crate::StoreTag::Common => id.index() as u32,
-        crate::StoreTag::Expression => u32::try_from(tree.common_node_count() + id.index())
-            .expect("expression wire node index exceeds u32"),
-        crate::StoreTag::Statement => u32::try_from(
-            tree.common_node_count()
-                + tree.store_node_count(crate::StoreTag::Expression)
-                + id.index(),
-        )
-        .expect("statement wire node index exceeds u32"),
-        crate::StoreTag::Function => u32::try_from(
-            tree.common_node_count()
-                + tree.store_node_count(crate::StoreTag::Expression)
-                + tree.store_node_count(crate::StoreTag::Statement)
-                + id.index(),
-        )
-        .expect("function wire node index exceeds u32"),
-        crate::StoreTag::Class => u32::try_from(
-            tree.common_node_count()
-                + tree.store_node_count(crate::StoreTag::Expression)
-                + tree.store_node_count(crate::StoreTag::Statement)
-                + tree.function_count()
-                + id.index(),
-        )
-        .expect("class wire node index exceeds u32"),
-        _ => panic!("AST store is not implemented by FFI serialization"),
-    }
-}
-
-#[inline]
-fn copy_node_spans(buf: &mut [u8], pos: &mut usize, nodes: &crate::NodeData<'_>) {
-    let spans =
-        unsafe { slice::from_raw_parts(nodes.span.as_ptr().cast::<u8>(), nodes.len() * SPAN_SIZE) };
-    buf[*pos..*pos + spans.len()].copy_from_slice(spans);
-    *pos += spans.len();
 }
 
 #[inline]
 fn write_node_kinds(buf: &mut [u8], pos: &mut usize, nodes: &crate::NodeData<'_>) {
     let kinds = unsafe { slice::from_raw_parts(nodes.kind.as_ptr(), nodes.len()) };
     for &kind in kinds {
-        buf[*pos] = wire_kind(kind);
-        *pos += 1;
+        if kind != NodeKind::Hole {
+            buf[*pos] = wire_kind(kind);
+            *pos += 1;
+        }
     }
 }
 
 fn write_node_payloads(
-    tree: &Ast<'_>,
+    wire_map: &WireMap,
     buf: &mut [u8],
     pos: &mut usize,
     nodes: &crate::NodeData<'_>,
@@ -319,9 +413,12 @@ fn write_node_payloads(
     let kinds = unsafe { slice::from_raw_parts(nodes.kind.as_ptr(), nodes.len()) };
     let payloads = unsafe { slice::from_raw_parts(nodes.data.as_ptr(), nodes.len()) };
     for (&kind, &payload) in kinds.iter().zip(payloads) {
+        if kind == NodeKind::Hole {
+            continue;
+        }
         let mut payload = payload;
         kind.map_ast_ids(&mut payload, compatibility_extra, |id| {
-            AstId::from_raw(wire_node_id(tree, id))
+            AstId::from_raw(wire_map.node_id(id))
         });
         if kind.uses_extra_data() {
             let extra_id = (payload.0 >> 96) as u32;
@@ -350,9 +447,9 @@ fn range_word<T>(range: TypedNodeRange<T>) -> u64 {
 }
 
 #[inline]
-fn optional_wire_node<T: CommonAstNode>(tree: &Ast<'_>, node: Option<T>) -> u64 {
+fn optional_wire_node<T: CommonAstNode>(wire_map: &WireMap, node: Option<T>) -> u64 {
     node.map_or(u32::MAX as u64, |node| {
-        wire_node_id(tree, node.ast_id()) as u64
+        wire_map.node_id(node.ast_id()) as u64
     })
 }
 

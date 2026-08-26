@@ -240,9 +240,9 @@ impl fmt::Debug for AstId {
     }
 }
 
-impl From<NodeId> for AstId {
+impl<D: IdDomain> From<Id<D>> for AstId {
     #[inline]
-    fn from(id: NodeId) -> Self {
+    fn from(id: Id<D>) -> Self {
         id.ast_id()
     }
 }
@@ -256,7 +256,7 @@ pub trait TypedAstId: Copy {
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self;
 }
 
-impl TypedAstId for NodeId {
+impl<D: IdDomain> TypedAstId for Id<D> {
     #[inline]
     fn ast_id(self) -> AstId {
         self.ast_id()
@@ -264,33 +264,12 @@ impl TypedAstId for NodeId {
 
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
-        ast_id.node_id()
-    }
-}
-
-impl TypedAstId for ClassId {
-    #[inline]
-    fn ast_id(self) -> AstId {
-        self.ast_id()
-    }
-
-    #[inline]
-    unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
-        debug_assert_eq!(ast_id.store_tag(), StoreTag::Class);
-        ClassId::from_raw_unchecked(ast_id.index() as u32)
-    }
-}
-
-impl TypedAstId for FunctionId {
-    #[inline]
-    fn ast_id(self) -> AstId {
-        self.ast_id()
-    }
-
-    #[inline]
-    unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
-        debug_assert_eq!(ast_id.store_tag(), StoreTag::Function);
-        FunctionId::from_raw_unchecked(ast_id.index() as u32)
+        if D::ERASED_IS_PACKED {
+            Id::from_raw_unchecked(ast_id.raw())
+        } else {
+            debug_assert_eq!(ast_id.store_tag(), D::TAG);
+            Id::from_raw_unchecked(ast_id.index() as u32)
+        }
     }
 }
 

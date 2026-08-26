@@ -28,6 +28,18 @@ pub fn resolver<'ast>(ast: &'ast Ast<'ast>) -> JsNameResolver<'ast> {
     let statement_count = ast.store_node_count(StoreTag::Statement);
     let mut statement_scopes = ArenaVec::with_capacity_in(statement_count, allocator);
     statement_scopes.resize(statement_count, None);
+    let name_pattern_count = ast.store_node_count(StoreTag::NamePattern);
+    let mut name_pattern_scopes = ArenaVec::with_capacity_in(name_pattern_count, allocator);
+    name_pattern_scopes.resize(name_pattern_count, None);
+    let class_element_count = ast.store_node_count(StoreTag::ClassElement);
+    let mut class_element_scopes = ArenaVec::with_capacity_in(class_element_count, allocator);
+    class_element_scopes.resize(class_element_count, None);
+    let type_jsx_count = ast.store_node_count(StoreTag::TypeJsx);
+    let mut type_jsx_scopes = ArenaVec::with_capacity_in(type_jsx_count, allocator);
+    type_jsx_scopes.resize(type_jsx_count, None);
+    let program_aux_count = ast.store_node_count(StoreTag::ProgramAux);
+    let mut program_aux_scopes = ArenaVec::with_capacity_in(program_aux_count, allocator);
+    program_aux_scopes.resize(program_aux_count, None);
     let mut class_scopes = ArenaVec::with_capacity_in(ast.class_count(), allocator);
     class_scopes.resize(ast.class_count(), None);
     let mut function_scopes = ArenaVec::with_capacity_in(ast.function_count(), allocator);
@@ -38,6 +50,10 @@ pub fn resolver<'ast>(ast: &'ast Ast<'ast>) -> JsNameResolver<'ast> {
         node_scopes,
         expression_scopes,
         statement_scopes,
+        name_pattern_scopes,
+        class_element_scopes,
+        type_jsx_scopes,
+        program_aux_scopes,
         class_scopes,
         function_scopes,
         top_level_scope_id,
@@ -58,6 +74,10 @@ pub fn resolver<'ast>(ast: &'ast Ast<'ast>) -> JsNameResolver<'ast> {
         node_scopes: resolver.node_scopes,
         expression_scopes: resolver.expression_scopes,
         statement_scopes: resolver.statement_scopes,
+        name_pattern_scopes: resolver.name_pattern_scopes,
+        class_element_scopes: resolver.class_element_scopes,
+        type_jsx_scopes: resolver.type_jsx_scopes,
+        program_aux_scopes: resolver.program_aux_scopes,
         class_scopes: resolver.class_scopes,
         function_scopes: resolver.function_scopes,
     }
@@ -76,6 +96,10 @@ pub struct JsNameResolver<'ast> {
     node_scopes: ArenaVec<'ast, Option<ScopeId>>,
     expression_scopes: ArenaVec<'ast, Option<ScopeId>>,
     statement_scopes: ArenaVec<'ast, Option<ScopeId>>,
+    name_pattern_scopes: ArenaVec<'ast, Option<ScopeId>>,
+    class_element_scopes: ArenaVec<'ast, Option<ScopeId>>,
+    type_jsx_scopes: ArenaVec<'ast, Option<ScopeId>>,
+    program_aux_scopes: ArenaVec<'ast, Option<ScopeId>>,
     class_scopes: ArenaVec<'ast, Option<ScopeId>>,
     function_scopes: ArenaVec<'ast, Option<ScopeId>>,
 }
@@ -101,9 +125,12 @@ impl JsNameResolver<'_> {
             StoreTag::Common => self.node_scopes[node.index()],
             StoreTag::Expression => self.expression_scopes[node.index()],
             StoreTag::Statement => self.statement_scopes[node.index()],
+            StoreTag::NamePattern => self.name_pattern_scopes[node.index()],
+            StoreTag::ClassElement => self.class_element_scopes[node.index()],
+            StoreTag::TypeJsx => self.type_jsx_scopes[node.index()],
+            StoreTag::ProgramAux => self.program_aux_scopes[node.index()],
             StoreTag::Class => self.class_scopes[node.index()],
             StoreTag::Function => self.function_scopes[node.index()],
-            _ => None,
         }
         .unwrap_or(self.unresolved_scope_id)
     }
@@ -237,6 +264,10 @@ struct Resolver<'ast> {
     node_scopes: ArenaVec<'ast, Option<ScopeId>>,
     expression_scopes: ArenaVec<'ast, Option<ScopeId>>,
     statement_scopes: ArenaVec<'ast, Option<ScopeId>>,
+    name_pattern_scopes: ArenaVec<'ast, Option<ScopeId>>,
+    class_element_scopes: ArenaVec<'ast, Option<ScopeId>>,
+    type_jsx_scopes: ArenaVec<'ast, Option<ScopeId>>,
+    program_aux_scopes: ArenaVec<'ast, Option<ScopeId>>,
     class_scopes: ArenaVec<'ast, Option<ScopeId>>,
     function_scopes: ArenaVec<'ast, Option<ScopeId>>,
     top_level_scope_id: ScopeId,
@@ -289,9 +320,12 @@ impl<'ast> Resolver<'ast> {
             StoreTag::Common => &mut self.node_scopes[node.index()],
             StoreTag::Expression => &mut self.expression_scopes[node.index()],
             StoreTag::Statement => &mut self.statement_scopes[node.index()],
+            StoreTag::NamePattern => &mut self.name_pattern_scopes[node.index()],
+            StoreTag::ClassElement => &mut self.class_element_scopes[node.index()],
+            StoreTag::TypeJsx => &mut self.type_jsx_scopes[node.index()],
+            StoreTag::ProgramAux => &mut self.program_aux_scopes[node.index()],
             StoreTag::Class => &mut self.class_scopes[node.index()],
             StoreTag::Function => &mut self.function_scopes[node.index()],
-            _ => panic!("AST store is not supported by name resolution"),
         };
         if slot.is_none() {
             *slot = Some(scope);
@@ -341,7 +375,7 @@ impl<'ast> Resolver<'ast> {
 
     fn declare(&mut self, identifier: BindingIdentifier, kind: DeclKind) {
         let node = identifier.ast_id();
-        if self.node_scopes[node.index()].is_some() {
+        if self.name_pattern_scopes[node.index()].is_some() {
             return;
         }
 
@@ -349,7 +383,7 @@ impl<'ast> Resolver<'ast> {
         self.scopes[self.current]
             .declared_symbols
             .insert(name, kind);
-        self.node_scopes[node.index()] = Some(self.current);
+        self.name_pattern_scopes[node.index()] = Some(self.current);
     }
 
     fn predeclare_parameters(&mut self, parameters: FormalParameters) {
@@ -450,14 +484,14 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
 
     fn visit_identifier_reference(&mut self, reference: IdentifierReference) {
         let node = reference.ast_id();
-        if self.node_scopes[node.index()].is_some() {
+        if self.name_pattern_scopes[node.index()].is_some() {
             return;
         }
         let name = self.name(reference.name(self.ast));
         let scope = self
             .scope_of_name(name, false)
             .unwrap_or(self.unresolved_scope_id);
-        self.node_scopes[node.index()] = Some(scope);
+        self.name_pattern_scopes[node.index()] = Some(scope);
     }
 
     fn visit_binding_identifier(&mut self, identifier: BindingIdentifier) {

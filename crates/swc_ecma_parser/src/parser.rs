@@ -749,6 +749,10 @@ struct Checkpoint {
     nodes_len: usize,
     expressions_len: usize,
     statements_len: usize,
+    name_patterns_len: usize,
+    class_elements_len: usize,
+    type_jsx_len: usize,
+    program_aux_len: usize,
     classes_len: usize,
     functions_len: usize,
     node_edges_len: usize,
@@ -836,11 +840,10 @@ fn estimate_ast_capacity(source_len: usize) -> (usize, usize) {
     // this table. Leave general headroom so large parses do not copy the full
     // table immediately after the initial reservation.
     let estimated_extra = baseline_nodes * 2 / 3;
-    // A NodeData growth doubles the allocation and copies every initialized
-    // SoA field. A smaller fixed margin absorbs source-density variation
-    // without paying for the full doubled block or inspecting source syntax.
-    let estimated_nodes = baseline_nodes + baseline_nodes / 2;
-    (estimated_nodes, estimated_extra)
+    // Ast::reserve distributes this live-node estimate across stores and each
+    // store adds only the physical slots required by its hole policy. Do not
+    // stack the former global 50% headroom on top of those holes.
+    (baseline_nodes, estimated_extra)
 }
 
 impl<'a, C: ParserConfig> Parser<'a, C> {
@@ -1508,6 +1511,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             nodes_len: self.ast.common_node_count(),
             expressions_len: self.ast.store_node_count(StoreTag::Expression),
             statements_len: self.ast.store_node_count(StoreTag::Statement),
+            name_patterns_len: self.ast.store_node_count(StoreTag::NamePattern),
+            class_elements_len: self.ast.store_node_count(StoreTag::ClassElement),
+            type_jsx_len: self.ast.store_node_count(StoreTag::TypeJsx),
+            program_aux_len: self.ast.store_node_count(StoreTag::ProgramAux),
             classes_len: self.ast.class_count(),
             functions_len: self.ast.function_count(),
             node_edges_len: self.ast.node_edge_count(),
@@ -1538,6 +1545,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             checkpoint.nodes_len,
             checkpoint.expressions_len,
             checkpoint.statements_len,
+            checkpoint.name_patterns_len,
+            checkpoint.class_elements_len,
+            checkpoint.type_jsx_len,
+            checkpoint.program_aux_len,
             checkpoint.classes_len,
             checkpoint.functions_len,
             checkpoint.node_edges_len,
@@ -12717,10 +12728,13 @@ impl<'ast> VisitMut<'ast> for DedicatedParenthesisStripper<'_, 'ast> {
 
 fn strip_parenthesized_nodes(ast: &mut Ast<'_>, comments: &mut [Comment]) {
     let mut trailing_comment_index = 0;
-    for store in [StoreTag::Common, StoreTag::Expression] {
+    for store in [StoreTag::Common, StoreTag::Expression, StoreTag::TypeJsx] {
         let len = ast.store_node_count(store);
         for index in 0..len {
             let node = AstId::new(store, index as u32).node_id();
+            if ast.node_kind(node) == NodeKind::Hole {
+                continue;
+            }
             let replacement = match ast.kind_data(node) {
                 NodeKindData::ParenthesizedExpression(parenthesized) => {
                     let mut inner = parenthesized.expression(ast);
@@ -13097,11 +13111,11 @@ mod tests {
     #[test]
     fn estimate_capacity() {
         let (nodes, extra) = estimate_ast_capacity(0);
-        assert_eq!(nodes, 384);
+        assert_eq!(nodes, 256);
         assert!(extra <= nodes);
 
         let (nodes, extra) = estimate_ast_capacity(8_000_000);
-        assert_eq!(nodes, 1_500_000);
+        assert_eq!(nodes, 1_000_000);
         assert_eq!(extra, 666_666);
     }
 

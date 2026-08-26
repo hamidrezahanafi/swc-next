@@ -10,6 +10,8 @@ mod strings;
 mod syntax;
 mod visit;
 
+use std::mem::size_of;
+
 mod generated {
     mod ast_builder;
     mod ast_clone_in;
@@ -42,6 +44,41 @@ use swc_next_allocator::multi_index_vec;
 
 use crate::strings::StringPool;
 
+const HOLE_LIVE_PER_CHUNK: usize = 16;
+const COMMON_HOLES_PER_CHUNK: usize = 0;
+const EXPRESSION_HOLES_PER_CHUNK: usize = if cfg!(any(
+    feature = "hole-profile-0",
+    feature = "hole-profile-statement-only"
+)) {
+    0
+} else if cfg!(feature = "hole-profile-hot-2") {
+    2
+} else {
+    4
+};
+const STATEMENT_HOLES_PER_CHUNK: usize = if cfg!(any(
+    feature = "hole-profile-0",
+    feature = "hole-profile-expression-only"
+)) {
+    0
+} else if cfg!(feature = "hole-profile-hot-2") {
+    2
+} else {
+    4
+};
+const NAME_PATTERN_HOLES_PER_CHUNK: usize = if cfg!(any(
+    feature = "hole-profile-0",
+    feature = "hole-profile-expression-only",
+    feature = "hole-profile-statement-only"
+)) {
+    0
+} else if cfg!(feature = "hole-profile-hot-2") {
+    2
+} else {
+    4
+};
+const CLASS_ELEMENT_HOLES_PER_CHUNK: usize = NAME_PATTERN_HOLES_PER_CHUNK;
+
 /// AST context that stores everything about the flattening AST.
 pub struct Ast<'a> {
     allocator: &'a Allocator,
@@ -55,13 +92,25 @@ pub struct Ast<'a> {
     attached_comments: ArenaVec<'a, Comment>,
 
     /// Flattening AST nodes.
-    pub(crate) nodes: NodeData<'a>,
+    pub(crate) nodes: NodeStore<'a, HOLE_LIVE_PER_CHUNK, COMMON_HOLES_PER_CHUNK>,
 
     /// Expression-only nodes, independently grown from other node kinds.
-    pub(crate) expressions: NodeData<'a>,
+    pub(crate) expressions: NodeStore<'a, HOLE_LIVE_PER_CHUNK, EXPRESSION_HOLES_PER_CHUNK>,
 
     /// Statement/declaration nodes, independently grown from other node kinds.
-    pub(crate) statements: NodeData<'a>,
+    pub(crate) statements: NodeStore<'a, HOLE_LIVE_PER_CHUNK, STATEMENT_HOLES_PER_CHUNK>,
+
+    /// Identifiers and binding/assignment patterns.
+    pub(crate) name_patterns: NodeStore<'a, HOLE_LIVE_PER_CHUNK, NAME_PATTERN_HOLES_PER_CHUNK>,
+
+    /// Class body elements, independently grown from large Class records.
+    pub(crate) class_elements: NodeStore<'a, HOLE_LIVE_PER_CHUNK, CLASS_ELEMENT_HOLES_PER_CHUNK>,
+
+    /// Cold TypeScript and JSX syntax.
+    pub(crate) type_jsx: NodeStore<'a, HOLE_LIVE_PER_CHUNK, 0>,
+
+    /// Program, function auxiliaries, directives, and remaining cold nodes.
+    pub(crate) program_aux: NodeStore<'a, HOLE_LIVE_PER_CHUNK, 0>,
 
     /// Standalone class storage. A ClassId indexes this store directly.
     pub(crate) classes: ClassData<'a>,
@@ -77,6 +126,10 @@ pub struct Ast<'a> {
 
     /// Source-backed and decoded AST strings.
     strings: StringPool<'a>,
+
+    /// Builders append source nodes before transforms begin, then consume
+    /// per-store holes after this flag is set.
+    transforming: bool,
 }
 
 multi_index_vec! {
@@ -85,6 +138,156 @@ multi_index_vec! {
         pub(crate) span => span_mut => span_unchecked => span_mut_unchecked: Span,
         pub(crate) kind => kind_mut => kind_unchecked => kind_mut_unchecked: NodeKind,
         pub(crate) data => data_mut => data_unchecked => data_mut_unchecked: NodePayload,
+    }
+}
+
+/// Observable storage counters used by insertion/locality benchmarks.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StorageMetrics {
+    pub live_per_chunk: usize,
+    pub holes_per_chunk: usize,
+    pub live: usize,
+    pub slots: usize,
+    pub available_holes: usize,
+    pub holes_created: usize,
+    pub holes_used: usize,
+    pub hole_lookups: usize,
+    pub grow_count: usize,
+    pub grow_copied_bytes: usize,
+}
+
+pub(crate) struct NodeStore<'a, const LIVE: usize, const HOLES: usize> {
+    pub(crate) data: NodeData<'a>,
+    free_holes: ArenaVec<'a, u32>,
+    live_len: usize,
+    tail_live: usize,
+    holes_created: usize,
+    holes_used: usize,
+    hole_lookups: usize,
+    grow_count: usize,
+    grow_copied_bytes: usize,
+}
+
+impl<'a, const LIVE: usize, const HOLES: usize> NodeStore<'a, LIVE, HOLES> {
+    const NODE_COPY_BYTES: usize =
+        size_of::<Span>() + size_of::<NodeKind>() + size_of::<NodePayload>();
+
+    fn new_in(allocator: &'a Allocator) -> Self {
+        const { assert!(LIVE > 0, "hole policy requires at least one live slot") };
+        Self {
+            data: NodeData::new_in(allocator),
+            free_holes: ArenaVec::new_in(allocator),
+            live_len: 0,
+            tail_live: 0,
+            holes_created: 0,
+            holes_used: 0,
+            hole_lookups: 0,
+            grow_count: 0,
+            grow_copied_bytes: 0,
+        }
+    }
+
+    #[inline]
+    fn push_raw(&mut self, span: Span, kind: NodeKind, data: NodePayload) -> NodeId {
+        let old_capacity = self.data.capacity();
+        let old_len = self.data.len();
+        let id = self.data.push(span, kind, data);
+        if self.data.capacity() != old_capacity {
+            self.grow_count += 1;
+            self.grow_copied_bytes += old_len * Self::NODE_COPY_BYTES;
+        }
+        id
+    }
+
+    fn append_holes_after_chunk(&mut self) {
+        if HOLES == 0 || self.tail_live != LIVE {
+            return;
+        }
+        for _ in 0..HOLES {
+            let id = self.push_raw(DUMMY_SP, NodeKind::Hole, NodePayload(0));
+            self.free_holes.push(id.index() as u32);
+            self.holes_created += 1;
+        }
+        self.tail_live = 0;
+    }
+
+    #[inline]
+    fn push(
+        &mut self,
+        transforming: bool,
+        span: Span,
+        kind: NodeKind,
+        data: NodePayload,
+    ) -> NodeId {
+        if transforming && HOLES != 0 {
+            self.hole_lookups += 1;
+            if let Some(index) = self.free_holes.pop() {
+                let id = NodeId::from_raw(index);
+                *self.data.span_mut(id) = span;
+                *self.data.kind_mut(id) = kind;
+                *self.data.data_mut(id) = data;
+                self.live_len += 1;
+                self.holes_used += 1;
+                return id;
+            }
+        }
+
+        let id = self.push_raw(span, kind, data);
+        self.live_len += 1;
+        self.tail_live += 1;
+        self.append_holes_after_chunk();
+        id
+    }
+
+    fn retire(&mut self, id: NodeId) {
+        debug_assert_ne!(*self.data.kind(id), NodeKind::Hole, "AST slot double free");
+        if *self.data.kind(id) == NodeKind::Hole {
+            return;
+        }
+        *self.data.span_mut(id) = DUMMY_SP;
+        *self.data.kind_mut(id) = NodeKind::Hole;
+        *self.data.data_mut(id) = NodePayload(0);
+        self.free_holes.push(id.index() as u32);
+        self.live_len -= 1;
+    }
+
+    fn reserve_live(&mut self, additional: usize) {
+        let chunks = additional.div_ceil(LIVE);
+        self.data
+            .reserve(additional.saturating_add(chunks.saturating_mul(HOLES)));
+    }
+
+    fn truncate(&mut self, slots: usize) {
+        self.data.truncate(slots);
+        self.free_holes.retain(|index| *index < slots as u32);
+        let kinds = unsafe { std::slice::from_raw_parts(self.data.kind.as_ptr(), slots) };
+        self.live_len = kinds.iter().filter(|&&kind| kind != NodeKind::Hole).count();
+        self.tail_live = self.live_len % LIVE;
+    }
+
+    #[inline]
+    fn slot_len(&self) -> usize {
+        self.data.len()
+    }
+
+    #[inline]
+    fn live_len(&self) -> usize {
+        self.live_len
+    }
+
+    fn metrics(&self) -> StorageMetrics {
+        StorageMetrics {
+            live_per_chunk: LIVE,
+            holes_per_chunk: HOLES,
+            live: self.live_len,
+            slots: self.data.len(),
+            available_holes: self.free_holes.len(),
+            holes_created: self.holes_created,
+            holes_used: self.holes_used,
+            hole_lookups: self.hole_lookups,
+            grow_count: self.grow_count,
+            grow_copied_bytes: self.grow_copied_bytes,
+        }
     }
 }
 
@@ -200,24 +403,39 @@ impl<'a> Ast<'a> {
     }
 
     #[inline]
-    pub(crate) fn add_node(&mut self, span: Span, kind: NodeKind, data: NodePayload) -> NodeId {
-        let store = if kind.is_expr() {
-            StoreTag::Expression
-        } else if kind.is_stmt() {
-            StoreTag::Statement
-        } else {
-            StoreTag::Common
-        };
-        let local = self.node_store_mut(store).push(span, kind, data).index() as u32;
-        AstId::new(store, local).node_id()
+    pub(crate) fn add_node<I: TypedAstId>(
+        &mut self,
+        span: Span,
+        kind: NodeKind,
+        data: NodePayload,
+    ) -> I {
+        let store = kind.store_tag();
+        let local = match store {
+            StoreTag::Common => self.nodes.push(self.transforming, span, kind, data),
+            StoreTag::Expression => self.expressions.push(self.transforming, span, kind, data),
+            StoreTag::Statement => self.statements.push(self.transforming, span, kind, data),
+            StoreTag::NamePattern => self.name_patterns.push(self.transforming, span, kind, data),
+            StoreTag::ClassElement => self
+                .class_elements
+                .push(self.transforming, span, kind, data),
+            StoreTag::TypeJsx => self.type_jsx.push(self.transforming, span, kind, data),
+            StoreTag::ProgramAux => self.program_aux.push(self.transforming, span, kind, data),
+            _ => unreachable!(),
+        }
+        .index() as u32;
+        unsafe { I::from_ast_id_unchecked(AstId::new(store, local)) }
     }
 
     #[inline]
     fn node_store(&self, store: StoreTag) -> &NodeData<'a> {
         match store {
-            StoreTag::Common => &self.nodes,
-            StoreTag::Expression => &self.expressions,
-            StoreTag::Statement => &self.statements,
+            StoreTag::Common => &self.nodes.data,
+            StoreTag::Expression => &self.expressions.data,
+            StoreTag::Statement => &self.statements.data,
+            StoreTag::NamePattern => &self.name_patterns.data,
+            StoreTag::ClassElement => &self.class_elements.data,
+            StoreTag::TypeJsx => &self.type_jsx.data,
+            StoreTag::ProgramAux => &self.program_aux.data,
             _ => panic!("AST store does not contain NodePayload"),
         }
     }
@@ -225,9 +443,13 @@ impl<'a> Ast<'a> {
     #[inline]
     fn node_store_mut(&mut self, store: StoreTag) -> &mut NodeData<'a> {
         match store {
-            StoreTag::Common => &mut self.nodes,
-            StoreTag::Expression => &mut self.expressions,
-            StoreTag::Statement => &mut self.statements,
+            StoreTag::Common => &mut self.nodes.data,
+            StoreTag::Expression => &mut self.expressions.data,
+            StoreTag::Statement => &mut self.statements.data,
+            StoreTag::NamePattern => &mut self.name_patterns.data,
+            StoreTag::ClassElement => &mut self.class_elements.data,
+            StoreTag::TypeJsx => &mut self.type_jsx.data,
+            StoreTag::ProgramAux => &mut self.program_aux.data,
             _ => panic!("AST store does not contain NodePayload"),
         }
     }
@@ -281,27 +503,51 @@ impl<'a> Ast<'a> {
         let old_ast_id = old.ast_id();
         let new_ast_id = new.ast_id();
         assert_ne!(old_ast_id, new_ast_id);
-        let new_index = new_ast_id.index();
-        let new_len = match new_ast_id.store_tag() {
-            StoreTag::Function => self.functions.len(),
-            store => self.node_store(store).len(),
-        };
-        assert_eq!(new_index + 1, new_len);
-
         let span = self.span(new_ast_id);
         let kind = self.node_kind(new_ast_id);
         let data = unsafe { *self.node_payload_unchecked(new_ast_id) };
-        let old_store = self.node_store_mut(old_ast_id.store_tag());
-        let old = old_ast_id.node_id();
-        *old_store.span_mut(old) = span;
-        *old_store.kind_mut(old) = kind;
-        *old_store.data_mut(old) = data;
-        match new_ast_id.store_tag() {
-            StoreTag::Function => self.functions.truncate(new_index),
-            store => self.node_store_mut(store).truncate(new_index),
+        match old_ast_id.store_tag() {
+            StoreTag::Common
+            | StoreTag::Expression
+            | StoreTag::Statement
+            | StoreTag::NamePattern
+            | StoreTag::ClassElement
+            | StoreTag::TypeJsx
+            | StoreTag::ProgramAux => {
+                let old_store = self.node_store_mut(old_ast_id.store_tag());
+                let old = old_ast_id.node_id();
+                *old_store.span_mut(old) = span;
+                *old_store.kind_mut(old) = kind;
+                *old_store.data_mut(old) = data;
+            }
+            StoreTag::Function => {
+                let old = FunctionId::from_raw(old_ast_id.index() as u32);
+                *self.functions.span_mut(old) = span;
+                *self.functions.data_mut(old) = data;
+            }
+            _ => panic!("AST store does not support payload replacement"),
         }
-
+        if new_ast_id.store_tag() == StoreTag::Function {
+            let new_index = new_ast_id.index();
+            assert_eq!(new_index + 1, self.functions.len());
+            self.functions.truncate(new_index);
+        } else {
+            self.retire_node(new_ast_id);
+        }
         unsafe { New::from_ast_id_unchecked(old_ast_id) }
+    }
+
+    fn retire_node(&mut self, id: AstId) {
+        match id.store_tag() {
+            StoreTag::Common => self.nodes.retire(id.node_id()),
+            StoreTag::Expression => self.expressions.retire(id.node_id()),
+            StoreTag::Statement => self.statements.retire(id.node_id()),
+            StoreTag::NamePattern => self.name_patterns.retire(id.node_id()),
+            StoreTag::ClassElement => self.class_elements.retire(id.node_id()),
+            StoreTag::TypeJsx => self.type_jsx.retire(id.node_id()),
+            StoreTag::ProgramAux => self.program_aux.retire(id.node_id()),
+            _ => panic!("AST store does not support holes"),
+        }
     }
 
     #[inline]
@@ -475,9 +721,13 @@ impl<'a> Ast<'a> {
 
     #[inline]
     pub fn node_count(&self) -> usize {
-        self.nodes.len()
-            + self.expressions.len()
-            + self.statements.len()
+        self.nodes.live_len()
+            + self.expressions.live_len()
+            + self.statements.live_len()
+            + self.name_patterns.live_len()
+            + self.class_elements.live_len()
+            + self.type_jsx.live_len()
+            + self.program_aux.live_len()
             + self.classes.len()
             + self.functions.len()
     }
@@ -485,19 +735,48 @@ impl<'a> Ast<'a> {
     #[inline]
     #[doc(hidden)]
     pub fn common_node_count(&self) -> usize {
-        self.nodes.len()
+        self.nodes.slot_len()
     }
 
     #[inline]
     #[doc(hidden)]
     pub fn store_node_count(&self, store: StoreTag) -> usize {
         match store {
-            StoreTag::Common => self.nodes.len(),
-            StoreTag::Expression => self.expressions.len(),
-            StoreTag::Statement => self.statements.len(),
+            StoreTag::Common => self.nodes.slot_len(),
+            StoreTag::Expression => self.expressions.slot_len(),
+            StoreTag::Statement => self.statements.slot_len(),
+            StoreTag::NamePattern => self.name_patterns.slot_len(),
+            StoreTag::ClassElement => self.class_elements.slot_len(),
+            StoreTag::TypeJsx => self.type_jsx.slot_len(),
+            StoreTag::ProgramAux => self.program_aux.slot_len(),
             StoreTag::Class => self.classes.len(),
             StoreTag::Function => self.functions.len(),
-            _ => 0,
+        }
+    }
+
+    /// Returns insertion/locality counters for a node storage domain.
+    #[doc(hidden)]
+    pub fn storage_metrics(&self, store: StoreTag) -> StorageMetrics {
+        match store {
+            StoreTag::Common => self.nodes.metrics(),
+            StoreTag::Expression => self.expressions.metrics(),
+            StoreTag::Statement => self.statements.metrics(),
+            StoreTag::NamePattern => self.name_patterns.metrics(),
+            StoreTag::ClassElement => self.class_elements.metrics(),
+            StoreTag::TypeJsx => self.type_jsx.metrics(),
+            StoreTag::ProgramAux => self.program_aux.metrics(),
+            StoreTag::Class => StorageMetrics {
+                live_per_chunk: HOLE_LIVE_PER_CHUNK,
+                live: self.classes.len(),
+                slots: self.classes.len(),
+                ..StorageMetrics::default()
+            },
+            StoreTag::Function => StorageMetrics {
+                live_per_chunk: HOLE_LIVE_PER_CHUNK,
+                live: self.functions.len(),
+                slots: self.functions.len(),
+                ..StorageMetrics::default()
+            },
         }
     }
 
@@ -546,12 +825,15 @@ impl<'a> Ast<'a> {
     pub fn node_kind<I: Into<AstId>>(&self, node_id: I) -> NodeKind {
         let node_id = node_id.into();
         match node_id.store_tag() {
-            StoreTag::Common | StoreTag::Expression | StoreTag::Statement => {
-                *self.node_store(node_id.store_tag()).kind(node_id.node_id())
-            }
+            StoreTag::Common
+            | StoreTag::Expression
+            | StoreTag::Statement
+            | StoreTag::NamePattern
+            | StoreTag::ClassElement
+            | StoreTag::TypeJsx
+            | StoreTag::ProgramAux => *self.node_store(node_id.store_tag()).kind(node_id.node_id()),
             StoreTag::Class => NodeKind::Class,
             StoreTag::Function => NodeKind::Function,
-            _ => panic!("AST store is not implemented"),
         }
     }
 
@@ -560,21 +842,30 @@ impl<'a> Ast<'a> {
     pub fn span<I: Into<AstId>>(&self, node_id: I) -> Span {
         let node_id = node_id.into();
         match node_id.store_tag() {
-            StoreTag::Common | StoreTag::Expression | StoreTag::Statement => {
-                *self.node_store(node_id.store_tag()).span(node_id.node_id())
-            }
+            StoreTag::Common
+            | StoreTag::Expression
+            | StoreTag::Statement
+            | StoreTag::NamePattern
+            | StoreTag::ClassElement
+            | StoreTag::TypeJsx
+            | StoreTag::ProgramAux => *self.node_store(node_id.store_tag()).span(node_id.node_id()),
             StoreTag::Class => *self.classes.span(ClassId::from_raw(node_id.index() as u32)),
             StoreTag::Function => *self
                 .functions
                 .span(FunctionId::from_raw(node_id.index() as u32)),
-            _ => panic!("AST store is not implemented"),
         }
     }
 
     #[inline]
     pub fn set_span(&mut self, node_id: AstId, span: Span) {
         match node_id.store_tag() {
-            StoreTag::Common | StoreTag::Expression | StoreTag::Statement => {
+            StoreTag::Common
+            | StoreTag::Expression
+            | StoreTag::Statement
+            | StoreTag::NamePattern
+            | StoreTag::ClassElement
+            | StoreTag::TypeJsx
+            | StoreTag::ProgramAux => {
                 *self
                     .node_store_mut(node_id.store_tag())
                     .span_mut(node_id.node_id()) = span;
@@ -589,14 +880,19 @@ impl<'a> Ast<'a> {
                     .functions
                     .span_mut(FunctionId::from_raw(node_id.index() as u32)) = span;
             }
-            _ => panic!("AST store is not implemented"),
         }
     }
 
     #[inline]
     pub(crate) unsafe fn node_payload_unchecked(&self, node_id: AstId) -> &NodePayload {
         match node_id.store_tag() {
-            StoreTag::Common | StoreTag::Expression | StoreTag::Statement => unsafe {
+            StoreTag::Common
+            | StoreTag::Expression
+            | StoreTag::Statement
+            | StoreTag::NamePattern
+            | StoreTag::ClassElement
+            | StoreTag::TypeJsx
+            | StoreTag::ProgramAux => unsafe {
                 self.node_store(node_id.store_tag())
                     .data_unchecked(node_id.node_id())
             },
@@ -611,7 +907,13 @@ impl<'a> Ast<'a> {
     #[inline]
     pub(crate) unsafe fn node_payload_mut_unchecked(&mut self, node_id: AstId) -> &mut NodePayload {
         match node_id.store_tag() {
-            StoreTag::Common | StoreTag::Expression | StoreTag::Statement => unsafe {
+            StoreTag::Common
+            | StoreTag::Expression
+            | StoreTag::Statement
+            | StoreTag::NamePattern
+            | StoreTag::ClassElement
+            | StoreTag::TypeJsx
+            | StoreTag::ProgramAux => unsafe {
                 self.node_store_mut(node_id.store_tag())
                     .data_mut_unchecked(node_id.node_id())
             },
@@ -634,14 +936,19 @@ impl<'a> Ast<'a> {
             source_type: SourceType::Module,
             lang: Lang::Js,
             attached_comments: ArenaVec::new_in(allocator),
-            nodes: NodeData::new_in(allocator),
-            expressions: NodeData::new_in(allocator),
-            statements: NodeData::new_in(allocator),
+            nodes: NodeStore::new_in(allocator),
+            expressions: NodeStore::new_in(allocator),
+            statements: NodeStore::new_in(allocator),
+            name_patterns: NodeStore::new_in(allocator),
+            class_elements: NodeStore::new_in(allocator),
+            type_jsx: NodeStore::new_in(allocator),
+            program_aux: NodeStore::new_in(allocator),
             classes: ClassData::new_in(allocator),
             functions: FunctionData::new_in(allocator),
             node_edges: ArenaVec::new_in(allocator),
             extra_data: ArenaVec::with_capacity_in(0, allocator),
             strings: StringPool::new_in(allocator, source),
+            transforming: false,
         }
     }
 
@@ -677,14 +984,31 @@ impl<'a> Ast<'a> {
     /// Reserves storage for parser output without changing logical lengths.
     #[inline]
     pub fn reserve(&mut self, additional_nodes: usize, additional_extra_data: usize) {
-        let expression_nodes = additional_nodes / 2;
-        let statement_nodes = additional_nodes / 4;
-        self.expressions.reserve(expression_nodes);
-        self.statements.reserve(statement_nodes);
-        self.nodes
-            .reserve(additional_nodes - expression_nodes - statement_nodes);
+        let expression_nodes = additional_nodes * 40 / 100;
+        let statement_nodes = additional_nodes * 20 / 100;
+        let name_pattern_nodes = additional_nodes * 20 / 100;
+        let class_element_nodes = additional_nodes * 5 / 100;
+        let type_jsx_nodes = additional_nodes * 10 / 100;
+        let assigned = expression_nodes
+            + statement_nodes
+            + name_pattern_nodes
+            + class_element_nodes
+            + type_jsx_nodes;
+        self.expressions.reserve_live(expression_nodes);
+        self.statements.reserve_live(statement_nodes);
+        self.name_patterns.reserve_live(name_pattern_nodes);
+        self.class_elements.reserve_live(class_element_nodes);
+        self.type_jsx.reserve_live(type_jsx_nodes);
+        self.program_aux.reserve_live(additional_nodes - assigned);
         self.node_edges.reserve(additional_extra_data);
         self.extra_data.reserve(additional_extra_data);
+    }
+
+    /// Switch builders from source-order append mode to hole-consuming
+    /// transform insertion mode.
+    #[inline]
+    pub fn begin_transform(&mut self) {
+        self.transforming = true;
     }
 
     /// Reserves dedicated class storage without changing its logical length.
@@ -705,14 +1029,22 @@ impl<'a> Ast<'a> {
         nodes_len: usize,
         expressions_len: usize,
         statements_len: usize,
+        name_patterns_len: usize,
+        class_elements_len: usize,
+        type_jsx_len: usize,
+        program_aux_len: usize,
         classes_len: usize,
         functions_len: usize,
         node_edges_len: usize,
         extra_data_len: usize,
     ) {
-        assert!(nodes_len <= self.nodes.len());
-        assert!(expressions_len <= self.expressions.len());
-        assert!(statements_len <= self.statements.len());
+        assert!(nodes_len <= self.nodes.slot_len());
+        assert!(expressions_len <= self.expressions.slot_len());
+        assert!(statements_len <= self.statements.slot_len());
+        assert!(name_patterns_len <= self.name_patterns.slot_len());
+        assert!(class_elements_len <= self.class_elements.slot_len());
+        assert!(type_jsx_len <= self.type_jsx.slot_len());
+        assert!(program_aux_len <= self.program_aux.slot_len());
         assert!(classes_len <= self.classes.len());
         assert!(functions_len <= self.functions.len());
         assert!(node_edges_len <= self.node_edges.len());
@@ -720,6 +1052,10 @@ impl<'a> Ast<'a> {
         self.nodes.truncate(nodes_len);
         self.expressions.truncate(expressions_len);
         self.statements.truncate(statements_len);
+        self.name_patterns.truncate(name_patterns_len);
+        self.class_elements.truncate(class_elements_len);
+        self.type_jsx.truncate(type_jsx_len);
+        self.program_aux.truncate(program_aux_len);
         self.classes.truncate(classes_len);
         self.functions.truncate(functions_len);
         self.node_edges.truncate(node_edges_len);
@@ -749,5 +1085,87 @@ impl Span {
 impl std::fmt::Debug for Span {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}..{}", self.start, self.end)
+    }
+}
+
+#[cfg(test)]
+mod hole_tests {
+    use super::*;
+
+    fn push_source<const HOLES: usize>(store: &mut NodeStore<'_, 16, HOLES>, count: usize) {
+        for _ in 0..count {
+            store.push(false, DUMMY_SP, NodeKind::Program, NodePayload(0));
+        }
+    }
+
+    #[test]
+    fn zero_hole_policy_has_dense_slots() {
+        let allocator = Allocator::new();
+        for live in [0, 1, 15, 16, 17, 31, 32] {
+            let mut store = NodeStore::<16, 0>::new_in(&allocator);
+            push_source(&mut store, live);
+            assert_eq!(store.live_len(), live);
+            assert_eq!(store.slot_len(), live);
+            assert_eq!(store.metrics().available_holes, 0);
+        }
+    }
+
+    #[test]
+    fn four_hole_policy_inserts_and_reuses_slots() {
+        let allocator = Allocator::new();
+        let mut store = NodeStore::<16, 4>::new_in(&allocator);
+        push_source(&mut store, 16);
+        assert_eq!(store.live_len(), 16);
+        assert_eq!(store.slot_len(), 20);
+        assert_eq!(store.metrics().available_holes, 4);
+
+        for _ in 0..4 {
+            store.push(true, DUMMY_SP, NodeKind::Program, NodePayload(0));
+        }
+        assert_eq!(store.live_len(), 20);
+        assert_eq!(store.slot_len(), 20);
+        assert_eq!(store.metrics().available_holes, 0);
+
+        store.push(true, DUMMY_SP, NodeKind::Program, NodePayload(0));
+        assert_eq!(store.live_len(), 21);
+        assert_eq!(store.slot_len(), 21);
+    }
+
+    #[test]
+    fn non_default_policy_and_checkpoint_truncate() {
+        let allocator = Allocator::new();
+        let mut store = NodeStore::<16, 2>::new_in(&allocator);
+        push_source(&mut store, 16);
+        assert_eq!(store.slot_len(), 18);
+        let checkpoint = store.slot_len();
+
+        push_source(&mut store, 16);
+        assert_eq!(store.live_len(), 32);
+        assert_eq!(store.slot_len(), 36);
+        store.truncate(checkpoint);
+        assert_eq!(store.live_len(), 16);
+        assert_eq!(store.slot_len(), 18);
+        assert_eq!(store.metrics().available_holes, 2);
+    }
+
+    #[test]
+    fn generated_node_kinds_select_disjoint_stores() {
+        assert_eq!(NodeKind::CallExpression.store_tag(), StoreTag::Expression);
+        assert_eq!(
+            NodeKind::ExpressionStatement.store_tag(),
+            StoreTag::Statement
+        );
+        assert_eq!(
+            NodeKind::BindingIdentifier.store_tag(),
+            StoreTag::NamePattern
+        );
+        assert_eq!(
+            NodeKind::PropertyDefinition.store_tag(),
+            StoreTag::ClassElement
+        );
+        assert_eq!(NodeKind::TsTypeAnnotation.store_tag(), StoreTag::TypeJsx);
+        assert_eq!(NodeKind::Program.store_tag(), StoreTag::ProgramAux);
+        assert_eq!(NodeKind::Class.store_tag(), StoreTag::Class);
+        assert_eq!(NodeKind::Function.store_tag(), StoreTag::Function);
     }
 }

@@ -177,6 +177,8 @@ pub enum NodeKind {
     JsxEmptyExpression,
     JsxText,
     JsxSpreadChild,
+    /// Internal vacant slot reserved for transform insertion.
+    Hole,
 }
 impl NodeKind {
     #[inline]
@@ -1096,6 +1098,186 @@ impl NodeKind {
             Self::JsxEmptyExpression => false,
             Self::JsxText => false,
             Self::JsxSpreadChild => false,
+            Self::Hole => false,
+        }
+    }
+    #[inline]
+    pub const fn store_tag(self) -> StoreTag {
+        match self {
+            Self::Program => StoreTag::ProgramAux,
+            Self::Super => StoreTag::Expression,
+            Self::ThisExpression => StoreTag::Expression,
+            Self::StringLiteral => StoreTag::Expression,
+            Self::NumericLiteral => StoreTag::Expression,
+            Self::BigIntLiteral => StoreTag::Expression,
+            Self::BooleanLiteral => StoreTag::Expression,
+            Self::NullLiteral => StoreTag::Expression,
+            Self::RegExpLiteral => StoreTag::Expression,
+            Self::TemplateLiteral => StoreTag::Expression,
+            Self::TemplateElement => StoreTag::ProgramAux,
+            Self::IdentifierReference => StoreTag::NamePattern,
+            Self::PrivateIdentifier => StoreTag::NamePattern,
+            Self::BindingIdentifier => StoreTag::NamePattern,
+            Self::IdentifierName => StoreTag::NamePattern,
+            Self::LabelIdentifier => StoreTag::NamePattern,
+            Self::AssignmentPattern => StoreTag::NamePattern,
+            Self::BindingRestElement => StoreTag::NamePattern,
+            Self::ArrayPattern => StoreTag::NamePattern,
+            Self::ObjectPattern => StoreTag::NamePattern,
+            Self::BindingProperty => StoreTag::NamePattern,
+            Self::BinaryExpression => StoreTag::Expression,
+            Self::LogicalExpression => StoreTag::Expression,
+            Self::ConditionalExpression => StoreTag::Expression,
+            Self::UnaryExpression => StoreTag::Expression,
+            Self::UpdateExpression => StoreTag::Expression,
+            Self::AssignmentExpression => StoreTag::Expression,
+            Self::VariableDeclaration => StoreTag::Statement,
+            Self::VariableDeclarator => StoreTag::Statement,
+            Self::IfStatement => StoreTag::Statement,
+            Self::SwitchStatement => StoreTag::Statement,
+            Self::SwitchCase => StoreTag::Statement,
+            Self::ForStatement => StoreTag::Statement,
+            Self::ForInStatement => StoreTag::Statement,
+            Self::ForOfStatement => StoreTag::Statement,
+            Self::TryStatement => StoreTag::Statement,
+            Self::CatchClause => StoreTag::Statement,
+            Self::BreakStatement => StoreTag::Statement,
+            Self::ContinueStatement => StoreTag::Statement,
+            Self::LabeledStatement => StoreTag::Statement,
+            Self::ExpressionStatement => StoreTag::Statement,
+            Self::ReturnStatement => StoreTag::Statement,
+            Self::ThrowStatement => StoreTag::Statement,
+            Self::DebuggerStatement => StoreTag::Statement,
+            Self::EmptyStatement => StoreTag::Statement,
+            Self::Directive => StoreTag::ProgramAux,
+            Self::Decorator => StoreTag::ProgramAux,
+            Self::Class => StoreTag::Class,
+            Self::MethodDefinition => StoreTag::ClassElement,
+            Self::PropertyDefinition => StoreTag::ClassElement,
+            Self::StaticBlock => StoreTag::ClassElement,
+            Self::Function => StoreTag::Function,
+            Self::FunctionBody => StoreTag::ProgramAux,
+            Self::BlockStatement => StoreTag::Statement,
+            Self::WhileStatement => StoreTag::Statement,
+            Self::DoWhileStatement => StoreTag::Statement,
+            Self::WithStatement => StoreTag::Statement,
+            Self::FormalParameters => StoreTag::ProgramAux,
+            Self::FormalParameter => StoreTag::ProgramAux,
+            Self::ArrayExpression => StoreTag::Expression,
+            Self::ObjectExpression => StoreTag::Expression,
+            Self::SpreadElement => StoreTag::ProgramAux,
+            Self::ObjectProperty => StoreTag::ProgramAux,
+            Self::ParenthesizedExpression => StoreTag::Expression,
+            Self::ArrowFunctionExpression => StoreTag::Expression,
+            Self::SequenceExpression => StoreTag::Expression,
+            Self::MemberExpression => StoreTag::Expression,
+            Self::CallExpression => StoreTag::Expression,
+            Self::ChainExpression => StoreTag::Expression,
+            Self::TaggedTemplateExpression => StoreTag::Expression,
+            Self::NewExpression => StoreTag::Expression,
+            Self::AwaitExpression => StoreTag::Expression,
+            Self::YieldExpression => StoreTag::Expression,
+            Self::MetaProperty => StoreTag::Expression,
+            Self::ImportExpression => StoreTag::Expression,
+            Self::ImportDeclaration => StoreTag::Statement,
+            Self::ImportSpecifier => StoreTag::ProgramAux,
+            Self::ImportDefaultSpecifier => StoreTag::ProgramAux,
+            Self::ImportNamespaceSpecifier => StoreTag::ProgramAux,
+            Self::ImportAttribute => StoreTag::ProgramAux,
+            Self::ExportNamedDeclaration => StoreTag::Statement,
+            Self::ExportDefaultDeclaration => StoreTag::Statement,
+            Self::ExportAllDeclaration => StoreTag::Statement,
+            Self::ExportSpecifier => StoreTag::ProgramAux,
+            Self::Hashbang => StoreTag::ProgramAux,
+            Self::TsFunction => StoreTag::Statement,
+            Self::TsMethodDefinition => StoreTag::ClassElement,
+            Self::TsTypeAnnotation => StoreTag::TypeJsx,
+            Self::TsAnyKeyword => StoreTag::TypeJsx,
+            Self::TsUnknownKeyword => StoreTag::TypeJsx,
+            Self::TsNeverKeyword => StoreTag::TypeJsx,
+            Self::TsVoidKeyword => StoreTag::TypeJsx,
+            Self::TsNullKeyword => StoreTag::TypeJsx,
+            Self::TsUndefinedKeyword => StoreTag::TypeJsx,
+            Self::TsStringKeyword => StoreTag::TypeJsx,
+            Self::TsNumberKeyword => StoreTag::TypeJsx,
+            Self::TsBigIntKeyword => StoreTag::TypeJsx,
+            Self::TsBooleanKeyword => StoreTag::TypeJsx,
+            Self::TsSymbolKeyword => StoreTag::TypeJsx,
+            Self::TsObjectKeyword => StoreTag::TypeJsx,
+            Self::TsIntrinsicKeyword => StoreTag::TypeJsx,
+            Self::TsThisType => StoreTag::TypeJsx,
+            Self::TsTypeReference => StoreTag::TypeJsx,
+            Self::TsQualifiedName => StoreTag::TypeJsx,
+            Self::TsTypeQuery => StoreTag::TypeJsx,
+            Self::TsImportType => StoreTag::TypeJsx,
+            Self::TsTypeParameter => StoreTag::TypeJsx,
+            Self::TsTypeParameterDeclaration => StoreTag::TypeJsx,
+            Self::TsTypeParameterInstantiation => StoreTag::TypeJsx,
+            Self::TsLiteralType => StoreTag::TypeJsx,
+            Self::TsTemplateLiteralType => StoreTag::TypeJsx,
+            Self::TsArrayType => StoreTag::TypeJsx,
+            Self::TsIndexedAccessType => StoreTag::TypeJsx,
+            Self::TsTupleType => StoreTag::TypeJsx,
+            Self::TsNamedTupleMember => StoreTag::TypeJsx,
+            Self::TsOptionalType => StoreTag::TypeJsx,
+            Self::TsRestType => StoreTag::TypeJsx,
+            Self::TsJsDocNullableType => StoreTag::TypeJsx,
+            Self::TsJsDocNonNullableType => StoreTag::TypeJsx,
+            Self::TsJsDocUnknownType => StoreTag::TypeJsx,
+            Self::TsUnionType => StoreTag::TypeJsx,
+            Self::TsIntersectionType => StoreTag::TypeJsx,
+            Self::TsConditionalType => StoreTag::TypeJsx,
+            Self::TsInferType => StoreTag::TypeJsx,
+            Self::TsTypeOperator => StoreTag::TypeJsx,
+            Self::TsParenthesizedType => StoreTag::TypeJsx,
+            Self::TsFunctionType => StoreTag::TypeJsx,
+            Self::TsConstructorType => StoreTag::TypeJsx,
+            Self::TsTypePredicate => StoreTag::TypeJsx,
+            Self::TsTypeLiteral => StoreTag::TypeJsx,
+            Self::TsMappedType => StoreTag::TypeJsx,
+            Self::TsPropertySignature => StoreTag::TypeJsx,
+            Self::TsMethodSignature => StoreTag::TypeJsx,
+            Self::TsCallSignatureDeclaration => StoreTag::TypeJsx,
+            Self::TsConstructSignatureDeclaration => StoreTag::TypeJsx,
+            Self::TsIndexSignature => StoreTag::ClassElement,
+            Self::TsTypeAliasDeclaration => StoreTag::Statement,
+            Self::TsInterfaceDeclaration => StoreTag::Statement,
+            Self::TsInterfaceBody => StoreTag::TypeJsx,
+            Self::TsInterfaceHeritage => StoreTag::TypeJsx,
+            Self::TsClassImplements => StoreTag::TypeJsx,
+            Self::TsEnumDeclaration => StoreTag::Statement,
+            Self::TsEnumBody => StoreTag::TypeJsx,
+            Self::TsEnumMember => StoreTag::TypeJsx,
+            Self::TsModuleDeclaration => StoreTag::Statement,
+            Self::TsModuleBlock => StoreTag::TypeJsx,
+            Self::TsGlobalDeclaration => StoreTag::Statement,
+            Self::TsParameterProperty => StoreTag::TypeJsx,
+            Self::TsThisParameter => StoreTag::TypeJsx,
+            Self::TsAsExpression => StoreTag::Expression,
+            Self::TsSatisfiesExpression => StoreTag::Expression,
+            Self::TsTypeAssertion => StoreTag::Expression,
+            Self::TsNonNullExpression => StoreTag::Expression,
+            Self::TsInstantiationExpression => StoreTag::Expression,
+            Self::TsExportAssignment => StoreTag::Statement,
+            Self::TsNamespaceExportDeclaration => StoreTag::Statement,
+            Self::TsImportEqualsDeclaration => StoreTag::Statement,
+            Self::TsExternalModuleReference => StoreTag::TypeJsx,
+            Self::JsxElement => StoreTag::Expression,
+            Self::JsxOpeningElement => StoreTag::TypeJsx,
+            Self::JsxClosingElement => StoreTag::TypeJsx,
+            Self::JsxFragment => StoreTag::Expression,
+            Self::JsxOpeningFragment => StoreTag::TypeJsx,
+            Self::JsxClosingFragment => StoreTag::TypeJsx,
+            Self::JsxIdentifier => StoreTag::TypeJsx,
+            Self::JsxNamespacedName => StoreTag::TypeJsx,
+            Self::JsxMemberExpression => StoreTag::TypeJsx,
+            Self::JsxAttribute => StoreTag::TypeJsx,
+            Self::JsxSpreadAttribute => StoreTag::TypeJsx,
+            Self::JsxExpressionContainer => StoreTag::TypeJsx,
+            Self::JsxEmptyExpression => StoreTag::TypeJsx,
+            Self::JsxText => StoreTag::TypeJsx,
+            Self::JsxSpreadChild => StoreTag::TypeJsx,
+            Self::Hole => panic!("hole has no canonical AST storage"),
         }
     }
     pub(crate) fn map_ast_ids(
@@ -2166,6 +2348,7 @@ impl NodeKind {
                 let mapped = map(AstId::from_raw(raw)).raw();
                 payload.0 = (payload.0 & !4294967295u128) | mapped as u128;
             }
+            Self::Hole => {}
         }
     }
 }
@@ -2354,9 +2537,13 @@ pub enum NodeKindData {
     JsxText(JsxText) = NodeKind::JsxText as u8,
     JsxSpreadChild(JsxSpreadChild) = NodeKind::JsxSpreadChild as u8,
 }
+impl IdDomain for Program {
+    const TAG: StoreTag = StoreTag::ProgramAux;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl Program {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<Program> {
         self.0
     }
     #[inline]
@@ -2372,9 +2559,9 @@ impl Program {
     }
 }
 impl AstNode for Program {
-    type Id = NodeId;
+    type Id = NodeId<Program>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<Program> {
         self.0
     }
 }
@@ -2386,9 +2573,9 @@ impl CommonAstNode for Program {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<Program> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -3304,9 +3491,13 @@ impl SetSpan for ExportDefaultDeclarationKind {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for Super {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl Super {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<Super> {
         self.0
     }
     #[inline]
@@ -3322,9 +3513,9 @@ impl Super {
     }
 }
 impl AstNode for Super {
-    type Id = NodeId;
+    type Id = NodeId<Super>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<Super> {
         self.0
     }
 }
@@ -3336,9 +3527,9 @@ impl CommonAstNode for Super {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<Super> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -3354,9 +3545,13 @@ impl SetSpan for Super {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ThisExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ThisExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ThisExpression> {
         self.0
     }
     #[inline]
@@ -3372,9 +3567,9 @@ impl ThisExpression {
     }
 }
 impl AstNode for ThisExpression {
-    type Id = NodeId;
+    type Id = NodeId<ThisExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ThisExpression> {
         self.0
     }
 }
@@ -3386,9 +3581,9 @@ impl CommonAstNode for ThisExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ThisExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -3404,9 +3599,13 @@ impl SetSpan for ThisExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for StringLiteral {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl StringLiteral {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<StringLiteral> {
         self.0
     }
     #[inline]
@@ -3422,9 +3621,9 @@ impl StringLiteral {
     }
 }
 impl AstNode for StringLiteral {
-    type Id = NodeId;
+    type Id = NodeId<StringLiteral>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<StringLiteral> {
         self.0
     }
 }
@@ -3436,9 +3635,9 @@ impl CommonAstNode for StringLiteral {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<StringLiteral> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -3454,9 +3653,13 @@ impl SetSpan for StringLiteral {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for NumericLiteral {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl NumericLiteral {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<NumericLiteral> {
         self.0
     }
     #[inline]
@@ -3472,9 +3675,9 @@ impl NumericLiteral {
     }
 }
 impl AstNode for NumericLiteral {
-    type Id = NodeId;
+    type Id = NodeId<NumericLiteral>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<NumericLiteral> {
         self.0
     }
 }
@@ -3486,9 +3689,9 @@ impl CommonAstNode for NumericLiteral {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<NumericLiteral> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -3504,9 +3707,13 @@ impl SetSpan for NumericLiteral {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for BigIntLiteral {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl BigIntLiteral {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<BigIntLiteral> {
         self.0
     }
     #[inline]
@@ -3522,9 +3729,9 @@ impl BigIntLiteral {
     }
 }
 impl AstNode for BigIntLiteral {
-    type Id = NodeId;
+    type Id = NodeId<BigIntLiteral>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<BigIntLiteral> {
         self.0
     }
 }
@@ -3536,9 +3743,9 @@ impl CommonAstNode for BigIntLiteral {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<BigIntLiteral> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -3554,9 +3761,13 @@ impl SetSpan for BigIntLiteral {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for BooleanLiteral {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl BooleanLiteral {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<BooleanLiteral> {
         self.0
     }
     #[inline]
@@ -3572,9 +3783,9 @@ impl BooleanLiteral {
     }
 }
 impl AstNode for BooleanLiteral {
-    type Id = NodeId;
+    type Id = NodeId<BooleanLiteral>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<BooleanLiteral> {
         self.0
     }
 }
@@ -3586,9 +3797,9 @@ impl CommonAstNode for BooleanLiteral {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<BooleanLiteral> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -3604,9 +3815,13 @@ impl SetSpan for BooleanLiteral {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for NullLiteral {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl NullLiteral {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<NullLiteral> {
         self.0
     }
     #[inline]
@@ -3622,9 +3837,9 @@ impl NullLiteral {
     }
 }
 impl AstNode for NullLiteral {
-    type Id = NodeId;
+    type Id = NodeId<NullLiteral>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<NullLiteral> {
         self.0
     }
 }
@@ -3636,9 +3851,9 @@ impl CommonAstNode for NullLiteral {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<NullLiteral> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -3654,9 +3869,13 @@ impl SetSpan for NullLiteral {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for RegExpLiteral {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl RegExpLiteral {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<RegExpLiteral> {
         self.0
     }
     #[inline]
@@ -3672,9 +3891,9 @@ impl RegExpLiteral {
     }
 }
 impl AstNode for RegExpLiteral {
-    type Id = NodeId;
+    type Id = NodeId<RegExpLiteral>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<RegExpLiteral> {
         self.0
     }
 }
@@ -3686,9 +3905,9 @@ impl CommonAstNode for RegExpLiteral {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<RegExpLiteral> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -3704,9 +3923,13 @@ impl SetSpan for RegExpLiteral {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TemplateLiteral {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TemplateLiteral {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TemplateLiteral> {
         self.0
     }
     #[inline]
@@ -3722,9 +3945,9 @@ impl TemplateLiteral {
     }
 }
 impl AstNode for TemplateLiteral {
-    type Id = NodeId;
+    type Id = NodeId<TemplateLiteral>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TemplateLiteral> {
         self.0
     }
 }
@@ -3736,9 +3959,9 @@ impl CommonAstNode for TemplateLiteral {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TemplateLiteral> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -3754,9 +3977,13 @@ impl SetSpan for TemplateLiteral {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TemplateElement {
+    const TAG: StoreTag = StoreTag::ProgramAux;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TemplateElement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TemplateElement> {
         self.0
     }
     #[inline]
@@ -3772,9 +3999,9 @@ impl TemplateElement {
     }
 }
 impl AstNode for TemplateElement {
-    type Id = NodeId;
+    type Id = NodeId<TemplateElement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TemplateElement> {
         self.0
     }
 }
@@ -3786,9 +4013,9 @@ impl CommonAstNode for TemplateElement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TemplateElement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -3804,9 +4031,13 @@ impl SetSpan for TemplateElement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for IdentifierReference {
+    const TAG: StoreTag = StoreTag::NamePattern;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl IdentifierReference {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<IdentifierReference> {
         self.0
     }
     #[inline]
@@ -3822,9 +4053,9 @@ impl IdentifierReference {
     }
 }
 impl AstNode for IdentifierReference {
-    type Id = NodeId;
+    type Id = NodeId<IdentifierReference>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<IdentifierReference> {
         self.0
     }
 }
@@ -3836,9 +4067,9 @@ impl CommonAstNode for IdentifierReference {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<IdentifierReference> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -3854,9 +4085,13 @@ impl SetSpan for IdentifierReference {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for PrivateIdentifier {
+    const TAG: StoreTag = StoreTag::NamePattern;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl PrivateIdentifier {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<PrivateIdentifier> {
         self.0
     }
     #[inline]
@@ -3872,9 +4107,9 @@ impl PrivateIdentifier {
     }
 }
 impl AstNode for PrivateIdentifier {
-    type Id = NodeId;
+    type Id = NodeId<PrivateIdentifier>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<PrivateIdentifier> {
         self.0
     }
 }
@@ -3886,9 +4121,9 @@ impl CommonAstNode for PrivateIdentifier {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<PrivateIdentifier> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -3904,9 +4139,13 @@ impl SetSpan for PrivateIdentifier {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for BindingIdentifier {
+    const TAG: StoreTag = StoreTag::NamePattern;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl BindingIdentifier {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<BindingIdentifier> {
         self.0
     }
     #[inline]
@@ -3922,9 +4161,9 @@ impl BindingIdentifier {
     }
 }
 impl AstNode for BindingIdentifier {
-    type Id = NodeId;
+    type Id = NodeId<BindingIdentifier>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<BindingIdentifier> {
         self.0
     }
 }
@@ -3936,9 +4175,9 @@ impl CommonAstNode for BindingIdentifier {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<BindingIdentifier> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -3954,9 +4193,13 @@ impl SetSpan for BindingIdentifier {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for IdentifierName {
+    const TAG: StoreTag = StoreTag::NamePattern;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl IdentifierName {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<IdentifierName> {
         self.0
     }
     #[inline]
@@ -3972,9 +4215,9 @@ impl IdentifierName {
     }
 }
 impl AstNode for IdentifierName {
-    type Id = NodeId;
+    type Id = NodeId<IdentifierName>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<IdentifierName> {
         self.0
     }
 }
@@ -3986,9 +4229,9 @@ impl CommonAstNode for IdentifierName {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<IdentifierName> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4004,9 +4247,13 @@ impl SetSpan for IdentifierName {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for LabelIdentifier {
+    const TAG: StoreTag = StoreTag::NamePattern;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl LabelIdentifier {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<LabelIdentifier> {
         self.0
     }
     #[inline]
@@ -4022,9 +4269,9 @@ impl LabelIdentifier {
     }
 }
 impl AstNode for LabelIdentifier {
-    type Id = NodeId;
+    type Id = NodeId<LabelIdentifier>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<LabelIdentifier> {
         self.0
     }
 }
@@ -4036,9 +4283,9 @@ impl CommonAstNode for LabelIdentifier {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<LabelIdentifier> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4054,9 +4301,13 @@ impl SetSpan for LabelIdentifier {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for AssignmentPattern {
+    const TAG: StoreTag = StoreTag::NamePattern;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl AssignmentPattern {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<AssignmentPattern> {
         self.0
     }
     #[inline]
@@ -4072,9 +4323,9 @@ impl AssignmentPattern {
     }
 }
 impl AstNode for AssignmentPattern {
-    type Id = NodeId;
+    type Id = NodeId<AssignmentPattern>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<AssignmentPattern> {
         self.0
     }
 }
@@ -4086,9 +4337,9 @@ impl CommonAstNode for AssignmentPattern {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<AssignmentPattern> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4104,9 +4355,13 @@ impl SetSpan for AssignmentPattern {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for BindingRestElement {
+    const TAG: StoreTag = StoreTag::NamePattern;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl BindingRestElement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<BindingRestElement> {
         self.0
     }
     #[inline]
@@ -4122,9 +4377,9 @@ impl BindingRestElement {
     }
 }
 impl AstNode for BindingRestElement {
-    type Id = NodeId;
+    type Id = NodeId<BindingRestElement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<BindingRestElement> {
         self.0
     }
 }
@@ -4136,9 +4391,9 @@ impl CommonAstNode for BindingRestElement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<BindingRestElement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4154,9 +4409,13 @@ impl SetSpan for BindingRestElement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ArrayPattern {
+    const TAG: StoreTag = StoreTag::NamePattern;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ArrayPattern {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ArrayPattern> {
         self.0
     }
     #[inline]
@@ -4172,9 +4431,9 @@ impl ArrayPattern {
     }
 }
 impl AstNode for ArrayPattern {
-    type Id = NodeId;
+    type Id = NodeId<ArrayPattern>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ArrayPattern> {
         self.0
     }
 }
@@ -4186,9 +4445,9 @@ impl CommonAstNode for ArrayPattern {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ArrayPattern> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4204,9 +4463,13 @@ impl SetSpan for ArrayPattern {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ObjectPattern {
+    const TAG: StoreTag = StoreTag::NamePattern;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ObjectPattern {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ObjectPattern> {
         self.0
     }
     #[inline]
@@ -4222,9 +4485,9 @@ impl ObjectPattern {
     }
 }
 impl AstNode for ObjectPattern {
-    type Id = NodeId;
+    type Id = NodeId<ObjectPattern>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ObjectPattern> {
         self.0
     }
 }
@@ -4236,9 +4499,9 @@ impl CommonAstNode for ObjectPattern {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ObjectPattern> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4254,9 +4517,13 @@ impl SetSpan for ObjectPattern {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for BindingProperty {
+    const TAG: StoreTag = StoreTag::NamePattern;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl BindingProperty {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<BindingProperty> {
         self.0
     }
     #[inline]
@@ -4272,9 +4539,9 @@ impl BindingProperty {
     }
 }
 impl AstNode for BindingProperty {
-    type Id = NodeId;
+    type Id = NodeId<BindingProperty>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<BindingProperty> {
         self.0
     }
 }
@@ -4286,9 +4553,9 @@ impl CommonAstNode for BindingProperty {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<BindingProperty> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4304,9 +4571,13 @@ impl SetSpan for BindingProperty {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for BinaryExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl BinaryExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<BinaryExpression> {
         self.0
     }
     #[inline]
@@ -4322,9 +4593,9 @@ impl BinaryExpression {
     }
 }
 impl AstNode for BinaryExpression {
-    type Id = NodeId;
+    type Id = NodeId<BinaryExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<BinaryExpression> {
         self.0
     }
 }
@@ -4336,9 +4607,9 @@ impl CommonAstNode for BinaryExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<BinaryExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4354,9 +4625,13 @@ impl SetSpan for BinaryExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for LogicalExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl LogicalExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<LogicalExpression> {
         self.0
     }
     #[inline]
@@ -4372,9 +4647,9 @@ impl LogicalExpression {
     }
 }
 impl AstNode for LogicalExpression {
-    type Id = NodeId;
+    type Id = NodeId<LogicalExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<LogicalExpression> {
         self.0
     }
 }
@@ -4386,9 +4661,9 @@ impl CommonAstNode for LogicalExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<LogicalExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4404,9 +4679,13 @@ impl SetSpan for LogicalExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ConditionalExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ConditionalExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ConditionalExpression> {
         self.0
     }
     #[inline]
@@ -4422,9 +4701,9 @@ impl ConditionalExpression {
     }
 }
 impl AstNode for ConditionalExpression {
-    type Id = NodeId;
+    type Id = NodeId<ConditionalExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ConditionalExpression> {
         self.0
     }
 }
@@ -4436,9 +4715,9 @@ impl CommonAstNode for ConditionalExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ConditionalExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4454,9 +4733,13 @@ impl SetSpan for ConditionalExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for UnaryExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl UnaryExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<UnaryExpression> {
         self.0
     }
     #[inline]
@@ -4472,9 +4755,9 @@ impl UnaryExpression {
     }
 }
 impl AstNode for UnaryExpression {
-    type Id = NodeId;
+    type Id = NodeId<UnaryExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<UnaryExpression> {
         self.0
     }
 }
@@ -4486,9 +4769,9 @@ impl CommonAstNode for UnaryExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<UnaryExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4504,9 +4787,13 @@ impl SetSpan for UnaryExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for UpdateExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl UpdateExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<UpdateExpression> {
         self.0
     }
     #[inline]
@@ -4522,9 +4809,9 @@ impl UpdateExpression {
     }
 }
 impl AstNode for UpdateExpression {
-    type Id = NodeId;
+    type Id = NodeId<UpdateExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<UpdateExpression> {
         self.0
     }
 }
@@ -4536,9 +4823,9 @@ impl CommonAstNode for UpdateExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<UpdateExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4554,9 +4841,13 @@ impl SetSpan for UpdateExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for AssignmentExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl AssignmentExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<AssignmentExpression> {
         self.0
     }
     #[inline]
@@ -4572,9 +4863,9 @@ impl AssignmentExpression {
     }
 }
 impl AstNode for AssignmentExpression {
-    type Id = NodeId;
+    type Id = NodeId<AssignmentExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<AssignmentExpression> {
         self.0
     }
 }
@@ -4586,9 +4877,9 @@ impl CommonAstNode for AssignmentExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<AssignmentExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4604,9 +4895,13 @@ impl SetSpan for AssignmentExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for VariableDeclaration {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl VariableDeclaration {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<VariableDeclaration> {
         self.0
     }
     #[inline]
@@ -4622,9 +4917,9 @@ impl VariableDeclaration {
     }
 }
 impl AstNode for VariableDeclaration {
-    type Id = NodeId;
+    type Id = NodeId<VariableDeclaration>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<VariableDeclaration> {
         self.0
     }
 }
@@ -4636,9 +4931,9 @@ impl CommonAstNode for VariableDeclaration {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<VariableDeclaration> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4654,9 +4949,13 @@ impl SetSpan for VariableDeclaration {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for VariableDeclarator {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl VariableDeclarator {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<VariableDeclarator> {
         self.0
     }
     #[inline]
@@ -4672,9 +4971,9 @@ impl VariableDeclarator {
     }
 }
 impl AstNode for VariableDeclarator {
-    type Id = NodeId;
+    type Id = NodeId<VariableDeclarator>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<VariableDeclarator> {
         self.0
     }
 }
@@ -4686,9 +4985,9 @@ impl CommonAstNode for VariableDeclarator {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<VariableDeclarator> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4704,9 +5003,13 @@ impl SetSpan for VariableDeclarator {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for IfStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl IfStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<IfStatement> {
         self.0
     }
     #[inline]
@@ -4722,9 +5025,9 @@ impl IfStatement {
     }
 }
 impl AstNode for IfStatement {
-    type Id = NodeId;
+    type Id = NodeId<IfStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<IfStatement> {
         self.0
     }
 }
@@ -4736,9 +5039,9 @@ impl CommonAstNode for IfStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<IfStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4754,9 +5057,13 @@ impl SetSpan for IfStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for SwitchStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl SwitchStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<SwitchStatement> {
         self.0
     }
     #[inline]
@@ -4772,9 +5079,9 @@ impl SwitchStatement {
     }
 }
 impl AstNode for SwitchStatement {
-    type Id = NodeId;
+    type Id = NodeId<SwitchStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<SwitchStatement> {
         self.0
     }
 }
@@ -4786,9 +5093,9 @@ impl CommonAstNode for SwitchStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<SwitchStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4804,9 +5111,13 @@ impl SetSpan for SwitchStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for SwitchCase {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl SwitchCase {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<SwitchCase> {
         self.0
     }
     #[inline]
@@ -4822,9 +5133,9 @@ impl SwitchCase {
     }
 }
 impl AstNode for SwitchCase {
-    type Id = NodeId;
+    type Id = NodeId<SwitchCase>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<SwitchCase> {
         self.0
     }
 }
@@ -4836,9 +5147,9 @@ impl CommonAstNode for SwitchCase {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<SwitchCase> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4854,9 +5165,13 @@ impl SetSpan for SwitchCase {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ForStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ForStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ForStatement> {
         self.0
     }
     #[inline]
@@ -4872,9 +5187,9 @@ impl ForStatement {
     }
 }
 impl AstNode for ForStatement {
-    type Id = NodeId;
+    type Id = NodeId<ForStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ForStatement> {
         self.0
     }
 }
@@ -4886,9 +5201,9 @@ impl CommonAstNode for ForStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ForStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4904,9 +5219,13 @@ impl SetSpan for ForStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ForInStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ForInStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ForInStatement> {
         self.0
     }
     #[inline]
@@ -4922,9 +5241,9 @@ impl ForInStatement {
     }
 }
 impl AstNode for ForInStatement {
-    type Id = NodeId;
+    type Id = NodeId<ForInStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ForInStatement> {
         self.0
     }
 }
@@ -4936,9 +5255,9 @@ impl CommonAstNode for ForInStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ForInStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -4954,9 +5273,13 @@ impl SetSpan for ForInStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ForOfStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ForOfStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ForOfStatement> {
         self.0
     }
     #[inline]
@@ -4972,9 +5295,9 @@ impl ForOfStatement {
     }
 }
 impl AstNode for ForOfStatement {
-    type Id = NodeId;
+    type Id = NodeId<ForOfStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ForOfStatement> {
         self.0
     }
 }
@@ -4986,9 +5309,9 @@ impl CommonAstNode for ForOfStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ForOfStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5004,9 +5327,13 @@ impl SetSpan for ForOfStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TryStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TryStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TryStatement> {
         self.0
     }
     #[inline]
@@ -5022,9 +5349,9 @@ impl TryStatement {
     }
 }
 impl AstNode for TryStatement {
-    type Id = NodeId;
+    type Id = NodeId<TryStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TryStatement> {
         self.0
     }
 }
@@ -5036,9 +5363,9 @@ impl CommonAstNode for TryStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TryStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5054,9 +5381,13 @@ impl SetSpan for TryStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for CatchClause {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl CatchClause {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<CatchClause> {
         self.0
     }
     #[inline]
@@ -5072,9 +5403,9 @@ impl CatchClause {
     }
 }
 impl AstNode for CatchClause {
-    type Id = NodeId;
+    type Id = NodeId<CatchClause>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<CatchClause> {
         self.0
     }
 }
@@ -5086,9 +5417,9 @@ impl CommonAstNode for CatchClause {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<CatchClause> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5104,9 +5435,13 @@ impl SetSpan for CatchClause {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for BreakStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl BreakStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<BreakStatement> {
         self.0
     }
     #[inline]
@@ -5122,9 +5457,9 @@ impl BreakStatement {
     }
 }
 impl AstNode for BreakStatement {
-    type Id = NodeId;
+    type Id = NodeId<BreakStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<BreakStatement> {
         self.0
     }
 }
@@ -5136,9 +5471,9 @@ impl CommonAstNode for BreakStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<BreakStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5154,9 +5489,13 @@ impl SetSpan for BreakStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ContinueStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ContinueStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ContinueStatement> {
         self.0
     }
     #[inline]
@@ -5172,9 +5511,9 @@ impl ContinueStatement {
     }
 }
 impl AstNode for ContinueStatement {
-    type Id = NodeId;
+    type Id = NodeId<ContinueStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ContinueStatement> {
         self.0
     }
 }
@@ -5186,9 +5525,9 @@ impl CommonAstNode for ContinueStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ContinueStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5204,9 +5543,13 @@ impl SetSpan for ContinueStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for LabeledStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl LabeledStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<LabeledStatement> {
         self.0
     }
     #[inline]
@@ -5222,9 +5565,9 @@ impl LabeledStatement {
     }
 }
 impl AstNode for LabeledStatement {
-    type Id = NodeId;
+    type Id = NodeId<LabeledStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<LabeledStatement> {
         self.0
     }
 }
@@ -5236,9 +5579,9 @@ impl CommonAstNode for LabeledStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<LabeledStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5254,9 +5597,13 @@ impl SetSpan for LabeledStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ExpressionStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ExpressionStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ExpressionStatement> {
         self.0
     }
     #[inline]
@@ -5272,9 +5619,9 @@ impl ExpressionStatement {
     }
 }
 impl AstNode for ExpressionStatement {
-    type Id = NodeId;
+    type Id = NodeId<ExpressionStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ExpressionStatement> {
         self.0
     }
 }
@@ -5286,9 +5633,9 @@ impl CommonAstNode for ExpressionStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ExpressionStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5304,9 +5651,13 @@ impl SetSpan for ExpressionStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ReturnStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ReturnStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ReturnStatement> {
         self.0
     }
     #[inline]
@@ -5322,9 +5673,9 @@ impl ReturnStatement {
     }
 }
 impl AstNode for ReturnStatement {
-    type Id = NodeId;
+    type Id = NodeId<ReturnStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ReturnStatement> {
         self.0
     }
 }
@@ -5336,9 +5687,9 @@ impl CommonAstNode for ReturnStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ReturnStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5354,9 +5705,13 @@ impl SetSpan for ReturnStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ThrowStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ThrowStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ThrowStatement> {
         self.0
     }
     #[inline]
@@ -5372,9 +5727,9 @@ impl ThrowStatement {
     }
 }
 impl AstNode for ThrowStatement {
-    type Id = NodeId;
+    type Id = NodeId<ThrowStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ThrowStatement> {
         self.0
     }
 }
@@ -5386,9 +5741,9 @@ impl CommonAstNode for ThrowStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ThrowStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5404,9 +5759,13 @@ impl SetSpan for ThrowStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for DebuggerStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl DebuggerStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<DebuggerStatement> {
         self.0
     }
     #[inline]
@@ -5422,9 +5781,9 @@ impl DebuggerStatement {
     }
 }
 impl AstNode for DebuggerStatement {
-    type Id = NodeId;
+    type Id = NodeId<DebuggerStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<DebuggerStatement> {
         self.0
     }
 }
@@ -5436,9 +5795,9 @@ impl CommonAstNode for DebuggerStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<DebuggerStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5454,9 +5813,13 @@ impl SetSpan for DebuggerStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for EmptyStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl EmptyStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<EmptyStatement> {
         self.0
     }
     #[inline]
@@ -5472,9 +5835,9 @@ impl EmptyStatement {
     }
 }
 impl AstNode for EmptyStatement {
-    type Id = NodeId;
+    type Id = NodeId<EmptyStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<EmptyStatement> {
         self.0
     }
 }
@@ -5486,9 +5849,9 @@ impl CommonAstNode for EmptyStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<EmptyStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5504,9 +5867,13 @@ impl SetSpan for EmptyStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for Directive {
+    const TAG: StoreTag = StoreTag::ProgramAux;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl Directive {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<Directive> {
         self.0
     }
     #[inline]
@@ -5522,9 +5889,9 @@ impl Directive {
     }
 }
 impl AstNode for Directive {
-    type Id = NodeId;
+    type Id = NodeId<Directive>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<Directive> {
         self.0
     }
 }
@@ -5536,9 +5903,9 @@ impl CommonAstNode for Directive {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<Directive> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5554,9 +5921,13 @@ impl SetSpan for Directive {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for Decorator {
+    const TAG: StoreTag = StoreTag::ProgramAux;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl Decorator {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<Decorator> {
         self.0
     }
     #[inline]
@@ -5572,9 +5943,9 @@ impl Decorator {
     }
 }
 impl AstNode for Decorator {
-    type Id = NodeId;
+    type Id = NodeId<Decorator>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<Decorator> {
         self.0
     }
 }
@@ -5586,9 +5957,9 @@ impl CommonAstNode for Decorator {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<Decorator> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5633,9 +6004,13 @@ impl SetSpan for ClassId {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for MethodDefinition {
+    const TAG: StoreTag = StoreTag::ClassElement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl MethodDefinition {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<MethodDefinition> {
         self.0
     }
     #[inline]
@@ -5651,9 +6026,9 @@ impl MethodDefinition {
     }
 }
 impl AstNode for MethodDefinition {
-    type Id = NodeId;
+    type Id = NodeId<MethodDefinition>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<MethodDefinition> {
         self.0
     }
 }
@@ -5665,9 +6040,9 @@ impl CommonAstNode for MethodDefinition {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<MethodDefinition> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5683,9 +6058,13 @@ impl SetSpan for MethodDefinition {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for PropertyDefinition {
+    const TAG: StoreTag = StoreTag::ClassElement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl PropertyDefinition {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<PropertyDefinition> {
         self.0
     }
     #[inline]
@@ -5701,9 +6080,9 @@ impl PropertyDefinition {
     }
 }
 impl AstNode for PropertyDefinition {
-    type Id = NodeId;
+    type Id = NodeId<PropertyDefinition>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<PropertyDefinition> {
         self.0
     }
 }
@@ -5715,9 +6094,9 @@ impl CommonAstNode for PropertyDefinition {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<PropertyDefinition> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5733,9 +6112,13 @@ impl SetSpan for PropertyDefinition {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for StaticBlock {
+    const TAG: StoreTag = StoreTag::ClassElement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl StaticBlock {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<StaticBlock> {
         self.0
     }
     #[inline]
@@ -5751,9 +6134,9 @@ impl StaticBlock {
     }
 }
 impl AstNode for StaticBlock {
-    type Id = NodeId;
+    type Id = NodeId<StaticBlock>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<StaticBlock> {
         self.0
     }
 }
@@ -5765,9 +6148,9 @@ impl CommonAstNode for StaticBlock {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<StaticBlock> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5833,9 +6216,13 @@ impl SetSpan for Function {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for FunctionBody {
+    const TAG: StoreTag = StoreTag::ProgramAux;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl FunctionBody {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<FunctionBody> {
         self.0
     }
     #[inline]
@@ -5851,9 +6238,9 @@ impl FunctionBody {
     }
 }
 impl AstNode for FunctionBody {
-    type Id = NodeId;
+    type Id = NodeId<FunctionBody>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<FunctionBody> {
         self.0
     }
 }
@@ -5865,9 +6252,9 @@ impl CommonAstNode for FunctionBody {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<FunctionBody> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5883,9 +6270,13 @@ impl SetSpan for FunctionBody {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for BlockStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl BlockStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<BlockStatement> {
         self.0
     }
     #[inline]
@@ -5901,9 +6292,9 @@ impl BlockStatement {
     }
 }
 impl AstNode for BlockStatement {
-    type Id = NodeId;
+    type Id = NodeId<BlockStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<BlockStatement> {
         self.0
     }
 }
@@ -5915,9 +6306,9 @@ impl CommonAstNode for BlockStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<BlockStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5933,9 +6324,13 @@ impl SetSpan for BlockStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for WhileStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl WhileStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<WhileStatement> {
         self.0
     }
     #[inline]
@@ -5951,9 +6346,9 @@ impl WhileStatement {
     }
 }
 impl AstNode for WhileStatement {
-    type Id = NodeId;
+    type Id = NodeId<WhileStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<WhileStatement> {
         self.0
     }
 }
@@ -5965,9 +6360,9 @@ impl CommonAstNode for WhileStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<WhileStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -5983,9 +6378,13 @@ impl SetSpan for WhileStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for DoWhileStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl DoWhileStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<DoWhileStatement> {
         self.0
     }
     #[inline]
@@ -6001,9 +6400,9 @@ impl DoWhileStatement {
     }
 }
 impl AstNode for DoWhileStatement {
-    type Id = NodeId;
+    type Id = NodeId<DoWhileStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<DoWhileStatement> {
         self.0
     }
 }
@@ -6015,9 +6414,9 @@ impl CommonAstNode for DoWhileStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<DoWhileStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6033,9 +6432,13 @@ impl SetSpan for DoWhileStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for WithStatement {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl WithStatement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<WithStatement> {
         self.0
     }
     #[inline]
@@ -6051,9 +6454,9 @@ impl WithStatement {
     }
 }
 impl AstNode for WithStatement {
-    type Id = NodeId;
+    type Id = NodeId<WithStatement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<WithStatement> {
         self.0
     }
 }
@@ -6065,9 +6468,9 @@ impl CommonAstNode for WithStatement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<WithStatement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6083,9 +6486,13 @@ impl SetSpan for WithStatement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for FormalParameters {
+    const TAG: StoreTag = StoreTag::ProgramAux;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl FormalParameters {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<FormalParameters> {
         self.0
     }
     #[inline]
@@ -6101,9 +6508,9 @@ impl FormalParameters {
     }
 }
 impl AstNode for FormalParameters {
-    type Id = NodeId;
+    type Id = NodeId<FormalParameters>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<FormalParameters> {
         self.0
     }
 }
@@ -6115,9 +6522,9 @@ impl CommonAstNode for FormalParameters {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<FormalParameters> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6133,9 +6540,13 @@ impl SetSpan for FormalParameters {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for FormalParameter {
+    const TAG: StoreTag = StoreTag::ProgramAux;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl FormalParameter {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<FormalParameter> {
         self.0
     }
     #[inline]
@@ -6151,9 +6562,9 @@ impl FormalParameter {
     }
 }
 impl AstNode for FormalParameter {
-    type Id = NodeId;
+    type Id = NodeId<FormalParameter>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<FormalParameter> {
         self.0
     }
 }
@@ -6165,9 +6576,9 @@ impl CommonAstNode for FormalParameter {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<FormalParameter> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6183,9 +6594,13 @@ impl SetSpan for FormalParameter {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ArrayExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ArrayExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ArrayExpression> {
         self.0
     }
     #[inline]
@@ -6201,9 +6616,9 @@ impl ArrayExpression {
     }
 }
 impl AstNode for ArrayExpression {
-    type Id = NodeId;
+    type Id = NodeId<ArrayExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ArrayExpression> {
         self.0
     }
 }
@@ -6215,9 +6630,9 @@ impl CommonAstNode for ArrayExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ArrayExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6233,9 +6648,13 @@ impl SetSpan for ArrayExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ObjectExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ObjectExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ObjectExpression> {
         self.0
     }
     #[inline]
@@ -6251,9 +6670,9 @@ impl ObjectExpression {
     }
 }
 impl AstNode for ObjectExpression {
-    type Id = NodeId;
+    type Id = NodeId<ObjectExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ObjectExpression> {
         self.0
     }
 }
@@ -6265,9 +6684,9 @@ impl CommonAstNode for ObjectExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ObjectExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6283,9 +6702,13 @@ impl SetSpan for ObjectExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for SpreadElement {
+    const TAG: StoreTag = StoreTag::ProgramAux;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl SpreadElement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<SpreadElement> {
         self.0
     }
     #[inline]
@@ -6301,9 +6724,9 @@ impl SpreadElement {
     }
 }
 impl AstNode for SpreadElement {
-    type Id = NodeId;
+    type Id = NodeId<SpreadElement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<SpreadElement> {
         self.0
     }
 }
@@ -6315,9 +6738,9 @@ impl CommonAstNode for SpreadElement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<SpreadElement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6333,9 +6756,13 @@ impl SetSpan for SpreadElement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ObjectProperty {
+    const TAG: StoreTag = StoreTag::ProgramAux;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ObjectProperty {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ObjectProperty> {
         self.0
     }
     #[inline]
@@ -6351,9 +6778,9 @@ impl ObjectProperty {
     }
 }
 impl AstNode for ObjectProperty {
-    type Id = NodeId;
+    type Id = NodeId<ObjectProperty>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ObjectProperty> {
         self.0
     }
 }
@@ -6365,9 +6792,9 @@ impl CommonAstNode for ObjectProperty {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ObjectProperty> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6383,9 +6810,13 @@ impl SetSpan for ObjectProperty {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ParenthesizedExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ParenthesizedExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ParenthesizedExpression> {
         self.0
     }
     #[inline]
@@ -6401,9 +6832,9 @@ impl ParenthesizedExpression {
     }
 }
 impl AstNode for ParenthesizedExpression {
-    type Id = NodeId;
+    type Id = NodeId<ParenthesizedExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ParenthesizedExpression> {
         self.0
     }
 }
@@ -6415,9 +6846,9 @@ impl CommonAstNode for ParenthesizedExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ParenthesizedExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6433,9 +6864,13 @@ impl SetSpan for ParenthesizedExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ArrowFunctionExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ArrowFunctionExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ArrowFunctionExpression> {
         self.0
     }
     #[inline]
@@ -6451,9 +6886,9 @@ impl ArrowFunctionExpression {
     }
 }
 impl AstNode for ArrowFunctionExpression {
-    type Id = NodeId;
+    type Id = NodeId<ArrowFunctionExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ArrowFunctionExpression> {
         self.0
     }
 }
@@ -6465,9 +6900,9 @@ impl CommonAstNode for ArrowFunctionExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ArrowFunctionExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6483,9 +6918,13 @@ impl SetSpan for ArrowFunctionExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for SequenceExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl SequenceExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<SequenceExpression> {
         self.0
     }
     #[inline]
@@ -6501,9 +6940,9 @@ impl SequenceExpression {
     }
 }
 impl AstNode for SequenceExpression {
-    type Id = NodeId;
+    type Id = NodeId<SequenceExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<SequenceExpression> {
         self.0
     }
 }
@@ -6515,9 +6954,9 @@ impl CommonAstNode for SequenceExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<SequenceExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6533,9 +6972,13 @@ impl SetSpan for SequenceExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for MemberExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl MemberExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<MemberExpression> {
         self.0
     }
     #[inline]
@@ -6551,9 +6994,9 @@ impl MemberExpression {
     }
 }
 impl AstNode for MemberExpression {
-    type Id = NodeId;
+    type Id = NodeId<MemberExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<MemberExpression> {
         self.0
     }
 }
@@ -6565,9 +7008,9 @@ impl CommonAstNode for MemberExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<MemberExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6583,9 +7026,13 @@ impl SetSpan for MemberExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for CallExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl CallExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<CallExpression> {
         self.0
     }
     #[inline]
@@ -6601,9 +7048,9 @@ impl CallExpression {
     }
 }
 impl AstNode for CallExpression {
-    type Id = NodeId;
+    type Id = NodeId<CallExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<CallExpression> {
         self.0
     }
 }
@@ -6615,9 +7062,9 @@ impl CommonAstNode for CallExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<CallExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6633,9 +7080,13 @@ impl SetSpan for CallExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ChainExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ChainExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ChainExpression> {
         self.0
     }
     #[inline]
@@ -6651,9 +7102,9 @@ impl ChainExpression {
     }
 }
 impl AstNode for ChainExpression {
-    type Id = NodeId;
+    type Id = NodeId<ChainExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ChainExpression> {
         self.0
     }
 }
@@ -6665,9 +7116,9 @@ impl CommonAstNode for ChainExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ChainExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6683,9 +7134,13 @@ impl SetSpan for ChainExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TaggedTemplateExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TaggedTemplateExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TaggedTemplateExpression> {
         self.0
     }
     #[inline]
@@ -6701,9 +7156,9 @@ impl TaggedTemplateExpression {
     }
 }
 impl AstNode for TaggedTemplateExpression {
-    type Id = NodeId;
+    type Id = NodeId<TaggedTemplateExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TaggedTemplateExpression> {
         self.0
     }
 }
@@ -6715,9 +7170,9 @@ impl CommonAstNode for TaggedTemplateExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TaggedTemplateExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6733,9 +7188,13 @@ impl SetSpan for TaggedTemplateExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for NewExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl NewExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<NewExpression> {
         self.0
     }
     #[inline]
@@ -6751,9 +7210,9 @@ impl NewExpression {
     }
 }
 impl AstNode for NewExpression {
-    type Id = NodeId;
+    type Id = NodeId<NewExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<NewExpression> {
         self.0
     }
 }
@@ -6765,9 +7224,9 @@ impl CommonAstNode for NewExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<NewExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6783,9 +7242,13 @@ impl SetSpan for NewExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for AwaitExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl AwaitExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<AwaitExpression> {
         self.0
     }
     #[inline]
@@ -6801,9 +7264,9 @@ impl AwaitExpression {
     }
 }
 impl AstNode for AwaitExpression {
-    type Id = NodeId;
+    type Id = NodeId<AwaitExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<AwaitExpression> {
         self.0
     }
 }
@@ -6815,9 +7278,9 @@ impl CommonAstNode for AwaitExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<AwaitExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6833,9 +7296,13 @@ impl SetSpan for AwaitExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for YieldExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl YieldExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<YieldExpression> {
         self.0
     }
     #[inline]
@@ -6851,9 +7318,9 @@ impl YieldExpression {
     }
 }
 impl AstNode for YieldExpression {
-    type Id = NodeId;
+    type Id = NodeId<YieldExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<YieldExpression> {
         self.0
     }
 }
@@ -6865,9 +7332,9 @@ impl CommonAstNode for YieldExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<YieldExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6883,9 +7350,13 @@ impl SetSpan for YieldExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for MetaProperty {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl MetaProperty {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<MetaProperty> {
         self.0
     }
     #[inline]
@@ -6901,9 +7372,9 @@ impl MetaProperty {
     }
 }
 impl AstNode for MetaProperty {
-    type Id = NodeId;
+    type Id = NodeId<MetaProperty>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<MetaProperty> {
         self.0
     }
 }
@@ -6915,9 +7386,9 @@ impl CommonAstNode for MetaProperty {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<MetaProperty> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6933,9 +7404,13 @@ impl SetSpan for MetaProperty {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ImportExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ImportExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ImportExpression> {
         self.0
     }
     #[inline]
@@ -6951,9 +7426,9 @@ impl ImportExpression {
     }
 }
 impl AstNode for ImportExpression {
-    type Id = NodeId;
+    type Id = NodeId<ImportExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ImportExpression> {
         self.0
     }
 }
@@ -6965,9 +7440,9 @@ impl CommonAstNode for ImportExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ImportExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -6983,9 +7458,13 @@ impl SetSpan for ImportExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ImportDeclaration {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ImportDeclaration {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ImportDeclaration> {
         self.0
     }
     #[inline]
@@ -7001,9 +7480,9 @@ impl ImportDeclaration {
     }
 }
 impl AstNode for ImportDeclaration {
-    type Id = NodeId;
+    type Id = NodeId<ImportDeclaration>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ImportDeclaration> {
         self.0
     }
 }
@@ -7015,9 +7494,9 @@ impl CommonAstNode for ImportDeclaration {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ImportDeclaration> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -7033,9 +7512,13 @@ impl SetSpan for ImportDeclaration {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ImportSpecifier {
+    const TAG: StoreTag = StoreTag::ProgramAux;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ImportSpecifier {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ImportSpecifier> {
         self.0
     }
     #[inline]
@@ -7051,9 +7534,9 @@ impl ImportSpecifier {
     }
 }
 impl AstNode for ImportSpecifier {
-    type Id = NodeId;
+    type Id = NodeId<ImportSpecifier>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ImportSpecifier> {
         self.0
     }
 }
@@ -7065,9 +7548,9 @@ impl CommonAstNode for ImportSpecifier {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ImportSpecifier> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -7083,9 +7566,13 @@ impl SetSpan for ImportSpecifier {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ImportDefaultSpecifier {
+    const TAG: StoreTag = StoreTag::ProgramAux;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ImportDefaultSpecifier {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ImportDefaultSpecifier> {
         self.0
     }
     #[inline]
@@ -7101,9 +7588,9 @@ impl ImportDefaultSpecifier {
     }
 }
 impl AstNode for ImportDefaultSpecifier {
-    type Id = NodeId;
+    type Id = NodeId<ImportDefaultSpecifier>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ImportDefaultSpecifier> {
         self.0
     }
 }
@@ -7115,9 +7602,9 @@ impl CommonAstNode for ImportDefaultSpecifier {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ImportDefaultSpecifier> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -7133,9 +7620,13 @@ impl SetSpan for ImportDefaultSpecifier {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ImportNamespaceSpecifier {
+    const TAG: StoreTag = StoreTag::ProgramAux;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ImportNamespaceSpecifier {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ImportNamespaceSpecifier> {
         self.0
     }
     #[inline]
@@ -7151,9 +7642,9 @@ impl ImportNamespaceSpecifier {
     }
 }
 impl AstNode for ImportNamespaceSpecifier {
-    type Id = NodeId;
+    type Id = NodeId<ImportNamespaceSpecifier>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ImportNamespaceSpecifier> {
         self.0
     }
 }
@@ -7165,9 +7656,9 @@ impl CommonAstNode for ImportNamespaceSpecifier {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ImportNamespaceSpecifier> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -7183,9 +7674,13 @@ impl SetSpan for ImportNamespaceSpecifier {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ImportAttribute {
+    const TAG: StoreTag = StoreTag::ProgramAux;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ImportAttribute {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ImportAttribute> {
         self.0
     }
     #[inline]
@@ -7201,9 +7696,9 @@ impl ImportAttribute {
     }
 }
 impl AstNode for ImportAttribute {
-    type Id = NodeId;
+    type Id = NodeId<ImportAttribute>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ImportAttribute> {
         self.0
     }
 }
@@ -7215,9 +7710,9 @@ impl CommonAstNode for ImportAttribute {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ImportAttribute> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -7233,9 +7728,13 @@ impl SetSpan for ImportAttribute {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ExportNamedDeclaration {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ExportNamedDeclaration {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ExportNamedDeclaration> {
         self.0
     }
     #[inline]
@@ -7251,9 +7750,9 @@ impl ExportNamedDeclaration {
     }
 }
 impl AstNode for ExportNamedDeclaration {
-    type Id = NodeId;
+    type Id = NodeId<ExportNamedDeclaration>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ExportNamedDeclaration> {
         self.0
     }
 }
@@ -7265,9 +7764,9 @@ impl CommonAstNode for ExportNamedDeclaration {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ExportNamedDeclaration> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -7283,9 +7782,13 @@ impl SetSpan for ExportNamedDeclaration {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ExportDefaultDeclaration {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ExportDefaultDeclaration {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ExportDefaultDeclaration> {
         self.0
     }
     #[inline]
@@ -7301,9 +7804,9 @@ impl ExportDefaultDeclaration {
     }
 }
 impl AstNode for ExportDefaultDeclaration {
-    type Id = NodeId;
+    type Id = NodeId<ExportDefaultDeclaration>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ExportDefaultDeclaration> {
         self.0
     }
 }
@@ -7315,9 +7818,9 @@ impl CommonAstNode for ExportDefaultDeclaration {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ExportDefaultDeclaration> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -7333,9 +7836,13 @@ impl SetSpan for ExportDefaultDeclaration {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ExportAllDeclaration {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ExportAllDeclaration {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ExportAllDeclaration> {
         self.0
     }
     #[inline]
@@ -7351,9 +7858,9 @@ impl ExportAllDeclaration {
     }
 }
 impl AstNode for ExportAllDeclaration {
-    type Id = NodeId;
+    type Id = NodeId<ExportAllDeclaration>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ExportAllDeclaration> {
         self.0
     }
 }
@@ -7365,9 +7872,9 @@ impl CommonAstNode for ExportAllDeclaration {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ExportAllDeclaration> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -7383,9 +7890,13 @@ impl SetSpan for ExportAllDeclaration {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for ExportSpecifier {
+    const TAG: StoreTag = StoreTag::ProgramAux;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl ExportSpecifier {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<ExportSpecifier> {
         self.0
     }
     #[inline]
@@ -7401,9 +7912,9 @@ impl ExportSpecifier {
     }
 }
 impl AstNode for ExportSpecifier {
-    type Id = NodeId;
+    type Id = NodeId<ExportSpecifier>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<ExportSpecifier> {
         self.0
     }
 }
@@ -7415,9 +7926,9 @@ impl CommonAstNode for ExportSpecifier {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<ExportSpecifier> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -7433,9 +7944,13 @@ impl SetSpan for ExportSpecifier {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for Hashbang {
+    const TAG: StoreTag = StoreTag::ProgramAux;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl Hashbang {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<Hashbang> {
         self.0
     }
     #[inline]
@@ -7451,9 +7966,9 @@ impl Hashbang {
     }
 }
 impl AstNode for Hashbang {
-    type Id = NodeId;
+    type Id = NodeId<Hashbang>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<Hashbang> {
         self.0
     }
 }
@@ -7465,9 +7980,9 @@ impl CommonAstNode for Hashbang {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<Hashbang> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8133,9 +8648,13 @@ impl SetSpan for TsModuleReference {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsFunction {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsFunction {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsFunction> {
         self.0
     }
     #[inline]
@@ -8151,9 +8670,9 @@ impl TsFunction {
     }
 }
 impl AstNode for TsFunction {
-    type Id = NodeId;
+    type Id = NodeId<TsFunction>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsFunction> {
         self.0
     }
 }
@@ -8165,9 +8684,9 @@ impl CommonAstNode for TsFunction {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsFunction> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8183,9 +8702,13 @@ impl SetSpan for TsFunction {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsMethodDefinition {
+    const TAG: StoreTag = StoreTag::ClassElement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsMethodDefinition {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsMethodDefinition> {
         self.0
     }
     #[inline]
@@ -8201,9 +8724,9 @@ impl TsMethodDefinition {
     }
 }
 impl AstNode for TsMethodDefinition {
-    type Id = NodeId;
+    type Id = NodeId<TsMethodDefinition>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsMethodDefinition> {
         self.0
     }
 }
@@ -8215,9 +8738,9 @@ impl CommonAstNode for TsMethodDefinition {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsMethodDefinition> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8233,9 +8756,13 @@ impl SetSpan for TsMethodDefinition {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsTypeAnnotation {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsTypeAnnotation {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsTypeAnnotation> {
         self.0
     }
     #[inline]
@@ -8251,9 +8778,9 @@ impl TsTypeAnnotation {
     }
 }
 impl AstNode for TsTypeAnnotation {
-    type Id = NodeId;
+    type Id = NodeId<TsTypeAnnotation>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsTypeAnnotation> {
         self.0
     }
 }
@@ -8265,9 +8792,9 @@ impl CommonAstNode for TsTypeAnnotation {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsTypeAnnotation> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8283,9 +8810,13 @@ impl SetSpan for TsTypeAnnotation {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsAnyKeyword {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsAnyKeyword {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsAnyKeyword> {
         self.0
     }
     #[inline]
@@ -8301,9 +8832,9 @@ impl TsAnyKeyword {
     }
 }
 impl AstNode for TsAnyKeyword {
-    type Id = NodeId;
+    type Id = NodeId<TsAnyKeyword>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsAnyKeyword> {
         self.0
     }
 }
@@ -8315,9 +8846,9 @@ impl CommonAstNode for TsAnyKeyword {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsAnyKeyword> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8333,9 +8864,13 @@ impl SetSpan for TsAnyKeyword {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsUnknownKeyword {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsUnknownKeyword {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsUnknownKeyword> {
         self.0
     }
     #[inline]
@@ -8351,9 +8886,9 @@ impl TsUnknownKeyword {
     }
 }
 impl AstNode for TsUnknownKeyword {
-    type Id = NodeId;
+    type Id = NodeId<TsUnknownKeyword>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsUnknownKeyword> {
         self.0
     }
 }
@@ -8365,9 +8900,9 @@ impl CommonAstNode for TsUnknownKeyword {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsUnknownKeyword> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8383,9 +8918,13 @@ impl SetSpan for TsUnknownKeyword {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsNeverKeyword {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsNeverKeyword {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsNeverKeyword> {
         self.0
     }
     #[inline]
@@ -8401,9 +8940,9 @@ impl TsNeverKeyword {
     }
 }
 impl AstNode for TsNeverKeyword {
-    type Id = NodeId;
+    type Id = NodeId<TsNeverKeyword>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsNeverKeyword> {
         self.0
     }
 }
@@ -8415,9 +8954,9 @@ impl CommonAstNode for TsNeverKeyword {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsNeverKeyword> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8433,9 +8972,13 @@ impl SetSpan for TsNeverKeyword {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsVoidKeyword {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsVoidKeyword {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsVoidKeyword> {
         self.0
     }
     #[inline]
@@ -8451,9 +8994,9 @@ impl TsVoidKeyword {
     }
 }
 impl AstNode for TsVoidKeyword {
-    type Id = NodeId;
+    type Id = NodeId<TsVoidKeyword>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsVoidKeyword> {
         self.0
     }
 }
@@ -8465,9 +9008,9 @@ impl CommonAstNode for TsVoidKeyword {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsVoidKeyword> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8483,9 +9026,13 @@ impl SetSpan for TsVoidKeyword {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsNullKeyword {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsNullKeyword {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsNullKeyword> {
         self.0
     }
     #[inline]
@@ -8501,9 +9048,9 @@ impl TsNullKeyword {
     }
 }
 impl AstNode for TsNullKeyword {
-    type Id = NodeId;
+    type Id = NodeId<TsNullKeyword>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsNullKeyword> {
         self.0
     }
 }
@@ -8515,9 +9062,9 @@ impl CommonAstNode for TsNullKeyword {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsNullKeyword> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8533,9 +9080,13 @@ impl SetSpan for TsNullKeyword {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsUndefinedKeyword {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsUndefinedKeyword {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsUndefinedKeyword> {
         self.0
     }
     #[inline]
@@ -8551,9 +9102,9 @@ impl TsUndefinedKeyword {
     }
 }
 impl AstNode for TsUndefinedKeyword {
-    type Id = NodeId;
+    type Id = NodeId<TsUndefinedKeyword>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsUndefinedKeyword> {
         self.0
     }
 }
@@ -8565,9 +9116,9 @@ impl CommonAstNode for TsUndefinedKeyword {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsUndefinedKeyword> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8583,9 +9134,13 @@ impl SetSpan for TsUndefinedKeyword {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsStringKeyword {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsStringKeyword {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsStringKeyword> {
         self.0
     }
     #[inline]
@@ -8601,9 +9156,9 @@ impl TsStringKeyword {
     }
 }
 impl AstNode for TsStringKeyword {
-    type Id = NodeId;
+    type Id = NodeId<TsStringKeyword>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsStringKeyword> {
         self.0
     }
 }
@@ -8615,9 +9170,9 @@ impl CommonAstNode for TsStringKeyword {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsStringKeyword> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8633,9 +9188,13 @@ impl SetSpan for TsStringKeyword {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsNumberKeyword {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsNumberKeyword {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsNumberKeyword> {
         self.0
     }
     #[inline]
@@ -8651,9 +9210,9 @@ impl TsNumberKeyword {
     }
 }
 impl AstNode for TsNumberKeyword {
-    type Id = NodeId;
+    type Id = NodeId<TsNumberKeyword>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsNumberKeyword> {
         self.0
     }
 }
@@ -8665,9 +9224,9 @@ impl CommonAstNode for TsNumberKeyword {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsNumberKeyword> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8683,9 +9242,13 @@ impl SetSpan for TsNumberKeyword {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsBigIntKeyword {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsBigIntKeyword {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsBigIntKeyword> {
         self.0
     }
     #[inline]
@@ -8701,9 +9264,9 @@ impl TsBigIntKeyword {
     }
 }
 impl AstNode for TsBigIntKeyword {
-    type Id = NodeId;
+    type Id = NodeId<TsBigIntKeyword>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsBigIntKeyword> {
         self.0
     }
 }
@@ -8715,9 +9278,9 @@ impl CommonAstNode for TsBigIntKeyword {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsBigIntKeyword> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8733,9 +9296,13 @@ impl SetSpan for TsBigIntKeyword {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsBooleanKeyword {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsBooleanKeyword {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsBooleanKeyword> {
         self.0
     }
     #[inline]
@@ -8751,9 +9318,9 @@ impl TsBooleanKeyword {
     }
 }
 impl AstNode for TsBooleanKeyword {
-    type Id = NodeId;
+    type Id = NodeId<TsBooleanKeyword>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsBooleanKeyword> {
         self.0
     }
 }
@@ -8765,9 +9332,9 @@ impl CommonAstNode for TsBooleanKeyword {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsBooleanKeyword> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8783,9 +9350,13 @@ impl SetSpan for TsBooleanKeyword {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsSymbolKeyword {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsSymbolKeyword {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsSymbolKeyword> {
         self.0
     }
     #[inline]
@@ -8801,9 +9372,9 @@ impl TsSymbolKeyword {
     }
 }
 impl AstNode for TsSymbolKeyword {
-    type Id = NodeId;
+    type Id = NodeId<TsSymbolKeyword>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsSymbolKeyword> {
         self.0
     }
 }
@@ -8815,9 +9386,9 @@ impl CommonAstNode for TsSymbolKeyword {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsSymbolKeyword> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8833,9 +9404,13 @@ impl SetSpan for TsSymbolKeyword {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsObjectKeyword {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsObjectKeyword {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsObjectKeyword> {
         self.0
     }
     #[inline]
@@ -8851,9 +9426,9 @@ impl TsObjectKeyword {
     }
 }
 impl AstNode for TsObjectKeyword {
-    type Id = NodeId;
+    type Id = NodeId<TsObjectKeyword>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsObjectKeyword> {
         self.0
     }
 }
@@ -8865,9 +9440,9 @@ impl CommonAstNode for TsObjectKeyword {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsObjectKeyword> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8883,9 +9458,13 @@ impl SetSpan for TsObjectKeyword {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsIntrinsicKeyword {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsIntrinsicKeyword {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsIntrinsicKeyword> {
         self.0
     }
     #[inline]
@@ -8901,9 +9480,9 @@ impl TsIntrinsicKeyword {
     }
 }
 impl AstNode for TsIntrinsicKeyword {
-    type Id = NodeId;
+    type Id = NodeId<TsIntrinsicKeyword>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsIntrinsicKeyword> {
         self.0
     }
 }
@@ -8915,9 +9494,9 @@ impl CommonAstNode for TsIntrinsicKeyword {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsIntrinsicKeyword> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8933,9 +9512,13 @@ impl SetSpan for TsIntrinsicKeyword {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsThisType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsThisType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsThisType> {
         self.0
     }
     #[inline]
@@ -8951,9 +9534,9 @@ impl TsThisType {
     }
 }
 impl AstNode for TsThisType {
-    type Id = NodeId;
+    type Id = NodeId<TsThisType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsThisType> {
         self.0
     }
 }
@@ -8965,9 +9548,9 @@ impl CommonAstNode for TsThisType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsThisType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -8983,9 +9566,13 @@ impl SetSpan for TsThisType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsTypeReference {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsTypeReference {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsTypeReference> {
         self.0
     }
     #[inline]
@@ -9001,9 +9588,9 @@ impl TsTypeReference {
     }
 }
 impl AstNode for TsTypeReference {
-    type Id = NodeId;
+    type Id = NodeId<TsTypeReference>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsTypeReference> {
         self.0
     }
 }
@@ -9015,9 +9602,9 @@ impl CommonAstNode for TsTypeReference {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsTypeReference> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9033,9 +9620,13 @@ impl SetSpan for TsTypeReference {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsQualifiedName {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsQualifiedName {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsQualifiedName> {
         self.0
     }
     #[inline]
@@ -9051,9 +9642,9 @@ impl TsQualifiedName {
     }
 }
 impl AstNode for TsQualifiedName {
-    type Id = NodeId;
+    type Id = NodeId<TsQualifiedName>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsQualifiedName> {
         self.0
     }
 }
@@ -9065,9 +9656,9 @@ impl CommonAstNode for TsQualifiedName {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsQualifiedName> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9083,9 +9674,13 @@ impl SetSpan for TsQualifiedName {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsTypeQuery {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsTypeQuery {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsTypeQuery> {
         self.0
     }
     #[inline]
@@ -9101,9 +9696,9 @@ impl TsTypeQuery {
     }
 }
 impl AstNode for TsTypeQuery {
-    type Id = NodeId;
+    type Id = NodeId<TsTypeQuery>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsTypeQuery> {
         self.0
     }
 }
@@ -9115,9 +9710,9 @@ impl CommonAstNode for TsTypeQuery {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsTypeQuery> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9133,9 +9728,13 @@ impl SetSpan for TsTypeQuery {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsImportType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsImportType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsImportType> {
         self.0
     }
     #[inline]
@@ -9151,9 +9750,9 @@ impl TsImportType {
     }
 }
 impl AstNode for TsImportType {
-    type Id = NodeId;
+    type Id = NodeId<TsImportType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsImportType> {
         self.0
     }
 }
@@ -9165,9 +9764,9 @@ impl CommonAstNode for TsImportType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsImportType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9183,9 +9782,13 @@ impl SetSpan for TsImportType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsTypeParameter {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsTypeParameter {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsTypeParameter> {
         self.0
     }
     #[inline]
@@ -9201,9 +9804,9 @@ impl TsTypeParameter {
     }
 }
 impl AstNode for TsTypeParameter {
-    type Id = NodeId;
+    type Id = NodeId<TsTypeParameter>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsTypeParameter> {
         self.0
     }
 }
@@ -9215,9 +9818,9 @@ impl CommonAstNode for TsTypeParameter {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsTypeParameter> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9233,9 +9836,13 @@ impl SetSpan for TsTypeParameter {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsTypeParameterDeclaration {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsTypeParameterDeclaration {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsTypeParameterDeclaration> {
         self.0
     }
     #[inline]
@@ -9251,9 +9858,9 @@ impl TsTypeParameterDeclaration {
     }
 }
 impl AstNode for TsTypeParameterDeclaration {
-    type Id = NodeId;
+    type Id = NodeId<TsTypeParameterDeclaration>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsTypeParameterDeclaration> {
         self.0
     }
 }
@@ -9265,9 +9872,9 @@ impl CommonAstNode for TsTypeParameterDeclaration {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsTypeParameterDeclaration> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9283,9 +9890,13 @@ impl SetSpan for TsTypeParameterDeclaration {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsTypeParameterInstantiation {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsTypeParameterInstantiation {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsTypeParameterInstantiation> {
         self.0
     }
     #[inline]
@@ -9301,9 +9912,9 @@ impl TsTypeParameterInstantiation {
     }
 }
 impl AstNode for TsTypeParameterInstantiation {
-    type Id = NodeId;
+    type Id = NodeId<TsTypeParameterInstantiation>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsTypeParameterInstantiation> {
         self.0
     }
 }
@@ -9315,9 +9926,9 @@ impl CommonAstNode for TsTypeParameterInstantiation {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsTypeParameterInstantiation> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9333,9 +9944,13 @@ impl SetSpan for TsTypeParameterInstantiation {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsLiteralType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsLiteralType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsLiteralType> {
         self.0
     }
     #[inline]
@@ -9351,9 +9966,9 @@ impl TsLiteralType {
     }
 }
 impl AstNode for TsLiteralType {
-    type Id = NodeId;
+    type Id = NodeId<TsLiteralType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsLiteralType> {
         self.0
     }
 }
@@ -9365,9 +9980,9 @@ impl CommonAstNode for TsLiteralType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsLiteralType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9383,9 +9998,13 @@ impl SetSpan for TsLiteralType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsTemplateLiteralType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsTemplateLiteralType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsTemplateLiteralType> {
         self.0
     }
     #[inline]
@@ -9401,9 +10020,9 @@ impl TsTemplateLiteralType {
     }
 }
 impl AstNode for TsTemplateLiteralType {
-    type Id = NodeId;
+    type Id = NodeId<TsTemplateLiteralType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsTemplateLiteralType> {
         self.0
     }
 }
@@ -9415,9 +10034,9 @@ impl CommonAstNode for TsTemplateLiteralType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsTemplateLiteralType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9433,9 +10052,13 @@ impl SetSpan for TsTemplateLiteralType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsArrayType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsArrayType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsArrayType> {
         self.0
     }
     #[inline]
@@ -9451,9 +10074,9 @@ impl TsArrayType {
     }
 }
 impl AstNode for TsArrayType {
-    type Id = NodeId;
+    type Id = NodeId<TsArrayType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsArrayType> {
         self.0
     }
 }
@@ -9465,9 +10088,9 @@ impl CommonAstNode for TsArrayType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsArrayType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9483,9 +10106,13 @@ impl SetSpan for TsArrayType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsIndexedAccessType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsIndexedAccessType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsIndexedAccessType> {
         self.0
     }
     #[inline]
@@ -9501,9 +10128,9 @@ impl TsIndexedAccessType {
     }
 }
 impl AstNode for TsIndexedAccessType {
-    type Id = NodeId;
+    type Id = NodeId<TsIndexedAccessType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsIndexedAccessType> {
         self.0
     }
 }
@@ -9515,9 +10142,9 @@ impl CommonAstNode for TsIndexedAccessType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsIndexedAccessType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9533,9 +10160,13 @@ impl SetSpan for TsIndexedAccessType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsTupleType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsTupleType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsTupleType> {
         self.0
     }
     #[inline]
@@ -9551,9 +10182,9 @@ impl TsTupleType {
     }
 }
 impl AstNode for TsTupleType {
-    type Id = NodeId;
+    type Id = NodeId<TsTupleType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsTupleType> {
         self.0
     }
 }
@@ -9565,9 +10196,9 @@ impl CommonAstNode for TsTupleType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsTupleType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9583,9 +10214,13 @@ impl SetSpan for TsTupleType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsNamedTupleMember {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsNamedTupleMember {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsNamedTupleMember> {
         self.0
     }
     #[inline]
@@ -9601,9 +10236,9 @@ impl TsNamedTupleMember {
     }
 }
 impl AstNode for TsNamedTupleMember {
-    type Id = NodeId;
+    type Id = NodeId<TsNamedTupleMember>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsNamedTupleMember> {
         self.0
     }
 }
@@ -9615,9 +10250,9 @@ impl CommonAstNode for TsNamedTupleMember {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsNamedTupleMember> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9633,9 +10268,13 @@ impl SetSpan for TsNamedTupleMember {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsOptionalType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsOptionalType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsOptionalType> {
         self.0
     }
     #[inline]
@@ -9651,9 +10290,9 @@ impl TsOptionalType {
     }
 }
 impl AstNode for TsOptionalType {
-    type Id = NodeId;
+    type Id = NodeId<TsOptionalType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsOptionalType> {
         self.0
     }
 }
@@ -9665,9 +10304,9 @@ impl CommonAstNode for TsOptionalType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsOptionalType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9683,9 +10322,13 @@ impl SetSpan for TsOptionalType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsRestType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsRestType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsRestType> {
         self.0
     }
     #[inline]
@@ -9701,9 +10344,9 @@ impl TsRestType {
     }
 }
 impl AstNode for TsRestType {
-    type Id = NodeId;
+    type Id = NodeId<TsRestType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsRestType> {
         self.0
     }
 }
@@ -9715,9 +10358,9 @@ impl CommonAstNode for TsRestType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsRestType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9733,9 +10376,13 @@ impl SetSpan for TsRestType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsJsDocNullableType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsJsDocNullableType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsJsDocNullableType> {
         self.0
     }
     #[inline]
@@ -9751,9 +10398,9 @@ impl TsJsDocNullableType {
     }
 }
 impl AstNode for TsJsDocNullableType {
-    type Id = NodeId;
+    type Id = NodeId<TsJsDocNullableType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsJsDocNullableType> {
         self.0
     }
 }
@@ -9765,9 +10412,9 @@ impl CommonAstNode for TsJsDocNullableType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsJsDocNullableType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9783,9 +10430,13 @@ impl SetSpan for TsJsDocNullableType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsJsDocNonNullableType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsJsDocNonNullableType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsJsDocNonNullableType> {
         self.0
     }
     #[inline]
@@ -9801,9 +10452,9 @@ impl TsJsDocNonNullableType {
     }
 }
 impl AstNode for TsJsDocNonNullableType {
-    type Id = NodeId;
+    type Id = NodeId<TsJsDocNonNullableType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsJsDocNonNullableType> {
         self.0
     }
 }
@@ -9815,9 +10466,9 @@ impl CommonAstNode for TsJsDocNonNullableType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsJsDocNonNullableType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9833,9 +10484,13 @@ impl SetSpan for TsJsDocNonNullableType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsJsDocUnknownType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsJsDocUnknownType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsJsDocUnknownType> {
         self.0
     }
     #[inline]
@@ -9851,9 +10506,9 @@ impl TsJsDocUnknownType {
     }
 }
 impl AstNode for TsJsDocUnknownType {
-    type Id = NodeId;
+    type Id = NodeId<TsJsDocUnknownType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsJsDocUnknownType> {
         self.0
     }
 }
@@ -9865,9 +10520,9 @@ impl CommonAstNode for TsJsDocUnknownType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsJsDocUnknownType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9883,9 +10538,13 @@ impl SetSpan for TsJsDocUnknownType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsUnionType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsUnionType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsUnionType> {
         self.0
     }
     #[inline]
@@ -9901,9 +10560,9 @@ impl TsUnionType {
     }
 }
 impl AstNode for TsUnionType {
-    type Id = NodeId;
+    type Id = NodeId<TsUnionType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsUnionType> {
         self.0
     }
 }
@@ -9915,9 +10574,9 @@ impl CommonAstNode for TsUnionType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsUnionType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9933,9 +10592,13 @@ impl SetSpan for TsUnionType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsIntersectionType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsIntersectionType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsIntersectionType> {
         self.0
     }
     #[inline]
@@ -9951,9 +10614,9 @@ impl TsIntersectionType {
     }
 }
 impl AstNode for TsIntersectionType {
-    type Id = NodeId;
+    type Id = NodeId<TsIntersectionType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsIntersectionType> {
         self.0
     }
 }
@@ -9965,9 +10628,9 @@ impl CommonAstNode for TsIntersectionType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsIntersectionType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -9983,9 +10646,13 @@ impl SetSpan for TsIntersectionType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsConditionalType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsConditionalType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsConditionalType> {
         self.0
     }
     #[inline]
@@ -10001,9 +10668,9 @@ impl TsConditionalType {
     }
 }
 impl AstNode for TsConditionalType {
-    type Id = NodeId;
+    type Id = NodeId<TsConditionalType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsConditionalType> {
         self.0
     }
 }
@@ -10015,9 +10682,9 @@ impl CommonAstNode for TsConditionalType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsConditionalType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10033,9 +10700,13 @@ impl SetSpan for TsConditionalType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsInferType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsInferType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsInferType> {
         self.0
     }
     #[inline]
@@ -10051,9 +10722,9 @@ impl TsInferType {
     }
 }
 impl AstNode for TsInferType {
-    type Id = NodeId;
+    type Id = NodeId<TsInferType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsInferType> {
         self.0
     }
 }
@@ -10065,9 +10736,9 @@ impl CommonAstNode for TsInferType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsInferType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10083,9 +10754,13 @@ impl SetSpan for TsInferType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsTypeOperator {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsTypeOperator {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsTypeOperator> {
         self.0
     }
     #[inline]
@@ -10101,9 +10776,9 @@ impl TsTypeOperator {
     }
 }
 impl AstNode for TsTypeOperator {
-    type Id = NodeId;
+    type Id = NodeId<TsTypeOperator>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsTypeOperator> {
         self.0
     }
 }
@@ -10115,9 +10790,9 @@ impl CommonAstNode for TsTypeOperator {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsTypeOperator> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10133,9 +10808,13 @@ impl SetSpan for TsTypeOperator {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsParenthesizedType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsParenthesizedType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsParenthesizedType> {
         self.0
     }
     #[inline]
@@ -10151,9 +10830,9 @@ impl TsParenthesizedType {
     }
 }
 impl AstNode for TsParenthesizedType {
-    type Id = NodeId;
+    type Id = NodeId<TsParenthesizedType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsParenthesizedType> {
         self.0
     }
 }
@@ -10165,9 +10844,9 @@ impl CommonAstNode for TsParenthesizedType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsParenthesizedType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10183,9 +10862,13 @@ impl SetSpan for TsParenthesizedType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsFunctionType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsFunctionType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsFunctionType> {
         self.0
     }
     #[inline]
@@ -10201,9 +10884,9 @@ impl TsFunctionType {
     }
 }
 impl AstNode for TsFunctionType {
-    type Id = NodeId;
+    type Id = NodeId<TsFunctionType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsFunctionType> {
         self.0
     }
 }
@@ -10215,9 +10898,9 @@ impl CommonAstNode for TsFunctionType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsFunctionType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10233,9 +10916,13 @@ impl SetSpan for TsFunctionType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsConstructorType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsConstructorType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsConstructorType> {
         self.0
     }
     #[inline]
@@ -10251,9 +10938,9 @@ impl TsConstructorType {
     }
 }
 impl AstNode for TsConstructorType {
-    type Id = NodeId;
+    type Id = NodeId<TsConstructorType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsConstructorType> {
         self.0
     }
 }
@@ -10265,9 +10952,9 @@ impl CommonAstNode for TsConstructorType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsConstructorType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10283,9 +10970,13 @@ impl SetSpan for TsConstructorType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsTypePredicate {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsTypePredicate {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsTypePredicate> {
         self.0
     }
     #[inline]
@@ -10301,9 +10992,9 @@ impl TsTypePredicate {
     }
 }
 impl AstNode for TsTypePredicate {
-    type Id = NodeId;
+    type Id = NodeId<TsTypePredicate>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsTypePredicate> {
         self.0
     }
 }
@@ -10315,9 +11006,9 @@ impl CommonAstNode for TsTypePredicate {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsTypePredicate> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10333,9 +11024,13 @@ impl SetSpan for TsTypePredicate {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsTypeLiteral {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsTypeLiteral {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsTypeLiteral> {
         self.0
     }
     #[inline]
@@ -10351,9 +11046,9 @@ impl TsTypeLiteral {
     }
 }
 impl AstNode for TsTypeLiteral {
-    type Id = NodeId;
+    type Id = NodeId<TsTypeLiteral>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsTypeLiteral> {
         self.0
     }
 }
@@ -10365,9 +11060,9 @@ impl CommonAstNode for TsTypeLiteral {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsTypeLiteral> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10383,9 +11078,13 @@ impl SetSpan for TsTypeLiteral {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsMappedType {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsMappedType {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsMappedType> {
         self.0
     }
     #[inline]
@@ -10401,9 +11100,9 @@ impl TsMappedType {
     }
 }
 impl AstNode for TsMappedType {
-    type Id = NodeId;
+    type Id = NodeId<TsMappedType>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsMappedType> {
         self.0
     }
 }
@@ -10415,9 +11114,9 @@ impl CommonAstNode for TsMappedType {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsMappedType> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10433,9 +11132,13 @@ impl SetSpan for TsMappedType {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsPropertySignature {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsPropertySignature {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsPropertySignature> {
         self.0
     }
     #[inline]
@@ -10451,9 +11154,9 @@ impl TsPropertySignature {
     }
 }
 impl AstNode for TsPropertySignature {
-    type Id = NodeId;
+    type Id = NodeId<TsPropertySignature>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsPropertySignature> {
         self.0
     }
 }
@@ -10465,9 +11168,9 @@ impl CommonAstNode for TsPropertySignature {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsPropertySignature> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10483,9 +11186,13 @@ impl SetSpan for TsPropertySignature {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsMethodSignature {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsMethodSignature {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsMethodSignature> {
         self.0
     }
     #[inline]
@@ -10501,9 +11208,9 @@ impl TsMethodSignature {
     }
 }
 impl AstNode for TsMethodSignature {
-    type Id = NodeId;
+    type Id = NodeId<TsMethodSignature>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsMethodSignature> {
         self.0
     }
 }
@@ -10515,9 +11222,9 @@ impl CommonAstNode for TsMethodSignature {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsMethodSignature> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10533,9 +11240,13 @@ impl SetSpan for TsMethodSignature {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsCallSignatureDeclaration {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsCallSignatureDeclaration {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsCallSignatureDeclaration> {
         self.0
     }
     #[inline]
@@ -10551,9 +11262,9 @@ impl TsCallSignatureDeclaration {
     }
 }
 impl AstNode for TsCallSignatureDeclaration {
-    type Id = NodeId;
+    type Id = NodeId<TsCallSignatureDeclaration>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsCallSignatureDeclaration> {
         self.0
     }
 }
@@ -10565,9 +11276,9 @@ impl CommonAstNode for TsCallSignatureDeclaration {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsCallSignatureDeclaration> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10583,9 +11294,13 @@ impl SetSpan for TsCallSignatureDeclaration {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsConstructSignatureDeclaration {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsConstructSignatureDeclaration {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsConstructSignatureDeclaration> {
         self.0
     }
     #[inline]
@@ -10601,9 +11316,9 @@ impl TsConstructSignatureDeclaration {
     }
 }
 impl AstNode for TsConstructSignatureDeclaration {
-    type Id = NodeId;
+    type Id = NodeId<TsConstructSignatureDeclaration>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsConstructSignatureDeclaration> {
         self.0
     }
 }
@@ -10615,9 +11330,11 @@ impl CommonAstNode for TsConstructSignatureDeclaration {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsConstructSignatureDeclaration> as TypedAstId>::from_ast_id_unchecked(
+                    ast_id,
+                ),
+            )
         }
     }
 }
@@ -10633,9 +11350,13 @@ impl SetSpan for TsConstructSignatureDeclaration {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsIndexSignature {
+    const TAG: StoreTag = StoreTag::ClassElement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsIndexSignature {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsIndexSignature> {
         self.0
     }
     #[inline]
@@ -10651,9 +11372,9 @@ impl TsIndexSignature {
     }
 }
 impl AstNode for TsIndexSignature {
-    type Id = NodeId;
+    type Id = NodeId<TsIndexSignature>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsIndexSignature> {
         self.0
     }
 }
@@ -10665,9 +11386,9 @@ impl CommonAstNode for TsIndexSignature {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsIndexSignature> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10683,9 +11404,13 @@ impl SetSpan for TsIndexSignature {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsTypeAliasDeclaration {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsTypeAliasDeclaration {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsTypeAliasDeclaration> {
         self.0
     }
     #[inline]
@@ -10701,9 +11426,9 @@ impl TsTypeAliasDeclaration {
     }
 }
 impl AstNode for TsTypeAliasDeclaration {
-    type Id = NodeId;
+    type Id = NodeId<TsTypeAliasDeclaration>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsTypeAliasDeclaration> {
         self.0
     }
 }
@@ -10715,9 +11440,9 @@ impl CommonAstNode for TsTypeAliasDeclaration {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsTypeAliasDeclaration> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10733,9 +11458,13 @@ impl SetSpan for TsTypeAliasDeclaration {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsInterfaceDeclaration {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsInterfaceDeclaration {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsInterfaceDeclaration> {
         self.0
     }
     #[inline]
@@ -10751,9 +11480,9 @@ impl TsInterfaceDeclaration {
     }
 }
 impl AstNode for TsInterfaceDeclaration {
-    type Id = NodeId;
+    type Id = NodeId<TsInterfaceDeclaration>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsInterfaceDeclaration> {
         self.0
     }
 }
@@ -10765,9 +11494,9 @@ impl CommonAstNode for TsInterfaceDeclaration {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsInterfaceDeclaration> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10783,9 +11512,13 @@ impl SetSpan for TsInterfaceDeclaration {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsInterfaceBody {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsInterfaceBody {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsInterfaceBody> {
         self.0
     }
     #[inline]
@@ -10801,9 +11534,9 @@ impl TsInterfaceBody {
     }
 }
 impl AstNode for TsInterfaceBody {
-    type Id = NodeId;
+    type Id = NodeId<TsInterfaceBody>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsInterfaceBody> {
         self.0
     }
 }
@@ -10815,9 +11548,9 @@ impl CommonAstNode for TsInterfaceBody {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsInterfaceBody> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10833,9 +11566,13 @@ impl SetSpan for TsInterfaceBody {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsInterfaceHeritage {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsInterfaceHeritage {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsInterfaceHeritage> {
         self.0
     }
     #[inline]
@@ -10851,9 +11588,9 @@ impl TsInterfaceHeritage {
     }
 }
 impl AstNode for TsInterfaceHeritage {
-    type Id = NodeId;
+    type Id = NodeId<TsInterfaceHeritage>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsInterfaceHeritage> {
         self.0
     }
 }
@@ -10865,9 +11602,9 @@ impl CommonAstNode for TsInterfaceHeritage {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsInterfaceHeritage> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10883,9 +11620,13 @@ impl SetSpan for TsInterfaceHeritage {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsClassImplements {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsClassImplements {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsClassImplements> {
         self.0
     }
     #[inline]
@@ -10901,9 +11642,9 @@ impl TsClassImplements {
     }
 }
 impl AstNode for TsClassImplements {
-    type Id = NodeId;
+    type Id = NodeId<TsClassImplements>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsClassImplements> {
         self.0
     }
 }
@@ -10915,9 +11656,9 @@ impl CommonAstNode for TsClassImplements {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsClassImplements> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10933,9 +11674,13 @@ impl SetSpan for TsClassImplements {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsEnumDeclaration {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsEnumDeclaration {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsEnumDeclaration> {
         self.0
     }
     #[inline]
@@ -10951,9 +11696,9 @@ impl TsEnumDeclaration {
     }
 }
 impl AstNode for TsEnumDeclaration {
-    type Id = NodeId;
+    type Id = NodeId<TsEnumDeclaration>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsEnumDeclaration> {
         self.0
     }
 }
@@ -10965,9 +11710,9 @@ impl CommonAstNode for TsEnumDeclaration {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsEnumDeclaration> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -10983,9 +11728,13 @@ impl SetSpan for TsEnumDeclaration {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsEnumBody {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsEnumBody {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsEnumBody> {
         self.0
     }
     #[inline]
@@ -11001,9 +11750,9 @@ impl TsEnumBody {
     }
 }
 impl AstNode for TsEnumBody {
-    type Id = NodeId;
+    type Id = NodeId<TsEnumBody>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsEnumBody> {
         self.0
     }
 }
@@ -11015,9 +11764,9 @@ impl CommonAstNode for TsEnumBody {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsEnumBody> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -11033,9 +11782,13 @@ impl SetSpan for TsEnumBody {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsEnumMember {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsEnumMember {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsEnumMember> {
         self.0
     }
     #[inline]
@@ -11051,9 +11804,9 @@ impl TsEnumMember {
     }
 }
 impl AstNode for TsEnumMember {
-    type Id = NodeId;
+    type Id = NodeId<TsEnumMember>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsEnumMember> {
         self.0
     }
 }
@@ -11065,9 +11818,9 @@ impl CommonAstNode for TsEnumMember {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsEnumMember> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -11083,9 +11836,13 @@ impl SetSpan for TsEnumMember {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsModuleDeclaration {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsModuleDeclaration {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsModuleDeclaration> {
         self.0
     }
     #[inline]
@@ -11101,9 +11858,9 @@ impl TsModuleDeclaration {
     }
 }
 impl AstNode for TsModuleDeclaration {
-    type Id = NodeId;
+    type Id = NodeId<TsModuleDeclaration>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsModuleDeclaration> {
         self.0
     }
 }
@@ -11115,9 +11872,9 @@ impl CommonAstNode for TsModuleDeclaration {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsModuleDeclaration> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -11133,9 +11890,13 @@ impl SetSpan for TsModuleDeclaration {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsModuleBlock {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsModuleBlock {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsModuleBlock> {
         self.0
     }
     #[inline]
@@ -11151,9 +11912,9 @@ impl TsModuleBlock {
     }
 }
 impl AstNode for TsModuleBlock {
-    type Id = NodeId;
+    type Id = NodeId<TsModuleBlock>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsModuleBlock> {
         self.0
     }
 }
@@ -11165,9 +11926,9 @@ impl CommonAstNode for TsModuleBlock {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsModuleBlock> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -11183,9 +11944,13 @@ impl SetSpan for TsModuleBlock {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsGlobalDeclaration {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsGlobalDeclaration {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsGlobalDeclaration> {
         self.0
     }
     #[inline]
@@ -11201,9 +11966,9 @@ impl TsGlobalDeclaration {
     }
 }
 impl AstNode for TsGlobalDeclaration {
-    type Id = NodeId;
+    type Id = NodeId<TsGlobalDeclaration>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsGlobalDeclaration> {
         self.0
     }
 }
@@ -11215,9 +11980,9 @@ impl CommonAstNode for TsGlobalDeclaration {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsGlobalDeclaration> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -11233,9 +11998,13 @@ impl SetSpan for TsGlobalDeclaration {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsParameterProperty {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsParameterProperty {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsParameterProperty> {
         self.0
     }
     #[inline]
@@ -11251,9 +12020,9 @@ impl TsParameterProperty {
     }
 }
 impl AstNode for TsParameterProperty {
-    type Id = NodeId;
+    type Id = NodeId<TsParameterProperty>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsParameterProperty> {
         self.0
     }
 }
@@ -11265,9 +12034,9 @@ impl CommonAstNode for TsParameterProperty {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsParameterProperty> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -11283,9 +12052,13 @@ impl SetSpan for TsParameterProperty {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsThisParameter {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsThisParameter {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsThisParameter> {
         self.0
     }
     #[inline]
@@ -11301,9 +12074,9 @@ impl TsThisParameter {
     }
 }
 impl AstNode for TsThisParameter {
-    type Id = NodeId;
+    type Id = NodeId<TsThisParameter>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsThisParameter> {
         self.0
     }
 }
@@ -11315,9 +12088,9 @@ impl CommonAstNode for TsThisParameter {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsThisParameter> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -11333,9 +12106,13 @@ impl SetSpan for TsThisParameter {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsAsExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsAsExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsAsExpression> {
         self.0
     }
     #[inline]
@@ -11351,9 +12128,9 @@ impl TsAsExpression {
     }
 }
 impl AstNode for TsAsExpression {
-    type Id = NodeId;
+    type Id = NodeId<TsAsExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsAsExpression> {
         self.0
     }
 }
@@ -11365,9 +12142,9 @@ impl CommonAstNode for TsAsExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsAsExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -11383,9 +12160,13 @@ impl SetSpan for TsAsExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsSatisfiesExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsSatisfiesExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsSatisfiesExpression> {
         self.0
     }
     #[inline]
@@ -11401,9 +12182,9 @@ impl TsSatisfiesExpression {
     }
 }
 impl AstNode for TsSatisfiesExpression {
-    type Id = NodeId;
+    type Id = NodeId<TsSatisfiesExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsSatisfiesExpression> {
         self.0
     }
 }
@@ -11415,9 +12196,9 @@ impl CommonAstNode for TsSatisfiesExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsSatisfiesExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -11433,9 +12214,13 @@ impl SetSpan for TsSatisfiesExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsTypeAssertion {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsTypeAssertion {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsTypeAssertion> {
         self.0
     }
     #[inline]
@@ -11451,9 +12236,9 @@ impl TsTypeAssertion {
     }
 }
 impl AstNode for TsTypeAssertion {
-    type Id = NodeId;
+    type Id = NodeId<TsTypeAssertion>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsTypeAssertion> {
         self.0
     }
 }
@@ -11465,9 +12250,9 @@ impl CommonAstNode for TsTypeAssertion {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsTypeAssertion> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -11483,9 +12268,13 @@ impl SetSpan for TsTypeAssertion {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsNonNullExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsNonNullExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsNonNullExpression> {
         self.0
     }
     #[inline]
@@ -11501,9 +12290,9 @@ impl TsNonNullExpression {
     }
 }
 impl AstNode for TsNonNullExpression {
-    type Id = NodeId;
+    type Id = NodeId<TsNonNullExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsNonNullExpression> {
         self.0
     }
 }
@@ -11515,9 +12304,9 @@ impl CommonAstNode for TsNonNullExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsNonNullExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -11533,9 +12322,13 @@ impl SetSpan for TsNonNullExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsInstantiationExpression {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsInstantiationExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsInstantiationExpression> {
         self.0
     }
     #[inline]
@@ -11551,9 +12344,9 @@ impl TsInstantiationExpression {
     }
 }
 impl AstNode for TsInstantiationExpression {
-    type Id = NodeId;
+    type Id = NodeId<TsInstantiationExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsInstantiationExpression> {
         self.0
     }
 }
@@ -11565,9 +12358,9 @@ impl CommonAstNode for TsInstantiationExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsInstantiationExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -11583,9 +12376,13 @@ impl SetSpan for TsInstantiationExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsExportAssignment {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsExportAssignment {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsExportAssignment> {
         self.0
     }
     #[inline]
@@ -11601,9 +12398,9 @@ impl TsExportAssignment {
     }
 }
 impl AstNode for TsExportAssignment {
-    type Id = NodeId;
+    type Id = NodeId<TsExportAssignment>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsExportAssignment> {
         self.0
     }
 }
@@ -11615,9 +12412,9 @@ impl CommonAstNode for TsExportAssignment {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsExportAssignment> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -11633,9 +12430,13 @@ impl SetSpan for TsExportAssignment {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsNamespaceExportDeclaration {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsNamespaceExportDeclaration {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsNamespaceExportDeclaration> {
         self.0
     }
     #[inline]
@@ -11651,9 +12452,9 @@ impl TsNamespaceExportDeclaration {
     }
 }
 impl AstNode for TsNamespaceExportDeclaration {
-    type Id = NodeId;
+    type Id = NodeId<TsNamespaceExportDeclaration>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsNamespaceExportDeclaration> {
         self.0
     }
 }
@@ -11665,9 +12466,9 @@ impl CommonAstNode for TsNamespaceExportDeclaration {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsNamespaceExportDeclaration> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -11683,9 +12484,13 @@ impl SetSpan for TsNamespaceExportDeclaration {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsImportEqualsDeclaration {
+    const TAG: StoreTag = StoreTag::Statement;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsImportEqualsDeclaration {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsImportEqualsDeclaration> {
         self.0
     }
     #[inline]
@@ -11701,9 +12506,9 @@ impl TsImportEqualsDeclaration {
     }
 }
 impl AstNode for TsImportEqualsDeclaration {
-    type Id = NodeId;
+    type Id = NodeId<TsImportEqualsDeclaration>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsImportEqualsDeclaration> {
         self.0
     }
 }
@@ -11715,9 +12520,9 @@ impl CommonAstNode for TsImportEqualsDeclaration {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsImportEqualsDeclaration> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -11733,9 +12538,13 @@ impl SetSpan for TsImportEqualsDeclaration {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for TsExternalModuleReference {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl TsExternalModuleReference {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<TsExternalModuleReference> {
         self.0
     }
     #[inline]
@@ -11751,9 +12560,9 @@ impl TsExternalModuleReference {
     }
 }
 impl AstNode for TsExternalModuleReference {
-    type Id = NodeId;
+    type Id = NodeId<TsExternalModuleReference>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<TsExternalModuleReference> {
         self.0
     }
 }
@@ -11765,9 +12574,9 @@ impl CommonAstNode for TsExternalModuleReference {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<TsExternalModuleReference> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -12133,9 +12942,13 @@ impl SetSpan for JsxChild {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for JsxElement {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl JsxElement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<JsxElement> {
         self.0
     }
     #[inline]
@@ -12151,9 +12964,9 @@ impl JsxElement {
     }
 }
 impl AstNode for JsxElement {
-    type Id = NodeId;
+    type Id = NodeId<JsxElement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<JsxElement> {
         self.0
     }
 }
@@ -12165,9 +12978,9 @@ impl CommonAstNode for JsxElement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<JsxElement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -12183,9 +12996,13 @@ impl SetSpan for JsxElement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for JsxOpeningElement {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl JsxOpeningElement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<JsxOpeningElement> {
         self.0
     }
     #[inline]
@@ -12201,9 +13018,9 @@ impl JsxOpeningElement {
     }
 }
 impl AstNode for JsxOpeningElement {
-    type Id = NodeId;
+    type Id = NodeId<JsxOpeningElement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<JsxOpeningElement> {
         self.0
     }
 }
@@ -12215,9 +13032,9 @@ impl CommonAstNode for JsxOpeningElement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<JsxOpeningElement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -12233,9 +13050,13 @@ impl SetSpan for JsxOpeningElement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for JsxClosingElement {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl JsxClosingElement {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<JsxClosingElement> {
         self.0
     }
     #[inline]
@@ -12251,9 +13072,9 @@ impl JsxClosingElement {
     }
 }
 impl AstNode for JsxClosingElement {
-    type Id = NodeId;
+    type Id = NodeId<JsxClosingElement>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<JsxClosingElement> {
         self.0
     }
 }
@@ -12265,9 +13086,9 @@ impl CommonAstNode for JsxClosingElement {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<JsxClosingElement> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -12283,9 +13104,13 @@ impl SetSpan for JsxClosingElement {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for JsxFragment {
+    const TAG: StoreTag = StoreTag::Expression;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl JsxFragment {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<JsxFragment> {
         self.0
     }
     #[inline]
@@ -12301,9 +13126,9 @@ impl JsxFragment {
     }
 }
 impl AstNode for JsxFragment {
-    type Id = NodeId;
+    type Id = NodeId<JsxFragment>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<JsxFragment> {
         self.0
     }
 }
@@ -12315,9 +13140,9 @@ impl CommonAstNode for JsxFragment {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<JsxFragment> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -12333,9 +13158,13 @@ impl SetSpan for JsxFragment {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for JsxOpeningFragment {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl JsxOpeningFragment {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<JsxOpeningFragment> {
         self.0
     }
     #[inline]
@@ -12351,9 +13180,9 @@ impl JsxOpeningFragment {
     }
 }
 impl AstNode for JsxOpeningFragment {
-    type Id = NodeId;
+    type Id = NodeId<JsxOpeningFragment>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<JsxOpeningFragment> {
         self.0
     }
 }
@@ -12365,9 +13194,9 @@ impl CommonAstNode for JsxOpeningFragment {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<JsxOpeningFragment> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -12383,9 +13212,13 @@ impl SetSpan for JsxOpeningFragment {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for JsxClosingFragment {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl JsxClosingFragment {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<JsxClosingFragment> {
         self.0
     }
     #[inline]
@@ -12401,9 +13234,9 @@ impl JsxClosingFragment {
     }
 }
 impl AstNode for JsxClosingFragment {
-    type Id = NodeId;
+    type Id = NodeId<JsxClosingFragment>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<JsxClosingFragment> {
         self.0
     }
 }
@@ -12415,9 +13248,9 @@ impl CommonAstNode for JsxClosingFragment {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<JsxClosingFragment> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -12433,9 +13266,13 @@ impl SetSpan for JsxClosingFragment {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for JsxIdentifier {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl JsxIdentifier {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<JsxIdentifier> {
         self.0
     }
     #[inline]
@@ -12451,9 +13288,9 @@ impl JsxIdentifier {
     }
 }
 impl AstNode for JsxIdentifier {
-    type Id = NodeId;
+    type Id = NodeId<JsxIdentifier>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<JsxIdentifier> {
         self.0
     }
 }
@@ -12465,9 +13302,9 @@ impl CommonAstNode for JsxIdentifier {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<JsxIdentifier> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -12483,9 +13320,13 @@ impl SetSpan for JsxIdentifier {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for JsxNamespacedName {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl JsxNamespacedName {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<JsxNamespacedName> {
         self.0
     }
     #[inline]
@@ -12501,9 +13342,9 @@ impl JsxNamespacedName {
     }
 }
 impl AstNode for JsxNamespacedName {
-    type Id = NodeId;
+    type Id = NodeId<JsxNamespacedName>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<JsxNamespacedName> {
         self.0
     }
 }
@@ -12515,9 +13356,9 @@ impl CommonAstNode for JsxNamespacedName {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<JsxNamespacedName> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -12533,9 +13374,13 @@ impl SetSpan for JsxNamespacedName {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for JsxMemberExpression {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl JsxMemberExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<JsxMemberExpression> {
         self.0
     }
     #[inline]
@@ -12551,9 +13396,9 @@ impl JsxMemberExpression {
     }
 }
 impl AstNode for JsxMemberExpression {
-    type Id = NodeId;
+    type Id = NodeId<JsxMemberExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<JsxMemberExpression> {
         self.0
     }
 }
@@ -12565,9 +13410,9 @@ impl CommonAstNode for JsxMemberExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<JsxMemberExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -12583,9 +13428,13 @@ impl SetSpan for JsxMemberExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for JsxAttribute {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl JsxAttribute {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<JsxAttribute> {
         self.0
     }
     #[inline]
@@ -12601,9 +13450,9 @@ impl JsxAttribute {
     }
 }
 impl AstNode for JsxAttribute {
-    type Id = NodeId;
+    type Id = NodeId<JsxAttribute>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<JsxAttribute> {
         self.0
     }
 }
@@ -12615,9 +13464,9 @@ impl CommonAstNode for JsxAttribute {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<JsxAttribute> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -12633,9 +13482,13 @@ impl SetSpan for JsxAttribute {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for JsxSpreadAttribute {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl JsxSpreadAttribute {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<JsxSpreadAttribute> {
         self.0
     }
     #[inline]
@@ -12651,9 +13504,9 @@ impl JsxSpreadAttribute {
     }
 }
 impl AstNode for JsxSpreadAttribute {
-    type Id = NodeId;
+    type Id = NodeId<JsxSpreadAttribute>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<JsxSpreadAttribute> {
         self.0
     }
 }
@@ -12665,9 +13518,9 @@ impl CommonAstNode for JsxSpreadAttribute {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<JsxSpreadAttribute> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -12683,9 +13536,13 @@ impl SetSpan for JsxSpreadAttribute {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for JsxExpressionContainer {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl JsxExpressionContainer {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<JsxExpressionContainer> {
         self.0
     }
     #[inline]
@@ -12701,9 +13558,9 @@ impl JsxExpressionContainer {
     }
 }
 impl AstNode for JsxExpressionContainer {
-    type Id = NodeId;
+    type Id = NodeId<JsxExpressionContainer>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<JsxExpressionContainer> {
         self.0
     }
 }
@@ -12715,9 +13572,9 @@ impl CommonAstNode for JsxExpressionContainer {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<JsxExpressionContainer> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -12733,9 +13590,13 @@ impl SetSpan for JsxExpressionContainer {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for JsxEmptyExpression {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl JsxEmptyExpression {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<JsxEmptyExpression> {
         self.0
     }
     #[inline]
@@ -12751,9 +13612,9 @@ impl JsxEmptyExpression {
     }
 }
 impl AstNode for JsxEmptyExpression {
-    type Id = NodeId;
+    type Id = NodeId<JsxEmptyExpression>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<JsxEmptyExpression> {
         self.0
     }
 }
@@ -12765,9 +13626,9 @@ impl CommonAstNode for JsxEmptyExpression {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<JsxEmptyExpression> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -12783,9 +13644,13 @@ impl SetSpan for JsxEmptyExpression {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for JsxText {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl JsxText {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<JsxText> {
         self.0
     }
     #[inline]
@@ -12801,9 +13666,9 @@ impl JsxText {
     }
 }
 impl AstNode for JsxText {
-    type Id = NodeId;
+    type Id = NodeId<JsxText>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<JsxText> {
         self.0
     }
 }
@@ -12815,9 +13680,9 @@ impl CommonAstNode for JsxText {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<JsxText> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -12833,9 +13698,13 @@ impl SetSpan for JsxText {
         ast.set_span(self.ast_id(), span)
     }
 }
+impl IdDomain for JsxSpreadChild {
+    const TAG: StoreTag = StoreTag::TypeJsx;
+    const ERASED_IS_PACKED: bool = true;
+}
 impl JsxSpreadChild {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> NodeId<JsxSpreadChild> {
         self.0
     }
     #[inline]
@@ -12851,9 +13720,9 @@ impl JsxSpreadChild {
     }
 }
 impl AstNode for JsxSpreadChild {
-    type Id = NodeId;
+    type Id = NodeId<JsxSpreadChild>;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> NodeId<JsxSpreadChild> {
         self.0
     }
 }
@@ -12865,9 +13734,9 @@ impl CommonAstNode for JsxSpreadChild {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
-                ast_id,
-            ))
+            <Self as AstNode>::from_id_unchecked(
+                <NodeId<JsxSpreadChild> as TypedAstId>::from_ast_id_unchecked(ast_id),
+            )
         }
     }
 }
@@ -13425,6 +14294,7 @@ impl<'a> Ast<'a> {
             NodeKind::JsxSpreadChild => NodeKindData::JsxSpreadChild(unsafe {
                 <JsxSpreadChild as CommonAstNode>::from_ast_id_unchecked(ast_id)
             }),
+            NodeKind::Hole => panic!("hole does not contain an AST node"),
         }
     }
     #[inline]

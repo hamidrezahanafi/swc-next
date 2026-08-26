@@ -18,16 +18,23 @@ pub fn ast_node(schema: &Schema) -> RawOutput {
     let mut node_kind_enum_checks = TokenStream::new();
     let mut node_kind_extra_data_arms = TokenStream::new();
     let mut node_kind_map_ast_id_arms = TokenStream::new();
+    let mut node_kind_store_arms = TokenStream::new();
     let mut node_kind_data_variants = TokenStream::new();
     let mut node_kind_data_arms = TokenStream::new();
 
     for ty in &schema.types {
         match ty {
             AstType::Struct(ast) => {
-                node_impls.extend(generate_node_impls_for_struct(ast));
+                node_impls.extend(generate_node_impls_for_struct(ast, schema));
                 let name = format_ident!("{}", ast.name);
+                let store_tag = match &ast.storage {
+                    StorageDomain::Dedicated { .. } => format_ident!("Class"),
+                    StorageDomain::Pooled { .. } => format_ident!("Function"),
+                    StorageDomain::Common => canonical_store_tag(&ast.name, schema),
+                };
                 let handle = ty.repr_ident(schema);
                 node_kind_variants.extend(quote!(#name,));
+                node_kind_store_arms.extend(quote!(Self::#name => StoreTag::#store_tag,));
                 let uses_extra_data = ast.storage.uses_node_payload()
                     && !matches!(
                         calculate_inline_layout(ast, schema),
@@ -72,6 +79,8 @@ pub fn ast_node(schema: &Schema) -> RawOutput {
             #[derive(Debug, Clone, Copy, PartialEq, Eq)]
             pub enum NodeKind {
                 #node_kind_variants
+                /// Internal vacant slot reserved for transform insertion.
+                Hole,
             }
 
             impl NodeKind {
@@ -81,6 +90,15 @@ pub fn ast_node(schema: &Schema) -> RawOutput {
                 pub const fn uses_extra_data(self) -> bool {
                     match self {
                         #node_kind_extra_data_arms
+                        Self::Hole => false,
+                    }
+                }
+
+                #[inline]
+                pub const fn store_tag(self) -> StoreTag {
+                    match self {
+                        #node_kind_store_arms
+                        Self::Hole => panic!("hole has no canonical AST storage"),
                     }
                 }
 
@@ -92,6 +110,7 @@ pub fn ast_node(schema: &Schema) -> RawOutput {
                 ) {
                     match self {
                         #node_kind_map_ast_id_arms
+                        Self::Hole => {},
                     }
                 }
             }
@@ -110,6 +129,7 @@ pub fn ast_node(schema: &Schema) -> RawOutput {
                     let ast_id = node_id.into();
                     match self.node_kind(ast_id) {
                         #node_kind_data_arms
+                        NodeKind::Hole => panic!("hole does not contain an AST node"),
                     }
                 }
 
@@ -358,15 +378,25 @@ pub(crate) fn concrete_node_kinds(type_id: crate::schema::TypeId, schema: &Schem
     }
 }
 
-fn generate_node_impls_for_struct(ast: &AstStruct) -> TokenStream {
+fn generate_node_impls_for_struct(ast: &AstStruct, schema: &Schema) -> TokenStream {
     let name = format_ident!("{}", ast.name);
     match &ast.storage {
-        StorageDomain::Common => generate_common_node_impls(
-            &name,
-            quote!(NodeId),
-            quote!(ast.span(self.ast_id())),
-            quote!(ast.set_span(self.ast_id(), span)),
-        ),
+        StorageDomain::Common => {
+            let tag = canonical_store_tag(&ast.name, schema);
+            let node_impls = generate_common_node_impls(
+                &name,
+                quote!(NodeId<#name>),
+                quote!(ast.span(self.ast_id())),
+                quote!(ast.set_span(self.ast_id(), span)),
+            );
+            quote! {
+                impl IdDomain for #name {
+                    const TAG: StoreTag = StoreTag::#tag;
+                    const ERASED_IS_PACKED: bool = true;
+                }
+                #node_impls
+            }
+        }
         StorageDomain::Pooled { id, .. } => {
             let id = format_ident!("{id}");
             generate_common_node_impls(
@@ -416,6 +446,59 @@ fn generate_node_impls_for_struct(ast: &AstStruct) -> TokenStream {
             }
         }
     }
+}
+
+fn canonical_store_tag(name: &str, schema: &Schema) -> proc_macro2::Ident {
+    if matches!(
+        name,
+        "IdentifierReference"
+            | "PrivateIdentifier"
+            | "BindingIdentifier"
+            | "IdentifierName"
+            | "LabelIdentifier"
+            | "AssignmentPattern"
+            | "BindingRestElement"
+            | "ArrayPattern"
+            | "ObjectPattern"
+            | "BindingProperty"
+    ) {
+        return format_ident!("NamePattern");
+    }
+
+    if enum_contains_node("ClassElement", name, schema) {
+        return format_ident!("ClassElement");
+    }
+
+    for (enum_name, tag) in [("Expr", "Expression"), ("Stmt", "Statement")] {
+        if enum_contains_node(enum_name, name, schema) {
+            return format_ident!("{tag}");
+        }
+    }
+
+    if matches!(name, "VariableDeclarator" | "SwitchCase" | "CatchClause") {
+        return format_ident!("Statement");
+    }
+    if name.starts_with("Ts") || name.starts_with("Jsx") {
+        return format_ident!("TypeJsx");
+    }
+    format_ident!("ProgramAux")
+}
+
+fn enum_contains_node(enum_name: &str, name: &str, schema: &Schema) -> bool {
+    schema
+        .types
+        .iter()
+        .find_map(|ty| match ty {
+            AstType::Enum(ast) if ast.name == enum_name => Some(ast),
+            _ => None,
+        })
+        .is_some_and(|ast| {
+            ast.variants
+                .iter()
+                .filter_map(|variant| variant.type_id)
+                .flat_map(|type_id| concrete_node_kinds(type_id, schema))
+                .any(|candidate| candidate == name)
+        })
 }
 
 fn generate_node_impls_for_enum(ast: &AstEnum) -> TokenStream {

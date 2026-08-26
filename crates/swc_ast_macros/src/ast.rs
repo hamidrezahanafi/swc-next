@@ -20,7 +20,7 @@ fn expand_struct(mut item: ItemStruct, id: Option<syn::Ident>) -> TokenStream {
     let Some(_) = id else {
         return quote! {
             #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-            pub struct #name(pub(crate) crate::NodeId);
+            pub struct #name(pub(crate) crate::NodeId<#name>);
         };
     };
 
