@@ -7,7 +7,7 @@
 - `NodeId<T>` 是 4 字节泛型 ID；每个存储域独立自增，ID 中保留存储域信息，避免拿 statement ID 访问 expression storage。
 - AST 按热点类型拆成多个 SoA storage，transform 新增某一类节点时只影响对应 storage，不再扩容并复制全局 `NodeData`。`Class` 和 `Function` 作为大对象固定使用独立 storage，不参与后续合并判断。
 - 删除可直接用无类型全局 ID 读取任意节点数据的 API；具体节点通过类型安全 ID 访问对应 storage。必须异构处理时，只允许先匹配 storage/kind，再收窄为 typed ID。
-- 每个 storage 使用独立、编译期参数化的 hole policy；候选默认值是 `16 live slots + 4 holes`，但必须支持某个特定 storage 使用 `16+0`。transform 优先复用该 storage 的 hole，目标是避开扩容/复制热路径、降低单次插入成本。
+- 每个 storage 使用独立、编译期参数化的 hole policy；从 `16 live slots + 4 holes` 候选开始验证，并支持某个特定 storage 使用 `16+0`。最终 static-block 数据选择所有 storage 默认 `16+0`，非零 hole 仅保留为可复现实验 profile。
 - 保持 ESTree/JavaScript 可观察 AST 结构和 builder/getter 的逻辑语义不变。
 - 改动按可单独审查的类别提交；完成通用实现后，从 `codex/es2022-static-blocks-transform` 建立独立验证分支，量化收益。
 
@@ -169,7 +169,7 @@ chunk 1: [live × live_per_chunk][hole × holes_per_chunk]
 - speculative parser checkpoint 保存所有 store 的 `slot_len/live_len/free-list checkpoint` 及 `extra_data` 长度；restore 必须精确撤销已分配节点和 hole 消耗。
 - `replace_data`：
   - same-store replacement 可把新 payload 搬到旧 slot，并把临时新 slot 归还为 hole；不再要求新节点位于全局表尾。
-  - cross-store replacement 不伪造旧 typed ID，必须更新 parent edge/root 为新 typed ID，并将旧 slot 标成 hole。
+  - cross-store replacement 不伪造旧 typed ID，返回新 typed ID 供 caller 写入 parent edge/root。parser 的 speculative typed ranges 仍可能保留旧 ID，因此旧 slot 暂时作为 detached live slot 保留；只有未来增加 typed-range reachability compaction 后才能安全标成 hole。
   - semantic-bearing node identity 是否需要保留由现有 invalidation 规则决定；禁止通过跨 store 复制 payload 保留一个类型错误的 ID。
 - live AST 不做自动 compact/reindex，保证所有已发出的 ID 稳定。只允许在 FFI serialization 时建立临时 dense mapping。
 
@@ -235,10 +235,10 @@ chunk 1: [live × live_per_chunk][hole × holes_per_chunk]
 ### Phase 5：参数化 holes 与 replacement（已完成）
 
 - [x] 实现 const-generic per-store hole policy、`Hole`、hole reuse 和 counters；支持 `16+0`、`16+2`、`16+4`，0-hole 分支可编译期消除。
-- [x] policy 集中定义，并由 benchmark 打印实际 profile；提供 all-zero、hot-2、expression-only、statement-only profiles。
+- [x] policy 集中定义，并由 benchmark 打印实际 profile；提供 all-zero、hot-2、hot-4、expression-only、statement-only profiles。
 - [x] builder 区分 parser source allocation 与 transform insertion；transform 优先 holes。
 - [x] benchmark 分离 insertion-only 与 post-transform read-only visit，并提供 Criterion 与 Gungraun 入口。
-- [x] same-store/cross-store replacement 支持独立 class/function store，并检查 double free/hole read。
+- [x] same-store replacement 退休临时 slot；cross-store replacement 返回新 typed ID，并保留可能被 stale typed range 引用的 detached 旧 slot，避免 forged ID、double free 和 FFI hole edge。
 - [x] 单测覆盖 0/1/15/16/17/31/32、`16+2` checkpoint、4 holes 消耗及第 5 次插入；workspace/conformance 覆盖集成路径。
 
 ### Phase 6：FFI/N-API 兼容（已完成）
@@ -338,6 +338,54 @@ Gungraun 对“已有 4 holes”边界插入测得：`16+4` 为 1,322 instructio
 
 64 节点 metrics 解释了持续插入回退：all-zero 的 statement/name store 各 grow 一次、各复制 1,275 bytes；`16+4` 虽先消耗每个热 store 的 16 个 holes，之后持续插入仍各 grow 一次，并因物理 slots 更多各复制 1,675 bytes，同时每个 store 做 64 次 hole lookup。也就是说，hole 对“短 burst 且预留量足够”收益很大，对“远超预留量的持续 append”会增加 lookup 和不连续成本。最终 policy 必须以 static-block 的实际 burst 分布决定，不能全局固定为 `16+4`。
 
+### 8.5 static-block 验证分支最终结果
+
+验证分支为 `codex/es2022-static-blocks-typed-node-stores`。control 是同一 static-block transform 与同一 `origin/main` 合并基线 `78b8ebfe`；实验分支只增加 typed stores、typed access、hole policy 和两边一致的 benchmark harness。class-heavy fixture 包含 24 个 class expression、48 个 static block。transform benchmark 的 parse + semantic setup 在计时外；end-to-end 包含 parse、semantic、transform、codegen。
+
+Criterion 使用 1 秒 warm-up、2 秒 measurement、20 samples。下表给出估计区间和中值；`hot-4` 是 expression/statement/name/class-element `16+4`，class/function 始终是独立大对象 store 且为 `16+0`。
+
+| Policy | Transform | Post-visit | Post-codegen | End-to-end |
+| --- | ---: | ---: | ---: | ---: |
+| legacy control | 38.806–39.970 µs（39.289） | 4.002–4.120 µs（4.058） | 18.744–19.022 µs（18.886） | 100.32–104.75 µs（101.93） |
+| typed stores, all `16+0` | 49.380–49.740 µs（49.524） | 7.063–7.177 µs（7.112） | 28.653–29.632 µs（29.160） | 121.43–122.54 µs（121.97） |
+| typed stores, `hot-4` | 48.652–49.235 µs（48.878） | 7.216–7.281 µs（7.253） | 27.285–28.149 µs（27.658） | 125.24–128.58 µs（126.42） |
+| `hot-4` 相对 all-zero | **-1.30%** | **+1.97%** | **-5.15%** | **+3.65%** |
+
+Callgrind 消融在最终 typed-access 实现上逐 profile 编译。`Δ E2E` 相对 typed all-zero；cache miss 是 post-transform visit 的 D1/LL read miss。Callgrind 小计数会受布局扰动影响，因此只把它与 wall time、instructions 和 density 一起解释，不单独据此选 policy。
+
+| Per-store policy | Transform Ir | 相对 all-zero | Visit Ir / D1 / LL | Codegen Ir | E2E Ir | Δ E2E |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| legacy control | 368,180 | -15.25% | 39,321 / 387 / 10 | 158,787 | 910,310 | -17.76% |
+| all `16+0` | 434,421 | baseline | 70,293 / 357 / 17 | 237,775 | 1,106,855 | baseline |
+| statement `16+4` only | 435,261 | +0.19% | 70,293 / 355 / 17 | 237,775 | 1,113,256 | +0.58% |
+| expression `16+4` only | 448,967 | +3.35% | 70,293 / 367 / 17 | 234,694 | 1,128,809 | +1.98% |
+| expression/statement/name `16+2` | 451,557 | +3.94% | 70,293 / 320 / 17 | 234,694 | 1,146,780 | +3.61% |
+| expression/statement/name/class-element `16+4` | 448,792 | +3.31% | 70,293 / 342 / 17 | 234,694 | 1,150,723 | +3.96% |
+
+和 legacy control 相比，最终 all-zero typed stores 的 transform instructions 回退 18.0%，post-visit 回退 78.8%，post-codegen 回退 49.7%，end-to-end instructions 回退 21.6%；Criterion 中值分别回退约 26.1%、75.3%、54.4%、19.7%。因此本分支验证了 typed storage 的结构不变量和局部插入机制，但**没有验证到相对 legacy 的净性能收益**。主要额外成本来自 packed edge/store dispatch 和多 store 访问，而不是 hole 容量本身。
+
+### 8.6 hole 不连续性与最终选型
+
+class-heavy AST 的实际物理布局说明了为何不能只看一次扩容：
+
+| Store | all-zero transformed live/slots | `hot-4` parsed density | `hot-4` transformed live/slots | holes used / remaining | grow copied bytes（all-zero → hot-4） |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Expression | 557/557 | 80.27% | 557/560 | 109 / 3 | 7,875 → 9,875 |
+| Statement | 150/150 | 81.70% | 150/153 | 25 / 3 | 0 → 0 |
+| NamePattern | 318/318 | 80.39% | 318/320 | 62 / 2 | 11,775 → 4,925 |
+| ClassElement | 72/72 | 81.82% | 72/88 | 0 / 16 | 975 → 1,275 |
+| Class | 24/24 | 100% | 24/24 | 0 / 0 | 0 → 0 |
+| Function | 0/0 | 100% | 0/0 | 0 / 0 | 0 → 0 |
+
+结论：
+
+- hole 在“已有 hole、短 burst 不超过预留量”的 synthetic 边界场景确实能降低 85.4% wall time 和 60.0% instructions，机制本身有效。
+- static-block 的真实插入量会耗尽多数 expression/statement/name holes；lookup 与更大的物理数组使 transform instructions 上升。虽然 `hot-4` transform wall time偶有约 1.3% 改善，但不稳定地伴随更多 instructions，且 post-visit 和端到端分别回退约 2.0% 和 3.7%。
+- `ClassElementStore` 的 16 个 holes 完全未使用，却让有效节点永久保持 81.82% 密度，是最明确的“无插入收益、只有不连续代价”类型。
+- class/function 是独立大对象 store；目标 transform 不新增这两类节点，因此固定 `16+0`，避免用大对象 hole 放大物理间隔。它们仍有各自独立自增的 `ClassId`/`FunctionId` 和数组。
+- 最终生产 policy 选择所有 store `16+0`。`hole-profile-expression-only`、`hole-profile-statement-only`、`hole-profile-hot-2`、`hole-profile-hot-4` 保留用于后续 transform 逐类型复测；只有新场景证明插入收益足以覆盖读取不连续成本时，才为该 store 改成非零。
+- exact output probe 在 control 与 typed branch 都得到 122 个 identifier、5,466 bytes codegen，输出逐字节一致；Rust 内部 typed-ID API 有迁移，但 ESTree/JavaScript AST 形状没有变化。
+
 ## 9. 分类提交
 
 每个提交都应可编译，并运行与范围相称的测试；不 amend、不 rebase：
@@ -371,4 +419,4 @@ Gungraun 对“已有 4 holes”边界插入测得：`16+4` 为 1,322 instructio
 - [x] parser rollback、replace、visitor path、semantic identity、FFI remap 都有测试。
 - [x] Rust/JS/conformance/clippy 全部通过。
 - [x] 分类提交完成并可分别回退 hole policy。
-- [ ] `codex/es2022-static-blocks-typed-node-stores` 上完成 control、all-zero、逐 storage hole 消融和最终 per-store policy 对比，分别记录插入性能和 post-transform 读取局部性，说明哪些类型应为 0；内存只作为辅助列。
+- [x] `codex/es2022-static-blocks-typed-node-stores` 上完成 control、all-zero、逐 storage hole 消融和最终 per-store policy 对比，分别记录插入性能和 post-transform 读取局部性；最终所有类型为 `16+0`，未观察到相对 legacy control 的净收益，内存仅作为辅助解释。
