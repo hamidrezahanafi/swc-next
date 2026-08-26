@@ -9,7 +9,7 @@ use bitflags::bitflags;
 use rustc_hash::FxHashSet;
 use swc_next_allocator::{Allocator, vec::Vec as ArenaVec, wtf8::Wtf8Buf};
 use swc_next_ecma_ast::*;
-use swc_next_ecma_ast::{AstInternedUtf8, AstWtf8};
+use swc_next_ecma_ast::{AstUtf8, AstWtf8};
 
 use crate::{
     TokenFlag,
@@ -1303,10 +1303,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     ///
     /// This strips `#` from private identifiers and decodes Unicode escapes.
     #[inline]
-    fn identifier_name(&mut self, token: Token) -> AstInternedUtf8 {
+    fn identifier_name(&mut self, token: Token) -> AstUtf8 {
         if token.tag != TokenTag::PrivateIdentifier && !token.is_escaped() {
-            let name = self.ast.source_slice(token.span.start, token.span.end);
-            return self.ast.intern_utf8_slice(name);
+            return self.ast.source_slice(token.span.start, token.span.end);
         }
 
         self.identifier_name_slow(token)
@@ -1314,14 +1313,13 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     #[cold]
     #[inline(never)]
-    fn identifier_name_slow(&mut self, token: Token) -> AstInternedUtf8 {
+    fn identifier_name_slow(&mut self, token: Token) -> AstUtf8 {
         let start = token.span.start + u32::from(token.tag == TokenTag::PrivateIdentifier);
         if token.is_escaped() {
             return self.decode_escaped_identifier(start, token.span.end);
         }
 
-        let name = self.ast.source_slice(start, token.span.end);
-        self.ast.intern_utf8_slice(name)
+        self.ast.source_slice(start, token.span.end)
     }
 
     /// Returns the decoded string value without the surrounding quotes.
@@ -1341,14 +1339,14 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.decode_escaped_string(span.start, span.end)
     }
 
-    fn decode_escaped_identifier(&mut self, start: u32, end: u32) -> AstInternedUtf8 {
+    fn decode_escaped_identifier(&mut self, start: u32, end: u32) -> AstUtf8 {
         let raw = &self.source[start as usize..end as usize];
         let mut buffer = [0u8; 256];
         if let Some(value) = decode_identifier_escapes(raw, &mut buffer) {
             // Safety: the lexer rejects lone surrogates and invalid identifier escapes.
             return self
                 .ast
-                .intern_utf8(unsafe { std::str::from_utf8_unchecked(value) });
+                .add_utf8(unsafe { std::str::from_utf8_unchecked(value) });
         }
 
         let mut buffer = vec![0u8; raw.len()];
@@ -1359,7 +1357,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         // Lone surrogates are not valid in identifiers.
         // All of them are rejected by the lexer with `LexicalError::InvalidIdentifierContinue`
         let value = unsafe { std::str::from_utf8_unchecked(value) };
-        self.ast.intern_utf8(value)
+        self.ast.add_utf8(value)
     }
 
     fn decode_escaped_string(&mut self, start: u32, end: u32) -> AstWtf8 {
@@ -3042,7 +3040,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         if matches!(
             self.ast.property_key_data(key),
             PropertyKeyData::PrivateIdentifier(private)
-                if self.ast.get_interned_utf8(private.name(&self.ast)) == "constructor"
+                if self.ast.get_utf8(private.name(&self.ast)) == "constructor"
         ) {
             self.report(
                 key.span(&self.ast),
@@ -3411,7 +3409,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn prop_name_eq(&self, key: PropertyKey, expected: &str) -> Option<Span> {
         let matches = match self.ast.property_key_data(key) {
             PropertyKeyData::IdentifierName(identifier) => {
-                self.ast.get_interned_utf8(identifier.name(&self.ast)) == expected
+                self.ast.get_utf8(identifier.name(&self.ast)) == expected
             }
             PropertyKeyData::StringLiteral(string) => {
                 self.ast.get_wtf8(string.value(&self.ast)) == expected
@@ -7467,7 +7465,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         matches!(
             self.ast.expr_data(expression),
             ExprData::IdentifierReference(identifier)
-                if self.ast.get_interned_utf8(identifier.name(&self.ast)) == "async"
+                if self.ast.get_utf8(identifier.name(&self.ast)) == "async"
                     && self.span_text(identifier.span(&self.ast)) == "async"
         )
     }
@@ -10959,7 +10957,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
         let ast = &self.ast;
         let same_name = |a: JsxIdentifier, b: JsxIdentifier| {
-            ast.get_interned_utf8(a.name(ast)) == ast.get_interned_utf8(b.name(ast))
+            ast.get_utf8(a.name(ast)) == ast.get_utf8(b.name(ast))
         };
 
         let a_span = a.span(ast);

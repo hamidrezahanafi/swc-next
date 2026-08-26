@@ -708,7 +708,7 @@ pub struct TemplateElement {
 /// as a value reference.
 #[ast]
 pub struct IdentifierReference {
-    name: AstInternedUtf8,
+    name: AstUtf8,
 }
 
 /// A `#privateName` identifier used inside a class.
@@ -725,7 +725,7 @@ pub struct IdentifierReference {
 /// ```
 #[ast]
 pub struct PrivateIdentifier {
-    name: AstInternedUtf8,
+    name: AstUtf8,
 }
 
 /// An identifier that introduces a new binding.
@@ -738,7 +738,7 @@ pub struct PrivateIdentifier {
 /// ```
 #[ast]
 pub struct BindingIdentifier {
-    name: AstInternedUtf8,
+    name: AstUtf8,
     /// `decorator[]`. Decorators on a parameter binding (legacy
     /// `experimentalDecorators`). Empty for non-parameter bindings.
     decorators: Vec<Decorator>,
@@ -759,7 +759,7 @@ pub struct BindingIdentifier {
 /// ```
 #[ast]
 pub struct IdentifierName {
-    name: AstInternedUtf8,
+    name: AstUtf8,
 }
 
 /// An identifier used as a statement label or as the target of `break` or
@@ -773,7 +773,7 @@ pub struct IdentifierName {
 /// ```
 #[ast]
 pub struct LabelIdentifier {
-    name: AstInternedUtf8,
+    name: AstUtf8,
 }
 
 /// A binding pattern with a default value.

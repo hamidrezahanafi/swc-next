@@ -176,7 +176,6 @@ impl Parser {
             "Span" => primitive("Span"),
             "ScopeId" => primitive("ScopeId"),
             "SymbolId" => primitive("SymbolId"),
-            "AstInternedUtf8" => primitive("AstInternedUtf8"),
             "AstUtf8" => primitive("AstUtf8"),
             "AstWtf8" => primitive("AstWtf8"),
             "ImportPhase" => primitive("ImportPhase"),

@@ -1,17 +1,17 @@
 use std::collections::HashSet;
 
 use swc_next_ecma_ast::{
-    AssignmentOperator, Ast, AstInternedUtf8, Class, DUMMY_SP, Decl, Expr, Function, FunctionBody,
-    GetSpan, IdentifierReference, Program, StaticBlock, Stmt, TypedSubRange, VariableKind,
-    VisitMut, VisitMutWith,
+    AssignmentOperator, Ast, AstUtf8, Class, DUMMY_SP, Decl, Expr, Function, FunctionBody, GetSpan,
+    IdentifierReference, Program, StaticBlock, Stmt, TypedSubRange, VariableKind, VisitMut,
+    VisitMutWith,
 };
 use swc_next_ecma_semantic::{ReferenceSpace, Semantic};
 
 #[derive(Default)]
 pub struct CaptureFrame {
-    this: Option<AstInternedUtf8>,
-    arguments: Option<AstInternedUtf8>,
-    new_target: Option<AstInternedUtf8>,
+    this: Option<AstUtf8>,
+    arguments: Option<AstUtf8>,
+    new_target: Option<AstUtf8>,
 }
 
 impl CaptureFrame {
@@ -66,22 +66,22 @@ impl<'semantic> FnEnvHoister<'semantic> {
             .expect("a function environment frame exists")
     }
 
-    fn fresh_name(&mut self, base: &str, ast: &mut Ast<'_>) -> AstInternedUtf8 {
+    fn fresh_name(&mut self, base: &str, ast: &mut Ast<'_>) -> AstUtf8 {
         if self.used_names.insert(base.as_bytes().to_vec()) {
-            return ast.intern_utf8(base);
+            return ast.intern_utf8(base).into();
         }
 
         let mut suffix = 2u32;
         loop {
             let candidate = format!("{base}{suffix}");
             if self.used_names.insert(candidate.as_bytes().to_vec()) {
-                return ast.intern_utf8(&candidate);
+                return ast.intern_utf8(&candidate).into();
             }
             suffix += 1;
         }
     }
 
-    fn capture_this(&mut self, ast: &mut Ast<'_>) -> AstInternedUtf8 {
+    fn capture_this(&mut self, ast: &mut Ast<'_>) -> AstUtf8 {
         if let Some(name) = self.frames.last().and_then(|frame| frame.this) {
             return name;
         }
@@ -90,7 +90,7 @@ impl<'semantic> FnEnvHoister<'semantic> {
         name
     }
 
-    fn capture_arguments(&mut self, ast: &mut Ast<'_>) -> AstInternedUtf8 {
+    fn capture_arguments(&mut self, ast: &mut Ast<'_>) -> AstUtf8 {
         if let Some(name) = self.frames.last().and_then(|frame| frame.arguments) {
             return name;
         }
@@ -102,7 +102,7 @@ impl<'semantic> FnEnvHoister<'semantic> {
         name
     }
 
-    fn capture_new_target(&mut self, ast: &mut Ast<'_>) -> AstInternedUtf8 {
+    fn capture_new_target(&mut self, ast: &mut Ast<'_>) -> AstUtf8 {
         if let Some(name) = self.frames.last().and_then(|frame| frame.new_target) {
             return name;
         }
@@ -115,7 +115,7 @@ impl<'semantic> FnEnvHoister<'semantic> {
     }
 
     fn is_unresolved_arguments(&self, node: IdentifierReference, ast: &Ast<'_>) -> bool {
-        if ast.get_interned_utf8(node.name(ast)) != "arguments" {
+        if ast.get_utf8(node.name(ast)) != "arguments" {
             return false;
         }
         let Some(reference_id) = self.semantic.reference_of(node.node_id()) else {
@@ -128,8 +128,7 @@ impl<'semantic> FnEnvHoister<'semantic> {
     fn is_new_target(&self, node: swc_next_ecma_ast::MetaProperty, ast: &Ast<'_>) -> bool {
         let meta = node.meta(ast);
         let property = node.property(ast);
-        ast.get_interned_utf8(meta.name(ast)) == "new"
-            && ast.get_interned_utf8(property.name(ast)) == "target"
+        ast.get_utf8(meta.name(ast)) == "new" && ast.get_utf8(property.name(ast)) == "target"
     }
 
     pub fn transform_this_expression(
@@ -196,7 +195,7 @@ impl<'semantic> FnEnvHoister<'semantic> {
                 None,
                 false,
             );
-            let arguments_name = ast.intern_utf8("arguments");
+            let arguments_name = ast.add_utf8("arguments");
             let init = ast.expr_identifier_reference(DUMMY_SP, arguments_name);
             declarators.push(ast.variable_declarator(DUMMY_SP, id, Some(init), false));
         }
@@ -208,8 +207,8 @@ impl<'semantic> FnEnvHoister<'semantic> {
                 None,
                 false,
             );
-            let new_name = ast.intern_utf8("new");
-            let target_name = ast.intern_utf8("target");
+            let new_name = ast.add_utf8("new");
+            let target_name = ast.add_utf8("target");
             let meta = ast.identifier_name(DUMMY_SP, new_name);
             let property = ast.identifier_name(DUMMY_SP, target_name);
             let init = ast.expr_meta_property(DUMMY_SP, meta, property);
@@ -282,10 +281,10 @@ fn prepend_statement(
     ast.add_typed_sub_range(items)
 }
 
-fn rewrite_derived_super_calls(body: FunctionBody, this_name: AstInternedUtf8, ast: &mut Ast<'_>) {
+fn rewrite_derived_super_calls(body: FunctionBody, this_name: AstUtf8, ast: &mut Ast<'_>) {
     struct InitThis<'visit, 'ast> {
         ast: &'visit mut Ast<'ast>,
-        this_name: AstInternedUtf8,
+        this_name: AstUtf8,
     }
 
     impl<'ast> VisitMut<'ast> for InitThis<'_, 'ast> {

@@ -206,9 +206,7 @@ fn read_expression(ty: &AstType, schema: &Schema, location: &str, aligned_u32: b
                 let end = read_u32(&format!("{location} + 4"), aligned_u32);
                 format!("{{ start: pos({start}), end: pos({end}) }}")
             }
-            AstType::Primitive(primitive)
-                if matches!(primitive.name, "AstInternedUtf8" | "AstUtf8") =>
-            {
+            AstType::Primitive(primitive) if primitive.name == "AstUtf8" => {
                 let start = read_u32(location, aligned_u32);
                 let end = read_u32(&format!("{location} + 4"), aligned_u32);
                 format!("{start} === NULL && {end} === 0 ? null : str({start}, {end})")
@@ -216,7 +214,7 @@ fn read_expression(ty: &AstType, schema: &Schema, location: &str, aligned_u32: b
             inner => panic!("unsupported optional decoder type: {}", inner.name()),
         },
         AstType::Primitive(primitive) => match primitive.name {
-            "AstInternedUtf8" | "AstUtf8" | "AstWtf8" => {
+            "AstUtf8" | "AstWtf8" => {
                 let start = read_u32(location, aligned_u32);
                 let end = read_u32(&format!("{location} + 4"), aligned_u32);
                 format!("str({start}, {end})")

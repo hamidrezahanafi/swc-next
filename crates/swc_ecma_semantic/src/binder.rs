@@ -1,19 +1,17 @@
-use std::hash::BuildHasher;
-
 use oxc_index::Idx;
-use swc_next_allocator::{Allocator, CloneIn, vec::Vec as ArenaVec};
+use swc_next_allocator::{Allocator, vec::Vec as ArenaVec, wtf8::Wtf8};
 use swc_next_ecma_ast::{
-    Ast, AstInternedUtf8, AstWtf8, BindingIdentifier, Class, ClassType, ExportNamedDeclaration,
-    ExportSpecifier, Function, FunctionType, IdentifierReference, ImportDeclaration,
-    ImportOrExportKind, ImportSpecifier, JsxClosingElement, JsxElementName, JsxElementNameData,
-    JsxIdentifier, JsxMemberExpressionObjectData, JsxOpeningElement, NodeId, NodeKind,
-    NodeKindData, ReferenceId, ScopeId, SourceType, SymbolId, TsEnumDeclaration, TsEnumMember,
-    TsInterfaceDeclaration, TsModuleDeclaration, TsTypeAliasDeclaration, TsTypePredicate,
-    VariableDeclaration, VariableKind,
+    Ast, AstInternedUtf8, AstUtf8, AstWtf8, BindingIdentifier, Class, ClassType,
+    ExportNamedDeclaration, ExportSpecifier, Function, FunctionType, IdentifierReference,
+    ImportDeclaration, ImportOrExportKind, ImportSpecifier, JsxClosingElement, JsxElementName,
+    JsxElementNameData, JsxIdentifier, JsxMemberExpressionObjectData, JsxOpeningElement, NodeId,
+    NodeKind, NodeKindData, ReferenceId, ScopeId, SourceType, SymbolId, TsEnumDeclaration,
+    TsEnumMember, TsInterfaceDeclaration, TsModuleDeclaration, TsTypeAliasDeclaration,
+    TsTypePredicate, VariableDeclaration, VariableKind,
 };
 
 use crate::{
-    DeclarationId, Redeclarations, ScopeMap, Semantic,
+    DeclarationId, Redeclarations, ScopeMap, ScopeName, Semantic, Wtf8ScopeMap,
     module_record::ModuleRecordBuilder,
     scope::{self, ScopeKind, ScopeTracker, ScopeTree},
 };
@@ -505,6 +503,8 @@ impl ReferenceSpace {
 /// them into a [`Semantic`].
 pub(crate) struct SymbolTracker<'a> {
     allocator: &'a Allocator,
+    canonical_name_buffer: String,
+    canonical_wtf8_buffer: Vec<u8>,
     symbols: ArenaVec<'a, Symbol>,
     references: ArenaVec<'a, Reference>,
     declarations: ArenaVec<'a, Declaration>,
@@ -512,6 +512,7 @@ pub(crate) struct SymbolTracker<'a> {
     node_symbols: ArenaVec<'a, Option<SymbolId>>,
     scope_maps: ArenaVec<'a, ScopeMap<'a>>,
     hoisting_variables: ArenaVec<'a, ScopeMap<'a>>,
+    wtf8_bindings: Wtf8ScopeMap<'a>,
 
     /// What the next `binding_identifier` will declare: its flags,
     /// redeclaration excludes, and destination scope. Valid inside an
@@ -596,6 +597,8 @@ impl<'a> SymbolTracker<'a> {
         node_symbols.resize(nodes, None);
         Self {
             allocator,
+            canonical_name_buffer: String::new(),
+            canonical_wtf8_buffer: Vec::new(),
             symbols: ArenaVec::with_capacity_in(16usize.max(nodes / 12), allocator),
             references: ArenaVec::with_capacity_in(16usize.max(nodes / 4), allocator),
             declarations: ArenaVec::with_capacity_in(16usize.max(nodes / 12), allocator),
@@ -603,6 +606,7 @@ impl<'a> SymbolTracker<'a> {
             node_symbols,
             scope_maps: ArenaVec::with_capacity_in(8usize.max(nodes / 16), allocator),
             hoisting_variables: ArenaVec::with_capacity_in(8usize.max(nodes / 16), allocator),
+            wtf8_bindings: Wtf8ScopeMap::new_in(allocator),
             pending: PendingBinding::default(),
             export_state: ExportState::None,
             // A declaration file is ambient in its entirety.
@@ -1070,7 +1074,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn declare_binding_identifier(
         &mut self,
-        tree: &Ast,
+        tree: &mut Ast,
         identifier: BindingIdentifier,
         scope: &ScopeTracker<'a>,
         space: ReferenceSpace,
@@ -1082,16 +1086,12 @@ impl<'a> SymbolTracker<'a> {
         if space.in_type_position() && !self.pending.flags.contains(SymbolFlags::TYPE_PARAMETER) {
             return None;
         }
-        let name = identifier.name(tree);
+        let name = self.canonicalize_name(tree, identifier.name(tree));
         let symbol_id = self.declare(tree, name, node);
 
         // Register a hoisting var in every block it passes through so
         // block-scoped redeclarations see it.
         if self.pending.flags.is_hoisting_var() && scope.current != self.pending.scope {
-            let name = tree
-                .get_interned_utf8(name)
-                .as_bytes()
-                .clone_in(self.allocator);
             for scope_id in scope.ancestors(Some(scope.current)) {
                 if scope_id == self.pending.scope {
                     break;
@@ -1106,7 +1106,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_identifier_reference(
         &mut self,
-        tree: &Ast,
+        tree: &mut Ast,
         identifier: IdentifierReference,
         scope: &ScopeTracker<'a>,
         flags: ReferenceFlags,
@@ -1123,7 +1123,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_var_write_reference(
         &mut self,
-        tree: &Ast,
+        tree: &mut Ast,
         identifier: BindingIdentifier,
         scope: &ScopeTracker<'a>,
         flags: ReferenceFlags,
@@ -1141,7 +1141,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_local_export_reference(
         &mut self,
-        tree: &Ast,
+        tree: &mut Ast,
         specifier: ExportSpecifier,
         scope: &ScopeTracker<'a>,
         flags: ReferenceFlags,
@@ -1161,7 +1161,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_ts_type_predicate_reference(
         &mut self,
-        tree: &Ast,
+        tree: &mut Ast,
         predicate: TsTypePredicate,
         scope: &ScopeTracker<'a>,
     ) {
@@ -1177,9 +1177,8 @@ impl<'a> SymbolTracker<'a> {
             return;
         };
         let name = parameter_name.name(tree);
-        let Some(parameter) =
-            self.own_binding(scope.current, tree.get_interned_utf8(name).as_bytes())
-        else {
+        let canonical_name = self.canonicalize_name(tree, name);
+        let Some(parameter) = self.own_binding(scope.current, canonical_name) else {
             return;
         };
         if !self
@@ -1200,7 +1199,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn declare_ts_enum_member(
         &mut self,
-        tree: &Ast,
+        tree: &mut Ast,
         member: TsEnumMember,
         scope: &ScopeTracker<'a>,
     ) {
@@ -1234,7 +1233,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_jsx_opening_element_reference(
         &mut self,
-        tree: &Ast,
+        tree: &mut Ast,
         element: JsxOpeningElement,
         scope: &ScopeTracker<'a>,
     ) {
@@ -1247,7 +1246,7 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_jsx_closing_element_reference(
         &mut self,
-        tree: &Ast,
+        tree: &mut Ast,
         element: JsxClosingElement,
         scope: &ScopeTracker<'a>,
     ) {
@@ -1255,11 +1254,11 @@ impl<'a> SymbolTracker<'a> {
         self.add_jsx_reference(tree, element.name(tree), scope.current);
     }
 
-    fn add_jsx_reference(&mut self, tree: &Ast, name: JsxElementName, scope: ScopeId) {
+    fn add_jsx_reference(&mut self, tree: &mut Ast, name: JsxElementName, scope: ScopeId) {
         let Some(identifier) = jsx_tag_root(tree, tree.jsx_element_name_data(name)) else {
             return;
         };
-        let text = tree.get_interned_utf8(identifier.name(tree));
+        let text = tree.get_utf8(identifier.name(tree));
         if text.as_bytes().first().is_some_and(u8::is_ascii_uppercase) {
             self.add_reference(
                 tree,
@@ -1277,15 +1276,28 @@ impl<'a> SymbolTracker<'a> {
     /// as a declaration for error recovery.
     pub fn declare(&mut self, tree: &Ast, name: AstInternedUtf8, node: NodeId) -> SymbolId {
         debug_assert!(node.index() < tree.node_count());
-        self.declare_name(name.into(), tree.get_interned_utf8(name).as_bytes(), node)
+        self.declare_name(ScopeName::Utf8(name), name.into(), node)
     }
 
-    fn declare_wtf8(&mut self, tree: &Ast, name: AstWtf8, node: NodeId) -> SymbolId {
+    fn declare_wtf8(&mut self, tree: &mut Ast, name: AstWtf8, node: NodeId) -> SymbolId {
         debug_assert!(node.index() < tree.node_count());
-        self.declare_name(name, tree.get_wtf8(name).as_bytes(), node)
+        if let Some(text) = tree.get_wtf8(name).as_str() {
+            self.canonical_name_buffer.clear();
+            self.canonical_name_buffer.push_str(text);
+            let name = tree.intern_utf8(&self.canonical_name_buffer);
+            return self.declare_name(ScopeName::Utf8(name), name.into(), node);
+        }
+
+        self.canonical_wtf8_buffer.clear();
+        self.canonical_wtf8_buffer
+            .extend_from_slice(tree.get_wtf8(name).as_bytes());
+        // SAFETY: The buffer was copied from an existing WTF-8 string.
+        let text = unsafe { Wtf8::from_bytes_unchecked(&self.canonical_wtf8_buffer) };
+        let name = tree.add_wtf8(text);
+        self.declare_name(ScopeName::Wtf8(name), name, node)
     }
 
-    fn declare_name(&mut self, name: AstWtf8, name_text: &[u8], node: NodeId) -> SymbolId {
+    fn declare_name(&mut self, scope_name: ScopeName, name: AstWtf8, node: NodeId) -> SymbolId {
         let target = self.pending.scope;
 
         let mut declaration_flags = self.pending.flags;
@@ -1293,7 +1305,7 @@ impl<'a> SymbolTracker<'a> {
         declaration_flags.set(SymbolFlags::IS_DEFAULT, self.export_state.is_default());
 
         let declaration_id = DeclarationId::from_usize(self.declarations.len());
-        let id = if let Some(existing) = self.binding(target, name_text) {
+        let id = if let Some(existing) = self.binding_scope_name(target, scope_name) {
             let symbol = &mut self.symbols[existing.index()];
             if !symbol.flags.intersects(self.pending.excludes)
                 || self.pending.allows_annex_b_function_duplicate(symbol.flags)
@@ -1321,8 +1333,14 @@ impl<'a> SymbolTracker<'a> {
                 scope: target,
                 declaration: declaration_id,
             });
-            let key = name_text.clone_in(self.allocator);
-            self.scope_maps[target.index()].insert(key, new_id);
+            match scope_name {
+                ScopeName::Utf8(name) => {
+                    self.scope_maps[target.index()].insert(name, new_id);
+                }
+                ScopeName::Wtf8(name) => {
+                    self.wtf8_bindings.insert((target, name), new_id);
+                }
+            }
             new_id
         };
 
@@ -1338,13 +1356,14 @@ impl<'a> SymbolTracker<'a> {
     /// Records an identifier reference at `node` in `scope`.
     pub fn add_reference(
         &mut self,
-        tree: &Ast,
-        name: AstInternedUtf8,
+        tree: &mut Ast,
+        name: AstUtf8,
         scope: ScopeId,
         node: NodeId,
         flags: ReferenceFlags,
     ) -> ReferenceId {
         debug_assert!(node.index() < tree.node_count());
+        let name = self.canonicalize_name(tree, name);
         // Ambient syntax still resolves through the same declaration space,
         // but its erased expressions do not access the binding at runtime.
         // Normalize only actual references instead of checking ambient state
@@ -1365,6 +1384,12 @@ impl<'a> SymbolTracker<'a> {
         id
     }
 
+    pub(crate) fn canonicalize_name(&mut self, tree: &mut Ast, name: AstUtf8) -> AstInternedUtf8 {
+        self.canonical_name_buffer.clear();
+        self.canonical_name_buffer.push_str(tree.get_utf8(name));
+        tree.intern_utf8(&self.canonical_name_buffer)
+    }
+
     /// The symbol with the given id.
     pub fn symbol(&self, id: SymbolId) -> Symbol {
         self.symbols[id.index()]
@@ -1379,20 +1404,35 @@ impl<'a> SymbolTracker<'a> {
 
     /// The binding of `name` declared directly in `scope`, excluding
     /// hoisting `var`s passing through.
-    pub fn own_binding(&self, scope: ScopeId, name: &[u8]) -> Option<SymbolId> {
+    pub fn own_binding(&self, scope: ScopeId, name: AstInternedUtf8) -> Option<SymbolId> {
         self.scope_maps
             .get(scope.index())
-            .and_then(|map| map.get(name).copied())
+            .and_then(|map| map.get(&name).copied())
     }
 
     /// The binding of `name` at `scope`, including a hoisting `var` passing
     /// through on its way to its hoist target.
-    pub fn binding(&self, scope: ScopeId, name: &[u8]) -> Option<SymbolId> {
+    pub fn binding(&self, scope: ScopeId, name: AstInternedUtf8) -> Option<SymbolId> {
         self.own_binding(scope, name).or_else(|| {
             self.hoisting_variables
                 .get(scope.index())
-                .and_then(|map| map.get(name).copied())
+                .and_then(|map| map.get(&name).copied())
         })
+    }
+
+    fn binding_scope_name(&self, scope: ScopeId, name: ScopeName) -> Option<SymbolId> {
+        match name {
+            ScopeName::Utf8(name) => self
+                .scope_maps
+                .get(scope.index())
+                .and_then(|map| map.get(&name).copied())
+                .or_else(|| {
+                    self.hoisting_variables
+                        .get(scope.index())
+                        .and_then(|map| map.get(&name).copied())
+                }),
+            ScopeName::Wtf8(name) => self.wtf8_bindings.get(&(scope, name)).copied(),
+        }
     }
 
     fn sync_scope_maps_from(&mut self, scope: &ScopeTracker<'a>) {
@@ -1444,23 +1484,18 @@ impl<'a> SymbolTracker<'a> {
         for reference_index in 0..self.references.len() {
             let reference = self.references[reference_index];
             node_references[reference.node.index()] = Some(reference_id(reference_index));
-            let name = tree.get_interned_utf8(reference.name).as_bytes();
-            let hash = self.scope_maps[ScopeId::ROOT.index()]
-                .hasher()
-                .hash_one(name);
+            let name = reference.name;
             // The implicit arguments object (10.2.11
             // argumentsObjectNeeded) shadows outer bindings; an own
             // parameter or var still wins.
             let arguments_barrier = matches!(
                 reference.flags.space,
                 ReferenceSpace::Value | ReferenceSpace::Typeof
-            ) && name == b"arguments";
+            ) && tree.get_interned_utf8(reference.name).as_bytes()
+                == b"arguments";
             let mut resolved = None;
             for ancestor in scopes.ancestors(Some(reference.scope)) {
-                if let Some((_, &id)) = self.scope_maps[ancestor.index()]
-                    .raw_entry()
-                    .from_hash(hash, |candidate| *candidate == name)
-                {
+                if let Some(&id) = self.scope_maps[ancestor.index()].get(&name) {
                     let symbol = self.symbols[id.index()];
                     // A binding outside the reference's space does not
                     // shadow; keep walking.
@@ -1545,6 +1580,7 @@ impl<'a> SymbolTracker<'a> {
             use_ranges,
             scope_maps: self.scope_maps,
             hoisting_variables: self.hoisting_variables,
+            wtf8_bindings: self.wtf8_bindings,
             node_symbols,
             node_references,
         }
