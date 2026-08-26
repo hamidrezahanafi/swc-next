@@ -106,6 +106,7 @@ pub fn ast_node(schema: &Schema) -> RawOutput {
                     self,
                     payload: &mut crate::NodePayload,
                     extra_data: &mut [crate::ExtraData],
+                    mapped_extra: &mut [bool],
                     mut map: impl FnMut(AstId) -> AstId,
                 ) {
                     match self {
@@ -194,11 +195,14 @@ fn generate_map_ast_id_arm(ast: &AstStruct, schema: &Schema) -> TokenStream {
                 };
                 mappings.extend(quote! {
                     let base = (payload.0 >> 96) as u32 as usize;
-                    let word = unsafe { extra_data[#index].other };
-                    let mapped = map(AstId::from_raw(word as u32)).raw();
-                    extra_data[#index] = crate::ExtraData {
-                        other: (word & !u32::MAX as u64) | mapped as u64,
-                    };
+                    if !mapped_extra[#index] {
+                        let word = unsafe { extra_data[#index].other };
+                        let mapped = map(AstId::from_raw(word as u32)).raw();
+                        extra_data[#index] = crate::ExtraData {
+                            other: (word & !u32::MAX as u64) | mapped as u64,
+                        };
+                        mapped_extra[#index] = true;
+                    }
                 });
             }
             extra_offset += 1;

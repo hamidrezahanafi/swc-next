@@ -151,6 +151,7 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
     pad_to_four(buf, &mut pos);
 
     let mut compatibility_extra = tree.extra_data.as_slice().to_vec();
+    let mut mapped_extra = vec![false; compatibility_extra.len()];
     let class_extra_base = tree.node_edge_count() + tree.extra_data_count();
     write_node_payloads(
         &wire_map,
@@ -158,6 +159,7 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
         &mut pos,
         &tree.nodes.data,
         &mut compatibility_extra,
+        &mut mapped_extra,
         node_edge_count,
     );
     write_node_payloads(
@@ -166,6 +168,7 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
         &mut pos,
         &tree.expressions.data,
         &mut compatibility_extra,
+        &mut mapped_extra,
         node_edge_count,
     );
     write_node_payloads(
@@ -174,6 +177,7 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
         &mut pos,
         &tree.statements.data,
         &mut compatibility_extra,
+        &mut mapped_extra,
         node_edge_count,
     );
     write_node_payloads(
@@ -182,6 +186,7 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
         &mut pos,
         &tree.name_patterns.data,
         &mut compatibility_extra,
+        &mut mapped_extra,
         node_edge_count,
     );
     write_node_payloads(
@@ -190,6 +195,7 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
         &mut pos,
         &tree.class_elements.data,
         &mut compatibility_extra,
+        &mut mapped_extra,
         node_edge_count,
     );
     write_node_payloads(
@@ -198,6 +204,7 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
         &mut pos,
         &tree.type_jsx.data,
         &mut compatibility_extra,
+        &mut mapped_extra,
         node_edge_count,
     );
     write_node_payloads(
@@ -206,15 +213,19 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
         &mut pos,
         &tree.program_aux.data,
         &mut compatibility_extra,
+        &mut mapped_extra,
         node_edge_count,
     );
     let function_payloads =
         unsafe { slice::from_raw_parts(tree.functions.data.as_ptr(), tree.function_count()) };
     for &payload in function_payloads {
         let mut payload = payload;
-        NodeKind::Function.map_ast_ids(&mut payload, &mut compatibility_extra, |id| {
-            AstId::from_raw(wire_map.node_id(id))
-        });
+        NodeKind::Function.map_ast_ids(
+            &mut payload,
+            &mut compatibility_extra,
+            &mut mapped_extra,
+            |id| AstId::from_raw(wire_map.node_id(id)),
+        );
         let extra_id = (payload.0 >> 96) as u32;
         let relocated = extra_id
             .checked_add(node_edge_count)
@@ -408,6 +419,7 @@ fn write_node_payloads(
     pos: &mut usize,
     nodes: &crate::NodeData<'_>,
     compatibility_extra: &mut [ExtraData],
+    mapped_extra: &mut [bool],
     node_edge_count: u32,
 ) {
     let kinds = unsafe { slice::from_raw_parts(nodes.kind.as_ptr(), nodes.len()) };
@@ -417,7 +429,7 @@ fn write_node_payloads(
             continue;
         }
         let mut payload = payload;
-        kind.map_ast_ids(&mut payload, compatibility_extra, |id| {
+        kind.map_ast_ids(&mut payload, compatibility_extra, mapped_extra, |id| {
             AstId::from_raw(wire_map.node_id(id))
         });
         if kind.uses_extra_data() {
@@ -487,4 +499,52 @@ fn write_u32(buf: &mut [u8], pos: &mut usize, value: u32) {
 fn write_u64(buf: &mut [u8], pos: &mut usize, value: u64) {
     buf[*pos..*pos + size_of::<u64>()].copy_from_slice(&value.to_le_bytes());
     *pos += size_of::<u64>();
+}
+
+#[cfg(test)]
+mod tests {
+    use swc_next_allocator::Allocator;
+
+    use super::*;
+    use crate::{
+        ArrowFunctionBody, ArrowFunctionExpression, DUMMY_SP, Directive, FormalParameterItem,
+        FormalParameterKind, NodeId, Stmt,
+    };
+
+    #[test]
+    fn shared_extra_ast_ids_are_remapped_once() {
+        let allocator = Allocator::new();
+        let mut tree = Ast::new("", &allocator);
+        let name = tree.add_utf8("value");
+        let expression = tree.expr_identifier_reference(DUMMY_SP, name);
+        let items = tree.add_typed_sub_range(std::iter::empty::<FormalParameterItem>());
+        let params = tree.formal_parameters(
+            DUMMY_SP,
+            items,
+            None,
+            FormalParameterKind::ArrowFormalParameters,
+        );
+        let arrow = tree.arrow_function_expression(
+            DUMMY_SP,
+            true,
+            false,
+            None,
+            params,
+            None,
+            ArrowFunctionBody::Expr(expression),
+        );
+
+        let payload = unsafe { *tree.node_payload_unchecked(arrow.ast_id()) };
+        let _: NodeId<ArrowFunctionExpression> =
+            tree.add_node(DUMMY_SP, NodeKind::ArrowFunctionExpression, payload);
+
+        let directives = tree.add_typed_sub_range(std::iter::empty::<Directive>());
+        let body = tree.add_typed_sub_range(std::iter::empty::<Stmt>());
+        let program = tree.program(DUMMY_SP, directives, body, None);
+        tree.set_root_program(program);
+
+        let required = buffer_size(&tree);
+        let mut buffer = vec![0; required];
+        assert_eq!(serialize_into(&tree, &mut buffer), required);
+    }
 }

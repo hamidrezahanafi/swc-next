@@ -1284,6 +1284,7 @@ impl NodeKind {
         self,
         payload: &mut crate::NodePayload,
         extra_data: &mut [crate::ExtraData],
+        mapped_extra: &mut [bool],
         mut map: impl FnMut(AstId) -> AstId,
     ) {
         match self {
@@ -1320,11 +1321,14 @@ impl NodeKind {
                 payload.0 =
                     (payload.0 & !4722366481770133585920u128) | ((mapped as u128) << 40usize);
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base + 1usize].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base + 1usize] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base + 1usize] {
+                    let word = unsafe { extra_data[base + 1usize].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base + 1usize] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base + 1usize] = true;
+                }
             }
             Self::BindingRestElement => {
                 let raw = (payload.0 >> 8usize) as u32;
@@ -1553,31 +1557,43 @@ impl NodeKind {
                 payload.0 =
                     (payload.0 & !309485009749287474686853120u128) | ((mapped as u128) << 56usize);
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base + 1usize].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base + 1usize] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base + 1usize] {
+                    let word = unsafe { extra_data[base + 1usize].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base + 1usize] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base + 1usize] = true;
+                }
             }
             Self::PropertyDefinition => {
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base + 1usize].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base + 1usize] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base + 1usize] {
+                    let word = unsafe { extra_data[base + 1usize].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base + 1usize] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base + 1usize] = true;
+                }
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base + 2usize].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base + 2usize] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base + 2usize] {
+                    let word = unsafe { extra_data[base + 2usize].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base + 2usize] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base + 2usize] = true;
+                }
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base + 3usize].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base + 3usize] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base + 3usize] {
+                    let word = unsafe { extra_data[base + 3usize].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base + 3usize] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base + 3usize] = true;
+                }
             }
             Self::StaticBlock => {}
             Self::Function => {
@@ -1589,23 +1605,32 @@ impl NodeKind {
                 payload.0 =
                     (payload.0 & !309485009749287474686853120u128) | ((mapped as u128) << 56usize);
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base] {
+                    let word = unsafe { extra_data[base].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base] = true;
+                }
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base + 1usize].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base + 1usize] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base + 1usize] {
+                    let word = unsafe { extra_data[base + 1usize].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base + 1usize] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base + 1usize] = true;
+                }
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base + 2usize].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base + 2usize] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base + 2usize] {
+                    let word = unsafe { extra_data[base + 2usize].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base + 2usize] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base + 2usize] = true;
+                }
             }
             Self::FunctionBody => {}
             Self::BlockStatement => {}
@@ -1673,17 +1698,23 @@ impl NodeKind {
                 payload.0 =
                     (payload.0 & !1208925819333154197995520u128) | ((mapped as u128) << 48usize);
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base] {
+                    let word = unsafe { extra_data[base].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base] = true;
+                }
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base + 1usize].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base + 1usize] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base + 1usize] {
+                    let word = unsafe { extra_data[base + 1usize].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base + 1usize] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base + 1usize] = true;
+                }
             }
             Self::SequenceExpression => {}
             Self::MemberExpression => {
@@ -1829,17 +1860,23 @@ impl NodeKind {
                 payload.0 =
                     (payload.0 & !309485009749287474686853120u128) | ((mapped as u128) << 56usize);
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base] {
+                    let word = unsafe { extra_data[base].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base] = true;
+                }
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base + 1usize].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base + 1usize] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base + 1usize] {
+                    let word = unsafe { extra_data[base + 1usize].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base + 1usize] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base + 1usize] = true;
+                }
             }
             Self::TsMethodDefinition => {
                 let raw = (payload.0 >> 56usize) as u32;
@@ -1847,11 +1884,14 @@ impl NodeKind {
                 payload.0 =
                     (payload.0 & !309485009749287474686853120u128) | ((mapped as u128) << 56usize);
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base + 1usize].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base + 1usize] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base + 1usize] {
+                    let word = unsafe { extra_data[base + 1usize].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base + 1usize] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base + 1usize] = true;
+                }
             }
             Self::TsTypeAnnotation => {
                 let raw = payload.0 as u32;
@@ -2050,17 +2090,23 @@ impl NodeKind {
                 payload.0 =
                     (payload.0 & !1208925819333154197995520u128) | ((mapped as u128) << 48usize);
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base] {
+                    let word = unsafe { extra_data[base].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base] = true;
+                }
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base + 1usize].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base + 1usize] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base + 1usize] {
+                    let word = unsafe { extra_data[base + 1usize].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base + 1usize] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base + 1usize] = true;
+                }
             }
             Self::TsPropertySignature => {
                 let raw = payload.0 as u32;
@@ -2079,17 +2125,23 @@ impl NodeKind {
                 payload.0 =
                     (payload.0 & !309485009749287474686853120u128) | ((mapped as u128) << 56usize);
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base] {
+                    let word = unsafe { extra_data[base].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base] = true;
+                }
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base + 1usize].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base + 1usize] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base + 1usize] {
+                    let word = unsafe { extra_data[base + 1usize].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base + 1usize] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base + 1usize] = true;
+                }
             }
             Self::TsCallSignatureDeclaration => {
                 let raw = payload.0 as u32;
@@ -2142,11 +2194,14 @@ impl NodeKind {
                 payload.0 =
                     (payload.0 & !4722366481770133585920u128) | ((mapped as u128) << 40usize);
                 let base = (payload.0 >> 96) as u32 as usize;
-                let word = unsafe { extra_data[base + 1usize].other };
-                let mapped = map(AstId::from_raw(word as u32)).raw();
-                extra_data[base + 1usize] = crate::ExtraData {
-                    other: (word & !u32::MAX as u64) | mapped as u64,
-                };
+                if !mapped_extra[base + 1usize] {
+                    let word = unsafe { extra_data[base + 1usize].other };
+                    let mapped = map(AstId::from_raw(word as u32)).raw();
+                    extra_data[base + 1usize] = crate::ExtraData {
+                        other: (word & !u32::MAX as u64) | mapped as u64,
+                    };
+                    mapped_extra[base + 1usize] = true;
+                }
             }
             Self::TsInterfaceBody => {}
             Self::TsInterfaceHeritage => {
