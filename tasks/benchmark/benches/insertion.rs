@@ -33,7 +33,24 @@ fn count_identifier_references(ast: &Ast<'_>) -> usize {
 }
 
 fn bench_insertion(c: &mut Criterion) {
-    let mut group = c.benchmark_group("transform_insertion");
+    let policy_ast = insertion_support::setup_program();
+    let mut group = c.benchmark_group(format!(
+        "transform_insertion/{}",
+        insertion_support::policy_label(&policy_ast)
+    ));
+    group.bench_function("hole_boundary/4", |b| {
+        b.iter_custom(|iterations| {
+            let mut elapsed = std::time::Duration::ZERO;
+            for _ in 0..iterations {
+                let mut ast = insertion_support::setup_hole_boundary_ast();
+                let start = Instant::now();
+                black_box(insertion_support::build_detached_statements(&mut ast, 4));
+                elapsed += start.elapsed();
+                black_box(insertion_support::insertion_metrics(&ast));
+            }
+            elapsed
+        });
+    });
     for count in [64usize, 512] {
         group.bench_with_input(BenchmarkId::new("detached", count), &count, |b, &count| {
             b.iter_custom(|iterations| {
@@ -46,6 +63,7 @@ fn bench_insertion(c: &mut Criterion) {
                         &mut ast, count,
                     ));
                     elapsed += start.elapsed();
+                    black_box(insertion_support::insertion_metrics(&ast));
                 }
                 elapsed
             });
@@ -65,6 +83,7 @@ fn bench_insertion(c: &mut Criterion) {
                             &mut ast, count,
                         ));
                         elapsed += start.elapsed();
+                        black_box(insertion_support::insertion_metrics(&ast));
                     }
                     elapsed
                 });

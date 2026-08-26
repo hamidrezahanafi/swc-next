@@ -76,6 +76,25 @@ test("parseSync can disable comment collection", () => {
   assert.deepEqual(result.comments, []);
 });
 
+test("dense transfer skips internal holes across storage chunks", () => {
+  const source = Array.from(
+    { length: 40 },
+    (_, index) => `const value${index} = call(${index});`,
+  ).join("\n");
+  const buffer = parseBufferSync(source, {});
+  const minified = decodeMinified(buffer, source).program;
+  const pretty = decodePretty(buffer, source).program;
+
+  assert.deepEqual(minified, pretty);
+  assert.equal(minified.body.length, 40);
+  for (const [index, declaration] of minified.body.entries()) {
+    assert.equal(declaration.type, "VariableDeclaration");
+    assert.equal(declaration.declarations[0].id.name, `value${index}`);
+    assert.equal(declaration.declarations[0].init.type, "CallExpression");
+    assert.equal(declaration.declarations[0].init.arguments[0].value, index);
+  }
+});
+
 
 test("class objects project stable ClassBody ESTree nodes in both decoders", () => {
   const source =

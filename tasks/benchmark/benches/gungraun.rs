@@ -113,6 +113,16 @@ fn bench_detached_node_insertion(mut ast: Ast<'static>, count: usize) {
     black_box(insertion_support::build_detached_statements(
         &mut ast, count,
     ));
+    black_box(insertion_support::insertion_metrics(&ast));
+}
+
+#[library_benchmark]
+#[bench::four_available_holes(insertion_support::setup_hole_boundary_ast(), 4)]
+fn bench_hole_boundary_insertion(mut ast: Ast<'static>, count: usize) {
+    black_box(insertion_support::build_detached_statements(
+        &mut ast, count,
+    ));
+    black_box(insertion_support::insertion_metrics(&ast));
 }
 
 #[library_benchmark]
@@ -122,6 +132,7 @@ fn bench_program_statement_insertion(mut ast: Ast<'static>, count: usize) {
     black_box(insertion_support::insert_program_statements(
         &mut ast, count,
     ));
+    black_box(insertion_support::insertion_metrics(&ast));
 }
 
 struct VisitCounter<'visit, 'ast> {
@@ -314,6 +325,7 @@ library_benchmark_group!(name = codegen, benchmarks = bench_codegen);
 library_benchmark_group!(
     name = insertion,
     benchmarks = [
+        bench_hole_boundary_insertion,
         bench_detached_node_insertion,
         bench_program_statement_insertion
     ]
