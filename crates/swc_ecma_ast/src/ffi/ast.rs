@@ -407,7 +407,7 @@ fn write_node_payloads(
     buf: &mut [u8],
     pos: &mut usize,
     nodes: &crate::NodeData<'_>,
-    compatibility_extra: &mut Vec<ExtraData>,
+    compatibility_extra: &mut [ExtraData],
     node_edge_count: u32,
 ) {
     let kinds = unsafe { slice::from_raw_parts(nodes.kind.as_ptr(), nodes.len()) };

@@ -1030,6 +1030,10 @@ impl<'a> Ast<'a> {
 
     /// Rewinds node and out-of-line field storage to an earlier checkpoint.
     #[inline]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "parser checkpoints carry one length per independent AST store"
+    )]
     pub fn truncate(
         &mut self,
         nodes_len: usize,
