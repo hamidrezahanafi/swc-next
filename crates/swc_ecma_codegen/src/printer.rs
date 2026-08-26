@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use arrayvec::ArrayVec;
+use memchr::memchr3;
 use swc_next_allocator::{Allocator, vec::Vec as ArenaVec, wtf8::Wtf8};
 use swc_next_ecma_ast::*;
 
@@ -471,28 +472,22 @@ impl<'a> Printer<'a> {
         // Re-indent multi-line comments to match the surrounding statement.
         self.print("/*");
         let mut start = 0;
-        while start < value.len() {
-            let mut end = start;
-            let mut newline_width = 0;
-            while end < value.len() {
-                newline_width = match value[end] {
-                    b'\n' => 1,
-                    b'\r' => usize::from(value.get(end + 1) == Some(&b'\n')) + 1,
-                    0xe2 if value.get(end + 1) == Some(&0x80)
-                        && matches!(value.get(end + 2), Some(0xa8 | 0xa9)) =>
-                    {
-                        3
-                    }
-                    _ => 0,
-                };
-                if newline_width != 0 {
-                    break;
+        let mut search = 0;
+        while let Some(relative) = memchr3(b'\n', b'\r', 0xe2, &value[search..]) {
+            let end = search + relative;
+            let newline_width = match value[end] {
+                b'\n' => 1,
+                b'\r' => usize::from(value.get(end + 1) == Some(&b'\n')) + 1,
+                0xe2 if value.get(end + 1) == Some(&0x80)
+                    && matches!(value.get(end + 2), Some(0xa8 | 0xa9)) =>
+                {
+                    3
                 }
-                end += 1;
-            }
-            if newline_width == 0 {
-                break;
-            }
+                _ => {
+                    search = end + 1;
+                    continue;
+                }
+            };
             self.print_comment_text(&value[start..end]);
             self.print("\n");
             self.print_indent();
@@ -510,6 +505,7 @@ impl<'a> Printer<'a> {
             {
                 self.print(" ");
             }
+            search = start;
         }
         self.print_comment_text(&value[start..]);
         self.print("*/");
@@ -679,12 +675,18 @@ impl<'a> Printer<'a> {
         }
     }
 
+    #[inline]
     fn print_identifier(&mut self, name: &str) {
         self.print_space_before_identifier();
         if !self.options.ascii_only || name.is_ascii() {
             self.print_bytes(name);
-            return;
+        } else {
+            self.print_identifier_ascii_only(name);
         }
+    }
+
+    #[cold]
+    fn print_identifier_ascii_only(&mut self, name: &str) {
         let name = name.as_bytes();
         let mut i = 0;
         while i < name.len() {
@@ -2222,12 +2224,15 @@ impl<'a> Printer<'a> {
 
     fn print_member(&mut self, e: MemberExpression) {
         let object = e.object(self.ast);
+        let object_data = self.ast.expr_data(object);
+        let computed = e.computed(self.ast);
+        let optional = e.optional(self.ast);
         // `let[0]` is ambiguous at the start of a statement because it can
         // begin a lexical declaration. A static member such as `let.foo`
         // doesn't have this ambiguity.
-        let wrap_object = e.computed(self.ast)
+        let wrap_object = computed
             && matches!(
-                self.ast.expr_data(object),
+                object_data,
                 ExprData::IdentifierReference(identifier)
                     if self.ast.get_utf8(identifier.name(self.ast)) == "let"
             );
@@ -2236,7 +2241,7 @@ impl<'a> Printer<'a> {
         }
         self.print_expr(
             object,
-            if matches!(self.ast.expr_data(object), ExprData::NewExpression(_)) {
+            if matches!(object_data, ExprData::NewExpression(_)) {
                 Precedence::New
             } else {
                 Precedence::Call
@@ -2248,24 +2253,29 @@ impl<'a> Printer<'a> {
         let need_space_before_dot = self.need_space_before_dot == self.js.len();
         self.need_space_before_dot = usize::MAX;
         let property = e.property(self.ast);
-        let property_text: Option<&Wtf8> = match self.ast.property_key_data(property) {
+        let property_data = self.ast.property_key_data(property);
+        let (identifier_text, property_text): (Option<&str>, Option<&Wtf8>) = match property_data {
             PropertyKeyData::IdentifierName(identifier) => {
-                Some(Wtf8::from_str(self.ast.get_utf8(identifier.name(self.ast))))
+                let name = self.ast.get_utf8(identifier.name(self.ast));
+                (Some(name), Some(Wtf8::from_str(name)))
             }
             PropertyKeyData::StringLiteral(string) => {
-                Some(self.ast.get_wtf8(string.value(self.ast)))
+                (None, Some(self.ast.get_wtf8(string.value(self.ast))))
             }
-            _ => None,
+            _ => (None, None),
         };
-        let force_computed = !e.computed(self.ast)
-            && property_text.is_some_and(|name| {
-                name.as_str()
-                    .is_none_or(|name| !self.can_print_identifier(name))
-            });
-        if e.optional(self.ast) {
+        let force_computed = !computed
+            && match identifier_text {
+                Some(name) => !self.can_print_identifier(name),
+                None => property_text.is_some_and(|name| {
+                    name.as_str()
+                        .is_none_or(|name| !self.can_print_identifier(name))
+                }),
+            };
+        if optional {
             self.print("?.");
         }
-        if e.computed(self.ast) || force_computed {
+        if computed || force_computed {
             self.print("[");
             if force_computed {
                 self.add_source_mapping(property.span(self.ast).start);
@@ -2279,7 +2289,7 @@ impl<'a> Printer<'a> {
             }
             self.print("]");
         } else {
-            if !e.optional(self.ast) {
+            if !optional {
                 if need_space_before_dot {
                     // "1.toString" is a syntax error, so print
                     // "1 .toString" instead.
@@ -2288,7 +2298,11 @@ impl<'a> Printer<'a> {
                 self.print(".");
             }
             self.add_source_mapping(property.span(self.ast).start);
-            self.print_property_key_plain(property);
+            if matches!(property_data, PropertyKeyData::IdentifierName(_)) {
+                self.print_identifier(identifier_text.unwrap());
+            } else {
+                self.print_property_key_plain_data(property, property_data);
+            }
         }
     }
 
@@ -2664,7 +2678,12 @@ impl<'a> Printer<'a> {
 
     #[inline(always)]
     fn print_property_key_plain(&mut self, key: PropertyKey) {
-        match self.ast.property_key_data(key) {
+        self.print_property_key_plain_data(key, self.ast.property_key_data(key));
+    }
+
+    #[inline(always)]
+    fn print_property_key_plain_data(&mut self, key: PropertyKey, data: PropertyKeyData) {
+        match data {
             PropertyKeyData::IdentifierName(value) => {
                 let name = self.ast.get_utf8(value.name(self.ast));
                 if self.can_print_identifier(name) {
