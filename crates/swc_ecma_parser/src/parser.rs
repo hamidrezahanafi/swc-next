@@ -1029,6 +1029,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         let result = match expr {
             Some(expr) if self.diagnostics.is_empty() => {
                 self.finish_fragment();
+                let mut stripper = DedicatedParenthesisStripper { ast: &mut self.ast };
+                let expr = expr.visit_mut_with(&mut stripper).unwrap_or(expr);
                 self.ast.set_root_expression(expr);
                 if self.comment_mode == CommentMode::Flat {
                     self.ast.set_attached_comments(self.lexer.comments);
@@ -1099,6 +1101,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         let result = match statement {
             Some(statement) if self.diagnostics.is_empty() => {
                 self.finish_fragment();
+                let mut stripper = DedicatedParenthesisStripper { ast: &mut self.ast };
+                let statement = statement.visit_mut_with(&mut stripper).unwrap_or(statement);
                 self.ast.set_root_statement(statement);
                 if self.comment_mode == CommentMode::Flat {
                     self.ast.set_attached_comments(self.lexer.comments);
@@ -12760,6 +12764,10 @@ fn strip_parenthesized_nodes(ast: &mut Ast<'_>, comments: &mut [Comment]) {
             };
             let parenthesized_span = ast.span(node);
             let replacement_span = ast.span(replacement);
+            let replacement_is_dedicated = matches!(
+                replacement.ast_id().store_tag(),
+                StoreTag::Class | StoreTag::Function
+            );
 
             let leading_from = parenthesized_span.start;
             let leading_comment_index =
@@ -12786,6 +12794,9 @@ fn strip_parenthesized_nodes(ast: &mut Ast<'_>, comments: &mut [Comment]) {
             }
 
             let replacement = replacement.node_id();
+            if replacement_is_dedicated {
+                continue;
+            }
             // SAFETY: parsing has not exposed any concrete handles yet. This pass
             // retires the parenthesized node, and all expression or type edges that
             // refer to it accept the corresponding replacement kind.

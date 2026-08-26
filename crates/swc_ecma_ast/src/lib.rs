@@ -503,6 +503,12 @@ impl<'a> Ast<'a> {
         let old_ast_id = old.ast_id();
         let new_ast_id = new.ast_id();
         assert_ne!(old_ast_id, new_ast_id);
+        if old_ast_id.store_tag() != new_ast_id.store_tag()
+            && new_ast_id.store_tag() == StoreTag::Function
+        {
+            self.retire_node(old_ast_id);
+            return new;
+        }
         let span = self.span(new_ast_id);
         let kind = self.node_kind(new_ast_id);
         let data = unsafe { *self.node_payload_unchecked(new_ast_id) };
