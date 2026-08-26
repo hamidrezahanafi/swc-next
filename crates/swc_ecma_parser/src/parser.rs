@@ -748,6 +748,7 @@ struct Checkpoint {
     // Append-only AST storage.
     nodes_len: usize,
     classes_len: usize,
+    functions_len: usize,
     node_edges_len: usize,
     extra_len: usize,
     diagnostics_len: usize,
@@ -1504,6 +1505,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             current_token: self.current_token,
             nodes_len: self.ast.common_node_count(),
             classes_len: self.ast.class_count(),
+            functions_len: self.ast.function_count(),
             node_edges_len: self.ast.node_edge_count(),
             extra_len: self.ast.extra_data_count(),
             diagnostics_len: self.diagnostics.len(),
@@ -1531,6 +1533,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.ast.truncate(
             checkpoint.nodes_len,
             checkpoint.classes_len,
+            checkpoint.functions_len,
             checkpoint.node_edges_len,
             checkpoint.extra_len,
         );

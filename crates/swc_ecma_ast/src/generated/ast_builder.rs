@@ -5248,9 +5248,8 @@ impl<'a> Ast<'a> {
             body.to_extra_data(self),
         ];
         let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
-        Function(self.add_node(
+        Function(self.functions.push(
             span,
-            NodeKind::Function,
             NodePayload(
                 0u128
                     | ((function_type as u32 as u128) << 0usize)

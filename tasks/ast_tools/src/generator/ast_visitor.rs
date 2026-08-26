@@ -114,8 +114,8 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                 });
 
                 // VisitWith/VisitMutWith
-                let uses_extra_data =
-                    ast.storage.is_common() && calculate_inline_layout(ast, schema).is_none();
+                let uses_extra_data = ast.storage.uses_node_payload()
+                    && calculate_inline_layout(ast, schema).is_none();
                 let mut getter_field_loads = TokenStream::new();
                 let mut extra_data_field_loads = TokenStream::new();
                 let mut field_values = Vec::new();
@@ -188,7 +188,7 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                         let (#(#field_values,)*) = {
                             let ast = visitor.ast();
                             let extra_data_start = unsafe {
-                                (ast.nodes.data_unchecked(self.0).0
+                                (ast.node_payload_unchecked(self.ast_id()).0
                                     >> #EXTRA_DATA_ID_BIT_OFFSET)
                                     as u32 as usize
                             };

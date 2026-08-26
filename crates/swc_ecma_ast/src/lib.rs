@@ -30,8 +30,8 @@ pub use generated::ast_node::{NodeKind, NodeKindData};
 pub use generated::ast_visitor::*;
 pub use node_id::{
     AstEdge, AstId, AstNode, ClassDomain, ClassId, CommonAstNode, CommonDomain, ExtraDataCompact,
-    ExtraDataId, Id, IdDomain, NodeEdgeId, NodeEdgeIndex, NodeId, NodeMeta, NodeRange, StoreTag,
-    SubRange, TypedAstId, TypedNodeRange, TypedSubRange,
+    ExtraDataId, FunctionDomain, FunctionId, Id, IdDomain, NodeEdgeId, NodeEdgeIndex, NodeId,
+    NodeMeta, NodeRange, StoreTag, SubRange, TypedAstId, TypedNodeRange, TypedSubRange,
 };
 pub use semantic::{ReferenceId, ScopeId, SymbolId};
 pub use strings::{AstUtf8, AstWtf8};
@@ -60,6 +60,9 @@ pub struct Ast<'a> {
     /// Standalone class storage. A ClassId indexes this store directly.
     pub(crate) classes: ClassData<'a>,
 
+    /// Standalone storage for Function payloads.
+    pub(crate) functions: FunctionData<'a>,
+
     /// Four-byte untagged common-node child-list elements.
     pub(crate) node_edges: ArenaVec<'a, AstId>,
 
@@ -84,6 +87,14 @@ multi_index_vec! {
     pub struct ClassData<'a, ClassId> {
         pub(crate) span => span_mut => span_unchecked => span_mut_unchecked: Span,
         pub(crate) data => data_mut => data_unchecked => data_mut_unchecked: Class,
+    }
+}
+
+multi_index_vec! {
+    /// Arena-backed standalone storage for Function nodes.
+    pub struct FunctionData<'a, FunctionId> {
+        pub(crate) span => span_mut => span_unchecked => span_mut_unchecked: Span,
+        pub(crate) data => data_mut => data_unchecked => data_mut_unchecked: NodePayload,
     }
 }
 
@@ -422,7 +433,7 @@ impl<'a> Ast<'a> {
 
     #[inline]
     pub fn node_count(&self) -> usize {
-        self.nodes.len() + self.classes.len()
+        self.nodes.len() + self.classes.len() + self.functions.len()
     }
 
     #[inline]
@@ -445,6 +456,11 @@ impl<'a> Ast<'a> {
     #[inline]
     pub fn class_count(&self) -> usize {
         self.classes.len()
+    }
+
+    #[inline]
+    pub fn function_count(&self) -> usize {
+        self.functions.len()
     }
 
     #[inline]
@@ -473,6 +489,7 @@ impl<'a> Ast<'a> {
         match node_id.store_tag() {
             StoreTag::Common => *self.nodes.kind(node_id.node_id()),
             StoreTag::Class => NodeKind::Class,
+            StoreTag::Function => NodeKind::Function,
             _ => panic!("AST store is not implemented"),
         }
     }
@@ -484,6 +501,9 @@ impl<'a> Ast<'a> {
         match node_id.store_tag() {
             StoreTag::Common => *self.nodes.span(node_id.node_id()),
             StoreTag::Class => *self.classes.span(ClassId::from_raw(node_id.index() as u32)),
+            StoreTag::Function => *self
+                .functions
+                .span(FunctionId::from_raw(node_id.index() as u32)),
             _ => panic!("AST store is not implemented"),
         }
     }
@@ -497,7 +517,36 @@ impl<'a> Ast<'a> {
                     .classes
                     .span_mut(ClassId::from_raw(node_id.index() as u32)) = span;
             }
+            StoreTag::Function => {
+                *self
+                    .functions
+                    .span_mut(FunctionId::from_raw(node_id.index() as u32)) = span;
+            }
             _ => panic!("AST store is not implemented"),
+        }
+    }
+
+    #[inline]
+    pub(crate) unsafe fn node_payload_unchecked(&self, node_id: AstId) -> &NodePayload {
+        match node_id.store_tag() {
+            StoreTag::Common => unsafe { self.nodes.data_unchecked(node_id.node_id()) },
+            StoreTag::Function => unsafe {
+                self.functions
+                    .data_unchecked(FunctionId::from_raw(node_id.index() as u32))
+            },
+            _ => panic!("AST store does not contain NodePayload"),
+        }
+    }
+
+    #[inline]
+    pub(crate) unsafe fn node_payload_mut_unchecked(&mut self, node_id: AstId) -> &mut NodePayload {
+        match node_id.store_tag() {
+            StoreTag::Common => unsafe { self.nodes.data_mut_unchecked(node_id.node_id()) },
+            StoreTag::Function => unsafe {
+                self.functions
+                    .data_mut_unchecked(FunctionId::from_raw(node_id.index() as u32))
+            },
+            _ => panic!("AST store does not contain NodePayload"),
         }
     }
 }
@@ -514,6 +563,7 @@ impl<'a> Ast<'a> {
             attached_comments: ArenaVec::new_in(allocator),
             nodes: NodeData::new_in(allocator),
             classes: ClassData::new_in(allocator),
+            functions: FunctionData::new_in(allocator),
             node_edges: ArenaVec::new_in(allocator),
             extra_data: ArenaVec::with_capacity_in(0, allocator),
             strings: StringPool::new_in(allocator, source),
@@ -563,21 +613,29 @@ impl<'a> Ast<'a> {
         self.classes.reserve(additional_classes);
     }
 
+    #[inline]
+    pub fn reserve_functions(&mut self, additional_functions: usize) {
+        self.functions.reserve(additional_functions);
+    }
+
     /// Rewinds node and out-of-line field storage to an earlier checkpoint.
     #[inline]
     pub fn truncate(
         &mut self,
         nodes_len: usize,
         classes_len: usize,
+        functions_len: usize,
         node_edges_len: usize,
         extra_data_len: usize,
     ) {
         assert!(nodes_len <= self.nodes.len());
         assert!(classes_len <= self.classes.len());
+        assert!(functions_len <= self.functions.len());
         assert!(node_edges_len <= self.node_edges.len());
         assert!(extra_data_len <= self.extra_data.len());
         self.nodes.truncate(nodes_len);
         self.classes.truncate(classes_len);
+        self.functions.truncate(functions_len);
         self.node_edges.truncate(node_edges_len);
         self.extra_data.truncate(extra_data_len);
     }

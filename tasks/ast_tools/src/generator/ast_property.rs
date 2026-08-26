@@ -245,7 +245,7 @@ fn generate_extract_bits(byte_offset: usize, byte_size: usize) -> TokenStream {
     if byte_size == std::mem::size_of::<u64>() {
         return quote! {
             let raw =
-                (unsafe { ast.nodes.data_unchecked(self.0).0 } >> #bit_offset) as u64;
+                (unsafe { ast.node_payload_unchecked(self.ast_id()).0 } >> #bit_offset) as u64;
         };
     }
 
@@ -257,7 +257,7 @@ fn generate_extract_bits(byte_offset: usize, byte_size: usize) -> TokenStream {
     };
     quote! {
         let raw =
-            ((unsafe { ast.nodes.data_unchecked(self.0).0 } >> #bit_offset) as u32) & #mask;
+            ((unsafe { ast.node_payload_unchecked(self.ast_id()).0 } >> #bit_offset) as u32) & #mask;
     }
 }
 
@@ -311,7 +311,7 @@ fn generate_insert_bits(byte_offset: usize, byte_size: usize) -> TokenStream {
     let bit_offset = byte_offset * 8;
     let clear_mask = !(mask << bit_offset);
     quote! {
-        let payload = unsafe { ast.nodes.data_mut_unchecked(self.0) };
+        let payload = unsafe { ast.node_payload_mut_unchecked(self.ast_id()) };
         payload.0 =
             (payload.0 & #clear_mask)
             | (((field_val as u128) & #mask) << #bit_offset);
@@ -335,7 +335,7 @@ fn generate_extra_data_property_accessors(
             pub fn #getter_name<'a>(self, ast: &crate::Ast<'a>) -> #field_ty {
                 let offset = unsafe {
                     ExtraDataId::from_usize_unchecked(
-                        ((ast.nodes.data_unchecked(self.0).0 >> #EXTRA_DATA_ID_BIT_OFFSET) as u32 as usize)
+                        ((ast.node_payload_unchecked(self.ast_id()).0 >> #EXTRA_DATA_ID_BIT_OFFSET) as u32 as usize)
                             .wrapping_add(#offset)
                     )
                 };
@@ -387,7 +387,7 @@ fn generate_extra_data_property_accessors_partial(
             pub fn #getter_name<'a>(self, ast: &crate::Ast<'a>) -> #field_ty {
                 let offset = unsafe {
                     ExtraDataId::from_usize_unchecked(
-                        ((ast.nodes.data_unchecked(self.0).0 >> #EXTRA_DATA_ID_BIT_OFFSET) as u32 as usize)
+                        ((ast.node_payload_unchecked(self.ast_id()).0 >> #EXTRA_DATA_ID_BIT_OFFSET) as u32 as usize)
                             .wrapping_add(#offset)
                     )
                 };
@@ -427,7 +427,7 @@ fn generate_extra_data_setter(
             pub fn #setter_name<'a>(self, ast: &mut crate::Ast<'a>, #field_name: #field_ty) {
                 let offset = unsafe {
                     ExtraDataId::from_usize_unchecked(
-                        ((ast.nodes.data_unchecked(self.0).0 >> #EXTRA_DATA_ID_BIT_OFFSET) as u32 as usize)
+                        ((ast.node_payload_unchecked(self.ast_id()).0 >> #EXTRA_DATA_ID_BIT_OFFSET) as u32 as usize)
                             .wrapping_add(#offset)
                     )
                 };
@@ -446,7 +446,7 @@ fn generate_extra_data_setter(
             let field_value = #field_name.to_extra_data(ast);
             let offset = unsafe {
                 ExtraDataId::from_usize_unchecked(
-                    ((ast.nodes.data_unchecked(self.0).0 >> #EXTRA_DATA_ID_BIT_OFFSET) as u32 as usize)
+                    ((ast.node_payload_unchecked(self.ast_id()).0 >> #EXTRA_DATA_ID_BIT_OFFSET) as u32 as usize)
                         .wrapping_add(#offset)
                 )
             };

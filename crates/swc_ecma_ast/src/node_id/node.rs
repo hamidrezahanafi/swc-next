@@ -61,6 +61,12 @@ impl IdDomain for ClassDomain {
     const TAG: StoreTag = StoreTag::Class;
 }
 
+pub enum FunctionDomain {}
+
+impl IdDomain for FunctionDomain {
+    const TAG: StoreTag = StoreTag::Function;
+}
+
 /// A statically typed store-local AST index.
 #[repr(transparent)]
 pub struct Id<D: IdDomain> {
@@ -165,6 +171,7 @@ impl<D: IdDomain> Idx for Id<D> {
 
 pub type NodeId<D = CommonDomain> = Id<D>;
 pub type ClassId = Id<ClassDomain>;
+pub type FunctionId = Id<FunctionDomain>;
 
 /// A four-byte erased AST identity containing a store tag and local index.
 #[repr(transparent)]
@@ -262,6 +269,19 @@ impl TypedAstId for ClassId {
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         debug_assert_eq!(ast_id.store_tag(), StoreTag::Class);
         ClassId::from_raw_unchecked(ast_id.index() as u32)
+    }
+}
+
+impl TypedAstId for FunctionId {
+    #[inline]
+    fn ast_id(self) -> AstId {
+        self.ast_id()
+    }
+
+    #[inline]
+    unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
+        debug_assert_eq!(ast_id.store_tag(), StoreTag::Function);
+        FunctionId::from_raw_unchecked(ast_id.index() as u32)
     }
 }
 
@@ -388,6 +408,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<AstId>(), 4);
         assert_eq!(std::mem::size_of::<NodeId>(), 4);
         assert_eq!(std::mem::size_of::<ClassId>(), 4);
+        assert_eq!(std::mem::size_of::<FunctionId>(), 4);
         assert_eq!(
             std::mem::size_of::<NodeMeta<NodeId>>(),
             std::mem::size_of::<Span>()

@@ -319,7 +319,11 @@ impl Parser {
             .collect();
         let storage = match (&attrs.storage, &attrs.id) {
             (None, None) => StorageDomain::Common,
-            (Some(storage), Some(id)) => StorageDomain::Dedicated {
+            (Some(storage), Some(id)) if storage == "class" => StorageDomain::Dedicated {
+                name: storage.clone(),
+                id: id.clone(),
+            },
+            (Some(storage), Some(id)) => StorageDomain::Pooled {
                 name: storage.clone(),
                 id: id.clone(),
             },

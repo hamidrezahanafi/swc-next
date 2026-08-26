@@ -28,7 +28,7 @@ pub fn ast_node(schema: &Schema) -> RawOutput {
                 let name = format_ident!("{}", ast.name);
                 let handle = ty.repr_ident(schema);
                 node_kind_variants.extend(quote!(#name,));
-                let uses_extra_data = ast.storage.is_common()
+                let uses_extra_data = ast.storage.uses_node_payload()
                     && !matches!(
                         calculate_inline_layout(ast, schema),
                         Some(layout) if layout.mode == InlineStorageMode::Full
@@ -36,7 +36,7 @@ pub fn ast_node(schema: &Schema) -> RawOutput {
                 node_kind_extra_data_arms.extend(quote!(Self::#name => #uses_extra_data,));
                 node_kind_map_ast_id_arms.extend(generate_map_ast_id_arm(ast, schema));
                 node_kind_data_variants.extend(quote!(#name(#handle) = NodeKind::#name as u8,));
-                if ast.storage.is_common() {
+                if ast.storage.uses_node_payload() {
                     node_kind_data_arms.extend(quote! {
                         NodeKind::#name => NodeKindData::#name(unsafe {
                             <#name as CommonAstNode>::from_ast_id_unchecked(ast_id)
@@ -122,7 +122,7 @@ pub fn ast_node(schema: &Schema) -> RawOutput {
 
 fn generate_map_ast_id_arm(ast: &AstStruct, schema: &Schema) -> TokenStream {
     let name = format_ident!("{}", ast.name);
-    if !ast.storage.is_common() {
+    if ast.storage.is_dedicated_object() {
         return quote!(Self::#name => {},);
     }
 
@@ -277,7 +277,7 @@ fn generate_nested_data_accessor(ast: &AstEnum, schema: &Schema) -> TokenStream 
         let payload = schema.types[type_id].repr_ident(schema);
         let payload_is_dedicated = matches!(
             &schema.types[type_id],
-            AstType::Struct(ast) if !ast.storage.is_common()
+            AstType::Struct(ast) if ast.storage.is_dedicated_object()
         );
         for node_kind_name in concrete_node_kinds(type_id, schema) {
             if !seen.insert(node_kind_name.clone()) {
@@ -367,6 +367,15 @@ fn generate_node_impls_for_struct(ast: &AstStruct) -> TokenStream {
             quote!(unsafe { *ast.nodes.span_unchecked(self.0) }),
             quote!(unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }),
         ),
+        StorageDomain::Pooled { id, .. } => {
+            let id = format_ident!("{id}");
+            generate_common_node_impls(
+                &name,
+                quote!(#id),
+                quote!(ast.span(self.ast_id())),
+                quote!(ast.set_span(self.ast_id(), span)),
+            )
+        }
         StorageDomain::Dedicated { id, .. } => {
             let id = format_ident!("{id}");
             quote! {

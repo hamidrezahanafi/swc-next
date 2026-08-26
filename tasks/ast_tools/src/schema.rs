@@ -44,6 +44,7 @@ impl AstType {
             AstType::Struct(ast) => match &ast.storage {
                 StorageDomain::Common => format_ident!("{}", &ast.name).into_token_stream(),
                 StorageDomain::Dedicated { id, .. } => format_ident!("{id}").into_token_stream(),
+                StorageDomain::Pooled { .. } => format_ident!("{}", &ast.name).into_token_stream(),
             },
             AstType::Enum(ast) => format_ident!("{}", &ast.name).into_token_stream(),
             AstType::Vec(ast) => {
@@ -74,11 +75,16 @@ pub struct AstStruct {
 pub enum StorageDomain {
     Common,
     Dedicated { name: String, id: String },
+    Pooled { name: String, id: String },
 }
 
 impl StorageDomain {
-    pub fn is_common(&self) -> bool {
-        matches!(self, Self::Common)
+    pub fn uses_node_payload(&self) -> bool {
+        matches!(self, Self::Common | Self::Pooled { .. })
+    }
+
+    pub fn is_dedicated_object(&self) -> bool {
+        matches!(self, Self::Dedicated { .. })
     }
 }
 

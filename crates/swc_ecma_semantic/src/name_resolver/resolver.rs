@@ -24,11 +24,14 @@ pub fn resolver<'ast>(ast: &'ast Ast<'ast>) -> JsNameResolver<'ast> {
     node_scopes.resize(ast.common_node_count(), None);
     let mut class_scopes = ArenaVec::with_capacity_in(ast.class_count(), allocator);
     class_scopes.resize(ast.class_count(), None);
+    let mut function_scopes = ArenaVec::with_capacity_in(ast.function_count(), allocator);
+    function_scopes.resize(ast.function_count(), None);
     let mut resolver = Resolver {
         ast,
         scopes,
         node_scopes,
         class_scopes,
+        function_scopes,
         top_level_scope_id,
         unresolved_scope_id,
         label_scope_id,
@@ -46,6 +49,7 @@ pub fn resolver<'ast>(ast: &'ast Ast<'ast>) -> JsNameResolver<'ast> {
         label_scope_id,
         node_scopes: resolver.node_scopes,
         class_scopes: resolver.class_scopes,
+        function_scopes: resolver.function_scopes,
     }
 }
 
@@ -61,6 +65,7 @@ pub struct JsNameResolver<'ast> {
     label_scope_id: ScopeId,
     node_scopes: ArenaVec<'ast, Option<ScopeId>>,
     class_scopes: ArenaVec<'ast, Option<ScopeId>>,
+    function_scopes: ArenaVec<'ast, Option<ScopeId>>,
 }
 
 impl JsNameResolver<'_> {
@@ -83,6 +88,7 @@ impl JsNameResolver<'_> {
         match node.store_tag() {
             StoreTag::Common => self.node_scopes[node.index()],
             StoreTag::Class => self.class_scopes[node.index()],
+            StoreTag::Function => self.function_scopes[node.index()],
             _ => None,
         }
         .unwrap_or(self.unresolved_scope_id)
@@ -216,6 +222,7 @@ struct Resolver<'ast> {
     scopes: IndexVec<ScopeId, Scope<'ast>>,
     node_scopes: ArenaVec<'ast, Option<ScopeId>>,
     class_scopes: ArenaVec<'ast, Option<ScopeId>>,
+    function_scopes: ArenaVec<'ast, Option<ScopeId>>,
     top_level_scope_id: ScopeId,
     unresolved_scope_id: ScopeId,
     label_scope_id: ScopeId,
@@ -265,6 +272,7 @@ impl<'ast> Resolver<'ast> {
         let slot = match node.store_tag() {
             StoreTag::Common => &mut self.node_scopes[node.index()],
             StoreTag::Class => &mut self.class_scopes[node.index()],
+            StoreTag::Function => &mut self.function_scopes[node.index()],
             _ => panic!("AST store is not supported by name resolution"),
         };
         if slot.is_none() {

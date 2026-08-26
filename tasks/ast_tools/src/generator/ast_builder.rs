@@ -84,11 +84,34 @@ fn generate_build_function_for_struct(ast: &AstStruct, schema: &Schema) -> Token
         };
     }
 
+    let pooled = match &ast.storage {
+        StorageDomain::Pooled { name, id } => {
+            assert_eq!(name, "function");
+            assert_eq!(id, "FunctionId");
+            true
+        }
+        StorageDomain::Common => false,
+        StorageDomain::Dedicated { .. } => unreachable!(),
+    };
+
     // Check if this struct can use inline storage
     if let Some(layout) = calculate_inline_layout(ast, schema) {
-        generate_build_function_inline(ast, schema, fn_name, ret_ty, fn_params, &layout)
+        generate_build_function_inline(ast, schema, fn_name, ret_ty, fn_params, &layout, pooled)
     } else {
-        generate_build_function_extra_data(ast, schema, fn_name, ret_ty, fn_params)
+        generate_build_function_extra_data(ast, schema, fn_name, ret_ty, fn_params, pooled)
+    }
+}
+
+fn wrap_node_push(
+    ret_ty: &syn::Ident,
+    node_kind: &syn::Ident,
+    payload: TokenStream,
+    pooled: bool,
+) -> TokenStream {
+    if pooled {
+        quote!(#ret_ty(self.functions.push(span, #payload)))
+    } else {
+        quote!(#ret_ty(self.add_node(span, NodeKind::#node_kind, #payload)))
     }
 }
 
@@ -100,16 +123,14 @@ fn generate_build_function_inline(
     ret_ty: syn::Ident,
     fn_params: TokenStream,
     layout: &crate::util::InlineLayout,
+    pooled: bool,
 ) -> TokenStream {
     if layout.fields.is_empty() {
+        let push = wrap_node_push(&ret_ty, &ret_ty, quote!(NodePayload(0)), pooled);
         return quote! {
             #[inline]
             pub fn #fn_name(&mut self, span: Span) -> #ret_ty {
-                #ret_ty(self.add_node(
-                    span,
-                    NodeKind::#ret_ty,
-                    NodePayload(0),
-                ))
+                #push
             }
         };
     }
@@ -133,16 +154,20 @@ fn generate_build_function_inline(
     }
 
     match layout.mode {
-        InlineStorageMode::Full => quote! {
-            #[inline]
-            pub fn #fn_name(&mut self, span: Span, #fn_params) -> #ret_ty {
-                #ret_ty(self.add_node(
-                    span,
-                    NodeKind::#ret_ty,
-                    NodePayload(0u128 #pack_u128),
-                ))
+        InlineStorageMode::Full => {
+            let push = wrap_node_push(
+                &ret_ty,
+                &ret_ty,
+                quote!(NodePayload(0u128 #pack_u128)),
+                pooled,
+            );
+            quote! {
+                #[inline]
+                pub fn #fn_name(&mut self, span: Span, #fn_params) -> #ret_ty {
+                    #push
+                }
             }
-        },
+        }
         InlineStorageMode::Partial => {
             let mut extra_data_values = Vec::new();
 
@@ -161,20 +186,22 @@ fn generate_build_function_inline(
 
             let (add_extra_data, start_id) = generate_add_extra_data(&extra_data_values);
             let start_id = start_id.expect("partial layout must contain an extra-data field");
+            let push = wrap_node_push(
+                &ret_ty,
+                &ret_ty,
+                quote!(NodePayload(
+                    0u128
+                    #pack_u128
+                    | ((#start_id.index() as u128) << #EXTRA_DATA_ID_BIT_OFFSET)
+                )),
+                pooled,
+            );
 
             quote! {
                 #[inline]
                 pub fn #fn_name(&mut self, span: Span, #fn_params) -> #ret_ty {
                     #add_extra_data
-                    #ret_ty(self.add_node(
-                        span,
-                        NodeKind::#ret_ty,
-                        NodePayload(
-                            0u128
-                            #pack_u128
-                            | ((#start_id.index() as u128) << #EXTRA_DATA_ID_BIT_OFFSET)
-                        ),
-                    ))
+                    #push
                 }
             }
         }
@@ -188,6 +215,7 @@ fn generate_build_function_extra_data(
     fn_name: syn::Ident,
     ret_ty: syn::Ident,
     fn_params: TokenStream,
+    pooled: bool,
 ) -> TokenStream {
     let mut extra_data_values = Vec::new();
     for field in &ast.fields {
@@ -203,18 +231,13 @@ fn generate_build_function_extra_data(
         None => quote!(NodePayload(0)),
     };
 
+    let push = wrap_node_push(&ret_ty, &ret_ty, node_payload, pooled);
     let tokens = quote! {
         #[inline]
         pub fn #fn_name(&mut self, span: Span, #fn_params) -> #ret_ty {
             #add_extra_data
 
-            #ret_ty(
-                self.add_node(
-                    span,
-                    NodeKind::#ret_ty,
-                    #node_payload,
-                )
-            )
+            #push
         }
     };
 

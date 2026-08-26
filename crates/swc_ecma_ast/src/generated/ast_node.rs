@@ -5785,7 +5785,7 @@ impl SetSpan for StaticBlock {
 }
 impl Function {
     #[inline]
-    pub fn node_id(self) -> NodeId {
+    pub fn node_id(self) -> FunctionId {
         self.0
     }
     #[inline]
@@ -5801,9 +5801,9 @@ impl Function {
     }
 }
 impl AstNode for Function {
-    type Id = NodeId;
+    type Id = FunctionId;
     #[inline]
-    fn id(self) -> NodeId {
+    fn id(self) -> FunctionId {
         self.0
     }
 }
@@ -5815,7 +5815,7 @@ impl CommonAstNode for Function {
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
         unsafe {
-            <Self as AstNode>::from_id_unchecked(<NodeId as TypedAstId>::from_ast_id_unchecked(
+            <Self as AstNode>::from_id_unchecked(<FunctionId as TypedAstId>::from_ast_id_unchecked(
                 ast_id,
             ))
         }
@@ -5824,13 +5824,13 @@ impl CommonAstNode for Function {
 impl GetSpan for Function {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for Function {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl FunctionBody {

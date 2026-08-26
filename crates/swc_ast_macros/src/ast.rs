@@ -24,7 +24,13 @@ fn expand_struct(mut item: ItemStruct, id: Option<syn::Ident>) -> TokenStream {
         };
     };
 
-    assert_eq!(name, "Class", "only Class uses dedicated object storage");
+    if name != "Class" {
+        let id = id.expect("pooled AST nodes require a typed ID");
+        return quote! {
+            #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+            pub struct #name(pub(crate) crate::#id);
+        };
+    }
     let Fields::Named(fields) = &mut item.fields else {
         panic!("dedicated AST objects must use named fields");
     };

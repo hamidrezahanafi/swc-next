@@ -1495,7 +1495,7 @@ pub struct StaticBlock {
 /// //                          ^^^ return_type
 /// //                              ^^^^^^^^^^^^ body
 /// ```
-#[ast]
+#[ast(storage = function, id = FunctionId)]
 pub struct Function {
     function_type: FunctionType,
     /// `binding_identifier`. `None` for anonymous functions.
