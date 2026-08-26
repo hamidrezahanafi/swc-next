@@ -7,7 +7,7 @@
 - `NodeId<T>` 是 4 字节泛型 ID；每个存储域独立自增，ID 中保留存储域信息，避免拿 statement ID 访问 expression storage。
 - AST 按热点类型拆成多个 SoA storage，transform 新增某一类节点时只影响对应 storage，不再扩容并复制全局 `NodeData`。`Class` 和 `Function` 作为大对象固定使用独立 storage，不参与后续合并判断。
 - 删除可直接用无类型全局 ID 读取任意节点数据的 API；具体节点通过类型安全 ID 访问对应 storage。必须异构处理时，只允许先匹配 storage/kind，再收窄为 typed ID。
-- 每个 storage 使用独立、编译期参数化的 hole policy；从 `16 live slots + 4 holes` 候选开始验证，并支持某个特定 storage 使用 `16+0`。最终 static-block 数据选择所有 storage 默认 `16+0`，非零 hole 仅保留为可复现实验 profile。
+- 每个 storage 使用独立、编译期参数化的 hole policy；从 `16 live slots + 4 holes` 候选开始验证，并支持某个特定 storage 使用 `16+0`。最终 static-block 数据选择 `StatementStore = 16+4`，其余 storage 默认 `16+0`；all-zero 和其他非零组合保留为可复现实验 profile。
 - 保持 ESTree/JavaScript 可观察 AST 结构和 builder/getter 的逻辑语义不变。
 - 改动按可单独审查的类别提交；完成通用实现后，从 `codex/es2022-static-blocks-transform` 建立独立验证分支，量化收益。
 
@@ -338,6 +338,8 @@ Gungraun 对“已有 4 holes”边界插入测得：`16+4` 为 1,322 instructio
 
 64 节点 metrics 解释了持续插入回退：all-zero 的 statement/name store 各 grow 一次、各复制 1,275 bytes；`16+4` 虽先消耗每个热 store 的 16 个 holes，之后持续插入仍各 grow 一次，并因物理 slots 更多各复制 1,675 bytes，同时每个 store 做 64 次 hole lookup。也就是说，hole 对“短 burst 且预留量足够”收益很大，对“远超预留量的持续 append”会增加 lookup 和不连续成本。最终 policy 必须以 static-block 的实际 burst 分布决定，不能全局固定为 `16+4`。
 
+针对 statement 又补了一组隔离边界测试：AST 恰好先建立 16 个 statement，expression/name/class-element 全部保持 `16+0`，只有 `StatementStore` 在实验组使用 `16+4`，随后插入 4 个 statement。all-zero Criterion 中值为 1.0477 µs，statement-only 为 343.40 ns，改善 67.2%；Callgrind 从 3,303 instructions 降到 1,293，减少 60.9%。这说明之前的 hot-store 边界收益并不依赖 class/expression holes，statement 自身有明确的插入需求和收益。
+
 ### 8.5 static-block 验证分支最终结果
 
 验证分支为 `codex/es2022-static-blocks-typed-node-stores`。control 是同一 static-block transform 与同一 `origin/main` 合并基线 `78b8ebfe`；实验分支只增加 typed stores、typed access、hole policy 和两边一致的 benchmark harness。class-heavy fixture 包含 24 个 class expression、48 个 static block。transform benchmark 的 parse + semantic setup 在计时外；end-to-end 包含 parse、semantic、transform、codegen。
@@ -351,6 +353,14 @@ Criterion 使用 1 秒 warm-up、2 秒 measurement、20 samples。下表给出�
 | typed stores, `hot-4` | 48.652–49.235 µs（48.878） | 7.216–7.281 µs（7.253） | 27.285–28.149 µs（27.658） | 125.24–128.58 µs（126.42） |
 | `hot-4` 相对 all-zero | **-1.30%** | **+1.97%** | **-5.15%** | **+3.65%** |
 
+发现 static-block 确实新增 statement 后，又对 all-zero 与 statement-only 做了相邻复测，避免把全热 store 的不连续代价归到 statement：
+
+| Policy | Transform | Post-visit | Post-codegen | End-to-end |
+| --- | ---: | ---: | ---: | ---: |
+| all `16+0` | 48.576–49.795 µs（49.118） | 7.052–7.365 µs（7.160） | 27.460–28.407 µs（27.835） | 120.52–123.04 µs（121.61） |
+| statement `16+4` only | 47.089–47.908 µs（47.465） | 6.702–7.216 µs（6.963） | 26.080–26.943 µs（26.429） | 117.73–118.96 µs（118.45） |
+| statement-only 相对 all-zero | **-3.37%** | **-2.75%** | **-5.05%** | **-2.60%** |
+
 Callgrind 消融在最终 typed-access 实现上逐 profile 编译。`Δ E2E` 相对 typed all-zero；cache miss 是 post-transform visit 的 D1/LL read miss。Callgrind 小计数会受布局扰动影响，因此只把它与 wall time、instructions 和 density 一起解释，不单独据此选 policy。
 
 | Per-store policy | Transform Ir | 相对 all-zero | Visit Ir / D1 / LL | Codegen Ir | E2E Ir | Δ E2E |
@@ -362,7 +372,7 @@ Callgrind 消融在最终 typed-access 实现上逐 profile 编译。`Δ E2E` �
 | expression/statement/name `16+2` | 451,557 | +3.94% | 70,293 / 320 / 17 | 234,694 | 1,146,780 | +3.61% |
 | expression/statement/name/class-element `16+4` | 448,792 | +3.31% | 70,293 / 342 / 17 | 234,694 | 1,150,723 | +3.96% |
 
-和 legacy control 相比，最终 all-zero typed stores 的 transform instructions 回退 18.0%，post-visit 回退 78.8%，post-codegen 回退 49.7%，end-to-end instructions 回退 21.6%；Criterion 中值分别回退约 26.1%、75.3%、54.4%、19.7%。因此本分支验证了 typed storage 的结构不变量和局部插入机制，但**没有验证到相对 legacy 的净性能收益**。主要额外成本来自 packed edge/store dispatch 和多 store 访问，而不是 hole 容量本身。
+和 legacy control 相比，typed all-zero 的 transform instructions 回退 18.0%，post-visit 回退 78.8%，post-codegen 回退 49.7%，end-to-end instructions 回退 21.6%；statement-only 相对 all-zero 的 Callgrind instructions 基本持平或小幅回退，但相邻 Criterion 复测在 transform 和 end-to-end 分别改善 3.37% 和 2.60%。因此本分支验证了 statement hole 的局部插入收益，但 typed-store 架构整体仍**没有验证到相对 legacy 的净性能收益**。主要架构成本来自 packed edge/store dispatch 和多 store 访问，而不是 statement hole 本身。
 
 ### 8.6 hole 不连续性与最终选型
 
@@ -380,10 +390,11 @@ class-heavy AST 的实际物理布局说明了为何不能只看一次扩容：
 结论：
 
 - hole 在“已有 hole、短 burst 不超过预留量”的 synthetic 边界场景确实能降低 85.4% wall time 和 60.0% instructions，机制本身有效。
-- static-block 的真实插入量会耗尽多数 expression/statement/name holes；lookup 与更大的物理数组使 transform instructions 上升。虽然 `hot-4` transform wall time偶有约 1.3% 改善，但不稳定地伴随更多 instructions，且 post-visit 和端到端分别回退约 2.0% 和 3.7%。
+- static-block 会插入 expression statement、return 和 variable declaration 等 statement；class-heavy fixture 消耗了 28 个 statement holes 中的 25 个，transform 后 statement 密度恢复到 98.04%，不连续残留很小。statement-only 的边界插入和相邻 wall-time 复测都显示收益，因此不能用 all-zero 时“没有 grow”推导 statement 不需要 holes。
+- expression/name/class-element 同时启用 holes 会扩大物理间隔；`hot-4` 虽有约 1.3% transform wall-time 改善，但伴随更多 instructions，且 post-visit 和端到端分别回退约 2.0% 和 3.7%，所以这些 store 不随 statement 一起启用。
 - `ClassElementStore` 的 16 个 holes 完全未使用，却让有效节点永久保持 81.82% 密度，是最明确的“无插入收益、只有不连续代价”类型。
-- class/function 是独立大对象 store；目标 transform 不新增这两类节点，因此固定 `16+0`，避免用大对象 hole 放大物理间隔。它们仍有各自独立自增的 `ClassId`/`FunctionId` 和数组。
-- 最终生产 policy 选择所有 store `16+0`。`hole-profile-expression-only`、`hole-profile-statement-only`、`hole-profile-hot-2`、`hole-profile-hot-4` 保留用于后续 transform 逐类型复测；只有新场景证明插入收益足以覆盖读取不连续成本时，才为该 store 改成非零。
+- `ClassStore`/`FunctionStore` 是独立大对象 store；目标 transform 不新增这两类节点，因此固定 `16+0`，避免用大对象 hole 放大物理间隔。它们仍有各自独立自增的 `ClassId`/`FunctionId` 和数组。
+- 最终生产 policy 选择 `StatementStore = 16+4`，Expression/NamePattern/ClassElement/Class/Function 及冷 store 为 `16+0`。`hole-profile-0`、`hole-profile-expression-only`、`hole-profile-statement-only`、`hole-profile-hot-2`、`hole-profile-hot-4` 保留用于复测。
 - exact output probe 在 control 与 typed branch 都得到 122 个 identifier、5,466 bytes codegen，输出逐字节一致；Rust 内部 typed-ID API 有迁移，但 ESTree/JavaScript AST 形状没有变化。
 
 ## 9. 分类提交
@@ -419,4 +430,4 @@ class-heavy AST 的实际物理布局说明了为何不能只看一次扩容：
 - [x] parser rollback、replace、visitor path、semantic identity、FFI remap 都有测试。
 - [x] Rust/JS/conformance/clippy 全部通过。
 - [x] 分类提交完成并可分别回退 hole policy。
-- [x] `codex/es2022-static-blocks-typed-node-stores` 上完成 control、all-zero、逐 storage hole 消融和最终 per-store policy 对比，分别记录插入性能和 post-transform 读取局部性；最终所有类型为 `16+0`，未观察到相对 legacy control 的净收益，内存仅作为辅助解释。
+- [x] `codex/es2022-static-blocks-typed-node-stores` 上完成 control、all-zero、逐 storage hole 消融和最终 per-store policy 对比，分别记录插入性能和 post-transform 读取局部性；最终 Statement 为 `16+4`、Class/Function 等其余类型为 `16+0`。statement hole 有局部收益，但 typed-store 整体仍未观察到相对 legacy control 的净收益，内存仅作为辅助解释。
