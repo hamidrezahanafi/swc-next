@@ -47,12 +47,14 @@ impl StoreTag {
 
 pub trait IdDomain: 'static {
     const TAG: StoreTag;
+    const ERASED_IS_PACKED: bool = false;
 }
 
 pub enum CommonDomain {}
 
 impl IdDomain for CommonDomain {
     const TAG: StoreTag = StoreTag::Common;
+    const ERASED_IS_PACKED: bool = true;
 }
 
 pub enum ClassDomain {}
@@ -77,7 +79,11 @@ pub struct Id<D: IdDomain> {
 impl<D: IdDomain> Id<D> {
     #[inline]
     pub const fn from_raw(index: u32) -> Self {
-        assert!(index <= MAX_INDEX, "AST store index exceeds u32 range");
+        assert!(
+            (D::ERASED_IS_PACKED && index != u32::MAX)
+                || (!D::ERASED_IS_PACKED && index <= MAX_INDEX),
+            "AST store index exceeds ID range"
+        );
         Self {
             index,
             marker: PhantomData,
@@ -91,7 +97,7 @@ impl<D: IdDomain> Id<D> {
 
     #[inline]
     pub const fn index(self) -> usize {
-        self.index as usize
+        (self.index & INDEX_MASK) as usize
     }
 
     #[inline]
@@ -111,7 +117,11 @@ impl<D: IdDomain> Id<D> {
 impl<D: IdDomain> Id<D> {
     #[inline]
     pub const fn ast_id(self) -> AstId {
-        AstId::new(D::TAG, self.index)
+        if D::ERASED_IS_PACKED {
+            AstId(self.index)
+        } else {
+            AstId::new(D::TAG, self.index)
+        }
     }
 }
 
@@ -165,7 +175,7 @@ impl<D: IdDomain> Idx for Id<D> {
 
     #[inline]
     fn index(self) -> usize {
-        self.index as usize
+        (self.index & INDEX_MASK) as usize
     }
 }
 
@@ -216,8 +226,7 @@ impl AstId {
     #[inline]
     pub const fn node_id(self) -> NodeId {
         assert!(!self.is_none(), "sentinel has no common node ID");
-        assert!(matches!(self.store_tag(), StoreTag::Common));
-        NodeId::from_raw_unchecked(self.0 & INDEX_MASK)
+        NodeId::from_raw_unchecked(self.0)
     }
 }
 

@@ -22,6 +22,12 @@ pub fn resolver<'ast>(ast: &'ast Ast<'ast>) -> JsNameResolver<'ast> {
 
     let mut node_scopes = ArenaVec::with_capacity_in(ast.common_node_count(), allocator);
     node_scopes.resize(ast.common_node_count(), None);
+    let expression_count = ast.store_node_count(StoreTag::Expression);
+    let mut expression_scopes = ArenaVec::with_capacity_in(expression_count, allocator);
+    expression_scopes.resize(expression_count, None);
+    let statement_count = ast.store_node_count(StoreTag::Statement);
+    let mut statement_scopes = ArenaVec::with_capacity_in(statement_count, allocator);
+    statement_scopes.resize(statement_count, None);
     let mut class_scopes = ArenaVec::with_capacity_in(ast.class_count(), allocator);
     class_scopes.resize(ast.class_count(), None);
     let mut function_scopes = ArenaVec::with_capacity_in(ast.function_count(), allocator);
@@ -30,6 +36,8 @@ pub fn resolver<'ast>(ast: &'ast Ast<'ast>) -> JsNameResolver<'ast> {
         ast,
         scopes,
         node_scopes,
+        expression_scopes,
+        statement_scopes,
         class_scopes,
         function_scopes,
         top_level_scope_id,
@@ -48,6 +56,8 @@ pub fn resolver<'ast>(ast: &'ast Ast<'ast>) -> JsNameResolver<'ast> {
         unresolved_scope_id,
         label_scope_id,
         node_scopes: resolver.node_scopes,
+        expression_scopes: resolver.expression_scopes,
+        statement_scopes: resolver.statement_scopes,
         class_scopes: resolver.class_scopes,
         function_scopes: resolver.function_scopes,
     }
@@ -64,6 +74,8 @@ pub struct JsNameResolver<'ast> {
     unresolved_scope_id: ScopeId,
     label_scope_id: ScopeId,
     node_scopes: ArenaVec<'ast, Option<ScopeId>>,
+    expression_scopes: ArenaVec<'ast, Option<ScopeId>>,
+    statement_scopes: ArenaVec<'ast, Option<ScopeId>>,
     class_scopes: ArenaVec<'ast, Option<ScopeId>>,
     function_scopes: ArenaVec<'ast, Option<ScopeId>>,
 }
@@ -87,6 +99,8 @@ impl JsNameResolver<'_> {
     fn node_scope(&self, node: AstId) -> ScopeId {
         match node.store_tag() {
             StoreTag::Common => self.node_scopes[node.index()],
+            StoreTag::Expression => self.expression_scopes[node.index()],
+            StoreTag::Statement => self.statement_scopes[node.index()],
             StoreTag::Class => self.class_scopes[node.index()],
             StoreTag::Function => self.function_scopes[node.index()],
             _ => None,
@@ -221,6 +235,8 @@ struct Resolver<'ast> {
     ast: &'ast Ast<'ast>,
     scopes: IndexVec<ScopeId, Scope<'ast>>,
     node_scopes: ArenaVec<'ast, Option<ScopeId>>,
+    expression_scopes: ArenaVec<'ast, Option<ScopeId>>,
+    statement_scopes: ArenaVec<'ast, Option<ScopeId>>,
     class_scopes: ArenaVec<'ast, Option<ScopeId>>,
     function_scopes: ArenaVec<'ast, Option<ScopeId>>,
     top_level_scope_id: ScopeId,
@@ -271,6 +287,8 @@ impl<'ast> Resolver<'ast> {
     fn set_scope_once(&mut self, node: AstId, scope: ScopeId) {
         let slot = match node.store_tag() {
             StoreTag::Common => &mut self.node_scopes[node.index()],
+            StoreTag::Expression => &mut self.expression_scopes[node.index()],
+            StoreTag::Statement => &mut self.statement_scopes[node.index()],
             StoreTag::Class => &mut self.class_scopes[node.index()],
             StoreTag::Function => &mut self.function_scopes[node.index()],
             _ => panic!("AST store is not supported by name resolution"),

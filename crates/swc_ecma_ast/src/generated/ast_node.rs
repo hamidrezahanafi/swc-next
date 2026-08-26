@@ -2395,13 +2395,13 @@ impl CommonAstNode for Program {
 impl GetSpan for Program {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for Program {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl Stmt {
@@ -3345,13 +3345,13 @@ impl CommonAstNode for Super {
 impl GetSpan for Super {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for Super {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ThisExpression {
@@ -3395,13 +3395,13 @@ impl CommonAstNode for ThisExpression {
 impl GetSpan for ThisExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ThisExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl StringLiteral {
@@ -3445,13 +3445,13 @@ impl CommonAstNode for StringLiteral {
 impl GetSpan for StringLiteral {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for StringLiteral {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl NumericLiteral {
@@ -3495,13 +3495,13 @@ impl CommonAstNode for NumericLiteral {
 impl GetSpan for NumericLiteral {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for NumericLiteral {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl BigIntLiteral {
@@ -3545,13 +3545,13 @@ impl CommonAstNode for BigIntLiteral {
 impl GetSpan for BigIntLiteral {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for BigIntLiteral {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl BooleanLiteral {
@@ -3595,13 +3595,13 @@ impl CommonAstNode for BooleanLiteral {
 impl GetSpan for BooleanLiteral {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for BooleanLiteral {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl NullLiteral {
@@ -3645,13 +3645,13 @@ impl CommonAstNode for NullLiteral {
 impl GetSpan for NullLiteral {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for NullLiteral {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl RegExpLiteral {
@@ -3695,13 +3695,13 @@ impl CommonAstNode for RegExpLiteral {
 impl GetSpan for RegExpLiteral {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for RegExpLiteral {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TemplateLiteral {
@@ -3745,13 +3745,13 @@ impl CommonAstNode for TemplateLiteral {
 impl GetSpan for TemplateLiteral {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TemplateLiteral {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TemplateElement {
@@ -3795,13 +3795,13 @@ impl CommonAstNode for TemplateElement {
 impl GetSpan for TemplateElement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TemplateElement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl IdentifierReference {
@@ -3845,13 +3845,13 @@ impl CommonAstNode for IdentifierReference {
 impl GetSpan for IdentifierReference {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for IdentifierReference {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl PrivateIdentifier {
@@ -3895,13 +3895,13 @@ impl CommonAstNode for PrivateIdentifier {
 impl GetSpan for PrivateIdentifier {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for PrivateIdentifier {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl BindingIdentifier {
@@ -3945,13 +3945,13 @@ impl CommonAstNode for BindingIdentifier {
 impl GetSpan for BindingIdentifier {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for BindingIdentifier {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl IdentifierName {
@@ -3995,13 +3995,13 @@ impl CommonAstNode for IdentifierName {
 impl GetSpan for IdentifierName {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for IdentifierName {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl LabelIdentifier {
@@ -4045,13 +4045,13 @@ impl CommonAstNode for LabelIdentifier {
 impl GetSpan for LabelIdentifier {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for LabelIdentifier {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl AssignmentPattern {
@@ -4095,13 +4095,13 @@ impl CommonAstNode for AssignmentPattern {
 impl GetSpan for AssignmentPattern {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for AssignmentPattern {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl BindingRestElement {
@@ -4145,13 +4145,13 @@ impl CommonAstNode for BindingRestElement {
 impl GetSpan for BindingRestElement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for BindingRestElement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ArrayPattern {
@@ -4195,13 +4195,13 @@ impl CommonAstNode for ArrayPattern {
 impl GetSpan for ArrayPattern {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ArrayPattern {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ObjectPattern {
@@ -4245,13 +4245,13 @@ impl CommonAstNode for ObjectPattern {
 impl GetSpan for ObjectPattern {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ObjectPattern {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl BindingProperty {
@@ -4295,13 +4295,13 @@ impl CommonAstNode for BindingProperty {
 impl GetSpan for BindingProperty {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for BindingProperty {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl BinaryExpression {
@@ -4345,13 +4345,13 @@ impl CommonAstNode for BinaryExpression {
 impl GetSpan for BinaryExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for BinaryExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl LogicalExpression {
@@ -4395,13 +4395,13 @@ impl CommonAstNode for LogicalExpression {
 impl GetSpan for LogicalExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for LogicalExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ConditionalExpression {
@@ -4445,13 +4445,13 @@ impl CommonAstNode for ConditionalExpression {
 impl GetSpan for ConditionalExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ConditionalExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl UnaryExpression {
@@ -4495,13 +4495,13 @@ impl CommonAstNode for UnaryExpression {
 impl GetSpan for UnaryExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for UnaryExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl UpdateExpression {
@@ -4545,13 +4545,13 @@ impl CommonAstNode for UpdateExpression {
 impl GetSpan for UpdateExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for UpdateExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl AssignmentExpression {
@@ -4595,13 +4595,13 @@ impl CommonAstNode for AssignmentExpression {
 impl GetSpan for AssignmentExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for AssignmentExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl VariableDeclaration {
@@ -4645,13 +4645,13 @@ impl CommonAstNode for VariableDeclaration {
 impl GetSpan for VariableDeclaration {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for VariableDeclaration {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl VariableDeclarator {
@@ -4695,13 +4695,13 @@ impl CommonAstNode for VariableDeclarator {
 impl GetSpan for VariableDeclarator {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for VariableDeclarator {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl IfStatement {
@@ -4745,13 +4745,13 @@ impl CommonAstNode for IfStatement {
 impl GetSpan for IfStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for IfStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl SwitchStatement {
@@ -4795,13 +4795,13 @@ impl CommonAstNode for SwitchStatement {
 impl GetSpan for SwitchStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for SwitchStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl SwitchCase {
@@ -4845,13 +4845,13 @@ impl CommonAstNode for SwitchCase {
 impl GetSpan for SwitchCase {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for SwitchCase {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ForStatement {
@@ -4895,13 +4895,13 @@ impl CommonAstNode for ForStatement {
 impl GetSpan for ForStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ForStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ForInStatement {
@@ -4945,13 +4945,13 @@ impl CommonAstNode for ForInStatement {
 impl GetSpan for ForInStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ForInStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ForOfStatement {
@@ -4995,13 +4995,13 @@ impl CommonAstNode for ForOfStatement {
 impl GetSpan for ForOfStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ForOfStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TryStatement {
@@ -5045,13 +5045,13 @@ impl CommonAstNode for TryStatement {
 impl GetSpan for TryStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TryStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl CatchClause {
@@ -5095,13 +5095,13 @@ impl CommonAstNode for CatchClause {
 impl GetSpan for CatchClause {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for CatchClause {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl BreakStatement {
@@ -5145,13 +5145,13 @@ impl CommonAstNode for BreakStatement {
 impl GetSpan for BreakStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for BreakStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ContinueStatement {
@@ -5195,13 +5195,13 @@ impl CommonAstNode for ContinueStatement {
 impl GetSpan for ContinueStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ContinueStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl LabeledStatement {
@@ -5245,13 +5245,13 @@ impl CommonAstNode for LabeledStatement {
 impl GetSpan for LabeledStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for LabeledStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ExpressionStatement {
@@ -5295,13 +5295,13 @@ impl CommonAstNode for ExpressionStatement {
 impl GetSpan for ExpressionStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ExpressionStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ReturnStatement {
@@ -5345,13 +5345,13 @@ impl CommonAstNode for ReturnStatement {
 impl GetSpan for ReturnStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ReturnStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ThrowStatement {
@@ -5395,13 +5395,13 @@ impl CommonAstNode for ThrowStatement {
 impl GetSpan for ThrowStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ThrowStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl DebuggerStatement {
@@ -5445,13 +5445,13 @@ impl CommonAstNode for DebuggerStatement {
 impl GetSpan for DebuggerStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for DebuggerStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl EmptyStatement {
@@ -5495,13 +5495,13 @@ impl CommonAstNode for EmptyStatement {
 impl GetSpan for EmptyStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for EmptyStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl Directive {
@@ -5545,13 +5545,13 @@ impl CommonAstNode for Directive {
 impl GetSpan for Directive {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for Directive {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl Decorator {
@@ -5595,13 +5595,13 @@ impl CommonAstNode for Decorator {
 impl GetSpan for Decorator {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for Decorator {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl AstNode for ClassId {
@@ -5674,13 +5674,13 @@ impl CommonAstNode for MethodDefinition {
 impl GetSpan for MethodDefinition {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for MethodDefinition {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl PropertyDefinition {
@@ -5724,13 +5724,13 @@ impl CommonAstNode for PropertyDefinition {
 impl GetSpan for PropertyDefinition {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for PropertyDefinition {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl StaticBlock {
@@ -5774,13 +5774,13 @@ impl CommonAstNode for StaticBlock {
 impl GetSpan for StaticBlock {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for StaticBlock {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl Function {
@@ -5874,13 +5874,13 @@ impl CommonAstNode for FunctionBody {
 impl GetSpan for FunctionBody {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for FunctionBody {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl BlockStatement {
@@ -5924,13 +5924,13 @@ impl CommonAstNode for BlockStatement {
 impl GetSpan for BlockStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for BlockStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl WhileStatement {
@@ -5974,13 +5974,13 @@ impl CommonAstNode for WhileStatement {
 impl GetSpan for WhileStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for WhileStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl DoWhileStatement {
@@ -6024,13 +6024,13 @@ impl CommonAstNode for DoWhileStatement {
 impl GetSpan for DoWhileStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for DoWhileStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl WithStatement {
@@ -6074,13 +6074,13 @@ impl CommonAstNode for WithStatement {
 impl GetSpan for WithStatement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for WithStatement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl FormalParameters {
@@ -6124,13 +6124,13 @@ impl CommonAstNode for FormalParameters {
 impl GetSpan for FormalParameters {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for FormalParameters {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl FormalParameter {
@@ -6174,13 +6174,13 @@ impl CommonAstNode for FormalParameter {
 impl GetSpan for FormalParameter {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for FormalParameter {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ArrayExpression {
@@ -6224,13 +6224,13 @@ impl CommonAstNode for ArrayExpression {
 impl GetSpan for ArrayExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ArrayExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ObjectExpression {
@@ -6274,13 +6274,13 @@ impl CommonAstNode for ObjectExpression {
 impl GetSpan for ObjectExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ObjectExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl SpreadElement {
@@ -6324,13 +6324,13 @@ impl CommonAstNode for SpreadElement {
 impl GetSpan for SpreadElement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for SpreadElement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ObjectProperty {
@@ -6374,13 +6374,13 @@ impl CommonAstNode for ObjectProperty {
 impl GetSpan for ObjectProperty {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ObjectProperty {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ParenthesizedExpression {
@@ -6424,13 +6424,13 @@ impl CommonAstNode for ParenthesizedExpression {
 impl GetSpan for ParenthesizedExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ParenthesizedExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ArrowFunctionExpression {
@@ -6474,13 +6474,13 @@ impl CommonAstNode for ArrowFunctionExpression {
 impl GetSpan for ArrowFunctionExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ArrowFunctionExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl SequenceExpression {
@@ -6524,13 +6524,13 @@ impl CommonAstNode for SequenceExpression {
 impl GetSpan for SequenceExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for SequenceExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl MemberExpression {
@@ -6574,13 +6574,13 @@ impl CommonAstNode for MemberExpression {
 impl GetSpan for MemberExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for MemberExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl CallExpression {
@@ -6624,13 +6624,13 @@ impl CommonAstNode for CallExpression {
 impl GetSpan for CallExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for CallExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ChainExpression {
@@ -6674,13 +6674,13 @@ impl CommonAstNode for ChainExpression {
 impl GetSpan for ChainExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ChainExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TaggedTemplateExpression {
@@ -6724,13 +6724,13 @@ impl CommonAstNode for TaggedTemplateExpression {
 impl GetSpan for TaggedTemplateExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TaggedTemplateExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl NewExpression {
@@ -6774,13 +6774,13 @@ impl CommonAstNode for NewExpression {
 impl GetSpan for NewExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for NewExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl AwaitExpression {
@@ -6824,13 +6824,13 @@ impl CommonAstNode for AwaitExpression {
 impl GetSpan for AwaitExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for AwaitExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl YieldExpression {
@@ -6874,13 +6874,13 @@ impl CommonAstNode for YieldExpression {
 impl GetSpan for YieldExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for YieldExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl MetaProperty {
@@ -6924,13 +6924,13 @@ impl CommonAstNode for MetaProperty {
 impl GetSpan for MetaProperty {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for MetaProperty {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ImportExpression {
@@ -6974,13 +6974,13 @@ impl CommonAstNode for ImportExpression {
 impl GetSpan for ImportExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ImportExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ImportDeclaration {
@@ -7024,13 +7024,13 @@ impl CommonAstNode for ImportDeclaration {
 impl GetSpan for ImportDeclaration {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ImportDeclaration {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ImportSpecifier {
@@ -7074,13 +7074,13 @@ impl CommonAstNode for ImportSpecifier {
 impl GetSpan for ImportSpecifier {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ImportSpecifier {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ImportDefaultSpecifier {
@@ -7124,13 +7124,13 @@ impl CommonAstNode for ImportDefaultSpecifier {
 impl GetSpan for ImportDefaultSpecifier {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ImportDefaultSpecifier {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ImportNamespaceSpecifier {
@@ -7174,13 +7174,13 @@ impl CommonAstNode for ImportNamespaceSpecifier {
 impl GetSpan for ImportNamespaceSpecifier {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ImportNamespaceSpecifier {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ImportAttribute {
@@ -7224,13 +7224,13 @@ impl CommonAstNode for ImportAttribute {
 impl GetSpan for ImportAttribute {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ImportAttribute {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ExportNamedDeclaration {
@@ -7274,13 +7274,13 @@ impl CommonAstNode for ExportNamedDeclaration {
 impl GetSpan for ExportNamedDeclaration {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ExportNamedDeclaration {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ExportDefaultDeclaration {
@@ -7324,13 +7324,13 @@ impl CommonAstNode for ExportDefaultDeclaration {
 impl GetSpan for ExportDefaultDeclaration {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ExportDefaultDeclaration {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ExportAllDeclaration {
@@ -7374,13 +7374,13 @@ impl CommonAstNode for ExportAllDeclaration {
 impl GetSpan for ExportAllDeclaration {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ExportAllDeclaration {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl ExportSpecifier {
@@ -7424,13 +7424,13 @@ impl CommonAstNode for ExportSpecifier {
 impl GetSpan for ExportSpecifier {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for ExportSpecifier {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl Hashbang {
@@ -7474,13 +7474,13 @@ impl CommonAstNode for Hashbang {
 impl GetSpan for Hashbang {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for Hashbang {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsType {
@@ -8174,13 +8174,13 @@ impl CommonAstNode for TsFunction {
 impl GetSpan for TsFunction {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsFunction {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsMethodDefinition {
@@ -8224,13 +8224,13 @@ impl CommonAstNode for TsMethodDefinition {
 impl GetSpan for TsMethodDefinition {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsMethodDefinition {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsTypeAnnotation {
@@ -8274,13 +8274,13 @@ impl CommonAstNode for TsTypeAnnotation {
 impl GetSpan for TsTypeAnnotation {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsTypeAnnotation {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsAnyKeyword {
@@ -8324,13 +8324,13 @@ impl CommonAstNode for TsAnyKeyword {
 impl GetSpan for TsAnyKeyword {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsAnyKeyword {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsUnknownKeyword {
@@ -8374,13 +8374,13 @@ impl CommonAstNode for TsUnknownKeyword {
 impl GetSpan for TsUnknownKeyword {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsUnknownKeyword {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsNeverKeyword {
@@ -8424,13 +8424,13 @@ impl CommonAstNode for TsNeverKeyword {
 impl GetSpan for TsNeverKeyword {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsNeverKeyword {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsVoidKeyword {
@@ -8474,13 +8474,13 @@ impl CommonAstNode for TsVoidKeyword {
 impl GetSpan for TsVoidKeyword {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsVoidKeyword {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsNullKeyword {
@@ -8524,13 +8524,13 @@ impl CommonAstNode for TsNullKeyword {
 impl GetSpan for TsNullKeyword {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsNullKeyword {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsUndefinedKeyword {
@@ -8574,13 +8574,13 @@ impl CommonAstNode for TsUndefinedKeyword {
 impl GetSpan for TsUndefinedKeyword {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsUndefinedKeyword {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsStringKeyword {
@@ -8624,13 +8624,13 @@ impl CommonAstNode for TsStringKeyword {
 impl GetSpan for TsStringKeyword {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsStringKeyword {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsNumberKeyword {
@@ -8674,13 +8674,13 @@ impl CommonAstNode for TsNumberKeyword {
 impl GetSpan for TsNumberKeyword {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsNumberKeyword {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsBigIntKeyword {
@@ -8724,13 +8724,13 @@ impl CommonAstNode for TsBigIntKeyword {
 impl GetSpan for TsBigIntKeyword {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsBigIntKeyword {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsBooleanKeyword {
@@ -8774,13 +8774,13 @@ impl CommonAstNode for TsBooleanKeyword {
 impl GetSpan for TsBooleanKeyword {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsBooleanKeyword {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsSymbolKeyword {
@@ -8824,13 +8824,13 @@ impl CommonAstNode for TsSymbolKeyword {
 impl GetSpan for TsSymbolKeyword {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsSymbolKeyword {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsObjectKeyword {
@@ -8874,13 +8874,13 @@ impl CommonAstNode for TsObjectKeyword {
 impl GetSpan for TsObjectKeyword {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsObjectKeyword {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsIntrinsicKeyword {
@@ -8924,13 +8924,13 @@ impl CommonAstNode for TsIntrinsicKeyword {
 impl GetSpan for TsIntrinsicKeyword {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsIntrinsicKeyword {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsThisType {
@@ -8974,13 +8974,13 @@ impl CommonAstNode for TsThisType {
 impl GetSpan for TsThisType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsThisType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsTypeReference {
@@ -9024,13 +9024,13 @@ impl CommonAstNode for TsTypeReference {
 impl GetSpan for TsTypeReference {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsTypeReference {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsQualifiedName {
@@ -9074,13 +9074,13 @@ impl CommonAstNode for TsQualifiedName {
 impl GetSpan for TsQualifiedName {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsQualifiedName {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsTypeQuery {
@@ -9124,13 +9124,13 @@ impl CommonAstNode for TsTypeQuery {
 impl GetSpan for TsTypeQuery {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsTypeQuery {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsImportType {
@@ -9174,13 +9174,13 @@ impl CommonAstNode for TsImportType {
 impl GetSpan for TsImportType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsImportType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsTypeParameter {
@@ -9224,13 +9224,13 @@ impl CommonAstNode for TsTypeParameter {
 impl GetSpan for TsTypeParameter {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsTypeParameter {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsTypeParameterDeclaration {
@@ -9274,13 +9274,13 @@ impl CommonAstNode for TsTypeParameterDeclaration {
 impl GetSpan for TsTypeParameterDeclaration {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsTypeParameterDeclaration {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsTypeParameterInstantiation {
@@ -9324,13 +9324,13 @@ impl CommonAstNode for TsTypeParameterInstantiation {
 impl GetSpan for TsTypeParameterInstantiation {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsTypeParameterInstantiation {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsLiteralType {
@@ -9374,13 +9374,13 @@ impl CommonAstNode for TsLiteralType {
 impl GetSpan for TsLiteralType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsLiteralType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsTemplateLiteralType {
@@ -9424,13 +9424,13 @@ impl CommonAstNode for TsTemplateLiteralType {
 impl GetSpan for TsTemplateLiteralType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsTemplateLiteralType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsArrayType {
@@ -9474,13 +9474,13 @@ impl CommonAstNode for TsArrayType {
 impl GetSpan for TsArrayType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsArrayType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsIndexedAccessType {
@@ -9524,13 +9524,13 @@ impl CommonAstNode for TsIndexedAccessType {
 impl GetSpan for TsIndexedAccessType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsIndexedAccessType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsTupleType {
@@ -9574,13 +9574,13 @@ impl CommonAstNode for TsTupleType {
 impl GetSpan for TsTupleType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsTupleType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsNamedTupleMember {
@@ -9624,13 +9624,13 @@ impl CommonAstNode for TsNamedTupleMember {
 impl GetSpan for TsNamedTupleMember {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsNamedTupleMember {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsOptionalType {
@@ -9674,13 +9674,13 @@ impl CommonAstNode for TsOptionalType {
 impl GetSpan for TsOptionalType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsOptionalType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsRestType {
@@ -9724,13 +9724,13 @@ impl CommonAstNode for TsRestType {
 impl GetSpan for TsRestType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsRestType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsJsDocNullableType {
@@ -9774,13 +9774,13 @@ impl CommonAstNode for TsJsDocNullableType {
 impl GetSpan for TsJsDocNullableType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsJsDocNullableType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsJsDocNonNullableType {
@@ -9824,13 +9824,13 @@ impl CommonAstNode for TsJsDocNonNullableType {
 impl GetSpan for TsJsDocNonNullableType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsJsDocNonNullableType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsJsDocUnknownType {
@@ -9874,13 +9874,13 @@ impl CommonAstNode for TsJsDocUnknownType {
 impl GetSpan for TsJsDocUnknownType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsJsDocUnknownType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsUnionType {
@@ -9924,13 +9924,13 @@ impl CommonAstNode for TsUnionType {
 impl GetSpan for TsUnionType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsUnionType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsIntersectionType {
@@ -9974,13 +9974,13 @@ impl CommonAstNode for TsIntersectionType {
 impl GetSpan for TsIntersectionType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsIntersectionType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsConditionalType {
@@ -10024,13 +10024,13 @@ impl CommonAstNode for TsConditionalType {
 impl GetSpan for TsConditionalType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsConditionalType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsInferType {
@@ -10074,13 +10074,13 @@ impl CommonAstNode for TsInferType {
 impl GetSpan for TsInferType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsInferType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsTypeOperator {
@@ -10124,13 +10124,13 @@ impl CommonAstNode for TsTypeOperator {
 impl GetSpan for TsTypeOperator {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsTypeOperator {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsParenthesizedType {
@@ -10174,13 +10174,13 @@ impl CommonAstNode for TsParenthesizedType {
 impl GetSpan for TsParenthesizedType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsParenthesizedType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsFunctionType {
@@ -10224,13 +10224,13 @@ impl CommonAstNode for TsFunctionType {
 impl GetSpan for TsFunctionType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsFunctionType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsConstructorType {
@@ -10274,13 +10274,13 @@ impl CommonAstNode for TsConstructorType {
 impl GetSpan for TsConstructorType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsConstructorType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsTypePredicate {
@@ -10324,13 +10324,13 @@ impl CommonAstNode for TsTypePredicate {
 impl GetSpan for TsTypePredicate {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsTypePredicate {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsTypeLiteral {
@@ -10374,13 +10374,13 @@ impl CommonAstNode for TsTypeLiteral {
 impl GetSpan for TsTypeLiteral {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsTypeLiteral {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsMappedType {
@@ -10424,13 +10424,13 @@ impl CommonAstNode for TsMappedType {
 impl GetSpan for TsMappedType {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsMappedType {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsPropertySignature {
@@ -10474,13 +10474,13 @@ impl CommonAstNode for TsPropertySignature {
 impl GetSpan for TsPropertySignature {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsPropertySignature {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsMethodSignature {
@@ -10524,13 +10524,13 @@ impl CommonAstNode for TsMethodSignature {
 impl GetSpan for TsMethodSignature {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsMethodSignature {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsCallSignatureDeclaration {
@@ -10574,13 +10574,13 @@ impl CommonAstNode for TsCallSignatureDeclaration {
 impl GetSpan for TsCallSignatureDeclaration {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsCallSignatureDeclaration {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsConstructSignatureDeclaration {
@@ -10624,13 +10624,13 @@ impl CommonAstNode for TsConstructSignatureDeclaration {
 impl GetSpan for TsConstructSignatureDeclaration {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsConstructSignatureDeclaration {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsIndexSignature {
@@ -10674,13 +10674,13 @@ impl CommonAstNode for TsIndexSignature {
 impl GetSpan for TsIndexSignature {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsIndexSignature {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsTypeAliasDeclaration {
@@ -10724,13 +10724,13 @@ impl CommonAstNode for TsTypeAliasDeclaration {
 impl GetSpan for TsTypeAliasDeclaration {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsTypeAliasDeclaration {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsInterfaceDeclaration {
@@ -10774,13 +10774,13 @@ impl CommonAstNode for TsInterfaceDeclaration {
 impl GetSpan for TsInterfaceDeclaration {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsInterfaceDeclaration {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsInterfaceBody {
@@ -10824,13 +10824,13 @@ impl CommonAstNode for TsInterfaceBody {
 impl GetSpan for TsInterfaceBody {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsInterfaceBody {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsInterfaceHeritage {
@@ -10874,13 +10874,13 @@ impl CommonAstNode for TsInterfaceHeritage {
 impl GetSpan for TsInterfaceHeritage {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsInterfaceHeritage {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsClassImplements {
@@ -10924,13 +10924,13 @@ impl CommonAstNode for TsClassImplements {
 impl GetSpan for TsClassImplements {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsClassImplements {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsEnumDeclaration {
@@ -10974,13 +10974,13 @@ impl CommonAstNode for TsEnumDeclaration {
 impl GetSpan for TsEnumDeclaration {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsEnumDeclaration {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsEnumBody {
@@ -11024,13 +11024,13 @@ impl CommonAstNode for TsEnumBody {
 impl GetSpan for TsEnumBody {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsEnumBody {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsEnumMember {
@@ -11074,13 +11074,13 @@ impl CommonAstNode for TsEnumMember {
 impl GetSpan for TsEnumMember {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsEnumMember {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsModuleDeclaration {
@@ -11124,13 +11124,13 @@ impl CommonAstNode for TsModuleDeclaration {
 impl GetSpan for TsModuleDeclaration {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsModuleDeclaration {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsModuleBlock {
@@ -11174,13 +11174,13 @@ impl CommonAstNode for TsModuleBlock {
 impl GetSpan for TsModuleBlock {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsModuleBlock {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsGlobalDeclaration {
@@ -11224,13 +11224,13 @@ impl CommonAstNode for TsGlobalDeclaration {
 impl GetSpan for TsGlobalDeclaration {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsGlobalDeclaration {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsParameterProperty {
@@ -11274,13 +11274,13 @@ impl CommonAstNode for TsParameterProperty {
 impl GetSpan for TsParameterProperty {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsParameterProperty {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsThisParameter {
@@ -11324,13 +11324,13 @@ impl CommonAstNode for TsThisParameter {
 impl GetSpan for TsThisParameter {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsThisParameter {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsAsExpression {
@@ -11374,13 +11374,13 @@ impl CommonAstNode for TsAsExpression {
 impl GetSpan for TsAsExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsAsExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsSatisfiesExpression {
@@ -11424,13 +11424,13 @@ impl CommonAstNode for TsSatisfiesExpression {
 impl GetSpan for TsSatisfiesExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsSatisfiesExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsTypeAssertion {
@@ -11474,13 +11474,13 @@ impl CommonAstNode for TsTypeAssertion {
 impl GetSpan for TsTypeAssertion {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsTypeAssertion {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsNonNullExpression {
@@ -11524,13 +11524,13 @@ impl CommonAstNode for TsNonNullExpression {
 impl GetSpan for TsNonNullExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsNonNullExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsInstantiationExpression {
@@ -11574,13 +11574,13 @@ impl CommonAstNode for TsInstantiationExpression {
 impl GetSpan for TsInstantiationExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsInstantiationExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsExportAssignment {
@@ -11624,13 +11624,13 @@ impl CommonAstNode for TsExportAssignment {
 impl GetSpan for TsExportAssignment {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsExportAssignment {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsNamespaceExportDeclaration {
@@ -11674,13 +11674,13 @@ impl CommonAstNode for TsNamespaceExportDeclaration {
 impl GetSpan for TsNamespaceExportDeclaration {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsNamespaceExportDeclaration {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsImportEqualsDeclaration {
@@ -11724,13 +11724,13 @@ impl CommonAstNode for TsImportEqualsDeclaration {
 impl GetSpan for TsImportEqualsDeclaration {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsImportEqualsDeclaration {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl TsExternalModuleReference {
@@ -11774,13 +11774,13 @@ impl CommonAstNode for TsExternalModuleReference {
 impl GetSpan for TsExternalModuleReference {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for TsExternalModuleReference {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl JsxElementName {
@@ -12174,13 +12174,13 @@ impl CommonAstNode for JsxElement {
 impl GetSpan for JsxElement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for JsxElement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl JsxOpeningElement {
@@ -12224,13 +12224,13 @@ impl CommonAstNode for JsxOpeningElement {
 impl GetSpan for JsxOpeningElement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for JsxOpeningElement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl JsxClosingElement {
@@ -12274,13 +12274,13 @@ impl CommonAstNode for JsxClosingElement {
 impl GetSpan for JsxClosingElement {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for JsxClosingElement {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl JsxFragment {
@@ -12324,13 +12324,13 @@ impl CommonAstNode for JsxFragment {
 impl GetSpan for JsxFragment {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for JsxFragment {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl JsxOpeningFragment {
@@ -12374,13 +12374,13 @@ impl CommonAstNode for JsxOpeningFragment {
 impl GetSpan for JsxOpeningFragment {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for JsxOpeningFragment {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl JsxClosingFragment {
@@ -12424,13 +12424,13 @@ impl CommonAstNode for JsxClosingFragment {
 impl GetSpan for JsxClosingFragment {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for JsxClosingFragment {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl JsxIdentifier {
@@ -12474,13 +12474,13 @@ impl CommonAstNode for JsxIdentifier {
 impl GetSpan for JsxIdentifier {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for JsxIdentifier {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl JsxNamespacedName {
@@ -12524,13 +12524,13 @@ impl CommonAstNode for JsxNamespacedName {
 impl GetSpan for JsxNamespacedName {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for JsxNamespacedName {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl JsxMemberExpression {
@@ -12574,13 +12574,13 @@ impl CommonAstNode for JsxMemberExpression {
 impl GetSpan for JsxMemberExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for JsxMemberExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl JsxAttribute {
@@ -12624,13 +12624,13 @@ impl CommonAstNode for JsxAttribute {
 impl GetSpan for JsxAttribute {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for JsxAttribute {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl JsxSpreadAttribute {
@@ -12674,13 +12674,13 @@ impl CommonAstNode for JsxSpreadAttribute {
 impl GetSpan for JsxSpreadAttribute {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for JsxSpreadAttribute {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl JsxExpressionContainer {
@@ -12724,13 +12724,13 @@ impl CommonAstNode for JsxExpressionContainer {
 impl GetSpan for JsxExpressionContainer {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for JsxExpressionContainer {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl JsxEmptyExpression {
@@ -12774,13 +12774,13 @@ impl CommonAstNode for JsxEmptyExpression {
 impl GetSpan for JsxEmptyExpression {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for JsxEmptyExpression {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl JsxText {
@@ -12824,13 +12824,13 @@ impl CommonAstNode for JsxText {
 impl GetSpan for JsxText {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for JsxText {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl JsxSpreadChild {
@@ -12874,13 +12874,13 @@ impl CommonAstNode for JsxSpreadChild {
 impl GetSpan for JsxSpreadChild {
     #[inline]
     fn span(self, ast: &Ast<'_>) -> crate::Span {
-        unsafe { *ast.nodes.span_unchecked(self.0) }
+        ast.span(self.ast_id())
     }
 }
 impl SetSpan for JsxSpreadChild {
     #[inline]
     fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
-        unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }
+        ast.set_span(self.ast_id(), span)
     }
 }
 impl<'a> Ast<'a> {

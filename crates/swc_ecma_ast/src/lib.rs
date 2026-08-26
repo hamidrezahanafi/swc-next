@@ -57,6 +57,12 @@ pub struct Ast<'a> {
     /// Flattening AST nodes.
     pub(crate) nodes: NodeData<'a>,
 
+    /// Expression-only nodes, independently grown from other node kinds.
+    pub(crate) expressions: NodeData<'a>,
+
+    /// Statement/declaration nodes, independently grown from other node kinds.
+    pub(crate) statements: NodeData<'a>,
+
     /// Standalone class storage. A ClassId indexes this store directly.
     pub(crate) classes: ClassData<'a>,
 
@@ -195,7 +201,35 @@ impl<'a> Ast<'a> {
 
     #[inline]
     pub(crate) fn add_node(&mut self, span: Span, kind: NodeKind, data: NodePayload) -> NodeId {
-        self.nodes.push(span, kind, data)
+        let store = if kind.is_expr() {
+            StoreTag::Expression
+        } else if kind.is_stmt() {
+            StoreTag::Statement
+        } else {
+            StoreTag::Common
+        };
+        let local = self.node_store_mut(store).push(span, kind, data).index() as u32;
+        AstId::new(store, local).node_id()
+    }
+
+    #[inline]
+    fn node_store(&self, store: StoreTag) -> &NodeData<'a> {
+        match store {
+            StoreTag::Common => &self.nodes,
+            StoreTag::Expression => &self.expressions,
+            StoreTag::Statement => &self.statements,
+            _ => panic!("AST store does not contain NodePayload"),
+        }
+    }
+
+    #[inline]
+    fn node_store_mut(&mut self, store: StoreTag) -> &mut NodeData<'a> {
+        match store {
+            StoreTag::Common => &mut self.nodes,
+            StoreTag::Expression => &mut self.expressions,
+            StoreTag::Statement => &mut self.statements,
+            _ => panic!("AST store does not contain NodePayload"),
+        }
     }
 
     /// Replace a common owner node in place while preserving its AST ID.
@@ -211,14 +245,14 @@ impl<'a> Ast<'a> {
         old_ast_id: AstId,
         new_ast_id: AstId,
     ) -> AstId {
+        let span = self.span(new_ast_id);
+        let kind = self.node_kind(new_ast_id);
+        let data = unsafe { *self.node_payload_unchecked(new_ast_id) };
+        let old_store = self.node_store_mut(old_ast_id.store_tag());
         let old = old_ast_id.node_id();
-        let new = new_ast_id.node_id();
-        let span = *self.nodes.span(new);
-        let kind = *self.nodes.kind(new);
-        let data = *self.nodes.data(new);
-        *self.nodes.span_mut(old) = span;
-        *self.nodes.kind_mut(old) = kind;
-        *self.nodes.data_mut(old) = data;
+        *old_store.span_mut(old) = span;
+        *old_store.kind_mut(old) = kind;
+        *old_store.data_mut(old) = data;
         old_ast_id
     }
 
@@ -246,20 +280,28 @@ impl<'a> Ast<'a> {
     ) -> New {
         let old_ast_id = old.ast_id();
         let new_ast_id = new.ast_id();
+        assert_ne!(old_ast_id, new_ast_id);
+        let new_index = new_ast_id.index();
+        let new_len = match new_ast_id.store_tag() {
+            StoreTag::Function => self.functions.len(),
+            store => self.node_store(store).len(),
+        };
+        assert_eq!(new_index + 1, new_len);
+
+        let span = self.span(new_ast_id);
+        let kind = self.node_kind(new_ast_id);
+        let data = unsafe { *self.node_payload_unchecked(new_ast_id) };
+        let old_store = self.node_store_mut(old_ast_id.store_tag());
         let old = old_ast_id.node_id();
-        let new = new_ast_id.node_id();
-        assert_ne!(old, new);
-        assert_eq!(new.index() + 1, self.nodes.len());
+        *old_store.span_mut(old) = span;
+        *old_store.kind_mut(old) = kind;
+        *old_store.data_mut(old) = data;
+        match new_ast_id.store_tag() {
+            StoreTag::Function => self.functions.truncate(new_index),
+            store => self.node_store_mut(store).truncate(new_index),
+        }
 
-        let span = *self.nodes.span(new);
-        let kind = *self.nodes.kind(new);
-        let data = *self.nodes.data(new);
-        *self.nodes.span_mut(old) = span;
-        *self.nodes.kind_mut(old) = kind;
-        *self.nodes.data_mut(old) = data;
-        self.nodes.truncate(new.index());
-
-        unsafe { New::from_ast_id_unchecked(old.ast_id()) }
+        unsafe { New::from_ast_id_unchecked(old_ast_id) }
     }
 
     #[inline]
@@ -433,13 +475,30 @@ impl<'a> Ast<'a> {
 
     #[inline]
     pub fn node_count(&self) -> usize {
-        self.nodes.len() + self.classes.len() + self.functions.len()
+        self.nodes.len()
+            + self.expressions.len()
+            + self.statements.len()
+            + self.classes.len()
+            + self.functions.len()
     }
 
     #[inline]
     #[doc(hidden)]
     pub fn common_node_count(&self) -> usize {
         self.nodes.len()
+    }
+
+    #[inline]
+    #[doc(hidden)]
+    pub fn store_node_count(&self, store: StoreTag) -> usize {
+        match store {
+            StoreTag::Common => self.nodes.len(),
+            StoreTag::Expression => self.expressions.len(),
+            StoreTag::Statement => self.statements.len(),
+            StoreTag::Class => self.classes.len(),
+            StoreTag::Function => self.functions.len(),
+            _ => 0,
+        }
     }
 
     /// Returns the number of entries in the out-of-line field table.
@@ -487,7 +546,9 @@ impl<'a> Ast<'a> {
     pub fn node_kind<I: Into<AstId>>(&self, node_id: I) -> NodeKind {
         let node_id = node_id.into();
         match node_id.store_tag() {
-            StoreTag::Common => *self.nodes.kind(node_id.node_id()),
+            StoreTag::Common | StoreTag::Expression | StoreTag::Statement => {
+                *self.node_store(node_id.store_tag()).kind(node_id.node_id())
+            }
             StoreTag::Class => NodeKind::Class,
             StoreTag::Function => NodeKind::Function,
             _ => panic!("AST store is not implemented"),
@@ -499,7 +560,9 @@ impl<'a> Ast<'a> {
     pub fn span<I: Into<AstId>>(&self, node_id: I) -> Span {
         let node_id = node_id.into();
         match node_id.store_tag() {
-            StoreTag::Common => *self.nodes.span(node_id.node_id()),
+            StoreTag::Common | StoreTag::Expression | StoreTag::Statement => {
+                *self.node_store(node_id.store_tag()).span(node_id.node_id())
+            }
             StoreTag::Class => *self.classes.span(ClassId::from_raw(node_id.index() as u32)),
             StoreTag::Function => *self
                 .functions
@@ -511,7 +574,11 @@ impl<'a> Ast<'a> {
     #[inline]
     pub fn set_span(&mut self, node_id: AstId, span: Span) {
         match node_id.store_tag() {
-            StoreTag::Common => *self.nodes.span_mut(node_id.node_id()) = span,
+            StoreTag::Common | StoreTag::Expression | StoreTag::Statement => {
+                *self
+                    .node_store_mut(node_id.store_tag())
+                    .span_mut(node_id.node_id()) = span;
+            }
             StoreTag::Class => {
                 *self
                     .classes
@@ -529,7 +596,10 @@ impl<'a> Ast<'a> {
     #[inline]
     pub(crate) unsafe fn node_payload_unchecked(&self, node_id: AstId) -> &NodePayload {
         match node_id.store_tag() {
-            StoreTag::Common => unsafe { self.nodes.data_unchecked(node_id.node_id()) },
+            StoreTag::Common | StoreTag::Expression | StoreTag::Statement => unsafe {
+                self.node_store(node_id.store_tag())
+                    .data_unchecked(node_id.node_id())
+            },
             StoreTag::Function => unsafe {
                 self.functions
                     .data_unchecked(FunctionId::from_raw(node_id.index() as u32))
@@ -541,7 +611,10 @@ impl<'a> Ast<'a> {
     #[inline]
     pub(crate) unsafe fn node_payload_mut_unchecked(&mut self, node_id: AstId) -> &mut NodePayload {
         match node_id.store_tag() {
-            StoreTag::Common => unsafe { self.nodes.data_mut_unchecked(node_id.node_id()) },
+            StoreTag::Common | StoreTag::Expression | StoreTag::Statement => unsafe {
+                self.node_store_mut(node_id.store_tag())
+                    .data_mut_unchecked(node_id.node_id())
+            },
             StoreTag::Function => unsafe {
                 self.functions
                     .data_mut_unchecked(FunctionId::from_raw(node_id.index() as u32))
@@ -562,6 +635,8 @@ impl<'a> Ast<'a> {
             lang: Lang::Js,
             attached_comments: ArenaVec::new_in(allocator),
             nodes: NodeData::new_in(allocator),
+            expressions: NodeData::new_in(allocator),
+            statements: NodeData::new_in(allocator),
             classes: ClassData::new_in(allocator),
             functions: FunctionData::new_in(allocator),
             node_edges: ArenaVec::new_in(allocator),
@@ -602,7 +677,12 @@ impl<'a> Ast<'a> {
     /// Reserves storage for parser output without changing logical lengths.
     #[inline]
     pub fn reserve(&mut self, additional_nodes: usize, additional_extra_data: usize) {
-        self.nodes.reserve(additional_nodes);
+        let expression_nodes = additional_nodes / 2;
+        let statement_nodes = additional_nodes / 4;
+        self.expressions.reserve(expression_nodes);
+        self.statements.reserve(statement_nodes);
+        self.nodes
+            .reserve(additional_nodes - expression_nodes - statement_nodes);
         self.node_edges.reserve(additional_extra_data);
         self.extra_data.reserve(additional_extra_data);
     }
@@ -623,17 +703,23 @@ impl<'a> Ast<'a> {
     pub fn truncate(
         &mut self,
         nodes_len: usize,
+        expressions_len: usize,
+        statements_len: usize,
         classes_len: usize,
         functions_len: usize,
         node_edges_len: usize,
         extra_data_len: usize,
     ) {
         assert!(nodes_len <= self.nodes.len());
+        assert!(expressions_len <= self.expressions.len());
+        assert!(statements_len <= self.statements.len());
         assert!(classes_len <= self.classes.len());
         assert!(functions_len <= self.functions.len());
         assert!(node_edges_len <= self.node_edges.len());
         assert!(extra_data_len <= self.extra_data.len());
         self.nodes.truncate(nodes_len);
+        self.expressions.truncate(expressions_len);
+        self.statements.truncate(statements_len);
         self.classes.truncate(classes_len);
         self.functions.truncate(functions_len);
         self.node_edges.truncate(node_edges_len);

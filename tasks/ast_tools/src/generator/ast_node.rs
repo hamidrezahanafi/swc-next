@@ -364,8 +364,8 @@ fn generate_node_impls_for_struct(ast: &AstStruct) -> TokenStream {
         StorageDomain::Common => generate_common_node_impls(
             &name,
             quote!(NodeId),
-            quote!(unsafe { *ast.nodes.span_unchecked(self.0) }),
-            quote!(unsafe { *ast.nodes.span_mut_unchecked(self.0) = span }),
+            quote!(ast.span(self.ast_id())),
+            quote!(ast.set_span(self.ast_id(), span)),
         ),
         StorageDomain::Pooled { id, .. } => {
             let id = format_ident!("{id}");

@@ -11,7 +11,7 @@ use swc_next_allocator::{
     hash_map::{HashMap as ArenaHashMap, Values},
     vec::Vec as ArenaVec,
 };
-use swc_next_ecma_ast::{Ast, AstId, Diagnostic, ScopeId, SymbolId, VisitWith};
+use swc_next_ecma_ast::{Ast, AstId, Diagnostic, ScopeId, StoreTag, SymbolId, VisitWith};
 
 use crate::{binder::Range, checker::Checker, scope::ScopeTree};
 
@@ -42,6 +42,58 @@ bitflags::bitflags! {
         const CLASS = 1 << 0;
         /// Collect names used by transforms that introduce local bindings.
         const GENERATED_NAMES = 1 << 1;
+    }
+}
+
+#[derive(Debug)]
+struct NodeSideTable<'a, T> {
+    common: ArenaVec<'a, T>,
+    expressions: ArenaVec<'a, T>,
+    statements: ArenaVec<'a, T>,
+    classes: ArenaVec<'a, T>,
+    functions: ArenaVec<'a, T>,
+}
+
+impl<'a, T: Copy> NodeSideTable<'a, T> {
+    fn new(tree: &Ast<'a>, value: T) -> Self {
+        let allocator = tree.allocator();
+        let make = |len| {
+            let mut values = ArenaVec::with_capacity_in(len, allocator);
+            values.resize(len, value);
+            values
+        };
+        Self {
+            common: make(tree.common_node_count()),
+            expressions: make(tree.store_node_count(StoreTag::Expression)),
+            statements: make(tree.store_node_count(StoreTag::Statement)),
+            classes: make(tree.class_count()),
+            functions: make(tree.function_count()),
+        }
+    }
+
+    fn get(&self, node: AstId) -> Option<&T> {
+        if node.is_none() {
+            return None;
+        }
+        match node.store_tag() {
+            StoreTag::Common => self.common.get(node.index()),
+            StoreTag::Expression => self.expressions.get(node.index()),
+            StoreTag::Statement => self.statements.get(node.index()),
+            StoreTag::Class => self.classes.get(node.index()),
+            StoreTag::Function => self.functions.get(node.index()),
+            _ => None,
+        }
+    }
+
+    fn get_mut(&mut self, node: AstId) -> &mut T {
+        match node.store_tag() {
+            StoreTag::Common => &mut self.common[node.index()],
+            StoreTag::Expression => &mut self.expressions[node.index()],
+            StoreTag::Statement => &mut self.statements[node.index()],
+            StoreTag::Class => &mut self.classes[node.index()],
+            StoreTag::Function => &mut self.functions[node.index()],
+            _ => panic!("AST store is not supported by semantic side tables"),
+        }
     }
 }
 
@@ -79,8 +131,8 @@ pub struct Semantic<'a> {
     hoisting_variables: ArenaVec<'a, ScopeMap<'a>>,
 
     /// The symbol declared by each node, indexed by [`AstId`].
-    node_symbols: ArenaVec<'a, Option<SymbolId>>,
-    node_references: ArenaVec<'a, Option<ReferenceId>>,
+    node_symbols: NodeSideTable<'a, Option<SymbolId>>,
+    node_references: NodeSideTable<'a, Option<ReferenceId>>,
 
     module_record: ModuleRecord<'a>,
     features: SemanticFeatureFlags,
@@ -147,13 +199,13 @@ impl<'a> Semantic<'a> {
     /// The symbol declared at `node`, or `None` when the node is not a
     /// declaration site.
     pub fn symbol_of<I: Into<AstId>>(&self, node: I) -> Option<SymbolId> {
-        self.node_symbols[node.into().index()]
+        self.node_symbols.get(node.into()).copied().flatten()
     }
 
     /// The reference recorded at `node`, or `None` when the node is
     /// not a reference site.
     pub fn reference_of<I: Into<AstId>>(&self, node: I) -> Option<ReferenceId> {
-        self.node_references[node.into().index()]
+        self.node_references.get(node.into()).copied().flatten()
     }
 
     /// The scope of the given symbol id.

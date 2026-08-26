@@ -13,8 +13,8 @@ use swc_next_ecma_ast::{
 };
 
 use crate::{
-    ClassSemantic, DeclarationId, Redeclarations, ScopeMap, Semantic, SemanticFeatureFlags,
-    UsedNameState,
+    ClassSemantic, DeclarationId, NodeSideTable, Redeclarations, ScopeMap, Semantic,
+    SemanticFeatureFlags, UsedNameState,
     module_record::ModuleRecordBuilder,
     scope::{self, ScopeKind, ScopeTracker, ScopeTree},
 };
@@ -510,7 +510,7 @@ pub(crate) struct SymbolTracker<'a> {
     references: ArenaVec<'a, Reference>,
     declarations: ArenaVec<'a, Declaration>,
     redeclarations: Redeclarations<'a>,
-    node_symbols: ArenaVec<'a, Option<SymbolId>>,
+    node_symbols: NodeSideTable<'a, Option<SymbolId>>,
     scope_maps: ArenaVec<'a, ScopeMap<'a>>,
     hoisting_variables: ArenaVec<'a, ScopeMap<'a>>,
     used_names: UsedNameState<'a>,
@@ -595,8 +595,7 @@ impl<'a> SymbolTracker<'a> {
     pub fn init(tree: &Ast<'a>, collect_used_names: bool) -> Self {
         let allocator = tree.allocator();
         let nodes = tree.node_count();
-        let mut node_symbols = ArenaVec::with_capacity_in(nodes, allocator);
-        node_symbols.resize(nodes, None);
+        let node_symbols = NodeSideTable::new(tree, None);
         Self {
             allocator,
             symbols: ArenaVec::with_capacity_in(16usize.max(nodes / 12), allocator),
@@ -1276,7 +1275,7 @@ impl<'a> SymbolTracker<'a> {
     /// as a declaration for error recovery.
     pub fn declare(&mut self, tree: &Ast, name: AstWtf8, node: AstId) -> SymbolId {
         let target = self.pending.scope;
-        debug_assert!(node.index() < tree.node_count());
+        debug_assert!(!node.is_none());
 
         let mut declaration_flags = self.pending.flags;
         declaration_flags.set(SymbolFlags::EXPORTED, self.export_state.is_exported());
@@ -1325,20 +1324,20 @@ impl<'a> SymbolTracker<'a> {
             symbol: id,
             flags: declaration_flags,
         });
-        self.node_symbols[node.index()] = Some(id);
+        *self.node_symbols.get_mut(node) = Some(id);
         id
     }
 
     /// Records an identifier reference at `node` in `scope`.
     pub fn add_reference(
         &mut self,
-        tree: &Ast,
+        _tree: &Ast,
         name: AstUtf8,
         scope: ScopeId,
         node: AstId,
         flags: ReferenceFlags,
     ) -> ReferenceId {
-        debug_assert!(node.index() < tree.node_count());
+        debug_assert!(!node.is_none());
         // Ambient syntax still resolves through the same declaration space,
         // but its erased expressions do not access the binding at runtime.
         // Normalize only actual references instead of checking ambient state
@@ -1416,7 +1415,7 @@ impl<'a> SymbolTracker<'a> {
     /// remains valid for the source tree's arena lifetime.
     pub fn finalize(
         mut self,
-        tree: &Ast,
+        tree: &Ast<'a>,
         scopes: ScopeTree<'a>,
         has_with_statement: bool,
         module_record: ModuleRecordBuilder<'a>,
@@ -1433,16 +1432,14 @@ impl<'a> SymbolTracker<'a> {
         let redeclarations = self.redeclarations;
         let node_symbols = self.node_symbols;
 
-        let node_count = tree.node_count();
-        let mut node_references = ArenaVec::with_capacity_in(node_count, self.allocator);
-        node_references.resize(node_count, None);
+        let mut node_references = NodeSideTable::new(tree, None);
 
         let mut use_ranges = ArenaVec::with_capacity_in(symbol_count, self.allocator);
         use_ranges.resize(symbol_count, Range::default());
 
         for reference_index in 0..self.references.len() {
             let reference = self.references[reference_index];
-            node_references[reference.node.index()] = Some(reference_id(reference_index));
+            *node_references.get_mut(reference.node) = Some(reference_id(reference_index));
             let name = tree.get_utf8(reference.name).as_bytes();
             let hash = self.scope_maps[ScopeId::ROOT.index()]
                 .hasher()
@@ -1530,8 +1527,11 @@ impl<'a> SymbolTracker<'a> {
             range.len += 1;
         }
 
-        let module_record =
-            module_record.finalize(&node_symbols, &self.references, &node_references);
+        let module_record = module_record.finalize(
+            &node_symbols.common,
+            &self.references,
+            &node_references.common,
+        );
 
         Semantic {
             scopes,

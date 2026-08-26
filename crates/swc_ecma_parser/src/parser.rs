@@ -747,6 +747,8 @@ struct Checkpoint {
     current_token: Token,
     // Append-only AST storage.
     nodes_len: usize,
+    expressions_len: usize,
+    statements_len: usize,
     classes_len: usize,
     functions_len: usize,
     node_edges_len: usize,
@@ -1504,6 +1506,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             lexer_tokens_len: self.lexer.tokens.len(),
             current_token: self.current_token,
             nodes_len: self.ast.common_node_count(),
+            expressions_len: self.ast.store_node_count(StoreTag::Expression),
+            statements_len: self.ast.store_node_count(StoreTag::Statement),
             classes_len: self.ast.class_count(),
             functions_len: self.ast.function_count(),
             node_edges_len: self.ast.node_edge_count(),
@@ -1532,6 +1536,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.current_token = checkpoint.current_token;
         self.ast.truncate(
             checkpoint.nodes_len,
+            checkpoint.expressions_len,
+            checkpoint.statements_len,
             checkpoint.classes_len,
             checkpoint.functions_len,
             checkpoint.node_edges_len,
@@ -12711,56 +12717,67 @@ impl<'ast> VisitMut<'ast> for DedicatedParenthesisStripper<'_, 'ast> {
 
 fn strip_parenthesized_nodes(ast: &mut Ast<'_>, comments: &mut [Comment]) {
     let mut trailing_comment_index = 0;
-    for index in 0..ast.common_node_count() {
-        let node = NodeId::from_raw_unchecked(index as u32);
-        let replacement = match ast.kind_data(node) {
-            NodeKindData::ParenthesizedExpression(parenthesized) => {
-                let mut inner = parenthesized.expression(ast);
-                // Resolve nested wrappers to the innermost non-parenthesized node.
-                while let ExprData::ParenthesizedExpression(parenthesized) = ast.expr_data(inner) {
-                    inner = parenthesized.expression(ast);
+    for store in [StoreTag::Common, StoreTag::Expression] {
+        let len = ast.store_node_count(store);
+        for index in 0..len {
+            let node = AstId::new(store, index as u32).node_id();
+            let replacement = match ast.kind_data(node) {
+                NodeKindData::ParenthesizedExpression(parenthesized) => {
+                    let mut inner = parenthesized.expression(ast);
+                    // Resolve nested wrappers to the innermost non-parenthesized node.
+                    while let ExprData::ParenthesizedExpression(parenthesized) =
+                        ast.expr_data(inner)
+                    {
+                        inner = parenthesized.expression(ast);
+                    }
+                    inner.node_id()
                 }
-                inner.node_id()
-            }
-            NodeKindData::TsParenthesizedType(parenthesized) => {
-                let mut inner = parenthesized.type_annotation(ast);
-                // Resolve nested wrappers to the innermost non-parenthesized node.
-                while let TsTypeData::TsParenthesizedType(parenthesized) = ast.ts_type_data(inner) {
-                    inner = parenthesized.type_annotation(ast);
+                NodeKindData::TsParenthesizedType(parenthesized) => {
+                    let mut inner = parenthesized.type_annotation(ast);
+                    // Resolve nested wrappers to the innermost non-parenthesized node.
+                    while let TsTypeData::TsParenthesizedType(parenthesized) =
+                        ast.ts_type_data(inner)
+                    {
+                        inner = parenthesized.type_annotation(ast);
+                    }
+                    inner.node_id()
                 }
-                inner.node_id()
-            }
-            _ => continue,
-        };
-        let parenthesized_span = ast.span(node);
-        let replacement_span = ast.span(replacement);
+                _ => continue,
+            };
+            let parenthesized_span = ast.span(node);
+            let replacement_span = ast.span(replacement);
 
-        let leading_from = parenthesized_span.start;
-        let leading_comment_index =
-            comments.partition_point(|comment| comment.attached_to <= leading_from);
-        for comment in comments[..leading_comment_index].iter_mut().rev() {
-            if comment.position != CommentPosition::Leading || comment.attached_to != leading_from {
-                break;
+            let leading_from = parenthesized_span.start;
+            let leading_comment_index =
+                comments.partition_point(|comment| comment.attached_to <= leading_from);
+            for comment in comments[..leading_comment_index].iter_mut().rev() {
+                if comment.position != CommentPosition::Leading
+                    || comment.attached_to != leading_from
+                {
+                    break;
+                }
+                comment.attached_to = replacement_span.start;
             }
-            comment.attached_to = replacement_span.start;
+
+            let trailing_from = parenthesized_span.end;
+            trailing_comment_index += comments[trailing_comment_index..]
+                .partition_point(|comment| comment.attached_to < trailing_from);
+            for comment in &mut comments[trailing_comment_index..] {
+                if comment.position != CommentPosition::Trailing
+                    || comment.attached_to != trailing_from
+                {
+                    break;
+                }
+                comment.attached_to = replacement_span.end;
+            }
+
+            let replacement = replacement.node_id();
+            // SAFETY: parsing has not exposed any concrete handles yet. This pass
+            // retires the parenthesized node, and all expression or type edges that
+            // refer to it accept the corresponding replacement kind.
+            let _ =
+                unsafe { ast.replace_in_place_same_domain(node.ast_id(), replacement.ast_id()) };
         }
-
-        let trailing_from = parenthesized_span.end;
-        trailing_comment_index += comments[trailing_comment_index..]
-            .partition_point(|comment| comment.attached_to < trailing_from);
-        for comment in &mut comments[trailing_comment_index..] {
-            if comment.position != CommentPosition::Trailing || comment.attached_to != trailing_from
-            {
-                break;
-            }
-            comment.attached_to = replacement_span.end;
-        }
-
-        let replacement = replacement.node_id();
-        // SAFETY: parsing has not exposed any concrete handles yet. This pass
-        // retires the parenthesized node, and all expression or type edges that
-        // refer to it accept the corresponding replacement kind.
-        let _ = unsafe { ast.replace_in_place_same_domain(node.ast_id(), replacement.ast_id()) };
     }
 }
 
