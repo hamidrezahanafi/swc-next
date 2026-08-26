@@ -8,34 +8,30 @@ use std::collections::HashMap;
 
 use swc_next_ecma_ast::{
     Accessibility, Argument, ArrowFunctionBody, AssignmentOperator, Ast, AstInternedUtf8, AstWtf8,
-    BindingPattern, Class, ClassBody, ClassElement, ClassType, DUMMY_SP, Decl, Expr, GetSpan,
-    NodeId, NodeKindData, PropertyDefinition, PropertyKey, StaticBlock, Stmt, TraverseCtx,
-    TypedSubRange, UnaryOperator, VariableKind,
+    Class, ClassBody, ClassElement, ClassType, DUMMY_SP, Expr, GetSpan, NodeId, NodeKindData,
+    PropertyDefinition, PropertyKey, StaticBlock, Stmt, TypedSubRange, UnaryOperator,
 };
 use swc_next_ecma_semantic::Semantic;
 
+use crate::state::TransformerCtx;
+
 pub(super) struct StaticBlocks {
-    var_scopes: HashMap<NodeId, Vec<AstInternedUtf8>>,
     expression_calls: HashMap<NodeId, Expr>,
 }
 
 struct ClassTransform<'visit, 'a> {
     ast: &'visit mut Ast<'a>,
     semantic: &'visit mut Semantic<'a>,
-    closure_names: &'visit mut Vec<AstInternedUtf8>,
 }
 
 impl<'a> ClassTransform<'_, 'a> {
     fn next_closure_name(&mut self) -> AstInternedUtf8 {
         // UsedNameState currently provides one conservative program-wide
-        // collision domain. `closure_names` still places each declaration
-        // in its nearest function, static-block, or program scope.
-        let name = self
-            .semantic
+        // collision domain. The statement injector places each declaration in
+        // its nearest function, static-block, or program scope.
+        self.semantic
             .used_names_mut()
-            .next_name(self.ast, "_staticBlock", 2);
-        self.closure_names.push(name);
-        name
+            .next_name(self.ast, "_staticBlock", 2)
     }
 
     fn transform_class(
@@ -43,7 +39,7 @@ impl<'a> ClassTransform<'_, 'a> {
         class: Class,
         is_expression: bool,
         inferred_name: Option<AstWtf8>,
-    ) -> Option<Expr> {
+    ) -> Option<(Expr, AstInternedUtf8)> {
         let body = class.body(self.ast);
         let mut elements = body.body(self.ast);
         let original_len = elements.len();
@@ -142,7 +138,7 @@ impl<'a> ClassTransform<'_, 'a> {
             body.set_body(self.ast, elements);
         }
 
-        Some(self.build_call(closure_name))
+        Some((self.build_call(closure_name), closure_name))
     }
 
     fn block_to_expression(
@@ -357,16 +353,15 @@ impl<'a> ClassTransform<'_, 'a> {
 impl StaticBlocks {
     pub(super) fn new() -> Self {
         Self {
-            var_scopes: HashMap::new(),
             expression_calls: HashMap::new(),
         }
     }
 
-    pub(super) fn enter_class_body<'a, State>(
+    pub(super) fn enter_class_body<'a>(
         &mut self,
         body: ClassBody,
         semantic: &mut Semantic<'a>,
-        ctx: &mut TraverseCtx<'_, 'a, State>,
+        ctx: &mut TransformerCtx<'_, 'a>,
     ) {
         let class = match ctx.ast.kind_data(
             ctx.parent()
@@ -380,22 +375,23 @@ impl StaticBlocks {
         let inferred_name = is_expression
             .then(|| inferred_name(class, ctx.ancestor(2), ctx.ast))
             .flatten();
+        let call = ClassTransform {
+            ast: ctx.ast,
+            semantic,
+        }
+        .transform_class(class, is_expression, inferred_name);
+
+        let Some((call, closure_name)) = call else {
+            return;
+        };
         let var_scope = ctx
             .ancestors()
             .skip(1)
             .find(|node| is_var_scope(*node, ctx.ast))
             .expect("a class must belong to a generated-name var scope");
-        let closure_names = self.var_scopes.entry(var_scope).or_default();
-        let call = ClassTransform {
-            ast: ctx.ast,
-            semantic,
-            closure_names,
-        }
-        .transform_class(class, is_expression, inferred_name);
-
-        let Some(call) = call else {
-            return;
-        };
+        ctx.state
+            .statement_injector
+            .prepend_var(var_scope, closure_name, ctx.ast);
         if is_expression {
             assert!(
                 self.expression_calls
@@ -408,11 +404,10 @@ impl StaticBlocks {
         }
     }
 
-    pub(super) fn exit_class<'a, State>(
-        &mut self,
-        class: Class,
-        ctx: &mut TraverseCtx<'_, 'a, State>,
-    ) {
+    pub(super) fn exit_class<'a>(&mut self, class: Class, ctx: &mut TransformerCtx<'_, 'a>) {
+        if self.expression_calls.is_empty() {
+            return;
+        }
         let Some(call) = self.expression_calls.remove(&class.node_id()) else {
             return;
         };
@@ -421,22 +416,8 @@ impl StaticBlocks {
         ctx.replace_current_expr(replacement);
     }
 
-    pub(super) fn exit_node<'a, State>(
-        &mut self,
-        node: NodeId,
-        ctx: &mut TraverseCtx<'_, 'a, State>,
-    ) {
-        if let Some(names) = self
-            .var_scopes
-            .remove(&node)
-            .filter(|names| !names.is_empty())
-        {
-            prepend_var_declaration(node, names, ctx.ast);
-        }
-        if matches!(ctx.ast.kind_data(node), NodeKindData::Program(_)) {
-            debug_assert!(self.var_scopes.is_empty());
-            debug_assert!(self.expression_calls.is_empty());
-        }
+    pub(super) fn is_empty(&self) -> bool {
+        self.expression_calls.is_empty()
     }
 }
 
@@ -450,69 +431,7 @@ fn is_var_scope(node: NodeId, ast: &Ast<'_>) -> bool {
     )
 }
 
-fn prepend_var_declaration<'a>(scope: NodeId, names: Vec<AstInternedUtf8>, ast: &mut Ast<'a>) {
-    let declarators: Vec<_> = names
-        .into_iter()
-        .map(|name| {
-            let identifier =
-                ast.binding_identifier(DUMMY_SP, name.into(), TypedSubRange::empty(), None, false);
-            let pattern = BindingPattern::BindingIdentifier(identifier);
-            ast.variable_declarator(DUMMY_SP, pattern, None, false)
-        })
-        .collect();
-    let declarators = ast.add_typed_sub_range(declarators);
-    let declaration = ast.variable_declaration(DUMMY_SP, VariableKind::Var, declarators, false);
-    let statement = Stmt::Declaration(Decl::VariableDeclaration(declaration));
-    match ast.kind_data(scope) {
-        NodeKindData::Program(program) => {
-            let body = prepend_statement(program.body(ast), statement, ast);
-            program.set_body(ast, body);
-        }
-        NodeKindData::Function(function) => {
-            let body = function.body(ast);
-            let statements = prepend_statement(body.body(ast), statement, ast);
-            body.set_body(ast, statements);
-        }
-        NodeKindData::StaticBlock(block) => {
-            let body = prepend_statement(block.body(ast), statement, ast);
-            block.set_body(ast, body);
-        }
-        NodeKindData::ArrowFunctionExpression(arrow) => {
-            let body = arrow.body(ast);
-            if let Some(function_body) = body.as_function_body(ast) {
-                let statements = prepend_statement(function_body.body(ast), statement, ast);
-                function_body.set_body(ast, statements);
-            } else {
-                let expression = body
-                    .as_expr(ast)
-                    .expect("arrow body must be an expression or function body");
-                let return_statement = ast.stmt_return_statement(DUMMY_SP, Some(expression));
-                let statements = ast.add_typed_sub_range([statement, return_statement]);
-                let function_body = ast.function_body(DUMMY_SP, TypedSubRange::empty(), statements);
-                arrow.set_expression(ast, false);
-                arrow.set_body(ast, ArrowFunctionBody::FunctionBody(function_body));
-            }
-        }
-        _ => unreachable!("generated var must belong to a var scope"),
-    }
-}
-
-fn prepend_statement<'a>(
-    body: TypedSubRange<Stmt>,
-    statement: Stmt,
-    ast: &mut Ast<'a>,
-) -> TypedSubRange<Stmt> {
-    let mut statements = Vec::with_capacity(body.len() + 1);
-    statements.push(statement);
-    statements.extend(body.iter().map(|id| ast.get_node_in_sub_range(id)));
-    ast.add_typed_sub_range(statements)
-}
-
-fn insert_call_after_class<'a, State>(
-    class: NodeId,
-    call: Expr,
-    ctx: &mut TraverseCtx<'_, 'a, State>,
-) {
+fn insert_call_after_class<'a>(class: NodeId, call: Expr, ctx: &mut TransformerCtx<'_, 'a>) {
     let mut statement = class;
     let (container, statement) = ctx
         .ancestors()
@@ -527,23 +446,9 @@ fn insert_call_after_class<'a, State>(
         })
         .expect("a class declaration must belong to a statement list");
     let call = ctx.ast.stmt_expression_statement(DUMMY_SP, call);
-    let body = statement_list(container, ctx.ast);
-    let mut statements = Vec::with_capacity(body.len() + 1);
-    let mut inserted = false;
-    for id in body.iter() {
-        let item = ctx.ast.get_node_in_sub_range(id);
-        statements.push(item);
-        if item.node_id() == statement {
-            statements.push(call);
-            inserted = true;
-        }
-    }
-    assert!(
-        inserted,
-        "class declaration statement must exist in its parent body"
-    );
-    let body = ctx.ast.add_typed_sub_range(statements);
-    set_statement_list(container, body, ctx.ast);
+    ctx.state
+        .statement_injector
+        .insert_after(container, statement, call);
 }
 
 fn is_statement_container(node: NodeId, ast: &Ast<'_>) -> bool {
@@ -556,30 +461,6 @@ fn is_statement_container(node: NodeId, ast: &Ast<'_>) -> bool {
             | NodeKindData::SwitchCase(_)
             | NodeKindData::TsModuleBlock(_)
     )
-}
-
-fn statement_list(node: NodeId, ast: &Ast<'_>) -> TypedSubRange<Stmt> {
-    match ast.kind_data(node) {
-        NodeKindData::Program(node) => node.body(ast),
-        NodeKindData::FunctionBody(node) => node.body(ast),
-        NodeKindData::BlockStatement(node) => node.body(ast),
-        NodeKindData::StaticBlock(node) => node.body(ast),
-        NodeKindData::SwitchCase(node) => node.consequent(ast),
-        NodeKindData::TsModuleBlock(node) => node.body(ast),
-        _ => unreachable!("node must be a statement container"),
-    }
-}
-
-fn set_statement_list<'a>(node: NodeId, body: TypedSubRange<Stmt>, ast: &mut Ast<'a>) {
-    match ast.kind_data(node) {
-        NodeKindData::Program(node) => node.set_body(ast, body),
-        NodeKindData::FunctionBody(node) => node.set_body(ast, body),
-        NodeKindData::BlockStatement(node) => node.set_body(ast, body),
-        NodeKindData::StaticBlock(node) => node.set_body(ast, body),
-        NodeKindData::SwitchCase(node) => node.set_consequent(ast, body),
-        NodeKindData::TsModuleBlock(node) => node.set_body(ast, body),
-        _ => unreachable!("node must be a statement container"),
-    }
 }
 
 fn inferred_name(class: Class, parent: Option<NodeId>, ast: &mut Ast<'_>) -> Option<AstWtf8> {
