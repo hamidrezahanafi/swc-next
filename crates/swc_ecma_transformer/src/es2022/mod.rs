@@ -1,4 +1,4 @@
-use swc_next_ecma_ast::{AstId, ClassId};
+use swc_next_ecma_ast::ClassId;
 use swc_next_ecma_semantic::Semantic;
 
 use crate::state::TransformerCtx;
@@ -38,9 +38,9 @@ impl ES2022 {
         }
     }
 
-    pub(crate) fn exit_node<'a>(&mut self, node: AstId, ctx: &mut TransformerCtx<'_, 'a>) {
-        if let Some(static_blocks) = &mut self.static_blocks {
-            static_blocks.exit_node(node, ctx);
-        }
+    pub(crate) fn is_empty(&self) -> bool {
+        self.static_blocks
+            .as_ref()
+            .is_none_or(static_blocks::StaticBlocks::is_empty)
     }
 }
