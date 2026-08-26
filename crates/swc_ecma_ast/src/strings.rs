@@ -106,6 +106,14 @@ impl<'a> StringPool<'a> {
     }
 
     #[inline]
+    pub fn as_utf8(&self, id: AstWtf8) -> Option<AstUtf8> {
+        self.get_wtf8(id).as_str().map(|_| AstUtf8 {
+            start: id.start,
+            end: id.end,
+        })
+    }
+
+    #[inline]
     fn get_bytes(&self, start: u32, end: u32) -> &[u8] {
         debug_assert!(end >= start);
         if start == end {
@@ -152,6 +160,39 @@ impl<'a> StringPool<'a> {
         AstWtf8 { start, end }
     }
 
+    /// Canonicalizes a UTF-8 range already stored in this pool.
+    #[inline]
+    pub fn intern_utf8_range(&mut self, text: AstUtf8) -> AstInternedUtf8 {
+        let (start, end) = self.intern_range(text.start, text.end);
+        AstInternedUtf8 { start, end }
+    }
+
+    /// Canonicalizes a WTF-8 range already stored in this pool.
+    #[inline]
+    pub fn intern_wtf8_range(&mut self, text: AstWtf8) -> AstWtf8 {
+        let (start, end) = self.intern_range(text.start, text.end);
+        AstWtf8 { start, end }
+    }
+
+    fn intern_range(&mut self, start: u32, end: u32) -> (u32, u32) {
+        if start == end {
+            return (0, 0);
+        }
+        if let Some(id) = {
+            let text = self.get_bytes(start, end);
+            self.dedup.get(text).copied()
+        } {
+            return id;
+        }
+
+        // Keep the original range as the canonical value. Only the hash-map key needs
+        // stable owned bytes; unlike `add_bytes`, this does not append another copy to `extra`.
+        let mut key = ArenaVec::with_capacity_in((end - start) as usize, self.allocator);
+        key.extend_from_slice(self.get_bytes(start, end));
+        self.dedup.insert(key, (start, end));
+        (start, end)
+    }
+
     fn add_bytes(&mut self, text: &[u8]) -> (u32, u32) {
         if text.is_empty() {
             return (0, 0);
@@ -175,5 +216,27 @@ impl<'a> StringPool<'a> {
         key.extend_from_slice(text);
         self.dedup.insert(key, id);
         id
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use swc_next_allocator::Allocator;
+
+    use super::StringPool;
+
+    #[test]
+    fn interns_existing_ranges_without_moving_the_first_value() {
+        let allocator = Allocator::new();
+        let mut strings = StringPool::new_in(&allocator, "name name");
+        let first = strings.source_slice(0, 4);
+        let second = strings.source_slice(5, 9);
+
+        let canonical = strings.intern_utf8_range(first);
+        assert_eq!(canonical.start, 0);
+        assert_eq!(canonical.end, 4);
+        assert_eq!(strings.extra.len(), 0);
+        assert_eq!(strings.intern_utf8_range(second), canonical);
+        assert_eq!(strings.extra.len(), 0);
     }
 }

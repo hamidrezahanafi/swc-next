@@ -1,5 +1,5 @@
 use oxc_index::Idx;
-use swc_next_allocator::{Allocator, vec::Vec as ArenaVec, wtf8::Wtf8};
+use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
 use swc_next_ecma_ast::{
     Ast, AstInternedUtf8, AstUtf8, AstWtf8, BindingIdentifier, Class, ClassType,
     ExportNamedDeclaration, ExportSpecifier, Function, FunctionType, IdentifierReference,
@@ -504,8 +504,6 @@ impl ReferenceSpace {
 /// them into a [`Semantic`].
 pub(crate) struct SymbolTracker<'a> {
     allocator: &'a Allocator,
-    canonical_name_buffer: String,
-    canonical_wtf8_buffer: Vec<u8>,
     symbols: ArenaVec<'a, Symbol>,
     references: ArenaVec<'a, Reference>,
     declarations: ArenaVec<'a, Declaration>,
@@ -600,8 +598,6 @@ impl<'a> SymbolTracker<'a> {
         node_symbols.resize(nodes, None);
         Self {
             allocator,
-            canonical_name_buffer: String::new(),
-            canonical_wtf8_buffer: Vec::new(),
             symbols: ArenaVec::with_capacity_in(16usize.max(nodes / 12), allocator),
             references: ArenaVec::with_capacity_in(16usize.max(nodes / 4), allocator),
             declarations: ArenaVec::with_capacity_in(16usize.max(nodes / 12), allocator),
@@ -1289,22 +1285,15 @@ impl<'a> SymbolTracker<'a> {
 
     fn declare_wtf8(&mut self, tree: &mut Ast, name: AstWtf8, node: NodeId) -> SymbolId {
         debug_assert!(node.index() < tree.node_count());
-        if let Some(text) = tree.get_wtf8(name).as_str() {
-            self.canonical_name_buffer.clear();
-            self.canonical_name_buffer.push_str(text);
-            let name = tree.intern_utf8(&self.canonical_name_buffer);
+        if let Some(name) = tree.as_utf8(name) {
+            let name = tree.intern_utf8_range(name);
             if self.collect_used_names {
                 self.used_names.observe(name);
             }
             return self.declare_name(ScopeName::Utf8(name), name.into(), node);
         }
 
-        self.canonical_wtf8_buffer.clear();
-        self.canonical_wtf8_buffer
-            .extend_from_slice(tree.get_wtf8(name).as_bytes());
-        // SAFETY: The buffer was copied from an existing WTF-8 string.
-        let text = unsafe { Wtf8::from_bytes_unchecked(&self.canonical_wtf8_buffer) };
-        let name = tree.add_wtf8(text);
+        let name = tree.intern_wtf8_range(name);
         self.declare_name(ScopeName::Wtf8(name), name, node)
     }
 
@@ -1399,9 +1388,7 @@ impl<'a> SymbolTracker<'a> {
     }
 
     pub(crate) fn canonicalize_name(&mut self, tree: &mut Ast, name: AstUtf8) -> AstInternedUtf8 {
-        self.canonical_name_buffer.clear();
-        self.canonical_name_buffer.push_str(tree.get_utf8(name));
-        tree.intern_utf8(&self.canonical_name_buffer)
+        tree.intern_utf8_range(name)
     }
 
     /// The symbol with the given id.
