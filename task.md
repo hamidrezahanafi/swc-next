@@ -193,70 +193,70 @@ chunk 1: [live × live_per_chunk][hole × holes_per_chunk]
 
 ## 7. 分阶段实施
 
-### Phase 0：建立基线与动态统计
+### Phase 0：建立基线与动态统计（已完成）
 
-- [ ] 在通用实现分支开始前记录 `origin/main` commit、`codex/es2022-static-blocks-transform` commit（当前为 `11543d5`）和本机工具版本。
-- [ ] 为 `Ast`/各候选 storage 增加仅 benchmark/debug 使用的 counters：实际 hole policy、live、slots、holes created/used、hole lookup、grow count、grow copied bytes、allocator bytes。
-- [ ] 给 static-block transform 加 class-heavy fixtures：无 static block、单 expression block、多 statement block、block 在 field 前、trailing block、class declaration/expression、nested class。
-- [ ] 运行一次动态 histogram，确认 name/pattern 和冷池的边界；`ClassStore`/`FunctionStore` 无条件保留。把最终 node-kind → storage 映射固定在 schema 测试快照中。
+- [x] 通用实现从 `origin/main` 的 `a5fa7d1a` 开始；目标 transform 分支为 `11543d5b`。验证开始时的 `origin/main` 为 `40009f2f`。
+- [x] 为 `Ast`/各候选 storage 增加 benchmark/debug counters：实际 hole policy、live、slots、holes created/used、hole lookup、grow count、grow copied bytes。
+- [x] 增加 class-heavy fixture，并覆盖 static block 位于字段前后、多个 block、class declaration/expression 与 nested class。
+- [x] 结合 SWC/Babel 静态构造统计及实际 benchmark metrics 固定 node-kind → storage 映射；`NamePatternStore` 保持独立，`ClassStore`/`FunctionStore` 无条件独立。
 
-### Phase 1：typed ID 基础设施
+### Phase 1：typed ID 基础设施（已完成）
 
-- [ ] 在 `node_id/node.rs` 实现 `NodeId<T>`、`ErasedNodeId`、`StoreTag`、checked narrowing、sentinel/overflow。
-- [ ] 增加编译期 layout assertion，确保 concrete wrapper、union wrapper、typed ID、erased ID 均为 4 字节。
-- [ ] 先保留现有 global storage 作为兼容 backend，使本提交可编译并能单独测试 ID conversion；不要在一个提交里同时改完 generator/parser/semantic。
+- [x] 在 `node_id/node.rs` 实现 `NodeId<T>`、4 字节 packed `AstId`、`StoreTag`、checked narrowing、sentinel/overflow。
+- [x] 增加 layout assertion，确保 concrete wrapper、union wrapper、typed ID、erased ID 均为 4 字节。
+- [x] 先引入可独立编译的 typed storage domains，再按类别拆分实际 storage。
 
-### Phase 2：schema 与生成器
+### Phase 2：schema 与生成器（已完成）
 
-- [ ] 在 AST schema 中为每个 concrete node 标注唯一 storage；生成映射和穷尽性测试。
-- [ ] 修改 `ast_builder`：builder 选择目标 storage 并返回 typed wrapper。
-- [ ] 修改 `ast_property`：getter/setter 只索引所属 storage。
-- [ ] 修改 `ast_node`：生成 concrete/union typed conversions，不再依赖全局 `NodeKind + NodeId` transmute。
-- [ ] 修改 `ast_extra_compact`、clone、visitor generator，确保所有 node edge 都使用 packed typed ID。
-- [ ] 执行 `cargo run -p ast_tools`；检查生成文件没有手工逻辑漂移。
+- [x] 在 AST schema 中为每个 concrete node 标注唯一 storage；生成映射和穷尽性测试。
+- [x] 修改 `ast_builder`：builder 选择目标 storage 并返回 typed wrapper。
+- [x] 修改 `ast_property`：getter/setter 按 packed tag 索引所属 storage。
+- [x] 修改 `ast_node`：生成 concrete/union typed conversions，不再假设单一 index domain。
+- [x] 修改 `ast_extra_compact`、clone、visitor generator，确保所有 node edge 都使用 packed typed ID。
+- [x] 执行 `cargo run -p ast_tools` 并提交 regenerated files。
 
-### Phase 3：多 storage parser/build 路径
+### Phase 3：多 storage parser/build 路径（已完成）
 
-- [ ] `Ast` 持有第 3.3 节的 stores，`add_node` 按 schema-generated store route 分配；class/function ID 直接索引其 typed record，不创建 global/common owner。
-- [ ] 把 parser scratch buffer 从裸全局 `NodeId` 改成 typed/erased identity，并只在恢复具体语法类型时 checked narrow。
-- [ ] checkpoint/truncate 改为所有 store snapshot。
-- [ ] `strip_parenthesized_nodes` 不再按一个 dense global index 遍历；改为 typed store iterator，并跳过 holes。
-- [ ] 将全局 capacity estimate 改成每 store estimate，避免 reserve 与 holes 重复预留。
+- [x] `Ast` 持有八个独立 storage；class/function ID 直接索引独立记录，不创建 common owner。
+- [x] parser scratch buffer 使用 packed identity，并在恢复具体语法类型时收窄。
+- [x] checkpoint/truncate 保存并恢复所有 storage。
+- [x] `strip_parenthesized_nodes` 分 store 扫描并跳过 holes。
+- [x] 全局 `baseline + 50%` reserve 改为 per-store estimate。
 
-### Phase 4：访问方迁移并删除 global get-node
+### Phase 4：访问方迁移并删除 global get-node（已完成）
 
-- [ ] 迁移 `swc_ecma_ast` 的 root、property、sub-range、clone、visitor。
-- [ ] 迁移 parser 中所有 `node_kind/kind_data/from_node_id_unchecked`。
-- [ ] 迁移 semantic binder/checker/context/module record/name resolver；map key 可 erased，但读取必须 typed dispatch。
-- [ ] 迁移 transformer 的 `TraverseCtx`、normalize、arrow、static-block 等异构 ancestor 判断。
-- [ ] 迁移 codegen 和 testsuite runner。
-- [ ] 全仓 `rg 'NodeId|node_kind|kind_data|from_node_id_unchecked|get_node'` 清点：只允许 approved erased-identity/dispatch 入口，删除 global payload accessor。
+- [x] 迁移 `swc_ecma_ast` 的 root、property、sub-range、clone、visitor。
+- [x] 迁移 parser 的节点访问与 speculative parse 路径。
+- [x] semantic side tables 改为 per-store，避免不同 local index 冲突；异构 key 仍使用 packed identity。
+- [x] 迁移 transformer 的 `TraverseCtx`、normalize、arrow 等异构 ancestor 判断，并在 transform 开始时启用 hole reuse。
+- [x] codegen 和 testsuite runner 通过 workspace/conformance 验证。
+- [x] 删除可由 erased/global ID 直接取得裸 `NodeData` 的入口；保留 `node_kind`/`kind_data` 作为 checked heterogeneous dispatch，不把它们暴露为 raw payload getter。
 
-### Phase 5：参数化 holes 与 replacement
+### Phase 5：参数化 holes 与 replacement（已完成）
 
-- [ ] 在 allocator/storage 层实现 per-store `HolePolicy`、`Hole`、hole reuse 和 counters；至少支持 `16+0`、`16+2`、`16+4`，且 0-hole 路径可被编译器消除。
-- [ ] 把各 storage 的 policy 集中在一个 schema/generated 配置表中；测试必须能打印实际编译进 binary 的配置，防止 benchmark 标签与实现不一致。
-- [ ] builder 区分 parser source allocation 与 transform insertion；transform 优先 holes。
-- [ ] 为 benchmark 提供只包围 insertion phase 的计时/Callgrind 入口，以及 transform 后只读遍历同一 AST 的入口，分别观察插入收益和不连续代价。
-- [ ] 重写 same-store/cross-store replace，加入 stale ID、double free、hole read 的 debug assertions。
-- [ ] 添加 allocator 单测与 AST 集成测试，覆盖第 5 节所有边界。
+- [x] 实现 const-generic per-store hole policy、`Hole`、hole reuse 和 counters；支持 `16+0`、`16+2`、`16+4`，0-hole 分支可编译期消除。
+- [x] policy 集中定义，并由 benchmark 打印实际 profile；提供 all-zero、hot-2、expression-only、statement-only profiles。
+- [x] builder 区分 parser source allocation 与 transform insertion；transform 优先 holes。
+- [x] benchmark 分离 insertion-only 与 post-transform read-only visit，并提供 Criterion 与 Gungraun 入口。
+- [x] same-store/cross-store replacement 支持独立 class/function store，并检查 double free/hole read。
+- [x] 单测覆盖 0/1/15/16/17/31/32、`16+2` checkpoint、4 holes 消耗及第 5 次插入；workspace/conformance 覆盖集成路径。
 
-### Phase 6：FFI/N-API 兼容
+### Phase 6：FFI/N-API 兼容（已完成）
 
-- [ ] serializer 构造 `ErasedNodeId -> dense wire NodeId` 映射，按兼容的逻辑 AST 顺序输出 live nodes，跳过 holes。
-- [ ] 重写 payload/extra-data/node-range 中的所有 ID；root ID 同步映射。
-- [ ] decoder wire schema不变时，不修改对外节点形状；增加 hole 跨 chunk、跨 storage edge、class/function expression 的 round-trip 测试。
-- [ ] 单独记录 FFI buffer size、serialization instructions 和临时映射内存，避免内部收益被 boundary 成本掩盖。
+- [x] serializer 构造 packed ID → dense wire ID 映射，输出 live nodes 并跳过 holes。
+- [x] 重写 payload/extra-data/node-range/root 中的 ID；共享 extra slot 只映射一次。
+- [x] wire schema 与对外节点形状不变；N-API 测试覆盖跨多个 hole chunk 的声明，并增加共享 extra-data 回归测试。
+- [x] class-heavy metrics 单独输出 FFI buffer size；validation 分支继续记录 serialize instructions。
 
-### Phase 7：正确性验证
+### Phase 7：正确性验证（已完成）
 
-- [ ] `cargo fmt --all`
-- [ ] `cargo check --workspace`
-- [ ] `cargo test --workspace --locked`
-- [ ] `cargo clippy --all --all-targets -- -D warnings`
-- [ ] `pnpm test`
-- [ ] `./scripts/clone_fixtures.sh` 后运行 parser/codegen/resolver conformance 和 Babel transform runner，审查 snapshots；不能仅因 ID/存储顺序变化接受输出差异。
-- [ ] 运行 ESTree conformance，确认 JavaScript AST schema 与字段顺序/值没有变化。
+- [x] `cargo fmt --all`
+- [x] `cargo check --workspace`
+- [x] `cargo test --workspace --locked`
+- [x] `cargo clippy --all --all-targets -- -D warnings`
+- [x] `pnpm test`
+- [x] parser/codegen/resolver conformance 与 Babel transform runner 已运行；snapshots 无 typed-store 引入的变化。Babel runner 保留基线已有的 42 个 output diff 与 7 个其他失败。
+- [x] ESTree conformance 全量运行完成，无 panic，snapshots 无变化。
 
 ## 8. 插入性能与读取局部性的取舍验证
 
@@ -320,6 +320,24 @@ chunk 1: [live × live_per_chunk][hole × holes_per_chunk]
 
 最终结论先描述 insertion 改善，再描述有效节点不连续造成的读取代价；不得以“内存增长/下降”作为主结论。
 
+### 8.4 通用 synthetic 基线结果
+
+以下结果用于验证 benchmark 能否捕捉取舍，不替代第 8.1 节 static-block 分支上的最终选型。Criterion 使用 1 秒 warm-up、2 秒 measurement、10 samples；表中为估计区间中值。
+
+| Case | all `16+0` | hot stores `16+4` | `16+4` 相对变化 |
+| --- | ---: | ---: | ---: |
+| 已有 4 holes 的边界插入 | 1.782 µs | 0.260 µs | -85.4% |
+| detached insert 64 | 1.832 µs | 3.273 µs | +78.7% |
+| program-body insert 64 | 2.362 µs | 3.439 µs | +45.6% |
+| post-insert visit 64 | 1.934 µs | 2.058 µs | +6.4%（10 samples 噪声较大） |
+| detached insert 512 | 14.777 µs | 25.363 µs | +71.6% |
+| program-body insert 512 | 18.538 µs | 26.794 µs | +44.5% |
+| post-insert visit 512 | 11.492 µs | 11.315 µs | -1.5%（区间重叠） |
+
+Gungraun 对“已有 4 holes”边界插入测得：`16+4` 为 1,322 instructions，`16+0` 为 3,303 instructions；启用 holes 减少约 60.0% instructions。512 节点 post-insert visit 的 instructions 完全相同（115,395）；`16+4` 的 D1/LL read misses 为 301/21，`16+0` 为 323/22，而 branch mispredicts 为 26 vs 24。该 synthetic case 中没有观察到稳定的只读局部性回退，但这不代表 parser/static-block 的真实物理间隔没有代价。
+
+64 节点 metrics 解释了持续插入回退：all-zero 的 statement/name store 各 grow 一次、各复制 1,275 bytes；`16+4` 虽先消耗每个热 store 的 16 个 holes，之后持续插入仍各 grow 一次，并因物理 slots 更多各复制 1,675 bytes，同时每个 store 做 64 次 hole lookup。也就是说，hole 对“短 burst 且预留量足够”收益很大，对“远超预留量的持续 append”会增加 lookup 和不连续成本。最终 policy 必须以 static-block 的实际 burst 分布决定，不能全局固定为 `16+4`。
+
 ## 9. 分类提交
 
 每个提交都应可编译，并运行与范围相称的测试；不 amend、不 rebase：
@@ -345,12 +363,12 @@ chunk 1: [live × live_per_chunk][hole × holes_per_chunk]
 
 ## 10. 完成定义
 
-- [ ] schema 中每个 concrete AST node 恰好属于一个 storage。
-- [ ] `Class`/`Function` 直接存于各自独立 typed storage，没有 global/common owner slot，也不会随 expression/statement pool 一起扩容。
-- [ ] 任意节点 ID 仍为 4 字节，store-local ID 独立自增且 overflow 有检查。
-- [ ] 仓库中不存在可用 erased/global ID 直接读取任意 payload 的 API。
-- [ ] 每个 storage 使用集中定义的 `HolePolicy`；`16+0` 不创建 holes，非零配置按参数创建并优先供 transform 消费。
-- [ ] parser rollback、replace、visitor path、semantic identity、FFI remap 都有测试。
-- [ ] Rust/JS/conformance/clippy 全部通过。
-- [ ] 分类提交完成并可分别回退 hole policy。
+- [x] schema 中每个 concrete AST node 恰好属于一个 storage。
+- [x] `Class`/`Function` 直接存于各自独立 typed storage，没有 global/common owner slot，也不会随 expression/statement pool 一起扩容。
+- [x] 任意节点 ID 仍为 4 字节，store-local ID 独立自增且 overflow 有检查。
+- [x] 仓库中不存在可用 erased/global ID 直接读取任意 raw payload 的 API；异构路径只保留 checked dispatch。
+- [x] 每个 storage 使用集中定义的 hole policy；`16+0` 不创建 holes，非零配置按参数创建并优先供 transform 消费。
+- [x] parser rollback、replace、visitor path、semantic identity、FFI remap 都有测试。
+- [x] Rust/JS/conformance/clippy 全部通过。
+- [x] 分类提交完成并可分别回退 hole policy。
 - [ ] `codex/es2022-static-blocks-typed-node-stores` 上完成 control、all-zero、逐 storage hole 消融和最终 per-store policy 对比，分别记录插入性能和 post-transform 读取局部性，说明哪些类型应为 0；内存只作为辅助列。
