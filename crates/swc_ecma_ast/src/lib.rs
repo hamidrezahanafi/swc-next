@@ -56,15 +56,15 @@ const EXPRESSION_HOLES_PER_CHUNK: usize = if cfg!(feature = "hole-profile-hot-2"
 } else {
     0
 };
-const STATEMENT_HOLES_PER_CHUNK: usize = if cfg!(feature = "hole-profile-hot-2") {
-    2
-} else if cfg!(any(
-    feature = "hole-profile-hot-4",
-    feature = "hole-profile-statement-only"
+const STATEMENT_HOLES_PER_CHUNK: usize = if cfg!(any(
+    feature = "hole-profile-0",
+    feature = "hole-profile-expression-only"
 )) {
-    4
-} else {
     0
+} else if cfg!(feature = "hole-profile-hot-2") {
+    2
+} else {
+    4
 };
 const NAME_PATTERN_HOLES_PER_CHUNK: usize = if cfg!(feature = "hole-profile-hot-2") {
     2
