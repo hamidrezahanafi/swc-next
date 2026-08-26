@@ -12809,6 +12809,7 @@ fn strip_parenthesized_nodes(ast: &mut Ast<'_>, comments: &mut [Comment]) {
 #[cfg(test)]
 mod tests {
     use swc_next_allocator::Allocator;
+    use swc_next_ecma_ast::{Visit, VisitWith};
 
     use super::*;
 
@@ -12837,6 +12838,43 @@ mod tests {
 
         let ast = parse(&allocator, "value", unambiguous);
         assert_eq!(ast.source_type(), SourceType::Script);
+    }
+
+    #[test]
+    fn cover_pattern_replacement_uses_the_typed_store() {
+        struct BindingPropertyStoreChecker<'visit, 'ast> {
+            ast: &'visit Ast<'ast>,
+            count: usize,
+        }
+
+        impl<'ast> Visit<'ast> for BindingPropertyStoreChecker<'_, 'ast> {
+            fn ast(&self) -> &Ast<'ast> {
+                self.ast
+            }
+
+            fn visit_binding_property(&mut self, node: BindingProperty) {
+                assert_eq!(node.ast_id().store_tag(), StoreTag::NamePattern);
+                self.count += 1;
+                node.visit_children_with(self);
+            }
+        }
+
+        let allocator = Allocator::new();
+        let result = Parser::init(
+            &allocator,
+            "x = 1; var { y = 1 } = object;",
+            Options::default(),
+            NoTokenParserConfig,
+        )
+        .parse();
+        assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
+
+        let mut checker = BindingPropertyStoreChecker {
+            ast: &result.ast,
+            count: 0,
+        };
+        result.ast.root_program().visit_with(&mut checker);
+        assert_eq!(checker.count, 1);
     }
 
     #[test]

@@ -390,8 +390,8 @@ fn generate_node_impls_for_struct(ast: &AstStruct, schema: &Schema) -> TokenStre
             let node_impls = generate_common_node_impls(
                 &name,
                 quote!(NodeId<#name>),
-                quote!(ast.span(self.ast_id())),
-                quote!(ast.set_span(self.ast_id(), span)),
+                quote!(ast.typed_span(self)),
+                quote!(ast.set_typed_span(self, span)),
             );
             quote! {
                 impl IdDomain for #name {
@@ -403,12 +403,18 @@ fn generate_node_impls_for_struct(ast: &AstStruct, schema: &Schema) -> TokenStre
         }
         StorageDomain::Pooled { id, .. } => {
             let id = format_ident!("{id}");
-            generate_common_node_impls(
+            let node_impls = generate_common_node_impls(
                 &name,
                 quote!(#id),
-                quote!(ast.span(self.ast_id())),
-                quote!(ast.set_span(self.ast_id(), span)),
-            )
+                quote!(ast.typed_span(self)),
+                quote!(ast.set_typed_span(self, span)),
+            );
+            quote! {
+                impl IdDomain for #name {
+                    const TAG: StoreTag = StoreTag::Function;
+                }
+                #node_impls
+            }
         }
         StorageDomain::Dedicated { id, .. } => {
             let id = format_ident!("{id}");

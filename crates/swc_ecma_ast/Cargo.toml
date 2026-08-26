@@ -10,6 +10,7 @@ version               = "0.1.3"
 
 [features]
 hole-profile-0               = []
+hole-profile-hot-4           = []
 hole-profile-hot-2           = []
 hole-profile-expression-only = []
 hole-profile-statement-only  = []

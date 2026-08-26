@@ -20830,14 +20830,7 @@ fn walk_template_literal<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(_) => {
                 unreachable!("sub-range traversal consumes child replacements")
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {
-                if let Some(replacement) = ctx.take_expr_replacement() {
-                    node.set_expressions(
-                        ctx.ast,
-                        unreachable!("sub-range traversal consumes deferred replacements"),
-                    );
-                }
-            }
+            TraverseAction::Proceed | TraverseAction::Skip => {}
         }
         false
     };
@@ -24025,14 +24018,7 @@ fn walk_array_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(_) => {
                 unreachable!("sub-range traversal consumes child replacements")
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {
-                if let Some(replacement) = ctx.take_expr_replacement() {
-                    node.set_elements(
-                        ctx.ast,
-                        unreachable!("sub-range traversal consumes deferred replacements"),
-                    );
-                }
-            }
+            TraverseAction::Proceed | TraverseAction::Skip => {}
         }
         false
     };
@@ -24403,14 +24389,7 @@ fn walk_sequence_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(_) => {
                 unreachable!("sub-range traversal consumes child replacements")
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {
-                if let Some(replacement) = ctx.take_expr_replacement() {
-                    node.set_expressions(
-                        ctx.ast,
-                        unreachable!("sub-range traversal consumes deferred replacements"),
-                    );
-                }
-            }
+            TraverseAction::Proceed | TraverseAction::Skip => {}
         }
         false
     };
@@ -24560,14 +24539,7 @@ fn walk_call_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(_) => {
                 unreachable!("sub-range traversal consumes child replacements")
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {
-                if let Some(replacement) = ctx.take_expr_replacement() {
-                    node.set_arguments(
-                        ctx.ast,
-                        unreachable!("sub-range traversal consumes deferred replacements"),
-                    );
-                }
-            }
+            TraverseAction::Proceed | TraverseAction::Skip => {}
         }
         false
     };
@@ -24778,14 +24750,7 @@ fn walk_new_expression<'a, State, T: ?Sized + Traverse<'a, State>>(
             TraverseAction::Replace(_) => {
                 unreachable!("sub-range traversal consumes child replacements")
             }
-            TraverseAction::Proceed | TraverseAction::Skip => {
-                if let Some(replacement) = ctx.take_expr_replacement() {
-                    node.set_arguments(
-                        ctx.ast,
-                        unreachable!("sub-range traversal consumes deferred replacements"),
-                    );
-                }
-            }
+            TraverseAction::Proceed | TraverseAction::Skip => {}
         }
         false
     };

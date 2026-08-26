@@ -46,36 +46,32 @@ use crate::strings::StringPool;
 
 const HOLE_LIVE_PER_CHUNK: usize = 16;
 const COMMON_HOLES_PER_CHUNK: usize = 0;
-const EXPRESSION_HOLES_PER_CHUNK: usize = if cfg!(any(
-    feature = "hole-profile-0",
-    feature = "hole-profile-statement-only"
-)) {
-    0
-} else if cfg!(feature = "hole-profile-hot-2") {
+const EXPRESSION_HOLES_PER_CHUNK: usize = if cfg!(feature = "hole-profile-hot-2") {
     2
-} else {
-    4
-};
-const STATEMENT_HOLES_PER_CHUNK: usize = if cfg!(any(
-    feature = "hole-profile-0",
+} else if cfg!(any(
+    feature = "hole-profile-hot-4",
     feature = "hole-profile-expression-only"
 )) {
-    0
-} else if cfg!(feature = "hole-profile-hot-2") {
-    2
-} else {
     4
+} else {
+    0
 };
-const NAME_PATTERN_HOLES_PER_CHUNK: usize = if cfg!(any(
-    feature = "hole-profile-0",
-    feature = "hole-profile-expression-only",
+const STATEMENT_HOLES_PER_CHUNK: usize = if cfg!(feature = "hole-profile-hot-2") {
+    2
+} else if cfg!(any(
+    feature = "hole-profile-hot-4",
     feature = "hole-profile-statement-only"
 )) {
-    0
-} else if cfg!(feature = "hole-profile-hot-2") {
-    2
-} else {
     4
+} else {
+    0
+};
+const NAME_PATTERN_HOLES_PER_CHUNK: usize = if cfg!(feature = "hole-profile-hot-2") {
+    2
+} else if cfg!(feature = "hole-profile-hot-4") {
+    4
+} else {
+    0
 };
 const CLASS_ELEMENT_HOLES_PER_CHUNK: usize = NAME_PATTERN_HOLES_PER_CHUNK;
 
@@ -467,6 +463,11 @@ impl<'a> Ast<'a> {
         old_ast_id: AstId,
         new_ast_id: AstId,
     ) -> AstId {
+        assert_eq!(
+            old_ast_id.store_tag(),
+            new_ast_id.store_tag(),
+            "in-place AST replacement requires one storage domain"
+        );
         let span = self.span(new_ast_id);
         let kind = self.node_kind(new_ast_id);
         let data = unsafe { *self.node_payload_unchecked(new_ast_id) };
@@ -478,8 +479,10 @@ impl<'a> Ast<'a> {
         old_ast_id
     }
 
-    /// Replace `old` with a newly built `new` node, discard the temporary node,
-    /// and return a typed handle that preserves `old`'s node ID.
+    /// Replace `old` with a newly built `new` node.
+    ///
+    /// Within one store this discards the temporary node and preserves `old`'s
+    /// ID. Across stores it retires `old` and returns `new`'s typed ID.
     ///
     /// # Safety
     ///
@@ -490,10 +493,10 @@ impl<'a> Ast<'a> {
     /// previous concrete kind must never be used to access node-specific data
     /// after the replacement.
     ///
-    /// `new` must be an unattached temporary node at the end of the node table.
-    /// No handle or AST edge may refer to `new` after this call, and the moved
-    /// payload must not contain a reference to `new`, because its slot is
-    /// removed before this function returns.
+    /// For same-store replacement, `new` must be unattached. No handle or AST
+    /// edge may refer to `new` after this call, and the moved payload must not
+    /// contain a reference to `new`, because its slot is retired before this
+    /// function returns. Cross-store replacement keeps `new` alive instead.
     #[inline]
     pub unsafe fn replace_data<Old: CommonAstNode, New: CommonAstNode>(
         &mut self,
@@ -503,9 +506,7 @@ impl<'a> Ast<'a> {
         let old_ast_id = old.ast_id();
         let new_ast_id = new.ast_id();
         assert_ne!(old_ast_id, new_ast_id);
-        if old_ast_id.store_tag() != new_ast_id.store_tag()
-            && new_ast_id.store_tag() == StoreTag::Function
-        {
+        if old_ast_id.store_tag() != new_ast_id.store_tag() {
             self.retire_node(old_ast_id);
             return new;
         }
@@ -890,6 +891,54 @@ impl<'a> Ast<'a> {
     }
 
     #[inline]
+    pub(crate) fn typed_span<T>(&self, node: T) -> Span
+    where
+        T: CommonAstNode + IdDomain,
+    {
+        let ast_id = node.ast_id();
+        debug_assert_eq!(ast_id.store_tag(), T::TAG);
+        match T::TAG {
+            StoreTag::Common
+            | StoreTag::Expression
+            | StoreTag::Statement
+            | StoreTag::NamePattern
+            | StoreTag::ClassElement
+            | StoreTag::TypeJsx
+            | StoreTag::ProgramAux => *self.node_store(T::TAG).span(ast_id.node_id()),
+            StoreTag::Function => *self
+                .functions
+                .span(FunctionId::from_raw(ast_id.index() as u32)),
+            StoreTag::Class => unreachable!("class records use ClassId spans"),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn set_typed_span<T>(&mut self, node: T, span: Span)
+    where
+        T: CommonAstNode + IdDomain,
+    {
+        let ast_id = node.ast_id();
+        debug_assert_eq!(ast_id.store_tag(), T::TAG);
+        match T::TAG {
+            StoreTag::Common
+            | StoreTag::Expression
+            | StoreTag::Statement
+            | StoreTag::NamePattern
+            | StoreTag::ClassElement
+            | StoreTag::TypeJsx
+            | StoreTag::ProgramAux => {
+                *self.node_store_mut(T::TAG).span_mut(ast_id.node_id()) = span;
+            }
+            StoreTag::Function => {
+                *self
+                    .functions
+                    .span_mut(FunctionId::from_raw(ast_id.index() as u32)) = span;
+            }
+            StoreTag::Class => unreachable!("class records use ClassId spans"),
+        }
+    }
+
+    #[inline]
     pub(crate) unsafe fn node_payload_unchecked(&self, node_id: AstId) -> &NodePayload {
         match node_id.store_tag() {
             StoreTag::Common
@@ -910,9 +959,16 @@ impl<'a> Ast<'a> {
         }
     }
 
+    /// Reads a concrete node payload from its schema-selected storage without
+    /// routing through the erased ID's runtime store tag.
     #[inline]
-    pub(crate) unsafe fn node_payload_mut_unchecked(&mut self, node_id: AstId) -> &mut NodePayload {
-        match node_id.store_tag() {
+    pub(crate) unsafe fn typed_node_payload_unchecked<T>(&self, node: T) -> &NodePayload
+    where
+        T: CommonAstNode + IdDomain,
+    {
+        let ast_id = node.ast_id();
+        debug_assert_eq!(ast_id.store_tag(), T::TAG);
+        match T::TAG {
             StoreTag::Common
             | StoreTag::Expression
             | StoreTag::Statement
@@ -920,14 +976,40 @@ impl<'a> Ast<'a> {
             | StoreTag::ClassElement
             | StoreTag::TypeJsx
             | StoreTag::ProgramAux => unsafe {
-                self.node_store_mut(node_id.store_tag())
-                    .data_mut_unchecked(node_id.node_id())
+                self.node_store(T::TAG).data_unchecked(ast_id.node_id())
             },
             StoreTag::Function => unsafe {
                 self.functions
-                    .data_mut_unchecked(FunctionId::from_raw(node_id.index() as u32))
+                    .data_unchecked(FunctionId::from_raw(ast_id.index() as u32))
             },
-            _ => panic!("AST store does not contain NodePayload"),
+            StoreTag::Class => unreachable!("class records do not use NodePayload"),
+        }
+    }
+
+    /// Mutably reads a concrete node payload from its schema-selected storage.
+    #[inline]
+    pub(crate) unsafe fn typed_node_payload_mut_unchecked<T>(&mut self, node: T) -> &mut NodePayload
+    where
+        T: CommonAstNode + IdDomain,
+    {
+        let ast_id = node.ast_id();
+        debug_assert_eq!(ast_id.store_tag(), T::TAG);
+        match T::TAG {
+            StoreTag::Common
+            | StoreTag::Expression
+            | StoreTag::Statement
+            | StoreTag::NamePattern
+            | StoreTag::ClassElement
+            | StoreTag::TypeJsx
+            | StoreTag::ProgramAux => unsafe {
+                self.node_store_mut(T::TAG)
+                    .data_mut_unchecked(ast_id.node_id())
+            },
+            StoreTag::Function => unsafe {
+                self.functions
+                    .data_mut_unchecked(FunctionId::from_raw(ast_id.index() as u32))
+            },
+            StoreTag::Class => unreachable!("class records do not use NodePayload"),
         }
     }
 }

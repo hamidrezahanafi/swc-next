@@ -811,7 +811,10 @@ fn transparently_contains_expr(type_id: TypeId, schema: &Schema) -> bool {
                 })
         }
         AstType::Option(ast) => transparently_contains_expr(ast.inner_type_id, schema),
-        AstType::Vec(ast) => transparently_contains_expr(ast.inner_type_id, schema),
+        // A sub-range consumes and applies replacements for its own elements.
+        // Its parent must not try to apply the deferred replacement to the
+        // range handle itself.
+        AstType::Vec(_) => false,
         AstType::Struct(_) | AstType::Primitive(_) => false,
     }
 }
