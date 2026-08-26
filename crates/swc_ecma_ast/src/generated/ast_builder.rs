@@ -5125,23 +5125,22 @@ impl<'a> Ast<'a> {
         r#abstract: bool,
         declare: bool,
     ) -> ClassId {
-        let storage_index = u32::try_from(self.classes.len()).expect("class index exceeds u32");
-        let node_id = self.add_node(span, NodeKind::Class, NodePayload(storage_index as u128));
-        let class_id = ClassId::from_raw(node_id.raw());
-        self.classes.push(Class {
-            class_type,
-            decorators,
-            id,
-            type_parameters,
-            super_class,
-            super_type_arguments,
-            implements,
-            body_span,
-            body,
-            r#abstract,
-            declare,
-        });
-        class_id
+        self.classes.push(
+            span,
+            Class {
+                class_type,
+                decorators,
+                id,
+                type_parameters,
+                super_class,
+                super_type_arguments,
+                implements,
+                body_span,
+                body,
+                r#abstract,
+                declare,
+            },
+        )
     }
     #[inline]
     pub fn method_definition(

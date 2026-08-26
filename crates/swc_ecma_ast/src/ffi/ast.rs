@@ -1,10 +1,9 @@
 //! Binary AST transfer format used by the JavaScript FFI.
 //!
-//! Internal AST references are untagged common-node IDs. A common Class owner
-//! stores the dense index of its object in Ast::classes. The public JavaScript
-//! decoder still consumes the original 36-byte-header format, so serialization
-//! adds one virtual ClassBody record per class. No internal ClassBody node is
-//! allocated.
+//! Internal AST references are tagged store-local IDs. The public JavaScript
+//! decoder still consumes one dense node array, so serialization remaps IDs and
+//! adds one virtual ClassBody record per class. No internal owner or ClassBody
+//! node is allocated.
 
 use std::{
     mem::{offset_of, size_of},
@@ -45,7 +44,7 @@ const _: () = {
 
 #[inline]
 fn wire_node_count(tree: &Ast<'_>) -> usize {
-    tree.node_count() + tree.class_count() * CLASS_COMPAT_NODE_COUNT
+    tree.common_node_count() + tree.class_count() * (1 + CLASS_COMPAT_NODE_COUNT)
 }
 
 #[inline]
@@ -94,7 +93,7 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
         comment_count,
         0, // attached_comment_count
         0, // diag_count
-        tree.root_program().node_id().raw(),
+        wire_node_id(tree, tree.root_program().ast_id()),
         (if tree.is_ts() { FLAG_TS } else { 0 })
             | ((tree.source_type() as u32) << FLAG_SOURCE_TYPE_SHIFT),
     ] {
@@ -104,18 +103,31 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
     let spans = unsafe {
         slice::from_raw_parts(
             tree.nodes.span.as_ptr().cast::<u8>(),
-            tree.node_count() * SPAN_SIZE,
+            tree.common_node_count() * SPAN_SIZE,
         )
     };
     buf[pos..pos + spans.len()].copy_from_slice(spans);
     pos += spans.len();
-    for class in &tree.classes {
+    let class_spans = unsafe {
+        slice::from_raw_parts(
+            tree.classes.span.as_ptr().cast::<u8>(),
+            tree.class_count() * SPAN_SIZE,
+        )
+    };
+    buf[pos..pos + class_spans.len()].copy_from_slice(class_spans);
+    pos += class_spans.len();
+    let classes = unsafe { slice::from_raw_parts(tree.classes.data.as_ptr(), tree.class_count()) };
+    for class in classes {
         write_span(buf, &mut pos, class.body_span);
     }
 
-    for index in 0..tree.node_count() {
+    for index in 0..tree.common_node_count() {
         let kind = unsafe { *tree.nodes.kind.as_ptr().add(index) };
         buf[pos] = wire_kind(kind);
+        pos += 1;
+    }
+    for _ in 0..tree.class_count() {
+        buf[pos] = wire_kind(NodeKind::Class);
         pos += 1;
     }
     for _ in 0..tree.class_count() {
@@ -126,59 +138,59 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
 
     let mut compatibility_extra = tree.extra_data.as_slice().to_vec();
     let class_extra_base = tree.node_edge_count() + tree.extra_data_count();
-    for index in 0..tree.node_count() {
+    for index in 0..tree.common_node_count() {
         let kind = unsafe { *tree.nodes.kind.as_ptr().add(index) };
         let mut payload = unsafe { *tree.nodes.data.as_ptr().add(index) };
-        if kind == NodeKind::Class {
-            let storage_index = payload.0 as u32 as usize;
-            let class = &tree.classes[storage_index];
-            let extra_id =
-                u32::try_from(class_extra_base + storage_index * CLASS_COMPAT_EXTRA_COUNT)
-                    .expect("class compatibility extra-data index exceeds u32");
-            let id = class
-                .id
-                .map_or(u32::MAX, |node| wire_node_id(node.ast_id()));
-            let type_parameters = class
-                .type_parameters
-                .map_or(u32::MAX, |node| wire_node_id(node.ast_id()));
-            payload = NodePayload(
+        kind.map_ast_ids(&mut payload, &mut compatibility_extra, |id| {
+            AstId::from_raw(wire_node_id(tree, id))
+        });
+        if kind.uses_extra_data() {
+            let extra_id = (payload.0 >> 96) as u32;
+            let relocated = extra_id
+                .checked_add(node_edge_count)
+                .expect("AST compatibility extra-data index exceeds u32");
+            payload.0 = (payload.0 & ((1u128 << 96) - 1)) | ((relocated as u128) << 96);
+        }
+        write_payload(buf, &mut pos, payload);
+    }
+    for (storage_index, class) in classes.iter().enumerate() {
+        let extra_id = u32::try_from(class_extra_base + storage_index * CLASS_COMPAT_EXTRA_COUNT)
+            .expect("class compatibility extra-data index exceeds u32");
+        let id = class
+            .id
+            .map_or(u32::MAX, |node| wire_node_id(tree, node.ast_id()));
+        let type_parameters = class
+            .type_parameters
+            .map_or(u32::MAX, |node| wire_node_id(tree, node.ast_id()));
+        write_payload(
+            buf,
+            &mut pos,
+            NodePayload(
                 (class.class_type as u128)
                     | ((class.r#abstract as u128) << 8)
                     | ((class.declare as u128) << 16)
                     | ((id as u128) << 24)
                     | ((type_parameters as u128) << 56)
                     | ((extra_id as u128) << 96),
-            );
-        } else {
-            kind.map_ast_ids(&mut payload, &mut compatibility_extra, |id| {
-                AstId::from_raw(wire_node_id(id))
-            });
-            if kind.uses_extra_data() {
-                let extra_id = (payload.0 >> 96) as u32;
-                let relocated = extra_id
-                    .checked_add(node_edge_count)
-                    .expect("AST compatibility extra-data index exceeds u32");
-                payload.0 = (payload.0 & ((1u128 << 96) - 1)) | ((relocated as u128) << 96);
-            }
-        }
-        write_payload(buf, &mut pos, payload);
+            ),
+        );
     }
-    for class in &tree.classes {
+    for class in classes {
         write_payload(buf, &mut pos, NodePayload(range_word(class.body) as u128));
     }
 
     for edge in tree.node_edges.as_slice() {
-        write_u32(buf, &mut pos, wire_node_id(*edge));
+        write_u32(buf, &mut pos, wire_node_id(tree, *edge));
         write_u32(buf, &mut pos, 0);
     }
     for extra in &compatibility_extra {
         write_u64(buf, &mut pos, unsafe { extra.other });
     }
-    for (index, class) in tree.classes.iter().enumerate() {
+    for (index, class) in classes.iter().enumerate() {
         for word in [
             range_word(class.decorators),
-            optional_wire_node(class.super_class),
-            optional_wire_node(class.super_type_arguments),
+            optional_wire_node(tree, class.super_class),
+            optional_wire_node(tree, class.super_type_arguments),
             range_word(class.implements),
             wire_class_body_id(tree, index) as u64,
         ] {
@@ -206,12 +218,21 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
 
 #[inline]
 fn wire_class_body_id(tree: &Ast<'_>, index: usize) -> u32 {
-    u32::try_from(tree.node_count() + index).expect("class body wire node index exceeds u32")
+    u32::try_from(tree.common_node_count() + tree.class_count() + index)
+        .expect("class body wire node index exceeds u32")
 }
 
 #[inline]
-fn wire_node_id(id: AstId) -> u32 {
-    id.raw()
+fn wire_node_id(tree: &Ast<'_>, id: AstId) -> u32 {
+    if id.is_none() {
+        return u32::MAX;
+    }
+    match id.store_tag() {
+        crate::StoreTag::Common => id.index() as u32,
+        crate::StoreTag::Class => u32::try_from(tree.common_node_count() + id.index())
+            .expect("class wire node index exceeds u32"),
+        _ => panic!("AST store is not implemented by FFI serialization"),
+    }
 }
 
 #[inline]
@@ -230,8 +251,10 @@ fn range_word<T>(range: TypedNodeRange<T>) -> u64 {
 }
 
 #[inline]
-fn optional_wire_node<T: CommonAstNode>(node: Option<T>) -> u64 {
-    node.map_or(u32::MAX as u64, |node| wire_node_id(node.ast_id()) as u64)
+fn optional_wire_node<T: CommonAstNode>(tree: &Ast<'_>, node: Option<T>) -> u64 {
+    node.map_or(u32::MAX as u64, |node| {
+        wire_node_id(tree, node.ast_id()) as u64
+    })
 }
 
 #[inline]

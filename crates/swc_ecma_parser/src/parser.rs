@@ -1502,7 +1502,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             lexer_processed_comments: self.lexer.processed_comments,
             lexer_tokens_len: self.lexer.tokens.len(),
             current_token: self.current_token,
-            nodes_len: self.ast.node_count(),
+            nodes_len: self.ast.common_node_count(),
             classes_len: self.ast.class_count(),
             node_edges_len: self.ast.node_edge_count(),
             extra_len: self.ast.extra_data_count(),
@@ -12708,7 +12708,7 @@ impl<'ast> VisitMut<'ast> for DedicatedParenthesisStripper<'_, 'ast> {
 
 fn strip_parenthesized_nodes(ast: &mut Ast<'_>, comments: &mut [Comment]) {
     let mut trailing_comment_index = 0;
-    for index in 0..ast.node_count() {
+    for index in 0..ast.common_node_count() {
         let node = NodeId::from_raw_unchecked(index as u32);
         let replacement = match ast.kind_data(node) {
             NodeKindData::ParenthesizedExpression(parenthesized) => {

@@ -30,8 +30,8 @@ pub use generated::ast_node::{NodeKind, NodeKindData};
 pub use generated::ast_visitor::*;
 pub use node_id::{
     AstEdge, AstId, AstNode, ClassDomain, ClassId, CommonAstNode, CommonDomain, ExtraDataCompact,
-    ExtraDataId, Id, IdDomain, NodeEdgeId, NodeEdgeIndex, NodeId, NodeMeta, NodeRange, SubRange,
-    TypedAstId, TypedNodeRange, TypedSubRange,
+    ExtraDataId, Id, IdDomain, NodeEdgeId, NodeEdgeIndex, NodeId, NodeMeta, NodeRange, StoreTag,
+    SubRange, TypedAstId, TypedNodeRange, TypedSubRange,
 };
 pub use semantic::{ReferenceId, ScopeId, SymbolId};
 pub use strings::{AstUtf8, AstWtf8};
@@ -57,9 +57,8 @@ pub struct Ast<'a> {
     /// Flattening AST nodes.
     pub(crate) nodes: NodeData<'a>,
 
-    /// Dense object storage for classes. Common Class owner nodes store this
-    /// vector's index in their payload.
-    pub(crate) classes: ArenaVec<'a, Class>,
+    /// Standalone class storage. A ClassId indexes this store directly.
+    pub(crate) classes: ClassData<'a>,
 
     /// Four-byte untagged common-node child-list elements.
     pub(crate) node_edges: ArenaVec<'a, AstId>,
@@ -77,6 +76,14 @@ multi_index_vec! {
         pub(crate) span => span_mut => span_unchecked => span_mut_unchecked: Span,
         pub(crate) kind => kind_mut => kind_unchecked => kind_mut_unchecked: NodeKind,
         pub(crate) data => data_mut => data_unchecked => data_mut_unchecked: NodePayload,
+    }
+}
+
+multi_index_vec! {
+    /// Arena-backed standalone storage for large Class records.
+    pub struct ClassData<'a, ClassId> {
+        pub(crate) span => span_mut => span_unchecked => span_mut_unchecked: Span,
+        pub(crate) data => data_mut => data_unchecked => data_mut_unchecked: Class,
     }
 }
 
@@ -415,6 +422,12 @@ impl<'a> Ast<'a> {
 
     #[inline]
     pub fn node_count(&self) -> usize {
+        self.nodes.len() + self.classes.len()
+    }
+
+    #[inline]
+    #[doc(hidden)]
+    pub fn common_node_count(&self) -> usize {
         self.nodes.len()
     }
 
@@ -436,39 +449,56 @@ impl<'a> Ast<'a> {
 
     #[inline]
     pub fn class_index(&self, class_id: ClassId) -> usize {
-        let node_id = class_id.ast_id().node_id();
-        assert_eq!(*self.nodes.kind(node_id), NodeKind::Class);
-        let index = self.nodes.data(node_id).0 as u32 as usize;
+        let index = class_id.index();
         assert!(index < self.classes.len());
         index
     }
 
     #[inline]
     pub(crate) fn class_data(&self, class_id: ClassId) -> &Class {
-        &self.classes[self.class_index(class_id)]
+        self.classes
+            .data(ClassId::from_raw(self.class_index(class_id) as u32))
     }
 
     #[inline]
     pub(crate) fn class_data_mut(&mut self, class_id: ClassId) -> &mut Class {
-        let index = self.class_index(class_id);
-        &mut self.classes[index]
+        let id = ClassId::from_raw(self.class_index(class_id) as u32);
+        self.classes.data_mut(id)
     }
 
     /// Returns the concrete type stored at an AST ID.
     #[inline]
     pub fn node_kind<I: Into<AstId>>(&self, node_id: I) -> NodeKind {
-        *self.nodes.kind(node_id.into().node_id())
+        let node_id = node_id.into();
+        match node_id.store_tag() {
+            StoreTag::Common => *self.nodes.kind(node_id.node_id()),
+            StoreTag::Class => NodeKind::Class,
+            _ => panic!("AST store is not implemented"),
+        }
     }
 
     /// Returns the source span stored for an AST ID.
     #[inline]
     pub fn span<I: Into<AstId>>(&self, node_id: I) -> Span {
-        *self.nodes.span(node_id.into().node_id())
+        let node_id = node_id.into();
+        match node_id.store_tag() {
+            StoreTag::Common => *self.nodes.span(node_id.node_id()),
+            StoreTag::Class => *self.classes.span(ClassId::from_raw(node_id.index() as u32)),
+            _ => panic!("AST store is not implemented"),
+        }
     }
 
     #[inline]
     pub fn set_span(&mut self, node_id: AstId, span: Span) {
-        *self.nodes.span_mut(node_id.node_id()) = span;
+        match node_id.store_tag() {
+            StoreTag::Common => *self.nodes.span_mut(node_id.node_id()) = span,
+            StoreTag::Class => {
+                *self
+                    .classes
+                    .span_mut(ClassId::from_raw(node_id.index() as u32)) = span;
+            }
+            _ => panic!("AST store is not implemented"),
+        }
     }
 }
 
@@ -483,7 +513,7 @@ impl<'a> Ast<'a> {
             lang: Lang::Js,
             attached_comments: ArenaVec::new_in(allocator),
             nodes: NodeData::new_in(allocator),
-            classes: ArenaVec::new_in(allocator),
+            classes: ClassData::new_in(allocator),
             node_edges: ArenaVec::new_in(allocator),
             extra_data: ArenaVec::with_capacity_in(0, allocator),
             strings: StringPool::new_in(allocator, source),

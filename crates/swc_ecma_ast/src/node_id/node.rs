@@ -8,23 +8,60 @@ use oxc_index::Idx;
 
 use crate::Span;
 
-const MAX_INDEX: u32 = u32::MAX - 1;
+const STORE_TAG_SHIFT: u32 = 28;
+const INDEX_MASK: u32 = (1 << STORE_TAG_SHIFT) - 1;
+const MAX_INDEX: u32 = INDEX_MASK;
 
-pub trait IdDomain: 'static {}
+/// Physical AST storage selected by an erased [`AstId`].
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StoreTag {
+    Common = 0,
+    Class = 1,
+    Function = 2,
+    Expression = 3,
+    Statement = 4,
+    NamePattern = 5,
+    ClassElement = 6,
+    TypeJsx = 7,
+    ProgramAux = 8,
+}
+
+impl StoreTag {
+    #[inline]
+    pub const fn from_raw(raw: u32) -> Self {
+        match raw >> STORE_TAG_SHIFT {
+            0 => Self::Common,
+            1 => Self::Class,
+            2 => Self::Function,
+            3 => Self::Expression,
+            4 => Self::Statement,
+            5 => Self::NamePattern,
+            6 => Self::ClassElement,
+            7 => Self::TypeJsx,
+            8 => Self::ProgramAux,
+            _ => panic!("invalid AST store tag"),
+        }
+    }
+}
+
+pub trait IdDomain: 'static {
+    const TAG: StoreTag;
+}
 
 pub enum CommonDomain {}
 
-impl IdDomain for CommonDomain {}
+impl IdDomain for CommonDomain {
+    const TAG: StoreTag = StoreTag::Common;
+}
 
 pub enum ClassDomain {}
 
-impl IdDomain for ClassDomain {}
+impl IdDomain for ClassDomain {
+    const TAG: StoreTag = StoreTag::Class;
+}
 
-/// A statically typed, untagged AST index.
-///
-/// NodeId addresses any common node. ClassId addresses a common Class owner
-/// node whose payload points into the dense Vec<Class>. The marker prevents
-/// accidentally indexing the wrong storage without spending bits on a tag.
+/// A statically typed store-local AST index.
 #[repr(transparent)]
 pub struct Id<D: IdDomain> {
     index: u32,
@@ -65,17 +102,10 @@ impl<D: IdDomain> Id<D> {
     }
 }
 
-impl Id<CommonDomain> {
+impl<D: IdDomain> Id<D> {
     #[inline]
     pub const fn ast_id(self) -> AstId {
-        AstId(self.index)
-    }
-}
-
-impl Id<ClassDomain> {
-    #[inline]
-    pub const fn ast_id(self) -> AstId {
-        AstId(self.index)
+        AstId::new(D::TAG, self.index)
     }
 }
 
@@ -133,16 +163,22 @@ impl<D: IdDomain> Idx for Id<D> {
     }
 }
 
-pub type NodeId = Id<CommonDomain>;
+pub type NodeId<D = CommonDomain> = Id<D>;
 pub type ClassId = Id<ClassDomain>;
 
-/// An untagged ID into the common AST node pool.
+/// A four-byte erased AST identity containing a store tag and local index.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AstId(u32);
 
 impl AstId {
     pub const NONE: Self = Self(u32::MAX);
+
+    #[inline]
+    pub const fn new(store: StoreTag, index: u32) -> Self {
+        assert!(index <= MAX_INDEX, "AST store index exceeds 28-bit range");
+        Self(((store as u32) << STORE_TAG_SHIFT) | index)
+    }
 
     #[inline]
     pub const fn from_raw(raw: u32) -> Self {
@@ -156,7 +192,13 @@ impl AstId {
 
     #[inline]
     pub const fn index(self) -> usize {
-        self.0 as usize
+        (self.0 & INDEX_MASK) as usize
+    }
+
+    #[inline]
+    pub const fn store_tag(self) -> StoreTag {
+        assert!(!self.is_none(), "sentinel has no AST store tag");
+        StoreTag::from_raw(self.0)
     }
 
     #[inline]
@@ -167,7 +209,8 @@ impl AstId {
     #[inline]
     pub const fn node_id(self) -> NodeId {
         assert!(!self.is_none(), "sentinel has no common node ID");
-        NodeId::from_raw_unchecked(self.0)
+        assert!(matches!(self.store_tag(), StoreTag::Common));
+        NodeId::from_raw_unchecked(self.0 & INDEX_MASK)
     }
 }
 
@@ -217,7 +260,8 @@ impl TypedAstId for ClassId {
 
     #[inline]
     unsafe fn from_ast_id_unchecked(ast_id: AstId) -> Self {
-        ClassId::from_raw_unchecked(ast_id.raw())
+        debug_assert_eq!(ast_id.store_tag(), StoreTag::Class);
+        ClassId::from_raw_unchecked(ast_id.index() as u32)
     }
 }
 
@@ -340,7 +384,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn typed_ids_are_untagged_and_distinct() {
+    fn typed_ids_are_tagged_when_erased_and_distinct() {
         assert_eq!(std::mem::size_of::<AstId>(), 4);
         assert_eq!(std::mem::size_of::<NodeId>(), 4);
         assert_eq!(std::mem::size_of::<ClassId>(), 4);
@@ -349,16 +393,19 @@ mod tests {
             std::mem::size_of::<Span>()
         );
 
-        let common = NodeId::from_raw(17);
+        let common: NodeId = NodeId::from_raw(17);
         let class = ClassId::from_raw(17);
         assert_eq!(common.raw(), class.raw());
         assert_eq!(common.ast_id().raw(), 17);
+        assert_eq!(class.ast_id().store_tag(), StoreTag::Class);
+        assert_eq!(class.ast_id().index(), 17);
+        assert_ne!(common.ast_id(), class.ast_id());
     }
 
     #[test]
     fn sentinel_is_not_a_valid_store_index() {
-        let max = NodeId::from_raw(MAX_INDEX).ast_id();
-        assert_eq!(max.raw(), MAX_INDEX);
+        let max = ClassId::from_raw(MAX_INDEX).ast_id();
+        assert_eq!(max.index(), MAX_INDEX as usize);
         assert!(!max.is_none());
         assert!(AstId::NONE.is_none());
     }

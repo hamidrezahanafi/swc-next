@@ -20,12 +20,15 @@ pub fn resolver<'ast>(ast: &'ast Ast<'ast>) -> JsNameResolver<'ast> {
     let top_level_scope_id = scopes.push(Scope::new(ScopeKind::Fn, None));
     let label_scope_id = ScopeId::from_usize(ScopeId::MAX);
 
-    let mut node_scopes = ArenaVec::with_capacity_in(ast.node_count(), allocator);
-    node_scopes.resize(ast.node_count(), None);
+    let mut node_scopes = ArenaVec::with_capacity_in(ast.common_node_count(), allocator);
+    node_scopes.resize(ast.common_node_count(), None);
+    let mut class_scopes = ArenaVec::with_capacity_in(ast.class_count(), allocator);
+    class_scopes.resize(ast.class_count(), None);
     let mut resolver = Resolver {
         ast,
         scopes,
         node_scopes,
+        class_scopes,
         top_level_scope_id,
         unresolved_scope_id,
         label_scope_id,
@@ -42,6 +45,7 @@ pub fn resolver<'ast>(ast: &'ast Ast<'ast>) -> JsNameResolver<'ast> {
         unresolved_scope_id,
         label_scope_id,
         node_scopes: resolver.node_scopes,
+        class_scopes: resolver.class_scopes,
     }
 }
 
@@ -56,6 +60,7 @@ pub struct JsNameResolver<'ast> {
     unresolved_scope_id: ScopeId,
     label_scope_id: ScopeId,
     node_scopes: ArenaVec<'ast, Option<ScopeId>>,
+    class_scopes: ArenaVec<'ast, Option<ScopeId>>,
 }
 
 impl JsNameResolver<'_> {
@@ -75,7 +80,12 @@ impl JsNameResolver<'_> {
 
     #[inline]
     fn node_scope(&self, node: AstId) -> ScopeId {
-        self.node_scopes[node.index()].unwrap_or(self.unresolved_scope_id)
+        match node.store_tag() {
+            StoreTag::Common => self.node_scopes[node.index()],
+            StoreTag::Class => self.class_scopes[node.index()],
+            _ => None,
+        }
+        .unwrap_or(self.unresolved_scope_id)
     }
 
     #[inline]
@@ -205,6 +215,7 @@ struct Resolver<'ast> {
     ast: &'ast Ast<'ast>,
     scopes: IndexVec<ScopeId, Scope<'ast>>,
     node_scopes: ArenaVec<'ast, Option<ScopeId>>,
+    class_scopes: ArenaVec<'ast, Option<ScopeId>>,
     top_level_scope_id: ScopeId,
     unresolved_scope_id: ScopeId,
     label_scope_id: ScopeId,
@@ -251,7 +262,11 @@ impl<'ast> Resolver<'ast> {
     }
 
     fn set_scope_once(&mut self, node: AstId, scope: ScopeId) {
-        let slot = &mut self.node_scopes[node.index()];
+        let slot = match node.store_tag() {
+            StoreTag::Common => &mut self.node_scopes[node.index()],
+            StoreTag::Class => &mut self.class_scopes[node.index()],
+            _ => panic!("AST store is not supported by name resolution"),
+        };
         if slot.is_none() {
             *slot = Some(scope);
         }
@@ -299,8 +314,8 @@ impl<'ast> Resolver<'ast> {
     }
 
     fn declare(&mut self, identifier: BindingIdentifier, kind: DeclKind) {
-        let node_index = identifier.ast_id().index();
-        if self.node_scopes[node_index].is_some() {
+        let node = identifier.ast_id();
+        if self.node_scopes[node.index()].is_some() {
             return;
         }
 
@@ -308,7 +323,7 @@ impl<'ast> Resolver<'ast> {
         self.scopes[self.current]
             .declared_symbols
             .insert(name, kind);
-        self.node_scopes[node_index] = Some(self.current);
+        self.node_scopes[node.index()] = Some(self.current);
     }
 
     fn predeclare_parameters(&mut self, parameters: FormalParameters) {
@@ -408,15 +423,15 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
     }
 
     fn visit_identifier_reference(&mut self, reference: IdentifierReference) {
-        let node_index = reference.ast_id().index();
-        if self.node_scopes[node_index].is_some() {
+        let node = reference.ast_id();
+        if self.node_scopes[node.index()].is_some() {
             return;
         }
         let name = self.name(reference.name(self.ast));
         let scope = self
             .scope_of_name(name, false)
             .unwrap_or(self.unresolved_scope_id);
-        self.node_scopes[node_index] = Some(scope);
+        self.node_scopes[node.index()] = Some(scope);
     }
 
     fn visit_binding_identifier(&mut self, identifier: BindingIdentifier) {

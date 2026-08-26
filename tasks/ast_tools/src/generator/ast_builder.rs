@@ -67,15 +67,7 @@ fn generate_build_function_for_struct(ast: &AstStruct, schema: &Schema) -> Token
         return quote! {
             #[inline]
             pub fn #fn_name(&mut self, span: Span, #fn_params) -> #ret_ty {
-                let storage_index =
-                    u32::try_from(self.classes.len()).expect("class index exceeds u32");
-                let node_id = self.add_node(
-                    span,
-                    NodeKind::Class,
-                    NodePayload(storage_index as u128),
-                );
-                let class_id = ClassId::from_raw(node_id.raw());
-                self.classes.push(Class {
+                self.classes.push(span, Class {
                     class_type,
                     decorators,
                     id,
@@ -87,8 +79,7 @@ fn generate_build_function_for_struct(ast: &AstStruct, schema: &Schema) -> Token
                     body,
                     r#abstract,
                     declare,
-                });
-                class_id
+                })
             }
         };
     }
