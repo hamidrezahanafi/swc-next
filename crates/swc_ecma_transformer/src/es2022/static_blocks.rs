@@ -30,8 +30,10 @@ impl<'a> ClassTransform<'_, 'a> {
         // UsedNameState currently provides one conservative program-wide
         // collision domain. `closure_names` still places each declaration
         // in its nearest function, static-block, or program scope.
-        let name = self.semantic.used_names_mut().next_name("_staticBlock", 2);
-        let name = self.ast.intern_utf8(name);
+        let name = self
+            .semantic
+            .used_names_mut()
+            .next_name(self.ast, "_staticBlock", 2);
         self.closure_names.push(name);
         name
     }
@@ -290,13 +292,13 @@ impl<'a> ClassTransform<'_, 'a> {
     ) -> Expr {
         let left = self
             .ast
-            .assignment_target_simple_assignment_target_identifier_reference(span, name);
+            .assignment_target_simple_assignment_target_identifier_reference(span, name.into());
         self.ast
             .expr_assignment_expression(span, left, value, AssignmentOperator::Assign)
     }
 
     fn build_call(&mut self, name: AstInternedUtf8) -> Expr {
-        let callee = self.ast.expr_identifier_reference(DUMMY_SP, name);
+        let callee = self.ast.expr_identifier_reference(DUMMY_SP, name.into());
         self.ast
             .expr_call_expression(DUMMY_SP, callee, None, TypedSubRange::empty(), false)
     }
@@ -308,7 +310,7 @@ impl<'a> ClassTransform<'_, 'a> {
     ) -> PropertyDefinition {
         let key = self
             .ast
-            .property_key_private_identifier(DUMMY_SP, private_name);
+            .property_key_private_identifier(DUMMY_SP, private_name.into());
         self.ast.property_definition(
             DUMMY_SP,
             TypedSubRange::empty(),
@@ -330,11 +332,13 @@ impl<'a> ClassTransform<'_, 'a> {
 
     fn build_set_function_name(&mut self, name: AstWtf8) -> Expr {
         let helpers_name = self.ast.intern_utf8("babelHelpers");
-        let helpers = self.ast.expr_identifier_reference(DUMMY_SP, helpers_name);
+        let helpers = self
+            .ast
+            .expr_identifier_reference(DUMMY_SP, helpers_name.into());
         let function_name = self.ast.intern_utf8("setFunctionName");
         let property = self
             .ast
-            .property_key_identifier_name(DUMMY_SP, function_name);
+            .property_key_identifier_name(DUMMY_SP, function_name.into());
         let callee = self
             .ast
             .expr_member_expression(DUMMY_SP, helpers, property, false, false);
@@ -451,7 +455,7 @@ fn prepend_var_declaration<'a>(scope: NodeId, names: Vec<AstInternedUtf8>, ast: 
         .into_iter()
         .map(|name| {
             let identifier =
-                ast.binding_identifier(DUMMY_SP, name, TypedSubRange::empty(), None, false);
+                ast.binding_identifier(DUMMY_SP, name.into(), TypedSubRange::empty(), None, false);
             let pattern = BindingPattern::BindingIdentifier(identifier);
             ast.variable_declarator(DUMMY_SP, pattern, None, false)
         })
@@ -625,7 +629,7 @@ fn property_key_name(key: PropertyKey, ast: &mut Ast<'_>) -> Option<AstWtf8> {
         return Some(identifier.name(ast).into());
     }
     if let Some(private) = key.as_private_identifier(ast) {
-        let name = format!("#{}", ast.get_interned_utf8(private.name(ast)));
+        let name = format!("#{}", ast.get_utf8(private.name(ast)));
         return Some(ast.add_wtf8(name.as_str().into()));
     }
     None

@@ -1,5 +1,5 @@
 use swc_next_allocator::{Allocator, hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec};
-use swc_next_ecma_ast::{Ast, AstInternedUtf8, NodeId, PropertyKey};
+use swc_next_ecma_ast::{Ast, AstInternedUtf8, NodeId};
 
 use crate::UsedNameState;
 
@@ -68,8 +68,7 @@ impl<'a> ClassSemantic<'a> {
             .classes
             .get_mut(&class)
             .expect("class semantic entry must exist for an analyzed class");
-        let name = info.used_names.next_name("_", 2);
-        ast.intern_utf8(name)
+        info.used_names.next_name(ast, "_", 2)
     }
 
     pub(crate) fn enter_class(&mut self, class: NodeId) {
@@ -93,17 +92,13 @@ impl<'a> ClassSemantic<'a> {
         debug_assert_eq!(self.class_stack.pop(), Some(class));
     }
 
-    pub(crate) fn record_private_key(&mut self, ast: &Ast, key: PropertyKey) {
+    pub(crate) fn record_private_name(&mut self, name: AstInternedUtf8) {
         if !self.enabled {
             return;
         }
         let Some(class) = self.class_stack.last().copied() else {
             return;
         };
-        let Some(private) = key.as_private_identifier(ast) else {
-            return;
-        };
-        let name = ast.get_interned_utf8(private.name(ast)).as_bytes();
         let info = self
             .classes
             .get_mut(&class)
@@ -118,12 +113,12 @@ impl<'a> ClassSemantic<'a> {
 
 impl ClassInfo<'_> {
     /// Returns whether a private name, without its leading `#`, is used.
-    pub fn has_name(&self, name: &[u8]) -> bool {
+    pub fn has_name(&self, name: AstInternedUtf8) -> bool {
         self.used_names.contains(name)
     }
 
-    /// Iterates the used private names, without their leading `#`.
-    pub fn used_names(&self) -> impl Iterator<Item = &[u8]> {
+    /// Iterates the interned used private-name handles, without the leading `#`.
+    pub fn used_names(&self) -> impl Iterator<Item = AstInternedUtf8> + '_ {
         self.used_names.names()
     }
 }
