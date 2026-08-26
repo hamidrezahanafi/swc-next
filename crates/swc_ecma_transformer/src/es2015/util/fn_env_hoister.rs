@@ -1,7 +1,7 @@
 use swc_next_ecma_ast::{
-    AssignmentOperator, Ast, AstUtf8, Class, DUMMY_SP, Decl, Expr, Function, FunctionBody, GetSpan,
-    IdentifierReference, Program, StaticBlock, Stmt, TypedSubRange, VariableKind, VisitMut,
-    VisitMutWith,
+    AssignmentOperator, Ast, AstUtf8, ClassId, DUMMY_SP, Decl, Expr, Function, FunctionBody,
+    GetSpan, IdentifierReference, Program, StaticBlock, Stmt, TypedSubRange, VariableKind,
+    VisitMut, VisitMutWith,
 };
 use swc_next_ecma_semantic::{ReferenceSpace, Semantic, SemanticFeatureFlags};
 
@@ -277,7 +277,7 @@ fn rewrite_derived_super_calls(body: FunctionBody, this_name: AstUtf8, ast: &mut
             None
         }
 
-        fn visit_mut_class(&mut self, _node: Class) -> Option<Class> {
+        fn visit_mut_class(&mut self, _node: ClassId) -> Option<ClassId> {
             None
         }
 

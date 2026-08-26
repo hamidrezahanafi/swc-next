@@ -5,28 +5,28 @@ use std::{borrow::Cow, collections::HashMap};
 use swc_next_allocator::Allocator;
 use swc_next_ecma_ast::{
     ArrayPattern, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator,
-    AssignmentPattern, Ast, BinaryOperator, BindingIdentifier, BindingProperty, BindingRestElement,
-    BlockStatement, CallExpression, CatchClause, Class, ClassBody, Decorator, Diagnostic,
-    Directive, ExportAllDeclaration, ExportDefaultDeclaration, ExportNamedDeclaration,
+    AssignmentPattern, Ast, AstId, BinaryOperator, BindingIdentifier, BindingProperty,
+    BindingRestElement, BlockStatement, CallExpression, CatchClause, ClassBody, ClassId, Decorator,
+    Diagnostic, Directive, ExportAllDeclaration, ExportDefaultDeclaration, ExportNamedDeclaration,
     ExportSpecifier, ForInStatement, ForOfStatement, ForStatement, FormalParameters, Function,
     FunctionBody, FunctionType, IdentifierReference, ImportDeclaration, ImportOrExportKind,
-    ImportSpecifier, JsxClosingElement, JsxOpeningElement, Label, MemberExpression,
-    MethodDefinition, NodeId, NodeKind, NodeKindData, ObjectPattern, ParenthesizedExpression,
-    PropertyDefinition, PropertyKey, ScopeId, Severity, Span, StaticBlock, SwitchCase,
-    SwitchStatement, SymbolId, TsArrayType, TsAsExpression, TsCallSignatureDeclaration,
-    TsClassImplements, TsConditionalType, TsConstructSignatureDeclaration, TsConstructorType,
-    TsEnumBody, TsEnumDeclaration, TsEnumMember, TsExportAssignment, TsFunction, TsFunctionType,
-    TsGlobalDeclaration, TsImportEqualsDeclaration, TsImportType, TsIndexSignature,
-    TsIndexedAccessType, TsInferType, TsInterfaceBody, TsInterfaceDeclaration, TsInterfaceHeritage,
-    TsIntersectionType, TsJsDocNonNullableType, TsJsDocNullableType, TsJsDocUnknownType,
-    TsLiteralType, TsMappedType, TsMethodDefinition, TsMethodSignature, TsModuleBlock,
-    TsModuleDeclaration, TsNamedTupleMember, TsNamespaceExportDeclaration, TsNonNullExpression,
-    TsOptionalType, TsParenthesizedType, TsPropertySignature, TsQualifiedName, TsRestType,
-    TsSatisfiesExpression, TsTemplateLiteralType, TsTupleType, TsTypeAliasDeclaration,
-    TsTypeAnnotation, TsTypeAssertion, TsTypeLiteral, TsTypeOperator, TsTypeParameter,
-    TsTypeParameterDeclaration, TsTypeParameterInstantiation, TsTypePredicate, TsTypeQuery,
-    TsTypeReference, TsUnionType, UnaryExpression, UnaryOperator, UpdateExpression,
-    VariableDeclaration, VariableDeclarator, VariableKind, Visit, VisitWith, WithStatement,
+    ImportSpecifier, JsxClosingElement, JsxOpeningElement, Label, MemberExpression, NodeKind,
+    MethodDefinition, NodeKindData, ObjectPattern, ParenthesizedExpression, PropertyDefinition,
+    PropertyKey, ScopeId, Severity, Span, StaticBlock, SwitchCase, SwitchStatement, SymbolId,
+    TsArrayType, TsAsExpression, TsCallSignatureDeclaration, TsClassImplements, TsConditionalType,
+    TsConstructSignatureDeclaration, TsConstructorType, TsEnumBody, TsEnumDeclaration,
+    TsEnumMember, TsExportAssignment, TsFunction, TsFunctionType, TsGlobalDeclaration,
+    TsImportEqualsDeclaration, TsImportType, TsIndexSignature, TsIndexedAccessType, TsInferType,
+    TsInterfaceBody, TsInterfaceDeclaration, TsInterfaceHeritage, TsIntersectionType,
+    TsJsDocNonNullableType, TsJsDocNullableType, TsJsDocUnknownType, TsLiteralType, TsMappedType,
+    TsMethodDefinition, TsMethodSignature, TsModuleBlock, TsModuleDeclaration, TsNamedTupleMember,
+    TsNamespaceExportDeclaration, TsNonNullExpression, TsOptionalType, TsParenthesizedType,
+    TsPropertySignature, TsQualifiedName, TsRestType, TsSatisfiesExpression, TsTemplateLiteralType,
+    TsTupleType, TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeAssertion, TsTypeLiteral,
+    TsTypeOperator, TsTypeParameter, TsTypeParameterDeclaration, TsTypeParameterInstantiation,
+    TsTypePredicate, TsTypeQuery, TsTypeReference, TsUnionType, UnaryExpression, UnaryOperator,
+    UpdateExpression, VariableDeclaration, VariableDeclarator, VariableKind, Visit, VisitWith,
+    WithStatement,
 };
 
 use crate::{
@@ -44,7 +44,7 @@ pub struct Checker<'traverse, 'a> {
 }
 
 struct CheckerState<'a> {
-    exported_names: HashMap<Vec<u8>, NodeId>,
+    exported_names: HashMap<Vec<u8>, AstId>,
     export_specifiers: Vec<ExportSpecifierInfo>,
     diagnostics: Vec<Diagnostic<'a>>,
 }
@@ -126,7 +126,7 @@ impl<'traverse, 'a> Checker<'traverse, 'a> {
     }
 
     fn visit_dynamic_var_declarator(&mut self, node: VariableDeclarator, iteration_write: bool) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let id = node.id(self.context.ast);
         let init = node.init(self.context.ast);
         let dynamic_write = iteration_write || init.is_some();
@@ -137,11 +137,11 @@ impl<'traverse, 'a> Checker<'traverse, 'a> {
             id.visit_with(self);
         }
         init.visit_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
 }
 
-fn export_expression_space(tree: &Ast<'_>, expression: NodeId) -> ReferenceSpace {
+fn export_expression_space(tree: &Ast<'_>, expression: AstId) -> ReferenceSpace {
     if matches!(
         tree.kind_data(expression),
         NodeKindData::IdentifierReference(_)
@@ -157,18 +157,18 @@ fn is_direct_eval_call(tree: &Ast<'_>, call: CallExpression) -> bool {
         return false;
     }
 
-    let mut callee = call.callee(tree).node_id();
+    let mut callee = call.callee(tree).ast_id();
     loop {
         callee = match tree.kind_data(callee) {
             NodeKindData::IdentifierReference(identifier) => {
                 return tree.get_utf8(identifier.name(tree)).as_bytes() == b"eval";
             }
-            NodeKindData::ParenthesizedExpression(wrapper) => wrapper.expression(tree).node_id(),
-            NodeKindData::TsAsExpression(wrapper) => wrapper.expression(tree).node_id(),
-            NodeKindData::TsSatisfiesExpression(wrapper) => wrapper.expression(tree).node_id(),
-            NodeKindData::TsTypeAssertion(wrapper) => wrapper.expression(tree).node_id(),
-            NodeKindData::TsNonNullExpression(wrapper) => wrapper.expression(tree).node_id(),
-            NodeKindData::TsInstantiationExpression(wrapper) => wrapper.expression(tree).node_id(),
+            NodeKindData::ParenthesizedExpression(wrapper) => wrapper.expression(tree).ast_id(),
+            NodeKindData::TsAsExpression(wrapper) => wrapper.expression(tree).ast_id(),
+            NodeKindData::TsSatisfiesExpression(wrapper) => wrapper.expression(tree).ast_id(),
+            NodeKindData::TsTypeAssertion(wrapper) => wrapper.expression(tree).ast_id(),
+            NodeKindData::TsNonNullExpression(wrapper) => wrapper.expression(tree).ast_id(),
+            NodeKindData::TsInstantiationExpression(wrapper) => wrapper.expression(tree).ast_id(),
             _ => return false,
         };
     }
@@ -176,7 +176,7 @@ fn is_direct_eval_call(tree: &Ast<'_>, call: CallExpression) -> bool {
 
 struct ExportSpecifierInfo {
     local_name: Vec<u8>,
-    node: NodeId,
+    node: AstId,
 }
 
 impl<'a> CheckerState<'a> {
@@ -221,7 +221,7 @@ impl<'a> CheckerState<'a> {
         &mut self,
         tree: &Ast<'a>,
         identifier: BindingIdentifier,
-        node: NodeId,
+        node: AstId,
         existing_id: SymbolId,
         existing: Symbol,
         context: &SemanticContext<'a>,
@@ -301,11 +301,11 @@ enum PrivateElementKind {
 }
 
 /// Returns the StringValue of a class element's PrivateIdentifier key, if any.
-fn private_element_name<'a>(tree: &'a Ast<'_>, node: NodeId) -> Option<&'a [u8]> {
+fn private_element_name<'a>(tree: &'a Ast<'_>, node: AstId) -> Option<&'a [u8]> {
     let key = match tree.kind_data(node) {
-        NodeKindData::PropertyDefinition(property) => property.key(tree).node_id(),
-        NodeKindData::MethodDefinition(method) => method.key(tree).node_id(),
-        NodeKindData::TsMethodDefinition(method) => method.key(tree).node_id(),
+        NodeKindData::PropertyDefinition(property) => property.key(tree).ast_id(),
+        NodeKindData::MethodDefinition(method) => method.key(tree).ast_id(),
+        NodeKindData::TsMethodDefinition(method) => method.key(tree).ast_id(),
         _ => return None,
     };
     let NodeKindData::PrivateIdentifier(identifier) = tree.kind_data(key) else {
@@ -314,7 +314,7 @@ fn private_element_name<'a>(tree: &'a Ast<'_>, node: NodeId) -> Option<&'a [u8]>
     Some(tree.get_utf8(identifier.name(tree)).as_bytes())
 }
 
-fn private_element_kind(tree: &Ast<'_>, node: NodeId) -> PrivateElementKind {
+fn private_element_kind(tree: &Ast<'_>, node: AstId) -> PrivateElementKind {
     let kind = match tree.kind_data(node) {
         NodeKindData::MethodDefinition(method) => Some(method.kind(tree)),
         NodeKindData::TsMethodDefinition(method) => Some(method.kind(tree)),
@@ -328,7 +328,7 @@ fn private_element_kind(tree: &Ast<'_>, node: NodeId) -> PrivateElementKind {
     }
 }
 
-fn private_element_is_static(tree: &Ast<'_>, node: NodeId) -> bool {
+fn private_element_is_static(tree: &Ast<'_>, node: AstId) -> bool {
     match tree.kind_data(node) {
         NodeKindData::PropertyDefinition(property) => property.r#static(tree),
         NodeKindData::MethodDefinition(method) => method.r#static(tree),
@@ -340,12 +340,10 @@ fn private_element_is_static(tree: &Ast<'_>, node: NodeId) -> bool {
 /// 15.7.7 AllPrivateIdentifiersValid. Walks ancestor ClassBody nodes,
 /// collecting PrivateBoundIdentifiers at each level.
 fn is_private_name_declared(context: &SemanticVisitCtx<'_, '_>, name: &[u8]) -> bool {
-    for ancestor in context.ancestors() {
-        let NodeKindData::ClassBody(body) = context.ast.kind_data(ancestor) else {
-            continue;
-        };
-        for child in body.body(context.ast).iter() {
-            let child = context.ast.get_node_in_sub_range(child).node_id();
+    for class_id in context.class_bodies() {
+        let class = class_id;
+        for child in class.body_elements(context.ast).iter() {
+            let child = context.ast.get_node_in_sub_range(child).ast_id();
             if private_element_name(context.ast, child) == Some(name) {
                 return true;
             }
@@ -374,14 +372,14 @@ fn is_eval_or_arguments(name: &[u8]) -> bool {
     matches!(name, b"eval" | b"arguments")
 }
 
-fn is_eval_or_arguments_reference(tree: &Ast<'_>, node: NodeId) -> bool {
+fn is_eval_or_arguments_reference(tree: &Ast<'_>, node: AstId) -> bool {
     let NodeKindData::IdentifierReference(identifier) = tree.kind_data(node) else {
         return false;
     };
     is_eval_or_arguments(tree.get_utf8(identifier.name(tree)).as_bytes())
 }
 
-fn unwrap_parentheses(tree: &Ast<'_>, node: NodeId) -> NodeId {
+fn unwrap_parentheses(tree: &Ast<'_>, node: AstId) -> AstId {
     let mut current = node;
     let mut depth = 0u32;
     // The parser builds at most one parenthesis node per syntactic
@@ -391,7 +389,7 @@ fn unwrap_parentheses(tree: &Ast<'_>, node: NodeId) -> NodeId {
         let NodeKindData::ParenthesizedExpression(parenthesized) = tree.kind_data(current) else {
             return current;
         };
-        current = parenthesized.expression(tree).node_id();
+        current = parenthesized.expression(tree).ast_id();
         depth += 1;
     }
 }
@@ -597,7 +595,7 @@ fn find_label_for_continue(context: &SemanticVisitCtx<'_, '_>, name: &[u8]) -> C
                     if crossed_boundary {
                         return ContinueLabelSearch::CrossedBoundary;
                     }
-                    let body = context.ast.node_kind(statement.body(context.ast).node_id());
+                    let body = context.ast.node_kind(statement.body(context.ast).ast_id());
                     return if is_iteration(body) || body == NodeKind::LabeledStatement {
                         ContinueLabelSearch::Found
                     } else {
@@ -675,7 +673,7 @@ fn find_formal_parameters(
 
 /// Extracts the name from a ModuleExportName: an IdentifierName,
 /// IdentifierReference, or StringLiteral.
-fn module_export_name<'b>(tree: &'b Ast<'_>, node: NodeId) -> &'b [u8] {
+fn module_export_name<'b>(tree: &'b Ast<'_>, node: AstId) -> &'b [u8] {
     match tree.kind_data(node) {
         NodeKindData::IdentifierName(identifier) => tree.get_utf8(identifier.name(tree)).as_bytes(),
         NodeKindData::IdentifierReference(identifier) => {
@@ -721,7 +719,91 @@ impl Default for ReportOptions<'_> {
 }
 
 impl Checker<'_, '_> {
-    fn check(&mut self, node: NodeId) {
+    fn check_class_body(&mut self, body: ClassBody) {
+        let checks = &mut self.checks;
+        let context = &mut self.context;
+        let children = body.body(context.ast);
+        let mut first_constructor = None;
+        for index in 0..children.len() {
+            let child = children
+                .get_node(context.ast, index)
+                .expect("class child exists")
+                .ast_id();
+            // TypeScript permits constructor overload declarations and leaves duplicate
+            // implementation diagnostics to its type checker.
+            if !context.ast.is_ts()
+                && let NodeKindData::MethodDefinition(method) = context.ast.kind_data(child)
+                && method.kind(context.ast) == swc_next_ecma_ast::MethodDefinitionKind::Constructor
+            {
+                if let Some(first) = first_constructor {
+                    checks.report(
+                        context.ast.span(method.key(context.ast).ast_id()),
+                        "A class can only have one constructor",
+                        ReportOptions {
+                            labels: checks.labels(&[checks
+                                .label(context.ast.span(first), "first constructor defined here")]),
+                            ..ReportOptions::default()
+                        },
+                    );
+                } else {
+                    first_constructor = Some(method.key(context.ast).ast_id());
+                }
+            }
+            // Body-less TypeScript methods are erased overload signatures. They do not
+            // introduce runtime private names and must not conflict with the implementation.
+            if context.ast.node_kind(child) == NodeKind::TsMethodDefinition {
+                continue;
+            }
+            let Some(name) = private_element_name(context.ast, child) else {
+                continue;
+            };
+            let kind = private_element_kind(context.ast, child);
+            for previous_index in 0..index {
+                let previous = children
+                    .get_node(context.ast, previous_index)
+                    .expect("class child exists")
+                    .ast_id();
+                if context.ast.node_kind(previous) == NodeKind::TsMethodDefinition {
+                    continue;
+                }
+                let Some(previous_name) = private_element_name(context.ast, previous) else {
+                    continue;
+                };
+                if previous_name != name {
+                    continue;
+                }
+                let previous_kind = private_element_kind(context.ast, previous);
+                let get_set_pair = matches!(
+                    (previous_kind, kind),
+                    (PrivateElementKind::Getter, PrivateElementKind::Setter)
+                        | (PrivateElementKind::Setter, PrivateElementKind::Getter)
+                );
+                if get_set_pair
+                    && private_element_is_static(context.ast, previous)
+                        == private_element_is_static(context.ast, child)
+                {
+                    continue;
+                }
+                let message = checks.fmt(format_args!(
+                    "Duplicate private name '#{}'",
+                    String::from_utf8_lossy(name)
+                ));
+                checks.report(
+                    context.ast.span(child),
+                    message,
+                    ReportOptions {
+                        labels: checks.labels(&[
+                            checks.label(context.ast.span(previous), "first declared here")
+                        ]),
+                        ..ReportOptions::default()
+                    },
+                );
+                break;
+            }
+        }
+    }
+
+    fn check(&mut self, node: AstId) {
         let checks = &mut self.checks;
         let context = &mut self.context;
         match context.ast.kind_data(node) {
@@ -732,7 +814,7 @@ impl Checker<'_, '_> {
                 if context.state.in_type_position() || !context.state.scope.is_strict() {
                     return;
                 }
-                let span = context.ast.span(literal.node_id());
+                let span = context.ast.span(literal.ast_id());
                 if has_octal_escape(
                     &context.ast.source().as_bytes()[span.start as usize..span.end as usize],
                 ) {
@@ -752,7 +834,7 @@ impl Checker<'_, '_> {
                 if context.state.in_type_position() || !context.state.scope.is_strict() {
                     return;
                 }
-                let span = context.ast.span(literal.node_id());
+                let span = context.ast.span(literal.ast_id());
                 let raw = &context.ast.source().as_bytes()[span.start as usize..span.end as usize];
                 if !is_legacy_numeric_literal(raw) {
                     return;
@@ -792,7 +874,7 @@ impl Checker<'_, '_> {
                 .is_err()
                 {
                     checks.report(
-                        context.ast.span(literal.node_id()),
+                        context.ast.span(literal.ast_id()),
                         "Invalid regular expression literal",
                         ReportOptions::default(),
                     );
@@ -802,7 +884,7 @@ impl Checker<'_, '_> {
                 if context.state.in_type_position() {
                     return;
                 }
-                let node_id = identifier.node_id();
+                let node_id = identifier.ast_id();
                 let name = context
                     .ast
                     .get_utf8(identifier.name(context.ast))
@@ -817,7 +899,7 @@ impl Checker<'_, '_> {
                 }
             }
             NodeKindData::BindingIdentifier(identifier) => {
-                let node_id = identifier.node_id();
+                let node_id = identifier.ast_id();
                 let name = context
                     .ast
                     .get_utf8(identifier.name(context.ast))
@@ -860,10 +942,10 @@ impl Checker<'_, '_> {
                     .ast
                     .get_utf8(identifier.name(context.ast))
                     .as_bytes();
-                checks.check_strict_reserved(name, identifier.node_id(), context, "a label");
+                checks.check_strict_reserved(name, identifier.ast_id(), context, "a label");
             }
             NodeKindData::BinaryExpression(expression) => {
-                let left = expression.left(context.ast).node_id();
+                let left = expression.left(context.ast).ast_id();
                 if expression.operator(context.ast) == BinaryOperator::In
                     && let NodeKindData::PrivateIdentifier(identifier) = context.ast.kind_data(left)
                 {
@@ -885,28 +967,26 @@ impl Checker<'_, '_> {
                     return;
                 }
                 let mut target =
-                    unwrap_parentheses(context.ast, expression.argument(context.ast).node_id());
+                    unwrap_parentheses(context.ast, expression.argument(context.ast).ast_id());
                 if let NodeKindData::ChainExpression(chain) = context.ast.kind_data(target) {
                     target =
-                        unwrap_parentheses(context.ast, chain.expression(context.ast).node_id());
+                        unwrap_parentheses(context.ast, chain.expression(context.ast).ast_id());
                 }
                 match context.ast.kind_data(target) {
                     NodeKindData::IdentifierReference(_) if context.state.scope.is_strict() => {
                         checks.report(
-                            context.ast.span(expression.node_id()),
+                            context.ast.span(expression.ast_id()),
                             "Deleting a variable in strict mode is not allowed",
                             ReportOptions::default(),
                         );
                     }
                     NodeKindData::MemberExpression(member)
                         if !member.computed(context.ast)
-                            && context
-                                .ast
-                                .node_kind(member.property(context.ast).node_id())
+                            && context.ast.node_kind(member.property(context.ast).ast_id())
                                 == NodeKind::PrivateIdentifier =>
                     {
                         checks.report(
-                            context.ast.span(expression.node_id()),
+                            context.ast.span(expression.ast_id()),
                             "Private fields cannot be deleted",
                             ReportOptions::default(),
                         );
@@ -918,11 +998,11 @@ impl Checker<'_, '_> {
                 if context.state.scope.is_strict()
                     && is_eval_or_arguments_reference(
                         context.ast,
-                        expression.argument(context.ast).node_id(),
+                        expression.argument(context.ast).ast_id(),
                     )
                 {
                     checks.report(
-                        context.ast.span(expression.node_id()),
+                        context.ast.span(expression.ast_id()),
                         "Cannot assign to 'eval' or 'arguments' in strict mode",
                         ReportOptions::default(),
                     );
@@ -931,7 +1011,7 @@ impl Checker<'_, '_> {
             NodeKindData::AssignmentExpression(expression) => {
                 if context.state.scope.is_strict() {
                     checks.check_assign_target_eval_arguments(
-                        expression.left(context.ast).node_id(),
+                        expression.left(context.ast).ast_id(),
                         context,
                     );
                 }
@@ -947,7 +1027,7 @@ impl Checker<'_, '_> {
                         kind.as_str()
                     ));
                     checks.report(
-                        context.ast.span(declaration.node_id()),
+                        context.ast.span(declaration.ast_id()),
                         message,
                         ReportOptions::default(),
                     );
@@ -962,7 +1042,7 @@ impl Checker<'_, '_> {
                     }
                     if let Some(first) = first_default {
                         checks.report(
-                            context.ast.span(case.node_id()),
+                            context.ast.span(case.ast_id()),
                             "A switch statement can only have one default clause",
                             ReportOptions {
                                 labels: checks.labels(&[checks
@@ -971,12 +1051,12 @@ impl Checker<'_, '_> {
                             },
                         );
                     } else {
-                        first_default = Some(case.node_id());
+                        first_default = Some(case.ast_id());
                     }
                 }
             }
             NodeKindData::ForInStatement(statement) => {
-                let left = statement.left(context.ast).node_id();
+                let left = statement.left(context.ast).ast_id();
                 checks.check_for_in_of_initializer(context, left, true);
                 if context.state.scope.is_strict() {
                     checks.check_assign_target_eval_arguments(left, context);
@@ -988,12 +1068,12 @@ impl Checker<'_, '_> {
                     && is_inside_static_block(context)
                 {
                     checks.report(
-                        context.ast.span(statement.node_id()),
+                        context.ast.span(statement.ast_id()),
                         "Cannot use 'for await' in class static initialization block",
                         ReportOptions::default(),
                     );
                 }
-                let left = statement.left(context.ast).node_id();
+                let left = statement.left(context.ast).ast_id();
                 checks.check_for_in_of_initializer(context, left, false);
                 if context.state.scope.is_strict() {
                     checks.check_assign_target_eval_arguments(left, context);
@@ -1016,14 +1096,14 @@ impl Checker<'_, '_> {
                             LabelSearch::Found => unreachable!(),
                         };
                         checks.report(
-                            context.ast.span(statement.node_id()),
+                            context.ast.span(statement.ast_id()),
                             message,
                             ReportOptions::default(),
                         );
                     }
                 } else if !is_inside_breakable(context) {
                     checks.report(
-                        context.ast.span(statement.node_id()),
+                        context.ast.span(statement.ast_id()),
                         "Illegal break statement",
                         ReportOptions {
                             help: Some(Cow::Borrowed(
@@ -1066,7 +1146,7 @@ impl Checker<'_, '_> {
                             ContinueLabelSearch::Found => unreachable!(),
                         };
                         checks.report(
-                            context.ast.span(statement.node_id()),
+                            context.ast.span(statement.ast_id()),
                             message,
                             ReportOptions {
                                 help,
@@ -1076,7 +1156,7 @@ impl Checker<'_, '_> {
                     }
                 } else if !is_inside_iteration(context) {
                     checks.report(
-                        context.ast.span(statement.node_id()),
+                        context.ast.span(statement.ast_id()),
                         "Illegal continue statement",
                         ReportOptions {
                             help: Some(Cow::Borrowed(
@@ -1121,7 +1201,7 @@ impl Checker<'_, '_> {
                         String::from_utf8_lossy(name)
                     ));
                     checks.report(
-                        context.ast.span(statement.label(context.ast).node_id()),
+                        context.ast.span(statement.label(context.ast).ast_id()),
                         message,
                         ReportOptions::default(),
                     );
@@ -1131,6 +1211,7 @@ impl Checker<'_, '_> {
                 if context.ast.get_utf8(directive.value(context.ast)) != "use strict" {
                     return;
                 }
+                let directive_span = context.ast.span(directive.ast_id());
                 let mut parameter = None;
                 for node in context.ancestors() {
                     match context.ast.kind_data(node) {
@@ -1154,7 +1235,7 @@ impl Checker<'_, '_> {
                 }
                 if let Some(parameter) = parameter {
                     checks.report(
-                        context.ast.span(directive.node_id()),
+                        directive_span,
                         "Illegal 'use strict' directive in function with non-simple parameter list",
                         ReportOptions {
                             labels: checks
@@ -1163,91 +1244,6 @@ impl Checker<'_, '_> {
                             ..ReportOptions::default()
                         },
                     );
-                }
-            }
-            NodeKindData::ClassBody(body) => {
-                let children = body.body(context.ast);
-                let mut first_constructor = None;
-                for index in 0..children.len() {
-                    let child = children
-                        .get_node(context.ast, index)
-                        .expect("class child exists")
-                        .node_id();
-                    // TypeScript permits constructor overload declarations and leaves duplicate
-                    // implementation diagnostics to its type checker.
-                    if !context.ast.is_ts()
-                        && let NodeKindData::MethodDefinition(method) = context.ast.kind_data(child)
-                        && method.kind(context.ast)
-                            == swc_next_ecma_ast::MethodDefinitionKind::Constructor
-                    {
-                        if let Some(first) = first_constructor {
-                            checks.report(
-                                context.ast.span(method.key(context.ast).node_id()),
-                                "A class can only have one constructor",
-                                ReportOptions {
-                                    labels: checks.labels(&[checks.label(
-                                        context.ast.span(first),
-                                        "first constructor defined here",
-                                    )]),
-                                    ..ReportOptions::default()
-                                },
-                            );
-                        } else {
-                            first_constructor = Some(method.key(context.ast).node_id());
-                        }
-                    }
-                    // Body-less TypeScript methods are erased overload signatures. They do not
-                    // introduce runtime private names and must not conflict with the implementation.
-                    if context.ast.node_kind(child) == NodeKind::TsMethodDefinition {
-                        continue;
-                    }
-                    let Some(name) = private_element_name(context.ast, child) else {
-                        continue;
-                    };
-                    let kind = private_element_kind(context.ast, child);
-                    for previous_index in 0..index {
-                        let previous = children
-                            .get_node(context.ast, previous_index)
-                            .expect("class child exists")
-                            .node_id();
-                        if context.ast.node_kind(previous) == NodeKind::TsMethodDefinition {
-                            continue;
-                        }
-                        let Some(previous_name) = private_element_name(context.ast, previous)
-                        else {
-                            continue;
-                        };
-                        if previous_name != name {
-                            continue;
-                        }
-                        let previous_kind = private_element_kind(context.ast, previous);
-                        let get_set_pair = matches!(
-                            (previous_kind, kind),
-                            (PrivateElementKind::Getter, PrivateElementKind::Setter)
-                                | (PrivateElementKind::Setter, PrivateElementKind::Getter)
-                        );
-                        if get_set_pair
-                            && private_element_is_static(context.ast, previous)
-                                == private_element_is_static(context.ast, child)
-                        {
-                            continue;
-                        }
-                        let message = checks.fmt(format_args!(
-                            "Duplicate private name '#{}'",
-                            String::from_utf8_lossy(name)
-                        ));
-                        checks.report(
-                            context.ast.span(child),
-                            message,
-                            ReportOptions {
-                                labels: checks
-                                    .labels(&[checks
-                                        .label(context.ast.span(previous), "first declared here")]),
-                                ..ReportOptions::default()
-                            },
-                        );
-                        break;
-                    }
                 }
             }
             NodeKindData::Function(function) => {
@@ -1270,7 +1266,6 @@ impl Checker<'_, '_> {
                 let valid = match parent {
                     NodeKind::Program
                     | NodeKind::FunctionBody
-                    | NodeKind::ClassBody
                     | NodeKind::StaticBlock
                     | NodeKind::BlockStatement
                     | NodeKind::SwitchCase
@@ -1287,7 +1282,7 @@ impl Checker<'_, '_> {
                         "In non-strict mode code, functions can only be declared at top level, inside a block, or as the body of an if statement"
                     };
                     checks.report(
-                        context.ast.span(function.node_id()),
+                        context.ast.span(function.ast_id()),
                         message,
                         ReportOptions::default(),
                     );
@@ -1296,7 +1291,7 @@ impl Checker<'_, '_> {
             NodeKindData::WithStatement(statement) => {
                 if context.state.scope.is_strict() {
                     checks.report(
-                        context.ast.span(statement.node_id()),
+                        context.ast.span(statement.ast_id()),
                         "'with' statements are not allowed in strict mode",
                         ReportOptions::default(),
                     );
@@ -1305,7 +1300,7 @@ impl Checker<'_, '_> {
             NodeKindData::ObjectExpression(object) => {
                 let mut first_proto = None;
                 for property in object.properties(context.ast).iter() {
-                    let property = context.ast.get_node_in_sub_range(property).node_id();
+                    let property = context.ast.get_node_in_sub_range(property).ast_id();
                     let NodeKindData::ObjectProperty(item) = context.ast.kind_data(property) else {
                         continue;
                     };
@@ -1316,7 +1311,7 @@ impl Checker<'_, '_> {
                     {
                         continue;
                     }
-                    let name = match context.ast.kind_data(item.key(context.ast).node_id()) {
+                    let name = match context.ast.kind_data(item.key(context.ast).ast_id()) {
                         NodeKindData::IdentifierName(identifier) => context
                             .ast
                             .get_utf8(identifier.name(context.ast))
@@ -1346,12 +1341,12 @@ impl Checker<'_, '_> {
                 }
             }
             NodeKindData::MemberExpression(expression) => {
-                let object = expression.object(context.ast).node_id();
+                let object = expression.object(context.ast).ast_id();
                 if context.ast.node_kind(object) == NodeKind::Super
                     && !is_super_property_valid(context)
                 {
                     checks.report(
-                        context.ast.span(expression.node_id()),
+                        context.ast.span(expression.ast_id()),
                         "'super' property access is only valid inside a method or class body",
                         ReportOptions {
                             help: Some(Cow::Borrowed(
@@ -1361,7 +1356,7 @@ impl Checker<'_, '_> {
                         },
                     );
                 }
-                let property = expression.property(context.ast).node_id();
+                let property = expression.property(context.ast).ast_id();
                 if !expression.computed(context.ast)
                     && let NodeKindData::PrivateIdentifier(identifier) =
                         context.ast.kind_data(property)
@@ -1372,7 +1367,7 @@ impl Checker<'_, '_> {
                         .as_bytes();
                     if context.ast.node_kind(object) == NodeKind::Super {
                         checks.report(
-                            context.ast.span(expression.node_id()),
+                            context.ast.span(expression.ast_id()),
                             "'super' keyword unexpected here",
                             ReportOptions::default(),
                         );
@@ -1390,12 +1385,12 @@ impl Checker<'_, '_> {
                 }
             }
             NodeKindData::CallExpression(call) => {
-                if context.ast.node_kind(call.callee(context.ast).node_id()) == NodeKind::Super {
+                if context.ast.node_kind(call.callee(context.ast).ast_id()) == NodeKind::Super {
                     let message = "'super()' is only valid in a constructor of a derived class";
                     match super_call_validity(context) {
                         SuperCallValidity::Valid => {}
                         SuperCallValidity::NotInConstructor => checks.report(
-                            context.ast.span(call.node_id()),
+                            context.ast.span(call.ast_id()),
                             message,
                             ReportOptions {
                                 help: Some(Cow::Borrowed(
@@ -1405,7 +1400,7 @@ impl Checker<'_, '_> {
                             },
                         ),
                         SuperCallValidity::NoExtends => checks.report(
-                            context.ast.span(call.node_id()),
+                            context.ast.span(call.ast_id()),
                             message,
                             ReportOptions {
                                 help: Some(Cow::Borrowed(
@@ -1442,7 +1437,7 @@ impl Checker<'_, '_> {
                 };
                 if let Some(message) = message {
                     checks.report(
-                        context.ast.span(expression.node_id()),
+                        context.ast.span(expression.ast_id()),
                         message,
                         ReportOptions::default(),
                     );
@@ -1451,7 +1446,7 @@ impl Checker<'_, '_> {
             NodeKindData::YieldExpression(expression) => {
                 if is_in_formal_parameters(context) {
                     checks.report(
-                        context.ast.span(expression.node_id()),
+                        context.ast.span(expression.ast_id()),
                         "Yield expression is not allowed in formal parameters",
                         ReportOptions::default(),
                     );
@@ -1463,14 +1458,14 @@ impl Checker<'_, '_> {
                     .get_utf8(property.meta(context.ast).name(context.ast));
                 if name == "import" && !context.ast.is_module() {
                     checks.report(
-                        context.ast.span(property.node_id()),
+                        context.ast.span(property.ast_id()),
                         "'import.meta' is only valid in module code",
                         ReportOptions::default(),
                     );
                 }
                 if name == "new" && !is_new_target_available(context) {
                     checks.report(
-                        context.ast.span(property.node_id()),
+                        context.ast.span(property.ast_id()),
                         "'new.target' is only valid inside functions, class field initializers, or static blocks",
                         ReportOptions::default(),
                     );
@@ -1478,7 +1473,7 @@ impl Checker<'_, '_> {
             }
             NodeKindData::ImportDeclaration(declaration) => {
                 checks.check_import_export_position(
-                    declaration.node_id(),
+                    declaration.ast_id(),
                     "import statement",
                     "'import' declaration",
                     context,
@@ -1488,7 +1483,7 @@ impl Checker<'_, '_> {
             }
             NodeKindData::ExportNamedDeclaration(declaration) => {
                 checks.check_import_export_position(
-                    declaration.node_id(),
+                    declaration.ast_id(),
                     "'export' declaration",
                     "'export' declaration",
                     context,
@@ -1498,31 +1493,31 @@ impl Checker<'_, '_> {
             }
             NodeKindData::ExportDefaultDeclaration(declaration) => {
                 checks.check_import_export_position(
-                    declaration.node_id(),
+                    declaration.ast_id(),
                     "'export default' declaration",
                     "'export default' declaration",
                     context,
                 );
-                checks.record_exported_name(b"default", declaration.node_id(), context);
+                checks.record_exported_name(b"default", declaration.ast_id(), context);
             }
             NodeKindData::ExportAllDeclaration(declaration) => {
                 checks.check_import_export_position(
-                    declaration.node_id(),
+                    declaration.ast_id(),
                     "'export *' declaration",
                     "'export *' declaration",
                     context,
                 );
                 if let Some(exported) = declaration.exported(context.ast) {
-                    let name = module_export_name(context.ast, exported.node_id());
-                    checks.record_exported_name(name, declaration.node_id(), context);
+                    let name = module_export_name(context.ast, exported.ast_id());
+                    checks.record_exported_name(name, declaration.ast_id(), context);
                 }
                 checks
                     .check_duplicate_with_attributes(declaration.attributes(context.ast), context);
             }
             NodeKindData::ExportSpecifier(specifier) => {
                 let exported_name =
-                    module_export_name(context.ast, specifier.exported(context.ast).node_id());
-                checks.record_exported_name(exported_name, specifier.node_id(), context);
+                    module_export_name(context.ast, specifier.exported(context.ast).ast_id());
+                checks.record_exported_name(exported_name, specifier.ast_id(), context);
                 if specifier.export_kind(context.ast) == ImportOrExportKind::Type
                     || context.state.in_ts_namespace()
                 {
@@ -1535,10 +1530,10 @@ impl Checker<'_, '_> {
                     && declaration.export_kind(context.ast) != ImportOrExportKind::Type
                 {
                     let local =
-                        module_export_name(context.ast, specifier.local(context.ast).node_id());
+                        module_export_name(context.ast, specifier.local(context.ast).ast_id());
                     checks.export_specifiers.push(ExportSpecifierInfo {
                         local_name: local.to_vec(),
-                        node: specifier.node_id(),
+                        node: specifier.ast_id(),
                     });
                 }
             }
@@ -1552,18 +1547,18 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
         self.context.ast
     }
 
-    fn enter_node(&mut self, node: NodeId) {
+    fn enter_node(&mut self, node: AstId) {
         self.context.enter_node(node);
     }
 
-    fn leave_node(&mut self, node: NodeId) {
+    fn leave_node(&mut self, node: AstId) {
         if self.check_syntax {
             self.check(node);
         }
         self.context.leave_node(node);
     }
     fn visit_call_expression(&mut self, node: CallExpression) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         if !self.context.state.symbols.in_ambient_context()
             && self.context.state.default_reference_flags().is_read()
             && is_direct_eval_call(self.context.ast, node)
@@ -1571,46 +1566,46 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
             self.context.state.scope.mark_direct_eval();
         }
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_update_expression(&mut self, node: UpdateExpression) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let argument = node.argument(self.context.ast);
         let flags = self.assignment_reference_flags(true);
         self.visit_with_reference_flags(argument, flags);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_assignment_expression(&mut self, node: AssignmentExpression) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let left = node.left(self.context.ast);
         let read = node.operator(self.context.ast) != AssignmentOperator::Assign;
         let flags = self.assignment_reference_flags(read);
         self.visit_with_reference_flags(left, flags);
         node.right(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_assignment_pattern(&mut self, node: AssignmentPattern) {
-        let node_flags = self.context.enter_node(node.node_id());
+        let node_flags = self.context.enter_node(node.ast_id());
         node.decorators(self.context.ast).visit_with(self);
         self.visit_with_reference_flags(node.left(self.context.ast), node_flags);
         node.type_annotation(self.context.ast).visit_with(self);
         node.right(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_binding_rest_element(&mut self, node: BindingRestElement) {
-        let node_flags = self.context.enter_node(node.node_id());
+        let node_flags = self.context.enter_node(node.ast_id());
         node.decorators(self.context.ast).visit_with(self);
         self.visit_with_reference_flags(node.argument(self.context.ast), node_flags);
         node.type_annotation(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_array_pattern(&mut self, node: ArrayPattern) {
-        let node_flags = self.context.enter_node(node.node_id());
+        let node_flags = self.context.enter_node(node.ast_id());
         node.decorators(self.context.ast).visit_with(self);
         for element in node.elements(self.context.ast).iter() {
             if let Some(element) = self.context.ast.get_node_in_sub_range(element) {
@@ -1621,11 +1616,11 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
             self.visit_with_reference_flags(rest, node_flags);
         }
         node.type_annotation(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_object_pattern(&mut self, node: ObjectPattern) {
-        let node_flags = self.context.enter_node(node.node_id());
+        let node_flags = self.context.enter_node(node.ast_id());
         node.decorators(self.context.ast).visit_with(self);
         for property in node.properties(self.context.ast).iter() {
             let property = self.context.ast.get_node_in_sub_range(property);
@@ -1635,18 +1630,18 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
             self.visit_with_reference_flags(rest, node_flags);
         }
         node.type_annotation(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_binding_property(&mut self, node: BindingProperty) {
-        let node_flags = self.context.enter_node(node.node_id());
+        let node_flags = self.context.enter_node(node.ast_id());
         node.key(self.context.ast).visit_with(self);
         self.visit_with_reference_flags(node.value(self.context.ast), node_flags);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_property_definition(&mut self, node: PropertyDefinition) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         self.context
             .state
             .class
@@ -1666,21 +1661,21 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
         }
         node.type_annotation(self.context.ast).visit_with(self);
         node.value(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_method_definition(&mut self, node: MethodDefinition) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         self.context
             .state
             .class
             .record_private_key(self.context.ast, node.key(self.context.ast));
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_method_definition(&mut self, node: TsMethodDefinition) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         self.context
             .state
             .class
@@ -1693,54 +1688,54 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
             !decorators.is_empty(),
         );
         node.value(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_member_expression(&mut self, node: MemberExpression) {
-        let node_flags = self.context.enter_node(node.node_id());
+        let node_flags = self.context.enter_node(node.ast_id());
         // Assignment writes the property, not its base. Both the base and a
         // computed property are evaluated as reads.
         let object_flags = self.flags_with_space(node_flags.space);
         self.visit_with_reference_flags(node.object(self.context.ast), object_flags);
         node.property(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_parenthesized_expression(&mut self, node: ParenthesizedExpression) {
-        let node_flags = self.context.enter_node(node.node_id());
+        let node_flags = self.context.enter_node(node.ast_id());
         self.visit_with_reference_flags(node.expression(self.context.ast), node_flags);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_as_expression(&mut self, node: TsAsExpression) {
-        let node_flags = self.context.enter_node(node.node_id());
+        let node_flags = self.context.enter_node(node.ast_id());
         self.visit_with_reference_flags(node.expression(self.context.ast), node_flags);
         node.type_annotation(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_satisfies_expression(&mut self, node: TsSatisfiesExpression) {
-        let node_flags = self.context.enter_node(node.node_id());
+        let node_flags = self.context.enter_node(node.ast_id());
         self.visit_with_reference_flags(node.expression(self.context.ast), node_flags);
         node.type_annotation(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_type_assertion(&mut self, node: TsTypeAssertion) {
-        let node_flags = self.context.enter_node(node.node_id());
+        let node_flags = self.context.enter_node(node.ast_id());
         node.type_annotation(self.context.ast).visit_with(self);
         self.visit_with_reference_flags(node.expression(self.context.ast), node_flags);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_non_null_expression(&mut self, node: TsNonNullExpression) {
-        let node_flags = self.context.enter_node(node.node_id());
+        let node_flags = self.context.enter_node(node.ast_id());
         self.visit_with_reference_flags(node.expression(self.context.ast), node_flags);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_unary_expression(&mut self, node: UnaryExpression) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let argument = node.argument(self.context.ast);
         if node.operator(self.context.ast) == UnaryOperator::Delete {
             let flags = self.context.state.default_reference_flags().no_access();
@@ -1748,10 +1743,10 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
         } else {
             argument.visit_with(self);
         }
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_identifier_reference(&mut self, node: IdentifierReference) {
-        let flags = self.context.enter_node(node.node_id());
+        let flags = self.context.enter_node(node.ast_id());
         let context = &mut self.context;
         let identifier = node;
         let state = &mut context.state;
@@ -1759,12 +1754,12 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
             .symbols
             .add_identifier_reference(context.ast, identifier, &state.scope, flags);
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_binding_identifier(&mut self, node: BindingIdentifier) {
-        let flags = self.context.enter_node(node.node_id());
+        let flags = self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         let direct_export = self.context.state.symbols.export_state.named();
         let direct_export = direct_export.filter(|_| !self.context.state.in_ts_namespace());
         let state = &mut self.context.state;
@@ -1784,11 +1779,11 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
         {
             state
                 .module_record
-                .add_direct_export(self.context.ast, node.node_id(), statement);
+                .add_direct_export(self.context.ast, node.ast_id(), statement);
         }
     }
     fn visit_variable_declaration(&mut self, node: VariableDeclaration) {
-        let node_flags = self.context.enter_node(node.node_id());
+        let node_flags = self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         let dynamic_var_write =
             state
@@ -1804,36 +1799,36 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
             node.visit_children_with(self);
         }
         self.context.state.symbols.exit_saved_context();
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     /// Per section 14.12, the CaseBlock grammar permits at most one DefaultClause.
     fn visit_switch_statement(&mut self, node: SwitchStatement) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
-        self.context.state.exit_scope(node.node_id());
+        self.leave_node(node.ast_id());
+        self.context.state.exit_scope(node.ast_id());
     }
     /// <https://tc39.es/ecma262/#sec-for-in-and-for-of-statements-static-semantics-early-errors>
     fn visit_for_in_statement(&mut self, node: ForInStatement) {
-        self.context.state.enter_for_in_statement(node.node_id());
-        self.context.enter_node(node.node_id());
+        self.context.state.enter_for_in_statement(node.ast_id());
+        self.context.enter_node(node.ast_id());
         let flags = self.assignment_reference_flags(false);
         self.visit_with_reference_flags(node.left(self.context.ast), flags);
         node.right(self.context.ast).visit_with(self);
         node.body(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
-        self.context.state.exit_scope(node.node_id());
+        self.leave_node(node.ast_id());
+        self.context.state.exit_scope(node.ast_id());
     }
     /// <https://tc39.es/ecma262/#sec-for-in-and-for-of-statements-static-semantics-early-errors>
     fn visit_for_of_statement(&mut self, node: ForOfStatement) {
-        self.context.state.enter_for_of_statement(node.node_id());
-        self.context.enter_node(node.node_id());
+        self.context.state.enter_for_of_statement(node.ast_id());
+        self.context.enter_node(node.ast_id());
         let flags = self.assignment_reference_flags(false);
         self.visit_with_reference_flags(node.left(self.context.ast), flags);
         node.right(self.context.ast).visit_with(self);
         node.body(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
-        self.context.state.exit_scope(node.node_id());
+        self.leave_node(node.ast_id());
+        self.context.state.exit_scope(node.ast_id());
     }
     /// <https://tc39.es/ecma262/#sec-function-definitions-static-semantics-early-errors>
     ///
@@ -1841,9 +1836,9 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
     /// IsSimpleParameterList of FormalParameters is false."
     fn visit_directive(&mut self, node: Directive) {
         self.context.state.enter_directive(self.context.ast, node);
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     /// 15.7.1 Static Semantics: Early Errors.
     /// <https://tc39.es/ecma262/#sec-class-definitions-static-semantics-early-errors>
@@ -1852,10 +1847,13 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
     /// `PrivateBoundIdentifiers` may contain no duplicate entries, except
     /// one getter/setter pair with matching staticness.
     fn visit_class_body(&mut self, node: ClassBody) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_class_body(node.id());
         self.context.state.symbols.enter_class_body();
+        if self.check_syntax {
+            self.check_class_body(node);
+        }
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.context.leave_class_body(node.id());
     }
     // https://tc39.es/ecma262/#sec-labelled-statements-static-semantics-early-errors (14.13.1)
     //   LabelledItem : FunctionDeclaration - syntax error unless non-strict + web host (B.3.1).
@@ -1869,39 +1867,39 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
         self.context
             .state
             .enter_function(self.context.ast, node, annex_b_if_body);
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state
             .symbols
             .enter_function(self.context.ast, node, &state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.leave_node(node.node_id());
-        self.context.state.exit_scope(node.node_id());
+        self.leave_node(node.ast_id());
+        self.context.state.exit_scope(node.ast_id());
     }
     // https://tc39.es/ecma262/#sec-static-semantics-early-errors
     fn visit_import_declaration(&mut self, node: ImportDeclaration) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state
             .symbols
             .enter_import_declaration(self.context.ast, node, &state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_export_named_declaration(&mut self, node: ExportNamedDeclaration) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         self.context
             .state
             .symbols
             .enter_export_named_declaration(self.context.ast, node);
         node.visit_children_with(self);
         self.context.state.symbols.exit_export_declaration();
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_export_default_declaration(&mut self, node: ExportDefaultDeclaration) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         if !self.context.state.in_ts_namespace() {
             self.context
                 .state
@@ -1916,15 +1914,15 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
         let space = declaration
             .as_expr(self.context.ast)
             .map_or(ReferenceSpace::Value, |expression| {
-                export_expression_space(self.context.ast, expression.node_id())
+                export_expression_space(self.context.ast, expression.ast_id())
             });
         let flags = self.flags_with_space(space);
         self.visit_with_reference_flags(declaration, flags);
         self.context.state.symbols.exit_export_declaration();
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_export_all_declaration(&mut self, node: ExportAllDeclaration) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         if !self.context.state.in_ts_namespace() {
             self.context
                 .state
@@ -1932,11 +1930,11 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
                 .add_export_all(self.context.ast, node);
         }
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_export_specifier(&mut self, node: ExportSpecifier) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let declaration = self.context.parent().and_then(|parent| {
             let NodeKindData::ExportNamedDeclaration(declaration) =
                 self.context.ast.kind_data(parent)
@@ -1969,28 +1967,28 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
         }
         self.visit_with_reference_flags(node.local(self.context.ast), flags);
         node.exported(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_formal_parameters(&mut self, node: FormalParameters) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state.symbols.enter_formal_parameters(&state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_formal_parameters();
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_import_specifier(&mut self, node: ImportSpecifier) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         self.context
             .state
             .symbols
             .enter_import_specifier(self.context.ast, node);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_ts_import_equals_declaration(&mut self, node: TsImportEqualsDeclaration) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let import_kind = node.import_kind(self.context.ast);
         let state = &mut self.context.state;
         state
@@ -2003,29 +2001,29 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
         self.visit_with_reference_flags(node.id(self.context.ast), flags);
         self.visit_with_reference_flags(node.module_reference(self.context.ast), flags);
         self.context.state.symbols.exit_saved_context();
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_export_assignment(&mut self, node: TsExportAssignment) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let expression = node.expression(self.context.ast);
-        let space = export_expression_space(self.context.ast, expression.node_id());
+        let space = export_expression_space(self.context.ast, expression.ast_id());
         let flags = self.flags_with_space(space);
         self.visit_with_reference_flags(expression, flags);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_ts_enum_declaration(&mut self, node: TsEnumDeclaration) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state
             .symbols
             .enter_ts_enum_declaration(self.context.ast, node, &state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_ts_module_declaration(&mut self, node: TsModuleDeclaration) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state
             .symbols
@@ -2035,51 +2033,51 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
         self.in_ts_module_name = was_in_ts_module_name;
         node.body(self.context.ast).visit_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_ts_global_declaration(&mut self, node: TsGlobalDeclaration) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         self.context.state.symbols.enter_ts_global_declaration();
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_ts_namespace_export_declaration(&mut self, node: TsNamespaceExportDeclaration) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state
             .symbols
             .enter_ts_namespace_export_declaration(&state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     #[inline]
     fn visit_ts_type_annotation(&mut self, node: TsTypeAnnotation) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_type_reference(&mut self, node: TsTypeReference) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_qualified_name(&mut self, node: TsQualifiedName) {
         if self.in_ts_module_name {
-            self.context.enter_node(node.node_id());
+            self.context.enter_node(node.ast_id());
             node.visit_children_with(self);
-            self.leave_node(node.node_id());
+            self.leave_node(node.ast_id());
             return;
         }
         self.context.state.enter_type_position();
-        let node_flags = self.context.enter_node(node.node_id());
+        let node_flags = self.context.enter_node(node.ast_id());
         let space = match node_flags.space {
             ReferenceSpace::Value | ReferenceSpace::Type | ReferenceSpace::Namespace => {
                 ReferenceSpace::Namespace
@@ -2089,31 +2087,31 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
         let flags = node_flags.with_space(space);
         self.visit_with_reference_flags(node.left(self.context.ast), flags);
         node.right(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_type_query(&mut self, node: TsTypeQuery) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let flags = self.flags_with_space(ReferenceSpace::Typeof);
         self.visit_with_reference_flags(node.expr_name(self.context.ast), flags);
         node.type_arguments(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_import_type(&mut self, node: TsImportType) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_type_parameter(&mut self, node: TsTypeParameter) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let parent = self.context.parent();
         let state = &mut self.context.state;
         state
@@ -2121,197 +2119,197 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
             .enter_ts_type_parameter(self.context.ast, parent, &state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_type_parameter_declaration(&mut self, node: TsTypeParameterDeclaration) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_type_parameter_instantiation(&mut self, node: TsTypeParameterInstantiation) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_literal_type(&mut self, node: TsLiteralType) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_template_literal_type(&mut self, node: TsTemplateLiteralType) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_array_type(&mut self, node: TsArrayType) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_indexed_access_type(&mut self, node: TsIndexedAccessType) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_tuple_type(&mut self, node: TsTupleType) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_named_tuple_member(&mut self, node: TsNamedTupleMember) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_optional_type(&mut self, node: TsOptionalType) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_rest_type(&mut self, node: TsRestType) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_js_doc_nullable_type(&mut self, node: TsJsDocNullableType) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_js_doc_non_nullable_type(&mut self, node: TsJsDocNonNullableType) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_js_doc_unknown_type(&mut self, node: TsJsDocUnknownType) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_union_type(&mut self, node: TsUnionType) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_intersection_type(&mut self, node: TsIntersectionType) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_infer_type(&mut self, node: TsInferType) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_type_operator(&mut self, node: TsTypeOperator) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_parenthesized_type(&mut self, node: TsParenthesizedType) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_type_literal(&mut self, node: TsTypeLiteral) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_property_signature(&mut self, node: TsPropertySignature) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         self.visit_type_member_key(node.key(self.context.ast), node.computed(self.context.ast));
         node.type_annotation(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_class_implements(&mut self, node: TsClassImplements) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_interface_heritage(&mut self, node: TsInterfaceHeritage) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     #[inline]
     fn visit_ts_interface_body(&mut self, node: TsInterfaceBody) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     fn visit_ts_type_predicate(&mut self, node: TsTypePredicate) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let context = &mut self.context;
         let predicate = node;
         let state = &mut context.state;
@@ -2319,151 +2317,151 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
             .symbols
             .add_ts_type_predicate_reference(context.ast, predicate, &state.scope);
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     fn visit_switch_case(&mut self, node: SwitchCase) {
         self.context
             .state
             .enter_switch_case(self.context.current_node());
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_for_statement(&mut self, node: ForStatement) {
-        self.context.state.enter_for_statement(node.node_id());
-        self.context.enter_node(node.node_id());
+        self.context.state.enter_for_statement(node.ast_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_catch_clause(&mut self, node: CatchClause) {
-        self.context.state.enter_catch_clause(node.node_id());
-        self.context.enter_node(node.node_id());
+        self.context.state.enter_catch_clause(node.ast_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state.symbols.enter_catch_clause(&state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_decorator(&mut self, node: Decorator) {
         self.context.state.enter_decorator();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
         self.context.state.exit_decorator();
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
-    fn visit_class(&mut self, node: Class) {
+    fn visit_class(&mut self, node: ClassId) {
         self.context.state.enter_class(self.context.ast, node);
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state
             .symbols
             .enter_class(self.context.ast, node, &state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.context.state.exit_class(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_class(node);
+        self.leave_node(node.ast_id());
     }
     fn visit_static_block(&mut self, node: StaticBlock) {
-        self.context.state.enter_static_block(node.node_id());
-        self.context.enter_node(node.node_id());
+        self.context.state.enter_static_block(node.ast_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_function_body(&mut self, node: FunctionBody) {
         let parent = self.context.current_node();
         self.context
             .state
             .enter_function_body(self.context.ast, node, parent);
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_block_statement(&mut self, node: BlockStatement) {
         self.context
             .state
-            .enter_block_statement(self.context.ast, node.node_id());
-        self.context.enter_node(node.node_id());
+            .enter_block_statement(self.context.ast, node.ast_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_with_statement(&mut self, node: WithStatement) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.object(self.context.ast).visit_with(self);
-        self.context.state.enter_with_statement(node.node_id());
+        self.context.state.enter_with_statement(node.ast_id());
         node.body(self.context.ast).visit_with(self);
-        self.context.state.exit_with_statement(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_with_statement(node.ast_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_arrow_function_expression(&mut self, node: ArrowFunctionExpression) {
         self.context
             .state
             .enter_arrow_function_expression(self.context.ast, node);
         let export_state = self.context.state.symbols.enter_arrow_function_expression();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.visit_children_with(self);
         self.context
             .state
             .symbols
             .exit_arrow_function_expression(export_state);
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_ts_function(&mut self, node: TsFunction) {
-        self.context.state.enter_ts_function(node.node_id());
-        self.context.enter_node(node.node_id());
+        self.context.state.enter_ts_function(node.ast_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state.symbols.enter_ts_function(&state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_ts_conditional_type(&mut self, node: TsConditionalType) {
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         node.check_type(self.context.ast).visit_with(self);
-        self.context.state.enter_ts_conditional_type(node.node_id());
+        self.context.state.enter_ts_conditional_type(node.ast_id());
         node.extends_type(self.context.ast).visit_with(self);
         node.true_type(self.context.ast).visit_with(self);
-        self.context.state.exit_scope(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
         node.false_type(self.context.ast).visit_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     fn visit_ts_function_type(&mut self, node: TsFunctionType) {
-        self.context.state.enter_ts_function_type(node.node_id());
+        self.context.state.enter_ts_function_type(node.ast_id());
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state.symbols.enter_ts_function_type(&state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     fn visit_ts_constructor_type(&mut self, node: TsConstructorType) {
-        self.context.state.enter_ts_constructor_type(node.node_id());
+        self.context.state.enter_ts_constructor_type(node.ast_id());
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state.symbols.enter_ts_constructor_type(&state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     fn visit_ts_mapped_type(&mut self, node: TsMappedType) {
-        self.context.state.enter_ts_mapped_type(node.node_id());
+        self.context.state.enter_ts_mapped_type(node.ast_id());
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let parent = self.context.parent();
         let state = &mut self.context.state;
         state
@@ -2471,14 +2469,14 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
             .enter_ts_mapped_type(self.context.ast, parent, &state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     fn visit_ts_method_signature(&mut self, node: TsMethodSignature) {
-        self.context.state.enter_ts_method_signature(node.node_id());
+        self.context.state.enter_ts_method_signature(node.ast_id());
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state.symbols.enter_ts_method_signature(&state.scope);
         self.visit_type_member_key(node.key(self.context.ast), node.computed(self.context.ast));
@@ -2486,92 +2484,92 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
         node.params(self.context.ast).visit_with(self);
         node.return_type(self.context.ast).visit_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     fn visit_ts_call_signature_declaration(&mut self, node: TsCallSignatureDeclaration) {
         self.context
             .state
-            .enter_ts_call_signature_declaration(node.node_id());
+            .enter_ts_call_signature_declaration(node.ast_id());
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state
             .symbols
             .enter_ts_call_signature_declaration(&state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     fn visit_ts_construct_signature_declaration(&mut self, node: TsConstructSignatureDeclaration) {
         self.context
             .state
-            .enter_ts_construct_signature_declaration(node.node_id());
+            .enter_ts_construct_signature_declaration(node.ast_id());
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state
             .symbols
             .enter_ts_construct_signature_declaration(&state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     fn visit_ts_index_signature(&mut self, node: TsIndexSignature) {
-        self.context.state.enter_ts_index_signature(node.node_id());
+        self.context.state.enter_ts_index_signature(node.ast_id());
         self.context.state.enter_type_position();
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state.symbols.enter_ts_index_signature(&state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
         self.context.state.exit_type_position();
     }
     fn visit_ts_type_alias_declaration(&mut self, node: TsTypeAliasDeclaration) {
         self.context
             .state
-            .enter_ts_type_alias_declaration(node.node_id());
-        self.context.enter_node(node.node_id());
+            .enter_ts_type_alias_declaration(node.ast_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state
             .symbols
             .enter_ts_type_alias_declaration(self.context.ast, node, &state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_ts_interface_declaration(&mut self, node: TsInterfaceDeclaration) {
         self.context
             .state
-            .enter_ts_interface_declaration(node.node_id());
-        self.context.enter_node(node.node_id());
+            .enter_ts_interface_declaration(node.ast_id());
+        self.context.enter_node(node.ast_id());
         let state = &mut self.context.state;
         state
             .symbols
             .enter_ts_interface_declaration(self.context.ast, node, &state.scope);
         node.visit_children_with(self);
         self.context.state.symbols.exit_saved_context();
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_ts_enum_body(&mut self, node: TsEnumBody) {
-        self.context.state.enter_ts_enum_body(node.node_id());
-        self.context.enter_node(node.node_id());
+        self.context.state.enter_ts_enum_body(node.ast_id());
+        self.context.enter_node(node.ast_id());
         self.context.state.symbols.enter_ts_enum_body();
         node.visit_children_with(self);
-        self.context.state.exit_scope(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_scope(node.ast_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_ts_enum_member(&mut self, node: TsEnumMember) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let context = &mut self.context;
         let member = node;
         let state = &mut context.state;
@@ -2579,18 +2577,18 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
             .symbols
             .declare_ts_enum_member(context.ast, member, &state.scope);
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_ts_module_block(&mut self, node: TsModuleBlock) {
-        self.context.state.enter_ts_module_block(node.node_id());
-        self.context.enter_node(node.node_id());
+        self.context.state.enter_ts_module_block(node.ast_id());
+        self.context.enter_node(node.ast_id());
         self.context.state.symbols.enter_ts_module_block();
         node.visit_children_with(self);
-        self.context.state.exit_ts_module_block(node.node_id());
-        self.leave_node(node.node_id());
+        self.context.state.exit_ts_module_block(node.ast_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_jsx_opening_element(&mut self, node: JsxOpeningElement) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let context = &mut self.context;
         let element = node;
         let state = &mut context.state;
@@ -2598,10 +2596,10 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
             .symbols
             .add_jsx_opening_element_reference(context.ast, element, &state.scope);
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
     fn visit_jsx_closing_element(&mut self, node: JsxClosingElement) {
-        self.context.enter_node(node.node_id());
+        self.context.enter_node(node.ast_id());
         let context = &mut self.context;
         let element = node;
         let state = &mut context.state;
@@ -2609,11 +2607,11 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
             .symbols
             .add_jsx_closing_element_reference(context.ast, element, &state.scope);
         node.visit_children_with(self);
-        self.leave_node(node.node_id());
+        self.leave_node(node.ast_id());
     }
 }
 
-fn is_annex_b_if_function(tree: &Ast<'_>, parent: Option<NodeId>, function: Function) -> bool {
+fn is_annex_b_if_function(tree: &Ast<'_>, parent: Option<AstId>, function: Function) -> bool {
     if function.function_type(tree) != FunctionType::FunctionDeclaration {
         return false;
     }
@@ -2623,18 +2621,18 @@ fn is_annex_b_if_function(tree: &Ast<'_>, parent: Option<NodeId>, function: Func
     let NodeKindData::IfStatement(statement) = tree.kind_data(parent) else {
         return false;
     };
-    let function = function.node_id();
-    statement.consequent(tree).node_id() == function
+    let function = function.ast_id();
+    statement.consequent(tree).ast_id() == function
         || statement
             .alternate(tree)
-            .is_some_and(|alternate| alternate.node_id() == function)
+            .is_some_and(|alternate| alternate.ast_id() == function)
 }
 
 impl<'a> CheckerState<'a> {
     fn check_redeclaration(
         &mut self,
         identifier: BindingIdentifier,
-        node: NodeId,
+        node: AstId,
         name: &[u8],
         flags: SymbolFlags,
         context: &mut SemanticVisitCtx<'_, 'a>,
@@ -2714,7 +2712,7 @@ impl<'a> CheckerState<'a> {
                 ScopeKind::Block => {
                     match context.ast.kind_data(context.state.scope.get(outer).node) {
                         NodeKindData::CatchClause(catch) => {
-                            catch.body(context.ast).node_id() == target_scope.node
+                            catch.body(context.ast).ast_id() == target_scope.node
                         }
                         _ => false,
                     }
@@ -2779,7 +2777,7 @@ impl<'a> CheckerState<'a> {
                         unreachable!()
                     };
                     let simple_parameter = catch.param(context.ast).is_some_and(|parameter| {
-                        context.ast.node_kind(parameter.node_id()) == NodeKind::BindingIdentifier
+                        context.ast.node_kind(parameter.ast_id()) == NodeKind::BindingIdentifier
                     });
                     if !simple_parameter {
                         self.report_redeclaration(
@@ -2801,7 +2799,7 @@ impl<'a> CheckerState<'a> {
     fn check_strict_reserved(
         &mut self,
         name: &[u8],
-        node: NodeId,
+        node: AstId,
         context: &mut SemanticVisitCtx<'_, 'a>,
         as_what: &'static str,
     ) {
@@ -2822,7 +2820,7 @@ impl<'a> CheckerState<'a> {
     fn check_for_in_of_initializer(
         &mut self,
         context: &mut SemanticVisitCtx<'_, 'a>,
-        left: NodeId,
+        left: AstId,
         is_for_in: bool,
     ) {
         let NodeKindData::VariableDeclaration(declaration) = context.ast.kind_data(left) else {
@@ -2846,13 +2844,13 @@ impl<'a> CheckerState<'a> {
                 && !context.ast.is_ts()
                 && declaration.kind(context.ast) == VariableKind::Var
                 && !context.state.scope.is_strict()
-                && context.ast.node_kind(declarator.id(context.ast).node_id())
+                && context.ast.node_kind(declarator.id(context.ast).ast_id())
                     == NodeKind::BindingIdentifier;
             if annex_b {
                 continue;
             }
             self.report(
-                context.ast.span(declarator.node_id()),
+                context.ast.span(declarator.ast_id()),
                 "for-in/of loop variable declaration may not have an initializer",
                 ReportOptions::default(),
             );
@@ -2863,7 +2861,7 @@ impl<'a> CheckerState<'a> {
     /// Walks a destructuring assignment target to find `eval`/`arguments` references.
     fn check_assign_target_eval_arguments(
         &mut self,
-        node: NodeId,
+        node: AstId,
         context: &mut SemanticVisitCtx<'_, 'a>,
     ) {
         match context.ast.kind_data(node) {
@@ -2885,11 +2883,11 @@ impl<'a> CheckerState<'a> {
                 let elements = array.elements(context.ast);
                 for index in 0..elements.len() {
                     if let Some(Some(element)) = elements.get_node(context.ast, index) {
-                        self.check_assign_target_eval_arguments(element.node_id(), context);
+                        self.check_assign_target_eval_arguments(element.ast_id(), context);
                     }
                 }
                 if let Some(rest) = array.rest(context.ast) {
-                    self.check_assign_target_eval_arguments(rest.node_id(), context);
+                    self.check_assign_target_eval_arguments(rest.ast_id(), context);
                 }
             }
             NodeKindData::ObjectPattern(object) => {
@@ -2899,23 +2897,23 @@ impl<'a> CheckerState<'a> {
                         .get_node(context.ast, index)
                         .expect("object pattern property exists");
                     self.check_assign_target_eval_arguments(
-                        property.value(context.ast).node_id(),
+                        property.value(context.ast).ast_id(),
                         context,
                     );
                 }
                 if let Some(rest) = object.rest(context.ast) {
-                    self.check_assign_target_eval_arguments(rest.node_id(), context);
+                    self.check_assign_target_eval_arguments(rest.ast_id(), context);
                 }
             }
             NodeKindData::AssignmentPattern(pattern) => {
                 self.check_assign_target_eval_arguments(
-                    pattern.left(context.ast).node_id(),
+                    pattern.left(context.ast).ast_id(),
                     context,
                 );
             }
             NodeKindData::BindingRestElement(rest) => {
                 self.check_assign_target_eval_arguments(
-                    rest.argument(context.ast).node_id(),
+                    rest.argument(context.ast).ast_id(),
                     context,
                 );
             }
@@ -2925,7 +2923,7 @@ impl<'a> CheckerState<'a> {
 
     fn check_import_export_position(
         &mut self,
-        node: NodeId,
+        node: AstId,
         out_of_module_label: &'static str,
         top_level_label: &'static str,
         context: &mut SemanticVisitCtx<'_, 'a>,
@@ -2958,7 +2956,7 @@ impl<'a> CheckerState<'a> {
             let attribute = attributes
                 .get_node(context.ast, index)
                 .expect("import attribute exists");
-            let key = attribute.key(context.ast).node_id();
+            let key = attribute.key(context.ast).ast_id();
             let key_name = match context.ast.kind_data(key) {
                 NodeKindData::IdentifierName(identifier) => context
                     .ast
@@ -2973,7 +2971,7 @@ impl<'a> CheckerState<'a> {
                 let previous = attributes
                     .get_node(context.ast, previous_index)
                     .expect("import attribute exists");
-                let previous_key = previous.key(context.ast).node_id();
+                let previous_key = previous.key(context.ast).ast_id();
                 let (previous_key_name, previous_key_is_string_literal) =
                     match context.ast.kind_data(previous_key) {
                         NodeKindData::IdentifierName(identifier) => (
@@ -3019,7 +3017,7 @@ impl<'a> CheckerState<'a> {
     fn record_exported_name(
         &mut self,
         name: &[u8],
-        node: NodeId,
+        node: AstId,
         context: &mut SemanticVisitCtx<'_, 'a>,
     ) {
         // TypeScript declarations can merge across the type and value namespaces. Duplicate

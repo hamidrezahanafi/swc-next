@@ -621,13 +621,21 @@ export function decode(buffer, source) {
       }
       case 47: {
         const extraId = _u32[(payload + 12) >> 2];
-        const f_classType = enumValue("ClassType", _dv.getUint8(payload + 0));
-        const f_decorators = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
+        const f_classType = enumValue("ClassType", _dv.getUint8(payload));
+        const f_decorators = nodeArray(
+          _u32[(extra + extraId * 8) >> 2],
+          _u32[(extra + extraId * 8 + 4) >> 2],
+          false,
+        );
         const f_id = optionalNode(_dv.getUint32(payload + 3, true));
         const f_typeParameters = optionalNode(_dv.getUint32(payload + 7, true));
         const f_superClass = optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]);
         const f_superTypeArguments = optionalNode(_u32[(extra + (extraId + 2) * 8) >> 2]);
-        const f_implements = nodeArray(_u32[(extra + (extraId + 3) * 8) >> 2], _u32[(extra + (extraId + 3) * 8 + 4) >> 2], false);
+        const f_implements = nodeArray(
+          _u32[(extra + (extraId + 3) * 8) >> 2],
+          _u32[(extra + (extraId + 3) * 8 + 4) >> 2],
+          false,
+        );
         const f_body = node(_u32[(extra + (extraId + 4) * 8) >> 2]);
         const f_abstract = _dv.getUint8(payload + 1) !== 0;
         const f_declare = _dv.getUint8(payload + 2) !== 0;
@@ -648,8 +656,13 @@ export function decode(buffer, source) {
         break;
       }
       case 48: {
-        result = { type: "ClassBody", start, end,
-          body: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+        result = {
+          type: "ClassBody", start, end,
+          body: nodeArray(
+            _u32[payload >> 2],
+            _u32[(payload + 4) >> 2],
+            false,
+          ),
         };
         break;
       }

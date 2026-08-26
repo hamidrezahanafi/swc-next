@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { parseSync as parseBufferSync } from "../src-js/binding.js";
+import { decode as decodeMinified } from "../src-js/decode.js";
+import { decode as decodePretty } from "../src-js/decode.pretty.js";
 import { CommentMode, parseSync, SourceType } from "../src-js/index.js";
 
 test("parseSync exposes the program lazily", () => {
@@ -71,4 +74,30 @@ test("parseSync can disable comment collection", () => {
   const result = parseSync("// omitted", { comments: CommentMode.None });
 
   assert.deepEqual(result.comments, []);
+});
+
+
+test("class objects project stable ClassBody ESTree nodes in both decoders", () => {
+  const source =
+    "@dec class C extends foo() { #x; static {} method() { return class { #y; }; } }";
+  const options = { syntax: "typescript", decorators: true };
+  const buffer = parseBufferSync(source, options);
+  const minified = decodeMinified(buffer, source).program;
+  const pretty = decodePretty(buffer, source).program;
+
+  assert.deepEqual(minified, pretty);
+  const outer = minified.body[0];
+  assert.equal(outer.type, "ClassDeclaration");
+  assert.equal(outer.body.type, "ClassBody");
+  assert.equal(source.slice(outer.body.start, outer.body.end)[0], "{");
+  assert.equal(source.slice(outer.body.start, outer.body.end).at(-1), "}");
+  assert.deepEqual(
+    outer.body.body.map((element) => element.type),
+    ["PropertyDefinition", "StaticBlock", "MethodDefinition"],
+  );
+
+  const nested = outer.body.body[2].value.body.body[0].argument;
+  assert.equal(nested.type, "ClassExpression");
+  assert.equal(nested.body.type, "ClassBody");
+  assert.equal(nested.body.body[0].key.name, "y");
 });

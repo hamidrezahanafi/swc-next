@@ -1,57 +1,50 @@
 use std::{marker::PhantomData, ops::Deref};
 
-use crate::{
-    Ast,
-    node_id::{ExtraDataCompact, ExtraDataId},
-};
+use crate::{Ast, AstEdge, AstId};
 
-pub const EMPTY_SUB_RANGE: SubRange = SubRange {
-    start: ExtraDataId::from_raw(0),
-    end: ExtraDataId::from_raw(0),
-};
-
-/// [SubRange] is a cheap way to represent a undetermined range of nodes in an arena, just like a [std::vec::Vec].
-///
-/// It only contains the start and end of the range in [crate::ast_list::NodeList].
-#[derive(Debug, Clone, Copy, Hash)]
-pub struct SubRange {
-    pub start: ExtraDataId,
-    pub end: ExtraDataId,
+oxc_index::define_index_type! {
+    pub struct NodeEdgeIndex = u32;
 }
 
-impl SubRange {
-    /// # Safety:
-    /// 1. The caller should make sure that the nodes in the range are all of type `T`.
-    pub(crate) unsafe fn cast_to_typed<T>(self) -> TypedSubRange<T> {
-        TypedSubRange {
+pub const EMPTY_NODE_RANGE: NodeRange = NodeRange {
+    start: NodeEdgeIndex::from_raw(0),
+    end: NodeEdgeIndex::from_raw(0),
+};
+
+#[derive(Debug, Clone, Copy, Hash)]
+pub struct NodeRange {
+    pub start: NodeEdgeIndex,
+    pub end: NodeEdgeIndex,
+}
+
+impl NodeRange {
+    pub(crate) unsafe fn cast_to_typed<T>(self) -> TypedNodeRange<T> {
+        TypedNodeRange {
             inner: self,
-            _phantom: PhantomData,
+            marker: PhantomData,
         }
     }
 }
 
-/// A typed sub range of nodes in an arena.
-///
-/// See [SubRange]
 #[derive(Debug)]
-pub struct TypedSubRange<T> {
-    pub(crate) inner: SubRange,
-    pub(crate) _phantom: PhantomData<T>,
+pub struct TypedNodeRange<T> {
+    pub(crate) inner: NodeRange,
+    pub(crate) marker: PhantomData<T>,
 }
 
-impl<T> Clone for TypedSubRange<T> {
+impl<T> Clone for TypedNodeRange<T> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<T> Copy for TypedSubRange<T> {}
+impl<T> Copy for TypedNodeRange<T> {}
 
-impl<T> TypedSubRange<T> {
+impl<T> TypedNodeRange<T> {
     pub fn empty() -> Self {
         Self {
-            inner: EMPTY_SUB_RANGE,
-            _phantom: PhantomData,
+            inner: EMPTY_NODE_RANGE,
+            marker: PhantomData,
         }
     }
 
@@ -63,170 +56,142 @@ impl<T> TypedSubRange<T> {
         self.len() == 0
     }
 
-    /// Similar to `Vec::remove(0)`
-    pub fn remove_first(&mut self) -> NodeExtraDataId<T> {
+    pub fn remove_first(&mut self) -> NodeEdgeId<T> {
         assert!(!self.is_empty());
         let start = self.start;
         self.inner.start += 1;
-        NodeExtraDataId {
+        NodeEdgeId {
             inner: start,
-            _phantom: PhantomData,
+            marker: PhantomData,
         }
     }
 
-    pub fn get(self, index: usize) -> Option<NodeExtraDataId<T>> {
-        if index < self.len() {
-            let id = self.start + index;
-            return Some(NodeExtraDataId {
-                inner: id,
-                _phantom: PhantomData,
-            });
-        }
-        None
-    }
-
-    pub fn first(self) -> Option<NodeExtraDataId<T>> {
-        if self.is_empty() {
-            return None;
-        }
-
-        Some(NodeExtraDataId {
-            inner: self.start,
-            _phantom: PhantomData,
+    pub fn get(self, index: usize) -> Option<NodeEdgeId<T>> {
+        (index < self.len()).then(|| NodeEdgeId {
+            inner: self.start + index,
+            marker: PhantomData,
         })
     }
 
-    pub fn last(self) -> Option<NodeExtraDataId<T>> {
-        if self.is_empty() {
-            return None;
-        }
+    pub fn first(self) -> Option<NodeEdgeId<T>> {
+        self.get(0)
+    }
 
-        Some(NodeExtraDataId {
+    pub fn last(self) -> Option<NodeEdgeId<T>> {
+        (!self.is_empty()).then(|| NodeEdgeId {
             inner: self.end - 1,
-            _phantom: PhantomData,
+            marker: PhantomData,
         })
     }
 
-    pub fn iter(self) -> TypedSubRangeIterator<T> {
-        TypedSubRangeIterator {
+    pub fn iter(self) -> TypedNodeRangeIterator<T> {
+        TypedNodeRangeIterator {
             cur: self.start,
             end: self.end,
-            _phantom: PhantomData,
+            marker: PhantomData,
         }
     }
 
     pub fn split_off(&mut self, at: usize) -> Self {
-        if at > self.len() {
-            panic!(
-                "Split point {} is larger than the length {}",
-                at,
-                self.len()
-            );
-        }
-
+        assert!(
+            at <= self.len(),
+            "split point {at} is larger than length {}",
+            self.len()
+        );
         let at = self.start + at;
         let original_end = self.inner.end;
-
         self.inner.end = at;
-        TypedSubRange {
-            inner: SubRange {
+        Self {
+            inner: NodeRange {
                 start: at,
                 end: original_end,
             },
-            _phantom: PhantomData,
+            marker: PhantomData,
         }
     }
-}
 
-impl<T> TypedSubRange<T> {
     #[inline]
-    pub fn replace_slot<'a>(self, ast: &mut Ast<'a>, at: NodeExtraDataId<T>, new: T)
+    pub fn replace_slot(self, ast: &mut Ast<'_>, at: NodeEdgeId<T>, new: T)
     where
-        T: ExtraDataCompact<'a>,
+        T: AstEdge,
     {
-        let data = new.to_extra_data(ast);
-        ast.extra_data[at.inner.index()] = data;
+        ast.node_edges[at.inner.index()] = new.to_ast_id();
     }
 
     #[inline]
-    pub fn get_node<'a>(self, ast: &Ast<'a>, index: usize) -> Option<T>
+    pub fn get_node(self, ast: &Ast<'_>, index: usize) -> Option<T>
     where
-        T: ExtraDataCompact<'a>,
+        T: AstEdge,
     {
         self.get(index).map(|id| ast.get_node_in_sub_range(id))
     }
 }
 
-impl<T> Deref for TypedSubRange<T> {
-    type Target = SubRange;
+impl<T> Deref for TypedNodeRange<T> {
+    type Target = NodeRange;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
 
-pub struct TypedSubRangeIterator<T> {
-    cur: ExtraDataId,
-    end: ExtraDataId,
-    _phantom: PhantomData<T>,
+pub struct TypedNodeRangeIterator<T> {
+    cur: NodeEdgeIndex,
+    end: NodeEdgeIndex,
+    marker: PhantomData<T>,
 }
 
-impl<T> Iterator for TypedSubRangeIterator<T> {
-    type Item = NodeExtraDataId<T>;
+impl<T> Iterator for TypedNodeRangeIterator<T> {
+    type Item = NodeEdgeId<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur == self.end {
             return None;
         }
-
         let next = self.cur;
-        debug_assert!(next < self.end);
-
-        self.cur = ExtraDataId::from_usize_unchecked(self.cur.index().wrapping_add(1));
-        debug_assert!(self.cur <= self.end);
-
-        Some(NodeExtraDataId {
+        self.cur = NodeEdgeIndex::from_usize_unchecked(self.cur.index().wrapping_add(1));
+        Some(NodeEdgeId {
             inner: next,
-            _phantom: PhantomData,
+            marker: PhantomData,
         })
     }
 }
 
-impl<T> DoubleEndedIterator for TypedSubRangeIterator<T> {
+impl<T> DoubleEndedIterator for TypedNodeRangeIterator<T> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.cur == self.end {
             return None;
         }
-
-        self.end = ExtraDataId::from_usize_unchecked(self.end.index().wrapping_sub(1));
-        debug_assert!(self.cur <= self.end);
-
-        let next = self.end;
-        debug_assert!(next >= self.cur);
-
-        Some(NodeExtraDataId {
-            inner: next,
-            _phantom: PhantomData,
+        self.end = NodeEdgeIndex::from_usize_unchecked(self.end.index().wrapping_sub(1));
+        Some(NodeEdgeId {
+            inner: self.end,
+            marker: PhantomData,
         })
     }
 }
 
-/// This is a wrapper around `ExtraDataId` that is used to represent a node in a sub-range.
-/// It's type safe and can be used to access nodes in the AST context.
 #[derive(Debug, Clone, Copy)]
-pub struct NodeExtraDataId<T> {
-    inner: ExtraDataId,
-    _phantom: PhantomData<T>,
+pub struct NodeEdgeId<T> {
+    inner: NodeEdgeIndex,
+    marker: PhantomData<T>,
 }
 
-impl<'a> Ast<'a> {
-    pub fn get_node_in_sub_range<T: ExtraDataCompact<'a>>(&self, id: NodeExtraDataId<T>) -> T {
-        // Safety: `NodeExtraDataId<T>` should always be valid
-        unsafe {
-            T::from_extra_data(
-                *self.extra_data.as_slice().get_unchecked(id.inner.index()),
-                self,
-            )
-        }
+impl Ast<'_> {
+    #[inline]
+    pub fn replace_edge<T: AstEdge>(&mut self, id: NodeEdgeId<T>, old: AstId, new: AstId) {
+        let edge = &mut self.node_edges[id.inner.index()];
+        assert_eq!(
+            *edge, old,
+            "AST parent edge no longer points to the expected node"
+        );
+        *edge = new;
+    }
+
+    pub fn get_node_in_sub_range<T: AstEdge>(&self, id: NodeEdgeId<T>) -> T {
+        let ast_id = unsafe { *self.node_edges.as_slice().get_unchecked(id.inner.index()) };
+        unsafe { T::from_edge_unchecked(ast_id) }
     }
 }
+
+pub type SubRange = NodeRange;
+pub type TypedSubRange<T> = TypedNodeRange<T>;

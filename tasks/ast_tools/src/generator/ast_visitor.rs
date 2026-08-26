@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use convert_case::{Case, Casing};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -10,8 +8,6 @@ use crate::{
     schema::{AstType, Schema, TypeId},
     util::{EXTRA_DATA_ID_BIT_OFFSET, calculate_inline_layout, safe_ident},
 };
-
-use super::ast_node::concrete_node_kinds;
 
 pub fn ast_visitor(schema: &Schema) -> RawOutput {
     let mut visit_functions = TokenStream::new();
@@ -26,13 +22,50 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
         fn ast(&self) -> &Ast<'a>;
 
         #[inline]
-        fn enter_node(&mut self, node_id: NodeId) {}
+        fn enter_node(&mut self, node_id: AstId) {}
         #[inline]
-        fn leave_node(&mut self, node_id: NodeId) {}
+        fn leave_node(&mut self, node_id: AstId) {}
+
+        #[inline]
+        fn visit_class_body(&mut self, body: ClassBody) {
+            <ClassBody as VisitWith<'a, Self>>::visit_children_with(body, self);
+        }
+    });
+
+    visit_with_impls.extend(quote! {
+        impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for ClassBody {
+            #[inline]
+            fn visit_with(self, visitor: &mut V) {
+                <V as Visit<'a>>::visit_class_body(visitor, self);
+            }
+
+            #[inline]
+            fn visit_children_with(self, visitor: &mut V) {
+                self.body(visitor.ast()).visit_with(visitor);
+            }
+        }
     });
 
     visit_mut_functions.extend(quote! {
         fn ast(&mut self) -> &mut Ast<'a>;
+    });
+
+    traverse_functions.extend(quote! {
+        #[inline]
+        fn enter_class_body(
+            &mut self,
+            class: ClassId,
+            ctx: &mut TraverseCtx<'_, 'a, State>,
+        ) {
+        }
+
+        #[inline]
+        fn exit_class_body(
+            &mut self,
+            class: ClassId,
+            ctx: &mut TraverseCtx<'_, 'a, State>,
+        ) {
+        }
     });
 
     for ty in schema.types.iter() {
@@ -49,9 +82,9 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                 visit_functions.extend(quote! {
                     #[inline]
                     fn #fn_name(&mut self, node: #ty_ident) {
-                        self.enter_node(node.node_id());
+                        self.enter_node(node.ast_id());
                         <#ty_ident as VisitWith<'a, Self>>::visit_children_with(node, self);
-                        self.leave_node(node.node_id());
+                        self.leave_node(node.ast_id());
                     }
                 });
 
@@ -81,7 +114,8 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                 });
 
                 // VisitWith/VisitMutWith
-                let uses_extra_data = calculate_inline_layout(ast, schema).is_none();
+                let uses_extra_data =
+                    ast.storage.is_common() && calculate_inline_layout(ast, schema).is_none();
                 let mut getter_field_loads = TokenStream::new();
                 let mut extra_data_field_loads = TokenStream::new();
                 let mut field_values = Vec::new();
@@ -95,11 +129,30 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
 
                     let field_ty = &schema.types[field.type_id];
                     let field_ty_ident = field_ty.repr_ident(schema);
-                    let getter_name = safe_ident(&field.name.to_case(Case::Snake));
-                    let setter_name = format_ident!("set_{}", field.name.to_case(Case::Snake));
+                    let is_class_body = ast.name == "Class" && field.name == "body";
+                    let visit_field_ty_ident = if is_class_body {
+                        quote!(ClassBody)
+                    } else {
+                        field_ty_ident.clone()
+                    };
+                    let visit_getter_name = if is_class_body {
+                        format_ident!("body")
+                    } else {
+                        safe_ident(&field.name.to_case(Case::Snake))
+                    };
+                    let getter_name = if is_class_body {
+                        format_ident!("body_elements")
+                    } else {
+                        safe_ident(&field.name.to_case(Case::Snake))
+                    };
+                    let setter_name = if ast.name == "Class" && field.name == "body" {
+                        format_ident!("set_body_elements")
+                    } else {
+                        format_ident!("set_{}", field.name.to_case(Case::Snake))
+                    };
                     let field_value = format_ident!("field_value_{field_index}");
                     getter_field_loads.extend(quote! {
-                        let #field_value = self.#getter_name(visitor.ast());
+                        let #field_value = self.#visit_getter_name(visitor.ast());
                     });
                     extra_data_field_loads.extend(quote! {
                         let offset = extra_data_start.wrapping_add(#field_index);
@@ -113,7 +166,7 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                     });
                     field_values.push(field_value.clone());
                     visit_children.extend(quote! {
-                        <#field_ty_ident as VisitWith<'a, V>>::visit_with(#field_value, visitor);
+                        <#visit_field_ty_ident as VisitWith<'a, V>>::visit_with(#field_value, visitor);
                     });
                     visit_mut_children.extend(quote! {
                         let field_value = self.#getter_name(visitor.ast());
@@ -185,8 +238,16 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
 
                     let field_ty = &schema.types[field.type_id];
                     let field_ty_ident = field_ty.repr_ident(schema);
-                    let getter_name = safe_ident(&field.name.to_case(Case::Snake));
-                    let setter_name = format_ident!("set_{}", field.name.to_case(Case::Snake));
+                    let getter_name = if ast.name == "Class" && field.name == "body" {
+                        format_ident!("body_elements")
+                    } else {
+                        safe_ident(&field.name.to_case(Case::Snake))
+                    };
+                    let setter_name = if ast.name == "Class" && field.name == "body" {
+                        format_ident!("set_body_elements")
+                    } else {
+                        format_ident!("set_{}", field.name.to_case(Case::Snake))
+                    };
                     let replacement = wrap_replacement(field.type_id, quote!(replacement), schema);
                     let deferred_replace_arm = if transparently_contains_expr(field.type_id, schema)
                     {
@@ -213,22 +274,44 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                             }
                         }
                     };
-                    traverse_children.extend(quote! {
-                        let child = node.#getter_name(ctx.ast);
-                        match <#field_ty_ident as TraverseWith<'a, State>>::traverse_with(
-                            child,
-                            traverser,
-                            ctx,
-                        ) {
-                            TraverseAction::Stop => {
-                                break 'traverse_children true;
+                    if ast.name == "Class" && field.name == "body" {
+                        traverse_children.extend(quote! {
+                            traverser.enter_class_body(node, ctx);
+                            let child = node.#getter_name(ctx.ast);
+                            let child_action = <#field_ty_ident as TraverseWith<'a, State>>::traverse_with(
+                                child,
+                                traverser,
+                                ctx,
+                            );
+                            traverser.exit_class_body(node, ctx);
+                            match child_action {
+                                TraverseAction::Stop => {
+                                    break 'traverse_children true;
+                                }
+                                #replace_arm
+                                TraverseAction::Proceed | TraverseAction::Skip => {
+                                    #deferred_replace_arm
+                                }
                             }
-                            #replace_arm
-                            TraverseAction::Proceed | TraverseAction::Skip => {
-                                #deferred_replace_arm
+                         });
+                     } else {
+                        traverse_children.extend(quote! {
+                            let child = node.#getter_name(ctx.ast);
+                            match <#field_ty_ident as TraverseWith<'a, State>>::traverse_with(
+                                child,
+                                traverser,
+                                ctx,
+                            ) {
+                                TraverseAction::Stop => {
+                                    break 'traverse_children true;
+                                }
+                                #replace_arm
+                                TraverseAction::Proceed | TraverseAction::Skip => {
+                                    #deferred_replace_arm
+                                }
                             }
-                        }
-                    });
+                        });
+                    }
                 }
 
                 traverse_walk_functions.extend(quote! {
@@ -238,7 +321,7 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                         traverser: &mut T,
                         ctx: &mut TraverseCtx<'_, 'a, State>,
                     ) -> TraverseAction<#ty_ident> {
-                        let node_id = node.node_id();
+                        let node_id = node.ast_id();
                         ctx.push_node(node_id);
 
                         let action = match traverser.enter_node::<#ty_ident>(node_id, ctx) {
@@ -295,7 +378,9 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
             AstType::Enum(ast) => {
                 let fn_name = format_ident!("visit_{}", &ast.name.to_case(Case::Snake));
                 let fn_mut_name = format_ident!("visit_mut_{}", &ast.name.to_case(Case::Snake));
+                let data_fn_name = format_ident!("{}_data", &ast.name.to_case(Case::Snake));
                 let ty_ident = ty.repr_ident(schema);
+                let data_ident = format_ident!("{}Data", ast.name);
 
                 // Visit/VisitMut
                 visit_functions.extend(quote! {
@@ -314,7 +399,6 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                 let mut visit_children_arms = TokenStream::new();
                 let mut visit_mut_children_arms = TokenStream::new();
                 let mut traverse_arms = TokenStream::new();
-                let mut seen_node_kinds = HashSet::new();
 
                 for variant in ast.variants.iter() {
                     let Some(variant_type_id) = variant.type_id else {
@@ -324,123 +408,19 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                     let variant_ty = &schema.types[variant_type_id];
                     let variant_ty_ident = variant_ty.repr_ident(schema);
                     let variant_name = format_ident!("{}", variant.name);
-                    let mut node_kind_names: Vec<_> = concrete_node_kinds(variant_type_id, schema)
-                        .into_iter()
-                        .filter(|node_kind| seen_node_kinds.insert(node_kind.clone()))
-                        .collect();
-
-                    if ast.name == "ExportDefaultDeclarationKind" && variant.name == "Expr" {
-                        for contextual_kind in ["Function", "Class"] {
-                            let Some(index) = node_kind_names
-                                .iter()
-                                .position(|node_kind| node_kind == contextual_kind)
-                            else {
-                                continue;
-                            };
-                            node_kind_names.remove(index);
-
-                            let node_kind = format_ident!("{contextual_kind}");
-                            let concrete_ty = format_ident!("{contextual_kind}");
-                            let (type_getter, declaration_type) = if contextual_kind == "Function" {
-                                (
-                                    format_ident!("function_type"),
-                                    quote!(FunctionType::FunctionDeclaration),
-                                )
-                            } else {
-                                (
-                                    format_ident!("class_type"),
-                                    quote!(ClassType::ClassDeclaration),
-                                )
-                            };
-                            visit_children_arms.extend(quote! {
-                                NodeKind::#node_kind => {
-                                    let concrete = #concrete_ty(self.0);
-                                    if concrete.#type_getter(visitor.ast()) == #declaration_type {
-                                        <#concrete_ty as VisitWith<'a, V>>::visit_with(concrete, visitor)
-                                    } else {
-                                        let nested = #variant_ty_ident(self.0);
-                                        <#variant_ty_ident as VisitWith<'a, V>>::visit_with(nested, visitor)
-                                    }
-                                }
-                            });
-                            visit_mut_children_arms.extend(quote! {
-                                NodeKind::#node_kind => {
-                                    let concrete = #concrete_ty(self.0);
-                                    if concrete.#type_getter(visitor.ast()) == #declaration_type {
-                                        <#concrete_ty as VisitMutWith<'a, V>>::visit_mut_with(
-                                            concrete,
-                                            visitor,
-                                        ).map(#ty_ident::#node_kind)
-                                    } else {
-                                        let nested = #variant_ty_ident(self.0);
-                                        <#variant_ty_ident as VisitMutWith<'a, V>>::visit_mut_with(
-                                            nested,
-                                            visitor,
-                                        ).map(#ty_ident::#variant_name)
-                                    }
-                                }
-                            });
-                            traverse_arms.extend(quote! {
-                                NodeKind::#node_kind => {
-                                    let concrete = #concrete_ty(self.0);
-                                    if concrete.#type_getter(ctx.ast) == #declaration_type {
-                                        match <#concrete_ty as TraverseWith<'a, State>>::traverse_with(
-                                            concrete,
-                                            traverser,
-                                            ctx,
-                                        ) {
-                                            TraverseAction::Proceed => TraverseAction::Proceed,
-                                            TraverseAction::Skip => TraverseAction::Skip,
-                                            TraverseAction::Stop => TraverseAction::Stop,
-                                            TraverseAction::Replace(replacement) => {
-                                                TraverseAction::Replace(#ty_ident::#node_kind(replacement))
-                                            }
-                                        }
-                                    } else {
-                                        let nested = #variant_ty_ident(self.0);
-                                        match <#variant_ty_ident as TraverseWith<'a, State>>::traverse_with(
-                                            nested,
-                                            traverser,
-                                            ctx,
-                                        ) {
-                                            TraverseAction::Proceed => TraverseAction::Proceed,
-                                            TraverseAction::Skip => TraverseAction::Skip,
-                                            TraverseAction::Stop => TraverseAction::Stop,
-                                            TraverseAction::Replace(replacement) => {
-                                                TraverseAction::Replace(#ty_ident::#variant_name(replacement))
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-                        }
-                    }
-
-                    if node_kind_names.is_empty() {
-                        continue;
-                    }
-                    let node_kinds: Vec<_> = node_kind_names
-                        .iter()
-                        .map(|node_kind| format_ident!("{node_kind}"))
-                        .collect();
                     visit_children_arms.extend(quote! {
-                        #(NodeKind::#node_kinds)|* => {
-                            let it = #variant_ty_ident(self.0);
-                            <#variant_ty_ident as VisitWith<'a, V>>::visit_with(it, visitor)
-                        }
+                        #data_ident::#variant_name(it) => <#variant_ty_ident as VisitWith<'a, V>>::visit_with(it, visitor),
                     });
                     visit_mut_children_arms.extend(quote! {
-                        #(NodeKind::#node_kinds)|* => {
-                            let it = #variant_ty_ident(self.0);
+                        #data_ident::#variant_name(it) => {
                             <#variant_ty_ident as VisitMutWith<'a, V>>::visit_mut_with(
                                 it,
                                 visitor,
                             ).map(#ty_ident::#variant_name)
-                        }
+                        },
                     });
                     traverse_arms.extend(quote! {
-                        #(NodeKind::#node_kinds)|* => {
-                            let it = #variant_ty_ident(self.0);
+                        #data_ident::#variant_name(it) => {
                             match <#variant_ty_ident as TraverseWith<'a, State>>::traverse_with(
                                 it,
                                 traverser,
@@ -453,7 +433,7 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                                     TraverseAction::Replace(#ty_ident::#variant_name(replacement))
                                 }
                             }
-                        }
+                        },
                     });
                 }
 
@@ -466,10 +446,8 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
 
                         #[inline]
                         fn visit_children_with(self, visitor: &mut V) {
-                            let kind = unsafe { *visitor.ast().nodes.kind_unchecked(self.0) };
-                            match kind {
+                            match visitor.ast().#data_fn_name(self) {
                                 #visit_children_arms
-                                _ => unsafe { std::hint::unreachable_unchecked() },
                             }
                         }
                     }
@@ -483,10 +461,9 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
 
                         #[inline]
                         fn visit_mut_children_with(self, visitor: &mut V) -> Option<Self> {
-                            let kind = unsafe { *visitor.ast().nodes.kind_unchecked(self.0) };
-                            match kind {
+                            let data = visitor.ast().#data_fn_name(self);
+                            match data {
                                 #visit_mut_children_arms
-                                _ => unsafe { std::hint::unreachable_unchecked() },
                             }
                         }
                     }
@@ -502,10 +479,8 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                             traverser: &mut T,
                             ctx: &mut TraverseCtx<'_, 'a, State>,
                         ) -> TraverseAction<Self::Node> {
-                            let kind = unsafe { *ctx.ast.nodes.kind_unchecked(self.0) };
-                            match kind {
+                            match ctx.ast.#data_fn_name(self) {
                                 #traverse_arms
-                                _ => unsafe { std::hint::unreachable_unchecked() },
                             }
                         }
                     }
@@ -777,7 +752,7 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                 #[inline]
                 fn enter_node<T: AstNode>(
                     &mut self,
-                    node_id: NodeId,
+                    node_id: AstId,
                     ctx: &mut TraverseCtx<'_, 'a, State>,
                 ) -> TraverseAction<T> {
                     TraverseAction::Proceed
@@ -786,7 +761,7 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                 #[inline]
                 fn exit_node(
                     &mut self,
-                    node_id: NodeId,
+                    node_id: AstId,
                     ctx: &mut TraverseCtx<'_, 'a, State>,
                 ) {
                 }

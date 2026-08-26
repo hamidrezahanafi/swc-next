@@ -22,7 +22,6 @@ pub fn resolver<'ast>(ast: &'ast Ast<'ast>) -> JsNameResolver<'ast> {
 
     let mut node_scopes = ArenaVec::with_capacity_in(ast.node_count(), allocator);
     node_scopes.resize(ast.node_count(), None);
-
     let mut resolver = Resolver {
         ast,
         scopes,
@@ -49,7 +48,7 @@ pub fn resolver<'ast>(ast: &'ast Ast<'ast>) -> JsNameResolver<'ast> {
 /// Scope assignments produced by [`resolver`].
 ///
 /// The old tree AST stored a symbol id on every `Ident`. The flat AST already
-/// gives every binding, reference, and label a stable [`NodeId`], so the same
+/// gives every binding, reference, and label a stable [`AstId`], so the same
 /// information is kept in a side table indexed by that id.
 #[derive(Debug)]
 pub struct JsNameResolver<'ast> {
@@ -64,18 +63,18 @@ impl JsNameResolver<'_> {
     /// were not resolved use the unresolved scope.
     #[inline]
     pub fn symbol_scope(&self, symbol: SymbolNode) -> ScopeId {
-        self.node_scope(symbol.node_id())
+        self.node_scope(symbol.ast_id())
     }
 
     /// Returns the scope owned by a scope-bearing AST node. Owners that were
     /// not visited use the unresolved scope.
     #[inline]
     pub fn owner_scope(&self, owner: ScopeOwner) -> ScopeId {
-        self.node_scope(owner.node_id())
+        self.node_scope(owner.ast_id())
     }
 
     #[inline]
-    fn node_scope(&self, node: NodeId) -> ScopeId {
+    fn node_scope(&self, node: AstId) -> ScopeId {
         self.node_scopes[node.index()].unwrap_or(self.unresolved_scope_id)
     }
 
@@ -122,13 +121,13 @@ pub enum SymbolNode {
 }
 
 impl SymbolNode {
-    fn node_id(self) -> NodeId {
+    fn ast_id(self) -> AstId {
         match self {
-            Self::BindingIdentifier(node) => node.node_id(),
-            Self::IdentifierReference(node) => node.node_id(),
-            Self::LabelIdentifier(node) => node.node_id(),
-            Self::JsxIdentifier(node) => node.node_id(),
-            Self::ModuleExportName(node) => node.node_id(),
+            Self::BindingIdentifier(node) => node.ast_id(),
+            Self::IdentifierReference(node) => node.ast_id(),
+            Self::LabelIdentifier(node) => node.ast_id(),
+            Self::JsxIdentifier(node) => node.ast_id(),
+            Self::ModuleExportName(node) => node.ast_id(),
         }
     }
 }
@@ -148,7 +147,7 @@ pub enum ScopeOwner {
     FunctionBody(FunctionBody),
     SetterBody(FunctionBody),
     ArrowFunctionExpression(ArrowFunctionExpression),
-    Class(Class),
+    Class(ClassId),
     StaticBlock(StaticBlock),
     ObjectExpression(ObjectExpression),
     ForStatement(ForStatement),
@@ -158,23 +157,23 @@ pub enum ScopeOwner {
 }
 
 impl ScopeOwner {
-    fn node_id(self) -> NodeId {
+    fn ast_id(self) -> AstId {
         match self {
-            Self::Program(node) => node.node_id(),
-            Self::ImplicitBlockStatement(node) => node.node_id(),
-            Self::BlockStatement(node) => node.node_id(),
-            Self::CatchClause(node) => node.node_id(),
-            Self::Function(node) => node.node_id(),
-            Self::FunctionBody(node) => node.node_id(),
-            Self::SetterBody(node) => node.node_id(),
-            Self::ArrowFunctionExpression(node) => node.node_id(),
-            Self::Class(node) => node.node_id(),
-            Self::StaticBlock(node) => node.node_id(),
-            Self::ObjectExpression(node) => node.node_id(),
-            Self::ForStatement(node) => node.node_id(),
-            Self::ForInStatement(node) => node.node_id(),
-            Self::ForOfStatement(node) => node.node_id(),
-            Self::SwitchStatement(node) => node.node_id(),
+            Self::Program(node) => node.ast_id(),
+            Self::ImplicitBlockStatement(node) => node.ast_id(),
+            Self::BlockStatement(node) => node.ast_id(),
+            Self::CatchClause(node) => node.ast_id(),
+            Self::Function(node) => node.ast_id(),
+            Self::FunctionBody(node) => node.ast_id(),
+            Self::SetterBody(node) => node.ast_id(),
+            Self::ArrowFunctionExpression(node) => node.ast_id(),
+            Self::Class(node) => node.ast_id(),
+            Self::StaticBlock(node) => node.ast_id(),
+            Self::ObjectExpression(node) => node.ast_id(),
+            Self::ForStatement(node) => node.ast_id(),
+            Self::ForInStatement(node) => node.ast_id(),
+            Self::ForOfStatement(node) => node.ast_id(),
+            Self::SwitchStatement(node) => node.ast_id(),
         }
     }
 
@@ -251,7 +250,7 @@ impl<'ast> Resolver<'ast> {
         self.strict_mode = strict_mode;
     }
 
-    fn set_scope_once(&mut self, node: NodeId, scope: ScopeId) {
+    fn set_scope_once(&mut self, node: AstId, scope: ScopeId) {
         let slot = &mut self.node_scopes[node.index()];
         if slot.is_none() {
             *slot = Some(scope);
@@ -259,11 +258,11 @@ impl<'ast> Resolver<'ast> {
     }
 
     fn set_symbol_scope_once(&mut self, symbol: SymbolNode, scope: ScopeId) {
-        self.set_scope_once(symbol.node_id(), scope);
+        self.set_scope_once(symbol.ast_id(), scope);
     }
 
     fn set_owner_scope_once(&mut self, owner: ScopeOwner, scope: ScopeId) {
-        self.set_scope_once(owner.node_id(), scope);
+        self.set_scope_once(owner.ast_id(), scope);
     }
 
     fn scope_of_name(&self, name: &[u8], stop_at_fn_scope: bool) -> Option<ScopeId> {
@@ -300,7 +299,7 @@ impl<'ast> Resolver<'ast> {
     }
 
     fn declare(&mut self, identifier: BindingIdentifier, kind: DeclKind) {
-        let node_index = identifier.node_id().index();
+        let node_index = identifier.ast_id().index();
         if self.node_scopes[node_index].is_some() {
             return;
         }
@@ -409,7 +408,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
     }
 
     fn visit_identifier_reference(&mut self, reference: IdentifierReference) {
-        let node_index = reference.node_id().index();
+        let node_index = reference.ast_id().index();
         if self.node_scopes[node_index].is_some() {
             return;
         }
@@ -530,7 +529,7 @@ impl<'ast> Visit<'ast> for Resolver<'ast> {
         });
     }
 
-    fn visit_class(&mut self, class: Class) {
+    fn visit_class(&mut self, class: ClassId) {
         match class.class_type(self.ast) {
             ClassType::ClassDeclaration => {
                 if let Some(identifier) = class.id(self.ast) {
@@ -878,7 +877,7 @@ impl<'ast> Visit<'ast> for Hoister<'_, 'ast> {
         self.resolver.declare(identifier, DeclKind::Function);
     }
 
-    fn visit_class(&mut self, class: Class) {
+    fn visit_class(&mut self, class: ClassId) {
         if class.class_type(self.resolver.ast) != ClassType::ClassDeclaration || self.in_block {
             return;
         }
@@ -997,4 +996,43 @@ impl<'ast> Visit<'ast> for Hoister<'_, 'ast> {
     fn visit_static_block(&mut self, _: StaticBlock) {}
 
     fn visit_assignment_target(&mut self, _: AssignmentTarget) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use swc_next_allocator::Allocator;
+    use swc_next_ecma_ast::{Lang, SourceType};
+    use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
+
+    use super::{ScopeOwner, resolver};
+
+    #[test]
+    fn class_scope_owner_uses_typed_class_id() {
+        let allocator = Allocator::new();
+        let parse = Parser::init(
+            &allocator,
+            "class Outer { method() { return class Inner {}; } }",
+            Options {
+                source_type: SourceType::Script,
+                lang: Lang::Js,
+                ..Options::default()
+            },
+            NoTokenParserConfig,
+        )
+        .parse();
+        assert!(parse.diagnostics.is_empty(), "{:#?}", parse.diagnostics);
+
+        let ast = parse.ast;
+        let statement = ast.root_program().body(&ast).get_node(&ast, 0).unwrap();
+        let class = statement
+            .as_declaration(&ast)
+            .and_then(|declaration| declaration.as_class(&ast))
+            .unwrap();
+        let resolved = resolver(&ast);
+
+        assert_ne!(
+            resolved.owner_scope(ScopeOwner::Class(class)),
+            resolved.unresolved_scope_id()
+        );
+    }
 }

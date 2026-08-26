@@ -1,7 +1,7 @@
 use std::vec::Vec;
 
 use swc_next_ecma_ast::{
-    ArrowFunctionExpression, Ast, Class, Directive, Function, FunctionBody, NodeId,
+    ArrowFunctionExpression, Ast, AstId, ClassId, Directive, Function, FunctionBody,
 };
 
 use crate::{
@@ -15,7 +15,8 @@ use crate::{
 pub(crate) struct SemanticVisitCtx<'traverse, 'ast> {
     pub state: SemanticContext<'ast>,
     pub ast: &'traverse Ast<'ast>,
-    path: Vec<NodeId>,
+    path: Vec<AstId>,
+    class_body_stack: Vec<ClassId>,
 }
 
 impl<'traverse, 'ast> SemanticVisitCtx<'traverse, 'ast> {
@@ -24,33 +25,47 @@ impl<'traverse, 'ast> SemanticVisitCtx<'traverse, 'ast> {
             state,
             ast,
             path: Vec::with_capacity(64),
+            class_body_stack: Vec::with_capacity(8),
         }
     }
 
-    pub fn enter_node(&mut self, node: NodeId) -> ReferenceFlags {
+    pub fn enter_node(&mut self, node: AstId) -> ReferenceFlags {
         self.path.push(node);
         self.state.enter_node()
     }
 
-    pub fn leave_node(&mut self, node: NodeId) {
+    pub fn leave_node(&mut self, node: AstId) {
         let current = self.path.pop();
         debug_assert_eq!(current, Some(node));
     }
 
-    pub fn parent(&self) -> Option<NodeId> {
+    pub fn parent(&self) -> Option<AstId> {
         self.path.iter().rev().nth(1).copied()
     }
 
-    pub fn current_node(&self) -> Option<NodeId> {
+    pub fn current_node(&self) -> Option<AstId> {
         self.path.last().copied()
     }
 
-    pub fn ancestors(&self) -> impl Iterator<Item = NodeId> + '_ {
+    pub fn ancestors(&self) -> impl Iterator<Item = AstId> + '_ {
         self.path.iter().rev().copied()
+    }
+
+    pub fn class_bodies(&self) -> impl Iterator<Item = ClassId> + '_ {
+        self.class_body_stack.iter().rev().copied()
+    }
+
+    pub fn enter_class_body(&mut self, class: ClassId) {
+        self.class_body_stack.push(class);
+    }
+
+    pub fn leave_class_body(&mut self, class: ClassId) {
+        debug_assert_eq!(self.class_body_stack.pop(), Some(class));
     }
 
     pub fn finalize(self) -> Semantic<'ast> {
         debug_assert!(self.path.is_empty());
+        debug_assert!(self.class_body_stack.is_empty());
         self.state.finalize(self.ast)
     }
 }
@@ -139,7 +154,7 @@ impl<'a> SemanticContext<'a> {
         self.scope.enter_function(tree, function, annex_b_if_body);
     }
 
-    pub fn enter_ts_function(&mut self, node: NodeId) {
+    pub fn enter_ts_function(&mut self, node: AstId) {
         self.scope.enter_ts_function(node);
     }
 
@@ -147,112 +162,112 @@ impl<'a> SemanticContext<'a> {
         self.scope.enter_arrow_function_expression(tree, arrow);
     }
 
-    pub fn enter_function_body(&mut self, tree: &Ast, body: FunctionBody, parent: Option<NodeId>) {
+    pub fn enter_function_body(&mut self, tree: &Ast, body: FunctionBody, parent: Option<AstId>) {
         self.scope.enter_function_body(tree, body, parent);
     }
 
-    pub fn enter_block_statement(&mut self, tree: &Ast, node: NodeId) {
+    pub fn enter_block_statement(&mut self, tree: &Ast, node: AstId) {
         self.scope.enter_block_statement(tree, node);
     }
 
-    pub fn enter_with_statement(&mut self, node: NodeId) {
+    pub fn enter_with_statement(&mut self, node: AstId) {
         self.scope.enter_with_scope(node);
     }
 
-    pub fn exit_with_statement(&mut self, node: NodeId) {
+    pub fn exit_with_statement(&mut self, node: AstId) {
         self.scope.exit_with_scope(node);
     }
 
-    pub fn enter_switch_case(&mut self, parent: Option<NodeId>) {
+    pub fn enter_switch_case(&mut self, parent: Option<AstId>) {
         self.scope.enter_switch_case(parent);
     }
 
-    pub fn enter_ts_enum_body(&mut self, node: NodeId) {
+    pub fn enter_ts_enum_body(&mut self, node: AstId) {
         self.scope.enter_ts_enum_body(node);
     }
 
-    fn enter_block_scope(&mut self, node: NodeId) {
+    fn enter_block_scope(&mut self, node: AstId) {
         self.scope.enter_block_scope(node);
     }
 
-    pub fn enter_for_statement(&mut self, node: NodeId) {
+    pub fn enter_for_statement(&mut self, node: AstId) {
         self.enter_block_scope(node);
     }
 
-    pub fn enter_for_in_statement(&mut self, node: NodeId) {
+    pub fn enter_for_in_statement(&mut self, node: AstId) {
         self.enter_block_scope(node);
     }
 
-    pub fn enter_for_of_statement(&mut self, node: NodeId) {
+    pub fn enter_for_of_statement(&mut self, node: AstId) {
         self.enter_block_scope(node);
     }
 
-    pub fn enter_catch_clause(&mut self, node: NodeId) {
+    pub fn enter_catch_clause(&mut self, node: AstId) {
         self.enter_block_scope(node);
     }
 
-    pub fn enter_ts_interface_declaration(&mut self, node: NodeId) {
+    pub fn enter_ts_interface_declaration(&mut self, node: AstId) {
         self.enter_block_scope(node);
     }
 
-    pub fn enter_ts_type_alias_declaration(&mut self, node: NodeId) {
+    pub fn enter_ts_type_alias_declaration(&mut self, node: AstId) {
         self.enter_block_scope(node);
     }
 
-    pub fn enter_ts_function_type(&mut self, node: NodeId) {
+    pub fn enter_ts_function_type(&mut self, node: AstId) {
         self.enter_block_scope(node);
     }
 
-    pub fn enter_ts_constructor_type(&mut self, node: NodeId) {
+    pub fn enter_ts_constructor_type(&mut self, node: AstId) {
         self.enter_block_scope(node);
     }
 
-    pub fn enter_ts_method_signature(&mut self, node: NodeId) {
+    pub fn enter_ts_method_signature(&mut self, node: AstId) {
         self.enter_block_scope(node);
     }
 
-    pub fn enter_ts_call_signature_declaration(&mut self, node: NodeId) {
+    pub fn enter_ts_call_signature_declaration(&mut self, node: AstId) {
         self.enter_block_scope(node);
     }
 
-    pub fn enter_ts_construct_signature_declaration(&mut self, node: NodeId) {
+    pub fn enter_ts_construct_signature_declaration(&mut self, node: AstId) {
         self.enter_block_scope(node);
     }
 
-    pub fn enter_ts_index_signature(&mut self, node: NodeId) {
+    pub fn enter_ts_index_signature(&mut self, node: AstId) {
         self.enter_block_scope(node);
     }
 
-    pub fn enter_ts_mapped_type(&mut self, node: NodeId) {
+    pub fn enter_ts_mapped_type(&mut self, node: AstId) {
         self.enter_block_scope(node);
     }
 
-    pub fn enter_ts_conditional_type(&mut self, node: NodeId) {
+    pub fn enter_ts_conditional_type(&mut self, node: AstId) {
         self.enter_block_scope(node);
     }
 
-    pub fn enter_ts_module_block(&mut self, node: NodeId) {
+    pub fn enter_ts_module_block(&mut self, node: AstId) {
         self.ts_namespace_depth += 1;
         self.scope.enter_ts_module_block(node);
     }
 
-    pub fn exit_ts_module_block(&mut self, node: NodeId) {
+    pub fn exit_ts_module_block(&mut self, node: AstId) {
         debug_assert!(self.ts_namespace_depth > 0);
         self.scope.exit_scope(node);
         self.ts_namespace_depth -= 1;
     }
 
-    pub fn enter_class(&mut self, tree: &Ast, class: Class) {
+    pub fn enter_class(&mut self, tree: &Ast, class: ClassId) {
         self.scope.enter_class(tree, class);
-        self.class.enter_class(class.node_id());
+        self.class.enter_class(class);
     }
 
-    pub fn exit_class(&mut self, node: NodeId) {
+    pub fn exit_class(&mut self, node: ClassId) {
         self.class.leave_class(node);
-        self.scope.exit_scope(node);
+        self.scope.exit_scope(node.ast_id());
     }
 
-    pub fn enter_static_block(&mut self, node: NodeId) {
+    pub fn enter_static_block(&mut self, node: AstId) {
         self.scope.enter_static_block(node);
     }
 
@@ -260,7 +275,7 @@ impl<'a> SemanticContext<'a> {
         self.scope.enter_decorator();
     }
 
-    pub fn exit_scope(&mut self, node: NodeId) {
+    pub fn exit_scope(&mut self, node: AstId) {
         self.scope.exit_scope(node);
     }
 

@@ -175,12 +175,10 @@ pub fn generate_field_to_u32(
     schema: &Schema,
 ) -> TokenStream {
     match field_ty {
-        AstType::Struct(_) | AstType::Enum(_) => {
-            quote!(#field_name.node_id().index() as u32)
-        }
+        AstType::Struct(_) | AstType::Enum(_) => quote!(#field_name.ast_id().raw()),
         AstType::Option(ast_option) => match &schema.types[ast_option.inner_type_id] {
             AstType::Struct(_) | AstType::Enum(_) => {
-                quote!(#field_name.map_or(u32::MAX, |node| node.node_id().index() as u32))
+                quote!(#field_name.map_or(u32::MAX, |node| node.ast_id().raw()))
             }
             AstType::Primitive(primitive) if matches!(primitive.name, "ScopeId" | "SymbolId") => {
                 quote!(#field_name.map_or(0, |id| id.index() as u32 + 1))
@@ -229,17 +227,17 @@ pub fn generate_u32_to_field(field_ty: &AstType, schema: &Schema) -> TokenStream
     match field_ty {
         AstType::Struct(_) | AstType::Enum(_) => {
             let field_inner_ty = field_ty.repr_ident(schema);
-            quote! {
-                #field_inner_ty(NodeId::from_raw_unchecked(raw))
-            }
+            quote! { unsafe {
+                #field_inner_ty::from_ast_id_unchecked(AstId::from_raw(raw))
+            } }
         }
         AstType::Option(ast_option) => {
             let inner_ty = &schema.types[ast_option.inner_type_id];
             let field_inner_ident = inner_ty.repr_ident(schema);
             match inner_ty {
                 AstType::Struct(_) | AstType::Enum(_) => quote! {
-                    (raw != u32::MAX).then(|| {
-                        #field_inner_ident(NodeId::from_raw_unchecked(raw))
+                    (raw != u32::MAX).then(|| unsafe {
+                        #field_inner_ident::from_ast_id_unchecked(AstId::from_raw(raw))
                     })
                 },
                 AstType::Primitive(primitive)

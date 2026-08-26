@@ -1,4 +1,4 @@
-use crate::{Ast, AstUtf8, AstWtf8, ExtraData, TypedSubRange};
+use crate::{Ast, AstUtf8, AstWtf8, ExtraData, TypedNodeRange};
 
 oxc_index::define_index_type! {
     pub struct ExtraDataId = u32;
@@ -13,7 +13,7 @@ pub trait ExtraDataCompact<'a>: Sized {
     unsafe fn from_extra_data(data: ExtraData, ast: &Ast<'a>) -> Self;
 }
 
-impl<'a, T> ExtraDataCompact<'a> for TypedSubRange<T> {
+impl<'a, T> ExtraDataCompact<'a> for TypedNodeRange<T> {
     #[inline]
     fn to_extra_data(self, _ast: &Ast<'a>) -> ExtraData {
         ExtraData {

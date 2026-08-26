@@ -182,7 +182,7 @@ impl<'ast> Visit<'ast> for ResolverDisplayVisitor<'_, 'ast> {
         }
     }
 
-    fn visit_class(&mut self, node: Class) {
+    fn visit_class(&mut self, node: ClassId) {
         node.id(self.ast).visit_with(self);
         node.decorators(self.ast).visit_with(self);
         node.body(self.ast).visit_with(self);

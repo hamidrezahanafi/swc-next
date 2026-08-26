@@ -1,7 +1,8 @@
 use crate::{
-    Accessibility, AssignmentOperator, Ast, AstNode, AstUtf8, AstWtf8, BinaryOperator, ClassType,
-    Expr, FormalParameterKind, FunctionType, ImportOrExportKind, ImportPhase, LogicalOperator,
-    MethodDefinitionKind, NodeId, NodeKind, PropertyKind, SourceType, Span, TsMappedTypeModifier,
+    Accessibility, AssignmentOperator, Ast, AstId, AstNode, AstUtf8, AstWtf8, BinaryOperator,
+    ClassType, Expr, FormalParameterKind, FunctionType, ImportOrExportKind, ImportPhase,
+    LogicalOperator, MethodDefinitionKind, NodeKind, PropertyKind, SourceType, Span,
+    TsMappedTypeModifier,
     TsMethodSignatureKind, TsModuleDeclarationKind, TsTypeOperatorKind, UnaryOperator,
     UpdateOperator, VariableKind, Visit, VisitMut, VisitMutWith, VisitWith,
 };
@@ -28,8 +29,8 @@ pub enum TraverseAction<T: AstNode> {
 pub struct TraverseCtx<'traverse, 'ast, State = ()> {
     pub state: State,
     pub ast: &'traverse mut Ast<'ast>,
-    path: Vec<NodeId>,
-    expr_replacement: Option<(NodeId, NodeId)>,
+    path: Vec<AstId>,
+    expr_replacement: Option<(AstId, AstId)>,
 }
 
 impl<'traverse, 'ast, State> TraverseCtx<'traverse, 'ast, State> {
@@ -45,31 +46,31 @@ impl<'traverse, 'ast, State> TraverseCtx<'traverse, 'ast, State> {
 
     /// Returns the concrete kind currently stored for `node_id`.
     #[inline]
-    pub fn node_kind(&self, node_id: NodeId) -> NodeKind {
+    pub fn node_kind(&self, node_id: AstId) -> NodeKind {
         self.ast.node_kind(node_id)
     }
 
     /// Returns the path from the traversal root to the current node.
     #[inline]
-    pub fn path(&self) -> &[NodeId] {
+    pub fn path(&self) -> &[AstId] {
         &self.path
     }
 
     /// Returns the current node, or `None` outside an enter/exit hook.
     #[inline]
-    pub fn current_node(&self) -> Option<NodeId> {
+    pub fn current_node(&self) -> Option<AstId> {
         self.ancestor(0)
     }
 
     /// Returns the current node's parent.
     #[inline]
-    pub fn parent(&self) -> Option<NodeId> {
+    pub fn parent(&self) -> Option<AstId> {
         self.ancestor(1)
     }
 
     /// Returns an ancestor by distance, where zero is the current node.
     #[inline]
-    pub fn ancestor(&self, distance: usize) -> Option<NodeId> {
+    pub fn ancestor(&self, distance: usize) -> Option<AstId> {
         distance
             .checked_add(1)
             .and_then(|offset| self.path.len().checked_sub(offset))
@@ -78,7 +79,7 @@ impl<'traverse, 'ast, State> TraverseCtx<'traverse, 'ast, State> {
 
     /// Iterates from the current node toward the traversal root.
     #[inline]
-    pub fn ancestors(&self) -> impl DoubleEndedIterator<Item = NodeId> + '_ {
+    pub fn ancestors(&self) -> impl DoubleEndedIterator<Item = AstId> + '_ {
         self.path.iter().rev().copied()
     }
 
@@ -99,26 +100,26 @@ impl<'traverse, 'ast, State> TraverseCtx<'traverse, 'ast, State> {
             .expect("replace_current_expr must be called from a traversal hook");
         assert!(
             self.expr_replacement
-                .replace((current, replacement.node_id()))
+                .replace((current, replacement.ast_id()))
                 .is_none(),
             "the current node can only be replaced once"
         );
     }
 
     #[inline]
-    pub(crate) fn take_expr_replacement(&mut self) -> Option<NodeId> {
+    pub(crate) fn take_expr_replacement(&mut self) -> Option<AstId> {
         self.expr_replacement
             .take()
             .map(|(_current, replacement)| replacement)
     }
 
     #[inline]
-    pub(crate) fn push_node(&mut self, node_id: NodeId) {
+    pub(crate) fn push_node(&mut self, node_id: AstId) {
         self.path.push(node_id);
     }
 
     #[inline]
-    pub(crate) fn pop_node(&mut self, expected: NodeId) {
+    pub(crate) fn pop_node(&mut self, expected: AstId) {
         let actual = self.path.pop();
         debug_assert_eq!(actual, Some(expected));
     }

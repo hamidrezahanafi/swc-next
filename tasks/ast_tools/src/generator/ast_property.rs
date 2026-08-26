@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use convert_case::{Case, Casing};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -8,7 +6,7 @@ use super::ast_node::concrete_node_kinds;
 use crate::{
     AST_CRATE_PATH,
     output::{RawOutput, RustOutput, output_path},
-    schema::{AstEnum, AstStruct, AstStructField, AstType, Schema},
+    schema::{AstEnum, AstStruct, AstStructField, AstType, Schema, StorageDomain},
     util::{
         EXTRA_DATA_ID_BIT_OFFSET, InlineLayout, InlineStorageMode, calculate_inline_layout,
         generate_field_to_u32, generate_field_to_u64, generate_u32_to_field, generate_u64_to_field,
@@ -45,6 +43,106 @@ pub fn ast_property(schema: &Schema) -> RawOutput {
 
 fn generate_property_for_struct(ast: &AstStruct, schema: &Schema) -> TokenStream {
     let name = format_ident!("{}", ast.name);
+
+    if let StorageDomain::Dedicated { name: storage, .. } = &ast.storage {
+        assert_eq!(storage, "class");
+        return quote! {
+            impl ClassId {
+                #[inline]
+                pub fn class_type(self, ast: &Ast<'_>) -> ClassType {
+                    ast.class_data(self).class_type
+                }
+                #[inline]
+                pub fn set_class_type(self, ast: &mut Ast<'_>, value: ClassType) {
+                    ast.class_data_mut(self).class_type = value;
+                }
+                #[inline]
+                pub fn decorators(self, ast: &Ast<'_>) -> TypedNodeRange<Decorator> {
+                    ast.class_data(self).decorators
+                }
+                #[inline]
+                pub fn set_decorators(self, ast: &mut Ast<'_>, value: TypedNodeRange<Decorator>) {
+                    ast.class_data_mut(self).decorators = value;
+                }
+                #[inline]
+                pub fn id(self, ast: &Ast<'_>) -> Option<BindingIdentifier> {
+                    ast.class_data(self).id
+                }
+                #[inline]
+                pub fn set_id(self, ast: &mut Ast<'_>, value: Option<BindingIdentifier>) {
+                    ast.class_data_mut(self).id = value;
+                }
+                #[inline]
+                pub fn type_parameters(self, ast: &Ast<'_>) -> Option<TsTypeParameterDeclaration> {
+                    ast.class_data(self).type_parameters
+                }
+                #[inline]
+                pub fn set_type_parameters(self, ast: &mut Ast<'_>, value: Option<TsTypeParameterDeclaration>) {
+                    ast.class_data_mut(self).type_parameters = value;
+                }
+                #[inline]
+                pub fn super_class(self, ast: &Ast<'_>) -> Option<Expr> {
+                    ast.class_data(self).super_class
+                }
+                #[inline]
+                pub fn set_super_class(self, ast: &mut Ast<'_>, value: Option<Expr>) {
+                    ast.class_data_mut(self).super_class = value;
+                }
+                #[inline]
+                pub fn super_type_arguments(self, ast: &Ast<'_>) -> Option<TsTypeParameterInstantiation> {
+                    ast.class_data(self).super_type_arguments
+                }
+                #[inline]
+                pub fn set_super_type_arguments(self, ast: &mut Ast<'_>, value: Option<TsTypeParameterInstantiation>) {
+                    ast.class_data_mut(self).super_type_arguments = value;
+                }
+                #[inline]
+                pub fn implements(self, ast: &Ast<'_>) -> TypedNodeRange<TsClassImplements> {
+                    ast.class_data(self).implements
+                }
+                #[inline]
+                pub fn set_implements(self, ast: &mut Ast<'_>, value: TypedNodeRange<TsClassImplements>) {
+                    ast.class_data_mut(self).implements = value;
+                }
+                #[inline]
+                pub fn body_span(self, ast: &Ast<'_>) -> Span {
+                    ast.class_data(self).body_span
+                }
+                #[inline]
+                pub fn set_body_span(self, ast: &mut Ast<'_>, value: Span) {
+                    ast.class_data_mut(self).body_span = value;
+                }
+                #[inline]
+                pub fn body(self, _ast: &Ast<'_>) -> ClassBody {
+                    ClassBody(self)
+                }
+                #[inline]
+                pub fn body_elements(self, ast: &Ast<'_>) -> TypedNodeRange<ClassElement> {
+                    ast.class_data(self).body
+                }
+                #[inline]
+                pub fn set_body_elements(self, ast: &mut Ast<'_>, value: TypedNodeRange<ClassElement>) {
+                    ast.class_data_mut(self).body = value;
+                }
+                #[inline]
+                pub fn r#abstract(self, ast: &Ast<'_>) -> bool {
+                    ast.class_data(self).r#abstract
+                }
+                #[inline]
+                pub fn set_abstract(self, ast: &mut Ast<'_>, value: bool) {
+                    ast.class_data_mut(self).r#abstract = value;
+                }
+                #[inline]
+                pub fn declare(self, ast: &Ast<'_>) -> bool {
+                    ast.class_data(self).declare
+                }
+                #[inline]
+                pub fn set_declare(self, ast: &mut Ast<'_>, value: bool) {
+                    ast.class_data_mut(self).declare = value;
+                }
+            }
+        };
+    }
 
     let mut field_getters = TokenStream::new();
     let mut field_setters = TokenStream::new();
@@ -380,58 +478,44 @@ fn generate_invalidations(field: &AstStructField) -> TokenStream {
 
 fn generate_property_for_enum(ast: &AstEnum, schema: &Schema) -> TokenStream {
     let name = format_ident!("{}", ast.name);
+    let data_name = format_ident!("{}Data", ast.name);
+    let data_fn_name = format_ident!("{}_data", ast.name.to_case(Case::Snake));
     let has_contextual_variants = ast.name == "ExportDefaultDeclarationKind";
 
     let mut is_variant = TokenStream::new();
     let mut as_variant = TokenStream::new();
-    let mut classified_node_kinds = HashSet::new();
 
     for variant in ast.variants.iter() {
+        let variant_name = format_ident!("{}", variant.name);
         let is_fn_name = format_ident!("is_{}", variant.name.to_case(Case::Snake));
-        let node_kind_names = concrete_node_kinds(variant.type_id.unwrap(), schema);
-        let node_kinds: Vec<_> = node_kind_names
-            .iter()
-            .map(|name| format_ident!("{name}"))
-            .collect();
         let kind_check = if has_contextual_variants {
-            generate_contextual_variant_check(&variant.name, &node_kinds)
+            quote!(matches!(ast.#data_fn_name(self), #data_name::#variant_name(_)))
         } else {
+            let node_kinds: Vec<_> = concrete_node_kinds(variant.type_id.unwrap(), schema)
+                .into_iter()
+                .map(|name| format_ident!("{name}"))
+                .collect();
             if let [node_kind] = node_kinds.as_slice() {
                 quote!(ast.node_kind(self.0) == NodeKind::#node_kind)
             } else {
                 quote!(matches!(ast.node_kind(self.0), #(NodeKind::#node_kinds)|*))
             }
         };
-        let kind_load = has_contextual_variants
-            .then(|| quote!(let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };));
         is_variant.extend(quote! {
             #[inline]
             pub fn #is_fn_name(self, ast: &Ast<'_>) -> bool {
-                #kind_load
                 #kind_check
             }
         });
 
         let as_fn_name = format_ident!("as_{}", variant.name.to_case(Case::Snake));
         let variant_type = schema.types[variant.type_id.unwrap()].repr_ident(schema);
-        let classified_kinds: Vec<_> = node_kind_names
-            .into_iter()
-            .filter(|node_kind| classified_node_kinds.insert(node_kind.clone()))
-            .map(|node_kind| format_ident!("{node_kind}"))
-            .collect();
-        let classified_check = if has_contextual_variants {
-            generate_contextual_variant_check(&variant.name, &classified_kinds)
-        } else {
-            quote!(matches!(kind, #(NodeKind::#classified_kinds)|*))
-        };
         as_variant.extend(quote! {
             #[inline]
             pub fn #as_fn_name(self, ast: &Ast<'_>) -> Option<#variant_type> {
-                let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
-                if #classified_check {
-                    Some(#variant_type(self.0))
-                } else {
-                    None
+                match ast.#data_fn_name(self) {
+                    #data_name::#variant_name(it) => Some(it),
+                    _ => None,
                 }
             }
         });
@@ -442,46 +526,5 @@ fn generate_property_for_enum(ast: &AstEnum, schema: &Schema) -> TokenStream {
             #is_variant
             #as_variant
         }
-    }
-}
-
-fn generate_contextual_variant_check(variant_name: &str, node_kinds: &[syn::Ident]) -> TokenStream {
-    match variant_name {
-        "Expr" => {
-            let plain_node_kinds = node_kinds
-                .iter()
-                .filter(|node_kind| node_kind != &"Function" && node_kind != &"Class");
-            quote! {
-                match kind {
-                    #(NodeKind::#plain_node_kinds => true,)*
-                    NodeKind::Function => {
-                        let function = Function(self.0);
-                        function.function_type(ast) != FunctionType::FunctionDeclaration
-                    }
-                    NodeKind::Class => {
-                        let class = Class(self.0);
-                        class.class_type(ast) != ClassType::ClassDeclaration
-                    }
-                    _ => false,
-                }
-            }
-        }
-        "Function" => quote! {
-            if kind == NodeKind::Function {
-                let function = Function(self.0);
-                function.function_type(ast) == FunctionType::FunctionDeclaration
-            } else {
-                false
-            }
-        },
-        "Class" => quote! {
-            if kind == NodeKind::Class {
-                let class = Class(self.0);
-                class.class_type(ast) == ClassType::ClassDeclaration
-            } else {
-                false
-            }
-        },
-        _ => quote!(matches!(kind, #(NodeKind::#node_kinds)|*)),
     }
 }

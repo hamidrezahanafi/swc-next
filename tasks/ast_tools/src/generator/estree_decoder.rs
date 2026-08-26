@@ -31,16 +31,19 @@ pub fn estree_decoder(schema: &Schema) -> (RawOutput, RawOutput, RawOutput, RawO
     let mut output = String::new();
     output.push_str(PREAMBLE);
 
-    for (kind, ty) in schema
-        .types
-        .iter()
-        .filter_map(|ty| match ty {
-            AstType::Struct(ast) => Some(ast),
-            _ => None,
-        })
-        .enumerate()
-    {
-        write_node_case(&mut output, kind, ty, schema);
+    let mut kind = 0;
+    for ty in schema.types.iter().filter_map(|ty| match ty {
+        AstType::Struct(ast) => Some(ast),
+        _ => None,
+    }) {
+        if ty.name == "Class" {
+            write_compat_class_case(&mut output, kind);
+            kind += 1;
+            write_compat_class_body_case(&mut output, kind);
+        } else {
+            write_node_case(&mut output, kind, ty, schema);
+        }
+        kind += 1;
     }
 
     output.push_str(POSTAMBLE);
@@ -123,6 +126,65 @@ fn minify(source: &str) -> String {
         .expect("failed to print minified decoder");
         String::from_utf8(output).expect("SWC emitted invalid UTF-8")
     })
+}
+
+fn write_compat_class_case(output: &mut String, kind: usize) {
+    writeln!(output, "      case {kind}: {{").unwrap();
+    output.push_str(
+        r#"        const extraId = _u32[(payload + 12) >> 2];
+        const f_classType = enumValue("ClassType", _dv.getUint8(payload));
+        const f_decorators = nodeArray(
+          _u32[(extra + extraId * 8) >> 2],
+          _u32[(extra + extraId * 8 + 4) >> 2],
+          false,
+        );
+        const f_id = optionalNode(_dv.getUint32(payload + 3, true));
+        const f_typeParameters = optionalNode(_dv.getUint32(payload + 7, true));
+        const f_superClass = optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]);
+        const f_superTypeArguments = optionalNode(_u32[(extra + (extraId + 2) * 8) >> 2]);
+        const f_implements = nodeArray(
+          _u32[(extra + (extraId + 3) * 8) >> 2],
+          _u32[(extra + (extraId + 3) * 8 + 4) >> 2],
+          false,
+        );
+        const f_body = node(_u32[(extra + (extraId + 4) * 8) >> 2]);
+        const f_abstract = _dv.getUint8(payload + 1) !== 0;
+        const f_declare = _dv.getUint8(payload + 2) !== 0;
+        result = {
+          type: f_classType, start, end,
+          decorators: f_decorators,
+          id: f_id,
+          superClass: f_superClass,
+          body: f_body,
+        };
+        if (isTs) {
+          result.typeParameters = f_typeParameters;
+          result.superTypeArguments = f_superTypeArguments;
+          result.implements = f_implements;
+          result.abstract = f_abstract;
+          result.declare = f_declare;
+        }
+        break;
+      }
+"#,
+    );
+}
+
+fn write_compat_class_body_case(output: &mut String, kind: usize) {
+    writeln!(output, "      case {kind}: {{").unwrap();
+    output.push_str(
+        r#"        result = {
+          type: "ClassBody", start, end,
+          body: nodeArray(
+            _u32[payload >> 2],
+            _u32[(payload + 4) >> 2],
+            false,
+          ),
+        };
+        break;
+      }
+"#,
+    );
 }
 
 fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &Schema) {

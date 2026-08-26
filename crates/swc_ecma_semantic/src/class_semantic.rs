@@ -1,5 +1,5 @@
 use swc_next_allocator::{Allocator, hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec};
-use swc_next_ecma_ast::{Ast, AstUtf8, NodeId, PropertyKey};
+use swc_next_ecma_ast::{Ast, AstUtf8, ClassId, PropertyKey};
 
 use crate::UsedNameState;
 
@@ -11,8 +11,8 @@ use crate::UsedNameState;
 pub struct ClassSemantic<'a> {
     allocator: &'a Allocator,
     enabled: bool,
-    classes: ArenaHashMap<'a, NodeId, ClassInfo<'a>>,
-    class_stack: ArenaVec<'a, NodeId>,
+    classes: ArenaHashMap<'a, ClassId, ClassInfo<'a>>,
+    class_stack: ArenaVec<'a, ClassId>,
 }
 
 impl std::fmt::Debug for ClassSemantic<'_> {
@@ -50,7 +50,7 @@ impl<'a> ClassSemantic<'a> {
     ///
     /// This returns `None` when collection was disabled or the node is not a
     /// class from the analyzed tree.
-    pub fn get(&self, class: NodeId) -> Option<&ClassInfo<'a>> {
+    pub fn get(&self, class: ClassId) -> Option<&ClassInfo<'a>> {
         self.classes.get(&class)
     }
 
@@ -59,7 +59,7 @@ impl<'a> ClassSemantic<'a> {
     /// The returned name does not include the leading `#`. Reserving and
     /// returning the name in one operation keeps generated class elements and
     /// semantic state synchronized.
-    pub fn next_private_name(&mut self, ast: &mut Ast<'_>, class: NodeId) -> AstUtf8 {
+    pub fn next_private_name(&mut self, ast: &mut Ast<'_>, class: ClassId) -> AstUtf8 {
         assert!(
             self.enabled,
             "class semantic collection must be enabled before allocating names"
@@ -72,7 +72,7 @@ impl<'a> ClassSemantic<'a> {
         ast.add_utf8(name)
     }
 
-    pub(crate) fn enter_class(&mut self, class: NodeId) {
+    pub(crate) fn enter_class(&mut self, class: ClassId) {
         if !self.enabled {
             return;
         }
@@ -86,7 +86,7 @@ impl<'a> ClassSemantic<'a> {
         self.class_stack.push(class);
     }
 
-    pub(crate) fn leave_class(&mut self, class: NodeId) {
+    pub(crate) fn leave_class(&mut self, class: ClassId) {
         if !self.enabled {
             return;
         }

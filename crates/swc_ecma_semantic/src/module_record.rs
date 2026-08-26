@@ -2,9 +2,9 @@ use std::vec::Vec as RawVec;
 
 use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
 use swc_next_ecma_ast::{
-    Ast, AstWtf8, ExportAllDeclaration, ExportDefaultDeclaration, ExportDefaultDeclarationKindData,
-    ExportNamedDeclaration, ExportSpecifier, ImportOrExportKind, NodeId, NodeKindData, ReferenceId,
-    SymbolId,
+    Ast, AstId, AstWtf8, ExportAllDeclaration, ExportDefaultDeclaration,
+    ExportDefaultDeclarationKindData, ExportNamedDeclaration, ExportSpecifier, ImportOrExportKind,
+    NodeKindData, ReferenceId, SymbolId,
 };
 
 /// The ECMAScript export occurrences of a source text module, in source
@@ -30,14 +30,14 @@ impl ModuleRecord<'_> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModuleName {
     pub name: AstWtf8,
-    pub node: NodeId,
+    pub node: AstId,
 }
 
 /// The name introduced into this module's export namespace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportName {
     Named(ModuleName),
-    Default { node: NodeId },
+    Default { node: AstId },
 }
 
 /// The syntactic form that created an [`ExportEntry`].
@@ -72,10 +72,10 @@ pub enum ExportTarget {
         imported: ExternalExportName,
     },
     AnonymousDeclaration {
-        node: NodeId,
+        node: AstId,
     },
     Expression {
-        node: NodeId,
+        node: AstId,
         reference: Option<ReferenceId>,
         symbol: Option<SymbolId>,
     },
@@ -88,8 +88,8 @@ pub enum ExportTarget {
 /// One export occurrence and its finalized semantic target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExportEntry {
-    pub node: NodeId,
-    pub statement: NodeId,
+    pub node: AstId,
+    pub statement: AstId,
     pub exported: Option<ExportName>,
     pub origin: ExportOrigin,
     pub target: ExportTarget,
@@ -116,7 +116,7 @@ impl<'a> ModuleRecordBuilder<'a> {
         }
     }
 
-    pub fn add_direct_export(&mut self, tree: &Ast, binding: NodeId, statement: NodeId) {
+    pub fn add_direct_export(&mut self, tree: &Ast, binding: AstId, statement: AstId) {
         if !self.enabled {
             return;
         }
@@ -142,15 +142,15 @@ impl<'a> ModuleRecordBuilder<'a> {
         }
         let type_only = declaration.export_kind(tree) == ImportOrExportKind::Type
             || specifier.export_kind(tree) == ImportOrExportKind::Type;
-        let exported = ExportName::Named(module_name(tree, specifier.exported(tree).node_id()));
+        let exported = ExportName::Named(module_name(tree, specifier.exported(tree).ast_id()));
         let (origin, target) = if let Some(source) = declaration.source(tree) {
             (
                 ExportOrigin::ReExportSpecifier,
                 RawExportTarget::External {
-                    source: string_name(tree, source.node_id()),
+                    source: string_name(tree, source.ast_id()),
                     imported: ExternalExportName::Named(module_name(
                         tree,
-                        specifier.local(tree).node_id(),
+                        specifier.local(tree).ast_id(),
                     )),
                 },
             )
@@ -158,13 +158,13 @@ impl<'a> ModuleRecordBuilder<'a> {
             (
                 ExportOrigin::LocalSpecifier,
                 RawExportTarget::Local {
-                    name: module_name(tree, specifier.local(tree).node_id()),
+                    name: module_name(tree, specifier.local(tree).ast_id()),
                 },
             )
         };
         self.exports.push(RawExportEntry {
-            node: specifier.node_id(),
-            statement: declaration.node_id(),
+            node: specifier.ast_id(),
+            statement: declaration.ast_id(),
             exported: Some(exported),
             origin,
             target,
@@ -176,11 +176,11 @@ impl<'a> ModuleRecordBuilder<'a> {
         if !self.enabled {
             return;
         }
-        let source = string_name(tree, declaration.source(tree).node_id());
+        let source = string_name(tree, declaration.source(tree).ast_id());
         let type_only = declaration.export_kind(tree) == ImportOrExportKind::Type;
         let (exported, origin, target) = if let Some(exported) = declaration.exported(tree) {
             (
-                Some(ExportName::Named(module_name(tree, exported.node_id()))),
+                Some(ExportName::Named(module_name(tree, exported.ast_id()))),
                 ExportOrigin::NamespaceReExport,
                 RawExportTarget::External {
                     source,
@@ -198,8 +198,8 @@ impl<'a> ModuleRecordBuilder<'a> {
             )
         };
         self.exports.push(RawExportEntry {
-            node: declaration.node_id(),
-            statement: declaration.node_id(),
+            node: declaration.ast_id(),
+            statement: declaration.ast_id(),
             exported,
             origin,
             target,
@@ -215,20 +215,20 @@ impl<'a> ModuleRecordBuilder<'a> {
         let expression = value.is_expr(tree);
         let binding = match tree.export_default_declaration_kind_data(value) {
             ExportDefaultDeclarationKindData::Function(function) => {
-                function.id(tree).map(|id| id.node_id())
+                function.id(tree).map(|id| id.ast_id())
             }
-            ExportDefaultDeclarationKindData::Class(class) => class.id(tree).map(|id| id.node_id()),
+            ExportDefaultDeclarationKindData::Class(class) => class.id(tree).map(|id| id.ast_id()),
             ExportDefaultDeclarationKindData::TsInterfaceDeclaration(ts_interface_declaration) => {
-                Some(ts_interface_declaration.id(tree).node_id())
+                Some(ts_interface_declaration.id(tree).ast_id())
             }
             ExportDefaultDeclarationKindData::TsFunction(_)
             | ExportDefaultDeclarationKindData::Expr(_) => None,
         };
         self.exports.push(RawExportEntry {
-            node: declaration.node_id(),
-            statement: declaration.node_id(),
+            node: declaration.ast_id(),
+            statement: declaration.ast_id(),
             exported: Some(ExportName::Default {
-                node: declaration.node_id(),
+                node: declaration.ast_id(),
             }),
             origin: if expression {
                 ExportOrigin::DefaultExpression
@@ -236,7 +236,7 @@ impl<'a> ModuleRecordBuilder<'a> {
                 ExportOrigin::DefaultDeclaration
             },
             target: RawExportTarget::Default {
-                value: value.node_id(),
+                value: value.ast_id(),
                 binding,
                 expression,
             },
@@ -313,8 +313,8 @@ impl<'a> ModuleRecordBuilder<'a> {
 
 #[derive(Clone, Copy)]
 struct RawExportEntry {
-    node: NodeId,
-    statement: NodeId,
+    node: AstId,
+    statement: AstId,
     exported: Option<ExportName>,
     origin: ExportOrigin,
     target: RawExportTarget,
@@ -324,7 +324,7 @@ struct RawExportEntry {
 #[derive(Clone, Copy)]
 enum RawExportTarget {
     Direct {
-        binding: NodeId,
+        binding: AstId,
     },
     Local {
         name: ModuleName,
@@ -334,13 +334,13 @@ enum RawExportTarget {
         imported: ExternalExportName,
     },
     Default {
-        value: NodeId,
-        binding: Option<NodeId>,
+        value: AstId,
+        binding: Option<AstId>,
         expression: bool,
     },
 }
 
-fn module_name(tree: &Ast, node: NodeId) -> ModuleName {
+fn module_name(tree: &Ast, node: AstId) -> ModuleName {
     let name = match tree.kind_data(node) {
         NodeKindData::IdentifierName(identifier) => identifier.name(tree).into(),
         NodeKindData::IdentifierReference(identifier) => identifier.name(tree).into(),
@@ -351,7 +351,7 @@ fn module_name(tree: &Ast, node: NodeId) -> ModuleName {
     ModuleName { name, node }
 }
 
-fn string_name(tree: &Ast, node: NodeId) -> ModuleName {
+fn string_name(tree: &Ast, node: AstId) -> ModuleName {
     let NodeKindData::StringLiteral(string) = tree.kind_data(node) else {
         unreachable!("module source must be a string literal")
     };
