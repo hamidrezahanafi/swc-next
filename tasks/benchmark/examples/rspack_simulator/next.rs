@@ -12,8 +12,8 @@ use swc_next_ecma_semantic::{AnalyzeOptions, Semantic, analyze, name_resolver::r
 
 pub fn run(src: &'static str) {
     let allocator = Allocator::new();
-    let (ast, tokens) = run_parse(src, &allocator);
-    let _semantic = resolver(&ast);
+    let (mut ast, tokens) = run_parse(src, &allocator);
+    let _semantic = resolver(&mut ast);
     let semicolons = run_collect_semicolons(&ast, &tokens);
     let idents = run_scan_dependencies(&ast);
     drop((ast, tokens, semicolons, idents));

@@ -201,7 +201,7 @@ fn print_negative_number_contexts(number_format: NumberFormat) -> String {
 
     let member_object = ast.expr_numeric_literal(DUMMY_SP, -2.0, None);
     let property_name = ast.add_utf8("toString");
-    let property = ast.identifier_name(DUMMY_SP, property_name);
+    let property = ast.identifier_name(DUMMY_SP, property_name.into());
     let member = ast.expr_member_expression(
         DUMMY_SP,
         member_object,

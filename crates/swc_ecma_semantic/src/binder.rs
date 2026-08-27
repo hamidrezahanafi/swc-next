@@ -43,7 +43,7 @@ pub struct Range {
 /// contribution of an individual declaration matters.
 #[derive(Debug, Clone, Copy)]
 pub struct Symbol {
-    pub name: AstWtf8,
+    pub name: crate::SymbolName,
     pub flags: SymbolFlags,
     /// The scope the symbol is declared in. For a hoisting `var`,
     /// this is the hoist target it lands in, not the block it is
@@ -1216,18 +1216,23 @@ impl<'a> SymbolTracker<'a> {
             return;
         }
         let member_name = member.id(tree).node_id();
-        let name = match tree.kind_data(member_name) {
-            NodeKindData::IdentifierName(identifier) => identifier.name(tree).into(),
-            NodeKindData::StringLiteral(literal) => literal.value(tree),
-            _ => return,
-        };
         let saved = self.pending;
         self.pending = PendingBinding {
             flags: SymbolFlags::ENUM_MEMBER.with(SymbolFlags::AMBIENT, self.ambient),
             excludes: Excludes::ENUM_MEMBER,
             scope: scope.current,
         };
-        self.declare_wtf8(tree, name, member.node_id());
+        match tree.kind_data(member_name) {
+            NodeKindData::IdentifierName(identifier) => {
+                let raw = identifier.name(tree);
+                let name = tree.intern_utf8_range(raw);
+                self.declare(tree, name, member.node_id());
+            }
+            NodeKindData::StringLiteral(literal) => {
+                self.declare_wtf8(tree, literal.value(tree), member.node_id());
+            }
+            _ => {}
+        }
         self.pending = saved;
     }
 
@@ -1258,8 +1263,10 @@ impl<'a> SymbolTracker<'a> {
         let Some(identifier) = jsx_tag_root(tree, tree.jsx_element_name_data(name)) else {
             return;
         };
-        let text = tree.get_utf8(identifier.name(tree));
-        if text.as_bytes().first().is_some_and(u8::is_ascii_uppercase) {
+        if tree
+            .utf8_first_byte(identifier.name(tree))
+            .is_some_and(|byte| byte.is_ascii_uppercase())
+        {
             self.add_reference(
                 tree,
                 identifier.name(tree),
@@ -1276,21 +1283,21 @@ impl<'a> SymbolTracker<'a> {
     /// as a declaration for error recovery.
     pub fn declare(&mut self, tree: &Ast, name: AstInternedUtf8, node: NodeId) -> SymbolId {
         debug_assert!(node.index() < tree.node_count());
-        self.declare_name(ScopeName::Utf8(name), name.into(), node)
+        self.declare_name(ScopeName::Utf8(name), node)
     }
 
     fn declare_wtf8(&mut self, tree: &mut Ast, name: AstWtf8, node: NodeId) -> SymbolId {
         debug_assert!(node.index() < tree.node_count());
         if let Some(name) = tree.as_utf8(name) {
             let name = tree.intern_utf8_range(name);
-            return self.declare_name(ScopeName::Utf8(name), name.into(), node);
+            return self.declare_name(ScopeName::Utf8(name), node);
         }
 
         let name = tree.intern_wtf8_range(name);
-        self.declare_name(ScopeName::Wtf8(name), name, node)
+        self.declare_name(ScopeName::Wtf8(name), node)
     }
 
-    fn declare_name(&mut self, scope_name: ScopeName, name: AstWtf8, node: NodeId) -> SymbolId {
+    fn declare_name(&mut self, scope_name: ScopeName, node: NodeId) -> SymbolId {
         let target = self.pending.scope;
 
         let mut declaration_flags = self.pending.flags;
@@ -1321,7 +1328,7 @@ impl<'a> SymbolTracker<'a> {
         } else {
             let new_id = symbol_id(self.symbols.len());
             self.symbols.push(Symbol {
-                name,
+                name: scope_name,
                 flags: declaration_flags,
                 scope: target,
                 declaration: declaration_id,
@@ -1482,8 +1489,7 @@ impl<'a> SymbolTracker<'a> {
             let arguments_barrier = matches!(
                 reference.flags.space,
                 ReferenceSpace::Value | ReferenceSpace::Typeof
-            ) && tree.get_interned_utf8(reference.name).as_bytes()
-                == b"arguments";
+            ) && tree.utf8_eq_bytes(reference.name.into(), b"arguments");
             let mut resolved = None;
             for ancestor in scopes.ancestors(Some(reference.scope)) {
                 if let Some(&id) = self.scope_maps[ancestor.index()].get(&name) {
@@ -1527,7 +1533,7 @@ impl<'a> SymbolTracker<'a> {
                 let target_with = if let Some(symbol) = reference.symbol {
                     let scope = self.symbols[symbol.index()].scope;
                     with_ancestry[scope.index()].lexical
-                } else if tree.get_interned_utf8(reference.name).as_bytes() == b"arguments" {
+                } else if tree.utf8_eq_bytes(reference.name.into(), b"arguments") {
                     reference_ancestors.arguments
                 } else {
                     None

@@ -92,8 +92,8 @@ fn bench_semantic_with_syntax_check(mut ast: Ast<'static>) {
 
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
-fn bench_resolver(ast: Ast<'static>) {
-    black_box(resolve_names(&ast));
+fn bench_resolver(mut ast: Ast<'static>) {
+    black_box(resolve_names(&mut ast));
 }
 
 #[library_benchmark]

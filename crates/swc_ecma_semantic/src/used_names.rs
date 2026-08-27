@@ -1,10 +1,8 @@
-use std::str;
-
 use swc_next_allocator::{
     Allocator,
     hash_map::{Entry, HashMap as ArenaHashMap},
 };
-use swc_next_ecma_ast::{Ast, AstInternedUtf8};
+use swc_next_ecma_ast::{Ast, AstInternedUtf8, AstUtf8};
 
 /// Tracks interned names used in one collision domain.
 ///
@@ -18,13 +16,15 @@ pub struct UsedNameState<'a> {
 /// Reusable state for allocating a series of names with the same base.
 ///
 /// The base is interned and looked up once. Subsequent allocations keep their
-/// suffix cursor and candidate buffer here while [`UsedNameState`] remains the
-/// source of truth for collisions.
+/// suffix cursor and cached physical prefix here while [`UsedNameState`]
+/// remains the source of truth for collisions.
 pub struct GeneratedNameState {
     base_name: AstInternedUtf8,
     next_suffix: u64,
     return_base: bool,
-    candidate: CandidateName,
+    prefix_block: u64,
+    prefix: Option<AstUtf8>,
+    has_prefix_block: bool,
 }
 
 impl std::fmt::Debug for UsedNameState<'_> {
@@ -70,16 +70,20 @@ impl<'a> UsedNameState<'a> {
             }
         };
 
-        let mut candidate = CandidateName::new(base);
+        let mut prefix_block = u64::MAX;
+        let mut prefix = None;
         loop {
-            candidate.reset(base);
-            candidate.append_u64(suffix);
             let next_suffix = suffix
                 .checked_add(1)
                 .expect("generated name suffix overflow");
             *self.names.get_mut(&base_name).expect("base name exists") = next_suffix;
 
-            let candidate_name = ast.intern_utf8(candidate.as_str());
+            let block = suffix >> 4;
+            if prefix_block != block {
+                prefix_block = block;
+                prefix = ast.generated_name_prefix(base_name, block);
+            }
+            let candidate_name = ast.intern_generated_name(base_name, prefix, suffix);
             match self.names.entry(candidate_name) {
                 Entry::Occupied(_) => suffix = next_suffix,
                 Entry::Vacant(entry) => {
@@ -111,7 +115,9 @@ impl<'a> UsedNameState<'a> {
             base_name,
             next_suffix,
             return_base,
-            candidate: CandidateName::new(base),
+            prefix_block: 0,
+            prefix: None,
+            has_prefix_block: false,
         }
     }
 
@@ -132,11 +138,14 @@ impl<'a> UsedNameState<'a> {
             state.next_suffix = suffix
                 .checked_add(1)
                 .expect("generated name suffix overflow");
-            let base = ast.get_interned_utf8(state.base_name);
-            state.candidate.reset(base);
-            state.candidate.append_u64(suffix);
+            let block = suffix >> 4;
+            if !state.has_prefix_block || state.prefix_block != block {
+                state.prefix_block = block;
+                state.prefix = ast.generated_name_prefix(state.base_name, block);
+                state.has_prefix_block = true;
+            }
 
-            let candidate_name = ast.intern_utf8(state.candidate.as_str());
+            let candidate_name = ast.intern_generated_name(state.base_name, state.prefix, suffix);
             match self.names.entry(candidate_name) {
                 Entry::Occupied(_) => {}
                 Entry::Vacant(entry) => {
@@ -150,77 +159,6 @@ impl<'a> UsedNameState<'a> {
     /// Iterates all interned names currently observed or reserved.
     pub fn names(&self) -> impl Iterator<Item = AstInternedUtf8> + '_ {
         self.names.keys().copied()
-    }
-}
-
-const INLINE_NAME_CAPACITY: usize = 32;
-
-enum CandidateName {
-    Inline {
-        bytes: [u8; INLINE_NAME_CAPACITY],
-        len: u8,
-    },
-    Heap(Vec<u8>),
-}
-
-impl CandidateName {
-    fn new(base: &str) -> Self {
-        if base.len() + 20 <= INLINE_NAME_CAPACITY {
-            Self::Inline {
-                bytes: [0; INLINE_NAME_CAPACITY],
-                len: 0,
-            }
-        } else {
-            Self::Heap(Vec::with_capacity(base.len() + 20))
-        }
-    }
-
-    fn reset(&mut self, base: &str) {
-        match self {
-            Self::Inline { bytes, len } => {
-                bytes[..base.len()].copy_from_slice(base.as_bytes());
-                *len = base.len() as u8;
-            }
-            Self::Heap(output) => {
-                output.clear();
-                output.extend_from_slice(base.as_bytes());
-            }
-        }
-    }
-
-    fn append_u64(&mut self, mut value: u64) {
-        let mut digits = [0; 20];
-        let mut start = digits.len();
-        loop {
-            start -= 1;
-            digits[start] = b'0' + (value % 10) as u8;
-            value /= 10;
-            if value == 0 {
-                break;
-            }
-        }
-        self.extend_from_slice(&digits[start..]);
-    }
-
-    fn extend_from_slice(&mut self, input: &[u8]) {
-        match self {
-            Self::Inline { bytes, len } => {
-                let start = usize::from(*len);
-                let end = start + input.len();
-                bytes[start..end].copy_from_slice(input);
-                *len = end as u8;
-            }
-            Self::Heap(output) => output.extend_from_slice(input),
-        }
-    }
-
-    fn as_str(&self) -> &str {
-        let bytes = match self {
-            Self::Inline { bytes, len } => &bytes[..usize::from(*len)],
-            Self::Heap(output) => output.as_slice(),
-        };
-        // SAFETY: The buffer consists of a UTF-8 `base` followed by ASCII digits.
-        unsafe { str::from_utf8_unchecked(bytes) }
     }
 }
 
@@ -241,8 +179,8 @@ mod tests {
         let second = names.next_name(&mut ast, "_temp", 2);
         let third = names.next_name(&mut ast, "_temp", 2);
 
-        assert_eq!(ast.get_interned_utf8(second), "_temp2");
-        assert_eq!(ast.get_interned_utf8(third), "_temp3");
+        assert_eq!(second, ast.intern_utf8("_temp2"));
+        assert_eq!(third, ast.intern_utf8("_temp3"));
     }
 
     #[test]
@@ -255,7 +193,23 @@ mod tests {
 
         let name = names.next_name(&mut ast, "_temp", 2);
 
-        assert_eq!(ast.get_interned_utf8(name), "_temp3");
+        assert_eq!(name, ast.intern_utf8("_temp3"));
+    }
+
+    #[test]
+    fn reuses_generated_name_state() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("", &allocator);
+        let mut names = UsedNameState::new(&allocator);
+        let base = ast.intern_utf8("_temp");
+        names.observe(base);
+
+        let mut state = names.generated_name_state(&mut ast, "_temp", 2);
+        let second = names.next_name_from_state(&mut ast, &mut state);
+        let third = names.next_name_from_state(&mut ast, &mut state);
+
+        assert_eq!(second, ast.intern_utf8("_temp2"));
+        assert_eq!(third, ast.intern_utf8("_temp3"));
     }
 
     #[test]
@@ -270,7 +224,58 @@ mod tests {
         let second = names.next_name_from_state(&mut ast, &mut first_state);
         let third = names.next_name_from_state(&mut ast, &mut second_state);
 
-        assert_eq!(ast.get_interned_utf8(second), "_temp2");
-        assert_eq!(ast.get_interned_utf8(third), "_temp3");
+        assert_eq!(second, ast.intern_utf8("_temp2"));
+        assert_eq!(third, ast.intern_utf8("_temp3"));
+    }
+
+    #[test]
+    fn allocates_hexadecimal_suffix_blocks() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("", &allocator);
+        let mut names = UsedNameState::new(&allocator);
+        let base = ast.intern_utf8("_temp");
+        names.observe(base);
+
+        let mut state = names.generated_name_state(&mut ast, "_temp", 0xf);
+        let f = names.next_name_from_state(&mut ast, &mut state);
+        let ten = names.next_name_from_state(&mut ast, &mut state);
+        let eleven = names.next_name_from_state(&mut ast, &mut state);
+
+        assert_eq!(f, ast.intern_utf8("_tempf"));
+        assert_eq!(ten, ast.intern_utf8("_temp10"));
+        assert_eq!(eleven, ast.intern_utf8("_temp11"));
+    }
+
+    #[test]
+    fn crosses_hexadecimal_prefix_blocks() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("", &allocator);
+        let mut names = UsedNameState::new(&allocator);
+        names.observe(ast.intern_utf8("_temp"));
+
+        let mut one_f_state = names.generated_name_state(&mut ast, "_temp", 0x1f);
+        let one_f = names.next_name_from_state(&mut ast, &mut one_f_state);
+        let twenty = names.next_name_from_state(&mut ast, &mut one_f_state);
+        assert_eq!(one_f, ast.intern_utf8("_temp1f"));
+        assert_eq!(twenty, ast.intern_utf8("_temp20"));
+
+        names.observe(ast.intern_utf8("_other"));
+        let mut ff_state = names.generated_name_state(&mut ast, "_other", 0xff);
+        let ff = names.next_name_from_state(&mut ast, &mut ff_state);
+        let hundred = names.next_name_from_state(&mut ast, &mut ff_state);
+        assert_eq!(ff, ast.intern_utf8("_otherff"));
+        assert_eq!(hundred, ast.intern_utf8("_other100"));
+    }
+
+    #[test]
+    fn supports_unicode_long_and_hex_ending_bases() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("", &allocator);
+        let mut names = UsedNameState::new(&allocator);
+        let base = "变量abcdef0123456789abcdef0123456789f";
+        names.observe(ast.intern_utf8(base));
+
+        let generated = names.next_name(&mut ast, base, 0x10);
+        assert_eq!(generated, ast.intern_utf8(&format!("{base}10")));
     }
 }

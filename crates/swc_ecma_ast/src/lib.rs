@@ -10,6 +10,7 @@ mod strings;
 mod syntax;
 mod visit;
 
+#[allow(clippy::diverging_sub_expression)]
 mod generated {
     mod ast_builder;
     mod ast_clone_in;
@@ -31,7 +32,7 @@ pub use generated::ast_node::{NodeKind, NodeKindData};
 pub use generated::ast_visitor::*;
 pub use node_id::{AstNode, ExtraDataCompact, ExtraDataId, NodeId, SubRange, TypedSubRange};
 pub use semantic::{ReferenceId, ScopeId, SymbolId};
-pub use strings::{AstInternedUtf8, AstUtf8, AstWtf8};
+pub use strings::{AstInternedUtf8, AstUtf8, AstWtf8, Utf8Chunks};
 pub use syntax::*;
 pub use visit::{TraverseAction, TraverseCtx};
 
@@ -351,7 +352,7 @@ impl<'a> Ast<'a> {
     }
 
     #[inline]
-    pub fn add_utf8(&mut self, value: &str) -> AstUtf8 {
+    pub fn add_utf8(&mut self, value: &str) -> AstInternedUtf8 {
         self.strings.add_utf8(value)
     }
 
@@ -359,8 +360,7 @@ impl<'a> Ast<'a> {
     /// marks the returned handle as canonical for identity-based lookup.
     #[inline]
     pub fn intern_utf8(&mut self, value: &str) -> AstInternedUtf8 {
-        let value = self.strings.add_utf8(value);
-        AstInternedUtf8::from_raw(value.raw())
+        self.strings.add_utf8(value)
     }
 
     /// Canonicalizes an existing UTF-8 handle without copying its value into string storage.
@@ -369,9 +369,36 @@ impl<'a> Ast<'a> {
         self.strings.intern_utf8_range(value)
     }
 
+    /// Builds or reuses the physical prefix shared by one block of 16 generated names.
+    #[inline]
+    pub fn generated_name_prefix(&mut self, base: AstInternedUtf8, block: u64) -> Option<AstUtf8> {
+        self.strings.generated_name_prefix(base, block)
+    }
+
+    /// Interns a generated name from a cached prefix and hexadecimal suffix.
+    #[inline]
+    pub fn intern_generated_name(
+        &mut self,
+        base: AstInternedUtf8,
+        prefix: Option<AstUtf8>,
+        suffix: u64,
+    ) -> AstInternedUtf8 {
+        self.strings.intern_generated_name(base, prefix, suffix)
+    }
+
     #[inline]
     pub fn add_wtf8(&mut self, value: &swc_next_allocator::wtf8::Wtf8) -> AstWtf8 {
         self.strings.add_wtf8(value)
+    }
+
+    #[inline]
+    pub fn add_wtf8_prefixed_utf8(&mut self, prefix: &[u8], value: AstUtf8) -> AstWtf8 {
+        self.strings.add_wtf8_prefixed_utf8(prefix, value)
+    }
+
+    #[inline]
+    pub fn utf8_to_wtf8(&mut self, value: AstUtf8) -> AstWtf8 {
+        self.strings.utf8_to_wtf8(value)
     }
 
     /// Canonicalizes an existing WTF-8 handle without copying its value into string storage.
@@ -381,13 +408,55 @@ impl<'a> Ast<'a> {
     }
 
     #[inline]
-    pub fn get_utf8(&self, id: AstUtf8) -> &str {
-        self.strings.get_utf8(id)
+    pub fn get_flat_utf8(&self, id: AstUtf8) -> &str {
+        self.strings.get_flat_utf8(id)
+    }
+
+    /// Returns a borrowed or materialized logical UTF-8 string.
+    #[inline]
+    pub fn utf8_to_cow(&self, id: AstUtf8) -> std::borrow::Cow<'_, str> {
+        self.strings.utf8_to_cow(id)
+    }
+
+    /// Returns a non-allocating logical view of a flat or compact UTF-8 handle.
+    #[inline]
+    pub fn utf8_chunks(&self, id: AstUtf8) -> Utf8Chunks<'_> {
+        self.strings.utf8_chunks(id)
     }
 
     #[inline]
-    pub fn get_interned_utf8(&self, id: AstInternedUtf8) -> &str {
-        self.strings.get_utf8(id.into())
+    pub fn utf8_eq(&self, left: AstUtf8, right: AstUtf8) -> bool {
+        self.strings.utf8_eq(left, right)
+    }
+
+    #[inline]
+    pub fn utf8_eq_bytes(&self, id: AstUtf8, bytes: &[u8]) -> bool {
+        self.strings.utf8_eq_bytes(id, bytes)
+    }
+
+    #[inline]
+    pub fn utf8_eq_wtf8(&self, utf8: AstUtf8, wtf8: AstWtf8) -> bool {
+        self.strings.utf8_eq_wtf8(utf8, wtf8)
+    }
+
+    #[inline]
+    pub fn wtf8_eq(&self, left: AstWtf8, right: AstWtf8) -> bool {
+        self.strings.wtf8_eq(left, right)
+    }
+
+    #[inline]
+    pub fn wtf8_eq_bytes(&self, id: AstWtf8, bytes: &[u8]) -> bool {
+        self.strings.wtf8_eq_bytes(id, bytes)
+    }
+
+    #[inline]
+    pub fn utf8_contains_byte(&self, id: AstUtf8, byte: u8) -> bool {
+        self.strings.utf8_contains_byte(id, byte)
+    }
+
+    #[inline]
+    pub fn utf8_first_byte(&self, id: AstUtf8) -> Option<u8> {
+        self.strings.utf8_first_byte(id)
     }
 
     #[inline]
