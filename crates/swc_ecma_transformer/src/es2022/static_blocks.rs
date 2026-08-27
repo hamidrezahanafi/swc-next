@@ -4,8 +4,6 @@
 //! initializer. Trailing blocks are saved in one closure and invoked after
 //! class evaluation, matching Babel's standalone transform.
 
-use std::collections::HashMap;
-
 use swc_next_ecma_ast::{
     Accessibility, Argument, ArrowFunctionBody, AssignmentOperator, Ast, AstInternedUtf8, AstWtf8,
     Class, ClassBody, ClassElement, ClassType, DUMMY_SP, Expr, GetSpan, NodeId, NodeKindData,
@@ -16,7 +14,7 @@ use swc_next_ecma_semantic::{GeneratedNameState, Semantic};
 use crate::state::TransformerCtx;
 
 pub(super) struct StaticBlocks {
-    expression_calls: HashMap<NodeId, Expr>,
+    expression_calls: Vec<(NodeId, Expr)>,
     closure_names: Option<GeneratedNameState>,
     pending: Vec<BlockExpression>,
     expressions: Vec<Expr>,
@@ -384,7 +382,7 @@ impl<'a> ClassTransform<'_, 'a> {
 impl StaticBlocks {
     pub(super) fn new() -> Self {
         Self {
-            expression_calls: HashMap::new(),
+            expression_calls: Vec::new(),
             closure_names: None,
             pending: Vec::new(),
             expressions: Vec::new(),
@@ -425,24 +423,24 @@ impl StaticBlocks {
             .statement_injector
             .prepend_var_current(closure_name);
         if is_expression {
-            assert!(
-                self.expression_calls
-                    .insert(class.node_id(), call)
-                    .is_none(),
-                "a class expression can only be transformed once"
-            );
+            self.expression_calls.push((class.node_id(), call));
         } else {
             insert_call_after_class(call, ctx);
         }
     }
 
     pub(super) fn exit_class<'a>(&mut self, class: Class, ctx: &mut TransformerCtx<'_, 'a>) {
-        if self.expression_calls.is_empty() {
+        if self
+            .expression_calls
+            .last()
+            .is_none_or(|(class_id, _)| *class_id != class.node_id())
+        {
             return;
         }
-        let Some(call) = self.expression_calls.remove(&class.node_id()) else {
-            return;
-        };
+        let (_, call) = self
+            .expression_calls
+            .pop()
+            .expect("matching class expression call exists");
         let expressions = ctx.ast.add_typed_sub_range([Expr::Class(class), call]);
         let replacement = ctx.ast.expr_sequence_expression(DUMMY_SP, expressions);
         ctx.replace_current_expr(replacement);
