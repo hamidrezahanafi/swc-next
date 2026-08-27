@@ -68,14 +68,6 @@ impl StatementInjector {
         (container.node, anchor)
     }
 
-    pub(crate) fn insert_after(&mut self, container: NodeId, anchor: NodeId, statement: Stmt) {
-        self.pending
-            .entry(container)
-            .or_default()
-            .insertions
-            .push(Insertion { anchor, statement });
-    }
-
     pub(crate) fn prepend_var_current(&mut self, name: AstInternedUtf8) {
         let container = *self
             .var_scopes
@@ -86,6 +78,36 @@ impl StatementInjector {
             .or_default()
             .prepend_vars
             .push(name);
+    }
+
+    pub(crate) fn prepend_var_and_insert_after(
+        &mut self,
+        statement_container: NodeId,
+        anchor: NodeId,
+        name: AstInternedUtf8,
+        statement: Stmt,
+    ) {
+        let var_container = *self
+            .var_scopes
+            .last()
+            .expect("a class must belong to a generated-name var scope");
+        if var_container == statement_container {
+            let pending = self.pending.entry(var_container).or_default();
+            pending.prepend_vars.push(name);
+            pending.insertions.push(Insertion { anchor, statement });
+            return;
+        }
+
+        self.pending
+            .entry(var_container)
+            .or_default()
+            .prepend_vars
+            .push(name);
+        self.pending
+            .entry(statement_container)
+            .or_default()
+            .insertions
+            .push(Insertion { anchor, statement });
     }
 
     pub(crate) fn flush(&mut self, container: NodeId, ast: &mut Ast<'_>) {

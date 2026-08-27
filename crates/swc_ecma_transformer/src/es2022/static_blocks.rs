@@ -419,13 +419,13 @@ impl StaticBlocks {
         let Some((call, closure_name)) = call else {
             return;
         };
-        ctx.state
-            .statement_injector
-            .prepend_var_current(closure_name);
         if is_expression {
+            ctx.state
+                .statement_injector
+                .prepend_var_current(closure_name);
             self.expression_calls.push((class.node_id(), call));
         } else {
-            insert_call_after_class(call, ctx);
+            insert_call_after_class(call, closure_name, ctx);
         }
     }
 
@@ -451,15 +451,22 @@ impl StaticBlocks {
     }
 }
 
-fn insert_call_after_class<'a>(call: Expr, ctx: &mut TransformerCtx<'_, 'a>) {
+fn insert_call_after_class<'a>(
+    call: Expr,
+    closure_name: AstUtf8,
+    ctx: &mut TransformerCtx<'_, 'a>,
+) {
+    let call = ctx.ast.stmt_expression_statement(DUMMY_SP, call);
     let (container, anchor) = ctx
         .state
         .statement_injector
         .current_insertion_target(ctx.path());
-    let call = ctx.ast.stmt_expression_statement(DUMMY_SP, call);
-    ctx.state
-        .statement_injector
-        .insert_after(container, anchor, call);
+    ctx.state.statement_injector.prepend_var_and_insert_after(
+        container,
+        anchor,
+        closure_name,
+        call,
+    );
 }
 
 fn inferred_name(class: Class, parent: Option<NodeId>, ast: &mut Ast<'_>) -> Option<AstWtf8> {
