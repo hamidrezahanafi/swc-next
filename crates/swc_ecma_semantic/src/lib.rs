@@ -24,6 +24,7 @@ mod ecmascript;
 mod module_record;
 pub mod name_resolver;
 pub mod scope;
+mod used_names;
 
 pub use binder::{Declaration, Reference, ReferenceFlags, ReferenceSpace, Symbol, SymbolFlags};
 pub use module_record::{
@@ -31,6 +32,7 @@ pub use module_record::{
     ModuleRecord,
 };
 pub use swc_next_ecma_ast::ReferenceId;
+pub use used_names::{GeneratedNameState, UsedNameState};
 
 oxc_index::define_nonmax_u32_index_type! {
     /// Identifier for a declaration in a completed [`Semantic`] model.

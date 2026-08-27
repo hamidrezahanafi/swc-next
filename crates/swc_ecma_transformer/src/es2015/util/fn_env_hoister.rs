@@ -1,11 +1,9 @@
-use std::collections::HashSet;
-
 use swc_next_ecma_ast::{
     AssignmentOperator, Ast, AstUtf8, Class, DUMMY_SP, Decl, Expr, Function, FunctionBody, GetSpan,
     IdentifierReference, Program, StaticBlock, Stmt, TypedSubRange, VariableKind, VisitMut,
     VisitMutWith,
 };
-use swc_next_ecma_semantic::{ReferenceSpace, Semantic};
+use swc_next_ecma_semantic::{ReferenceSpace, Semantic, UsedNameState};
 
 #[derive(Default)]
 pub struct CaptureFrame {
@@ -24,25 +22,24 @@ impl CaptureFrame {
 ///
 /// This is the flat-AST equivalent of `swc_ecma_utils::function::FnEnvHoister`.
 /// It owns capture state, while callers retain ownership of AST traversal.
-pub struct FnEnvHoister<'semantic> {
-    semantic: &'semantic Semantic<'semantic>,
+pub struct FnEnvHoister<'semantic, 'semantic_data, 'ast> {
+    semantic: &'semantic Semantic<'semantic_data>,
     frames: Vec<CaptureFrame>,
-    used_names: HashSet<Vec<u8>>,
+    used_names: UsedNameState<'ast>,
     in_arrow: bool,
 }
 
-impl<'semantic> FnEnvHoister<'semantic> {
-    pub fn new(ast: &Ast<'_>, semantic: &'semantic Semantic<'semantic>) -> Self {
-        let mut used_names = HashSet::new();
+impl<'semantic, 'semantic_data, 'ast> FnEnvHoister<'semantic, 'semantic_data, 'ast> {
+    pub fn new(ast: &mut Ast<'ast>, semantic: &'semantic Semantic<'semantic_data>) -> Self {
+        let mut used_names = UsedNameState::new(ast.allocator());
         for entry in semantic.iter_symbols() {
-            used_names.insert(ast.get_wtf8(entry.symbol.name).as_bytes().to_vec());
+            if let Some(name) = ast.as_utf8(entry.symbol.name) {
+                let name = ast.intern_utf8_range(name);
+                used_names.observe(name);
+            }
         }
         for entry in semantic.iter_references() {
-            used_names.insert(
-                ast.get_interned_utf8(entry.reference.name)
-                    .as_bytes()
-                    .to_vec(),
-            );
+            used_names.observe(entry.reference.name);
         }
         Self {
             semantic,
@@ -67,18 +64,7 @@ impl<'semantic> FnEnvHoister<'semantic> {
     }
 
     fn fresh_name(&mut self, base: &str, ast: &mut Ast<'_>) -> AstUtf8 {
-        if self.used_names.insert(base.as_bytes().to_vec()) {
-            return ast.intern_utf8(base).into();
-        }
-
-        let mut suffix = 2u32;
-        loop {
-            let candidate = format!("{base}{suffix}");
-            if self.used_names.insert(candidate.as_bytes().to_vec()) {
-                return ast.intern_utf8(&candidate).into();
-            }
-            suffix += 1;
-        }
+        self.used_names.next_name(ast, base, 2).into()
     }
 
     fn capture_this(&mut self, ast: &mut Ast<'_>) -> AstUtf8 {
