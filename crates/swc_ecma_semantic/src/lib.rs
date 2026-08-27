@@ -34,7 +34,7 @@ pub use module_record::{
     ModuleRecord,
 };
 pub use swc_next_ecma_ast::ReferenceId;
-pub use used_names::UsedNameState;
+pub use used_names::{GeneratedNameState, UsedNameState};
 
 bitflags::bitflags! {
     /// Optional semantic data requested by downstream transforms.

@@ -15,6 +15,18 @@ pub struct UsedNameState<'a> {
     names: ArenaHashMap<'a, AstInternedUtf8, u64>,
 }
 
+/// Reusable state for allocating a series of names with the same base.
+///
+/// The base is interned and looked up once. Subsequent allocations keep their
+/// suffix cursor and candidate buffer here while [`UsedNameState`] remains the
+/// source of truth for collisions.
+pub struct GeneratedNameState {
+    base_name: AstInternedUtf8,
+    next_suffix: u64,
+    return_base: bool,
+    candidate: CandidateName,
+}
+
 impl std::fmt::Debug for UsedNameState<'_> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -72,6 +84,67 @@ impl<'a> UsedNameState<'a> {
                 Entry::Occupied(_) => suffix = next_suffix,
                 Entry::Vacant(entry) => {
                     entry.insert(min_suffix);
+                    return candidate_name;
+                }
+            }
+        }
+    }
+
+    /// Creates reusable allocation state for a series of names based on
+    /// `base`.
+    ///
+    /// This is preferable to repeated [`Self::next_name`] calls when one
+    /// transform allocates many names with the same base, because it avoids
+    /// re-interning and looking up the base for every allocation.
+    pub fn generated_name_state(
+        &mut self,
+        ast: &mut Ast<'_>,
+        base: &str,
+        min_suffix: u64,
+    ) -> GeneratedNameState {
+        assert!(min_suffix > 0, "generated name suffix must be positive");
+        let base_name = ast.intern_utf8(base);
+        let (next_suffix, return_base) = match self.names.entry(base_name) {
+            Entry::Occupied(entry) => ((*entry.get()).max(min_suffix), false),
+            Entry::Vacant(entry) => {
+                entry.insert(min_suffix);
+                (min_suffix, true)
+            }
+        };
+        GeneratedNameState {
+            base_name,
+            next_suffix,
+            return_base,
+            candidate: CandidateName::new(base),
+        }
+    }
+
+    /// Reserves and returns the next name from a reusable generated-name
+    /// series.
+    pub fn next_name_from_state(
+        &mut self,
+        ast: &mut Ast<'_>,
+        state: &mut GeneratedNameState,
+    ) -> AstInternedUtf8 {
+        if state.return_base {
+            state.return_base = false;
+            return state.base_name;
+        }
+
+        loop {
+            let suffix = state.next_suffix;
+            state.next_suffix = suffix
+                .checked_add(1)
+                .expect("generated name suffix overflow");
+            let base = ast.get_interned_utf8(state.base_name);
+            state.candidate.reset(base);
+            state.candidate.append_u64(suffix);
+
+            let candidate_name = ast.intern_utf8(state.candidate.as_str());
+            match self.names.entry(candidate_name) {
+                Entry::Occupied(_) => {}
+                Entry::Vacant(entry) => {
+                    entry.insert(1);
                     return candidate_name;
                 }
             }
@@ -190,5 +263,38 @@ mod tests {
         let name = names.next_name(&mut ast, "_temp", 2);
 
         assert_eq!(ast.get_interned_utf8(name), "_temp3");
+    }
+
+    #[test]
+    fn reuses_generated_name_state() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("", &allocator);
+        let mut names = UsedNameState::new(&allocator);
+        let base = ast.intern_utf8("_temp");
+        names.observe(base);
+
+        let mut state = names.generated_name_state(&mut ast, "_temp", 2);
+        let second = names.next_name_from_state(&mut ast, &mut state);
+        let third = names.next_name_from_state(&mut ast, &mut state);
+
+        assert_eq!(ast.get_interned_utf8(second), "_temp2");
+        assert_eq!(ast.get_interned_utf8(third), "_temp3");
+    }
+
+    #[test]
+    fn generated_name_states_share_collision_domain() {
+        let allocator = Allocator::new();
+        let mut ast = Ast::new("", &allocator);
+        let mut names = UsedNameState::new(&allocator);
+        let base = ast.intern_utf8("_temp");
+        names.observe(base);
+
+        let mut first_state = names.generated_name_state(&mut ast, "_temp", 2);
+        let mut second_state = names.generated_name_state(&mut ast, "_temp", 2);
+        let second = names.next_name_from_state(&mut ast, &mut first_state);
+        let third = names.next_name_from_state(&mut ast, &mut second_state);
+
+        assert_eq!(ast.get_interned_utf8(second), "_temp2");
+        assert_eq!(ast.get_interned_utf8(third), "_temp3");
     }
 }

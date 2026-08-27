@@ -11,17 +11,19 @@ use swc_next_ecma_ast::{
     Class, ClassBody, ClassElement, ClassType, DUMMY_SP, Expr, GetSpan, NodeId, NodeKindData,
     PropertyDefinition, PropertyKey, StaticBlock, Stmt, TypedSubRange, UnaryOperator,
 };
-use swc_next_ecma_semantic::Semantic;
+use swc_next_ecma_semantic::{GeneratedNameState, Semantic};
 
 use crate::state::TransformerCtx;
 
 pub(super) struct StaticBlocks {
     expression_calls: HashMap<NodeId, Expr>,
+    closure_names: Option<GeneratedNameState>,
 }
 
 struct ClassTransform<'visit, 'a> {
     ast: &'visit mut Ast<'a>,
     semantic: &'visit mut Semantic<'a>,
+    closure_names: &'visit mut Option<GeneratedNameState>,
 }
 
 impl<'a> ClassTransform<'_, 'a> {
@@ -29,9 +31,19 @@ impl<'a> ClassTransform<'_, 'a> {
         // UsedNameState currently provides one conservative program-wide
         // collision domain. The statement injector places each declaration in
         // its nearest function, static-block, or program scope.
-        self.semantic
-            .used_names_mut()
-            .next_name(self.ast, "_staticBlock", 2)
+        if self.closure_names.is_none() {
+            *self.closure_names = Some(self.semantic.used_names_mut().generated_name_state(
+                self.ast,
+                "_staticBlock",
+                2,
+            ));
+        }
+        self.semantic.used_names_mut().next_name_from_state(
+            self.ast,
+            self.closure_names
+                .as_mut()
+                .expect("closure name state was initialized"),
+        )
     }
 
     fn transform_class(
@@ -354,6 +366,7 @@ impl StaticBlocks {
     pub(super) fn new() -> Self {
         Self {
             expression_calls: HashMap::new(),
+            closure_names: None,
         }
     }
 
@@ -378,6 +391,7 @@ impl StaticBlocks {
         let call = ClassTransform {
             ast: ctx.ast,
             semantic,
+            closure_names: &mut self.closure_names,
         }
         .transform_class(class, is_expression, inferred_name);
 
