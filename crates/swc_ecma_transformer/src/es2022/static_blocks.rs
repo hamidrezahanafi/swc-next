@@ -453,7 +453,7 @@ impl StaticBlocks {
 
 fn insert_call_after_class<'a>(
     call: Expr,
-    closure_name: AstUtf8,
+    closure_name: AstInternedUtf8,
     ctx: &mut TransformerCtx<'_, 'a>,
 ) {
     let call = ctx.ast.stmt_expression_statement(DUMMY_SP, call);
