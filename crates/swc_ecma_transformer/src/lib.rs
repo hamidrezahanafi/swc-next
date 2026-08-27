@@ -1,7 +1,7 @@
 use swc_next_ecma_ast::{
-    ArrowFunctionExpression, Ast, BlockStatement, Class, ClassBody, FunctionBody, ObjectProperty,
-    Program, RegExpLiteral, StaticBlock, SwitchCase, Traverse, TraverseAction, TraverseCtx,
-    TraverseWith, TsModuleBlock,
+    ArrowFunctionExpression, Ast, BlockStatement, Class, ClassBody, Function, FunctionBody,
+    ObjectProperty, Program, RegExpLiteral, StaticBlock, SwitchCase, Traverse, TraverseAction,
+    TraverseCtx, TraverseWith, TsModuleBlock,
 };
 use swc_next_ecma_semantic::{Semantic, SemanticFeatureFlags};
 
@@ -84,6 +84,18 @@ impl Transformer {
 }
 
 impl<'a> Traverse<'a, TransformerState> for TransformerImpl<'_, 'a> {
+    fn enter_program(
+        &mut self,
+        node: Program,
+        ctx: &mut TransformerCtx<'_, 'a>,
+    ) -> TraverseAction<Program> {
+        ctx.state
+            .statement_injector
+            .enter_statement_container(node.node_id(), ctx.depth());
+        ctx.state.statement_injector.enter_var_scope(node.node_id());
+        TraverseAction::Proceed
+    }
+
     fn enter_class_body(
         &mut self,
         node: ClassBody,
@@ -99,26 +111,131 @@ impl<'a> Traverse<'a, TransformerState> for TransformerImpl<'_, 'a> {
 
     fn exit_program(&mut self, node: Program, ctx: &mut TransformerCtx<'_, 'a>) {
         ctx.state.statement_injector.flush(node.node_id(), ctx.ast);
+        ctx.state.statement_injector.exit_var_scope(node.node_id());
+        ctx.state
+            .statement_injector
+            .exit_statement_container(node.node_id());
+    }
+
+    fn enter_function(
+        &mut self,
+        node: Function,
+        ctx: &mut TransformerCtx<'_, 'a>,
+    ) -> TraverseAction<Function> {
+        let body = node.body(ctx.ast).node_id();
+        ctx.state.statement_injector.enter_var_scope(body);
+        TraverseAction::Proceed
+    }
+
+    fn exit_function(&mut self, node: Function, ctx: &mut TransformerCtx<'_, 'a>) {
+        ctx.state
+            .statement_injector
+            .exit_var_scope(node.body(ctx.ast).node_id());
+    }
+
+    fn enter_function_body(
+        &mut self,
+        node: FunctionBody,
+        ctx: &mut TransformerCtx<'_, 'a>,
+    ) -> TraverseAction<FunctionBody> {
+        ctx.state
+            .statement_injector
+            .enter_statement_container(node.node_id(), ctx.depth());
+        TraverseAction::Proceed
     }
 
     fn exit_function_body(&mut self, node: FunctionBody, ctx: &mut TransformerCtx<'_, 'a>) {
         ctx.state.statement_injector.flush(node.node_id(), ctx.ast);
+        ctx.state
+            .statement_injector
+            .exit_statement_container(node.node_id());
+    }
+
+    fn enter_block_statement(
+        &mut self,
+        node: BlockStatement,
+        ctx: &mut TransformerCtx<'_, 'a>,
+    ) -> TraverseAction<BlockStatement> {
+        ctx.state
+            .statement_injector
+            .enter_statement_container(node.node_id(), ctx.depth());
+        TraverseAction::Proceed
     }
 
     fn exit_block_statement(&mut self, node: BlockStatement, ctx: &mut TransformerCtx<'_, 'a>) {
         ctx.state.statement_injector.flush(node.node_id(), ctx.ast);
+        ctx.state
+            .statement_injector
+            .exit_statement_container(node.node_id());
+    }
+
+    fn enter_static_block(
+        &mut self,
+        node: StaticBlock,
+        ctx: &mut TransformerCtx<'_, 'a>,
+    ) -> TraverseAction<StaticBlock> {
+        ctx.state
+            .statement_injector
+            .enter_statement_container(node.node_id(), ctx.depth());
+        ctx.state.statement_injector.enter_var_scope(node.node_id());
+        TraverseAction::Proceed
     }
 
     fn exit_static_block(&mut self, node: StaticBlock, ctx: &mut TransformerCtx<'_, 'a>) {
         ctx.state.statement_injector.flush(node.node_id(), ctx.ast);
+        ctx.state.statement_injector.exit_var_scope(node.node_id());
+        ctx.state
+            .statement_injector
+            .exit_statement_container(node.node_id());
+    }
+
+    fn enter_switch_case(
+        &mut self,
+        node: SwitchCase,
+        ctx: &mut TransformerCtx<'_, 'a>,
+    ) -> TraverseAction<SwitchCase> {
+        ctx.state
+            .statement_injector
+            .enter_statement_container(node.node_id(), ctx.depth());
+        TraverseAction::Proceed
     }
 
     fn exit_switch_case(&mut self, node: SwitchCase, ctx: &mut TransformerCtx<'_, 'a>) {
         ctx.state.statement_injector.flush(node.node_id(), ctx.ast);
+        ctx.state
+            .statement_injector
+            .exit_statement_container(node.node_id());
+    }
+
+    fn enter_ts_module_block(
+        &mut self,
+        node: TsModuleBlock,
+        ctx: &mut TransformerCtx<'_, 'a>,
+    ) -> TraverseAction<TsModuleBlock> {
+        ctx.state
+            .statement_injector
+            .enter_statement_container(node.node_id(), ctx.depth());
+        TraverseAction::Proceed
     }
 
     fn exit_ts_module_block(&mut self, node: TsModuleBlock, ctx: &mut TransformerCtx<'_, 'a>) {
         ctx.state.statement_injector.flush(node.node_id(), ctx.ast);
+        ctx.state
+            .statement_injector
+            .exit_statement_container(node.node_id());
+    }
+
+    fn enter_arrow_function_expression(
+        &mut self,
+        node: ArrowFunctionExpression,
+        ctx: &mut TransformerCtx<'_, 'a>,
+    ) -> TraverseAction<ArrowFunctionExpression> {
+        let container = node
+            .body(ctx.ast)
+            .as_function_body(ctx.ast)
+            .map_or(node.node_id(), |body| body.node_id());
+        ctx.state.statement_injector.enter_var_scope(container);
+        TraverseAction::Proceed
     }
 
     fn exit_arrow_function_expression(
@@ -126,9 +243,14 @@ impl<'a> Traverse<'a, TransformerState> for TransformerImpl<'_, 'a> {
         node: ArrowFunctionExpression,
         ctx: &mut TransformerCtx<'_, 'a>,
     ) {
+        let container = node
+            .body(ctx.ast)
+            .as_function_body(ctx.ast)
+            .map_or(node.node_id(), |body| body.node_id());
         ctx.state
             .statement_injector
             .flush_arrow_expression(node, ctx.ast);
+        ctx.state.statement_injector.exit_var_scope(container);
     }
 
     fn exit_object_property(&mut self, node: ObjectProperty, ctx: &mut TransformerCtx<'_, 'a>) {

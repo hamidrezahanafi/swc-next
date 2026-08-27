@@ -21,12 +21,53 @@ struct Insertion {
     statement: Stmt,
 }
 
+struct StatementContainer {
+    node: NodeId,
+    depth: usize,
+}
+
 #[derive(Default)]
 pub(crate) struct StatementInjector {
     pending: FxHashMap<NodeId, PendingStatements>,
+    statement_containers: Vec<StatementContainer>,
+    var_scopes: Vec<NodeId>,
 }
 
 impl StatementInjector {
+    pub(crate) fn enter_statement_container(&mut self, node: NodeId, depth: usize) {
+        self.statement_containers
+            .push(StatementContainer { node, depth });
+    }
+
+    pub(crate) fn exit_statement_container(&mut self, expected: NodeId) {
+        let actual = self
+            .statement_containers
+            .pop()
+            .map(|container| container.node);
+        debug_assert_eq!(actual, Some(expected));
+    }
+
+    pub(crate) fn enter_var_scope(&mut self, container: NodeId) {
+        self.var_scopes.push(container);
+    }
+
+    pub(crate) fn exit_var_scope(&mut self, expected: NodeId) {
+        let actual = self.var_scopes.pop();
+        debug_assert_eq!(actual, Some(expected));
+    }
+
+    pub(crate) fn current_insertion_target(&self, path: &[NodeId]) -> (NodeId, NodeId) {
+        let container = self
+            .statement_containers
+            .last()
+            .expect("a class declaration must belong to a statement list");
+        let anchor = path
+            .get(container.depth + 1)
+            .copied()
+            .expect("a class declaration must be inside its statement container");
+        (container.node, anchor)
+    }
+
     pub(crate) fn insert_after(&mut self, container: NodeId, anchor: NodeId, statement: Stmt) {
         self.pending
             .entry(container)
@@ -35,16 +76,11 @@ impl StatementInjector {
             .push(Insertion { anchor, statement });
     }
 
-    pub(crate) fn prepend_var(&mut self, scope: NodeId, name: AstInternedUtf8, ast: &Ast<'_>) {
-        let container = match ast.kind_data(scope) {
-            NodeKindData::Program(_) | NodeKindData::StaticBlock(_) => scope,
-            NodeKindData::Function(function) => function.body(ast).node_id(),
-            NodeKindData::ArrowFunctionExpression(arrow) => arrow
-                .body(ast)
-                .as_function_body(ast)
-                .map_or(scope, |body| body.node_id()),
-            _ => unreachable!("generated var must belong to a var scope"),
-        };
+    pub(crate) fn prepend_var_current(&mut self, name: AstInternedUtf8) {
+        let container = *self
+            .var_scopes
+            .last()
+            .expect("a class must belong to a generated-name var scope");
         self.pending
             .entry(container)
             .or_default()
@@ -121,6 +157,8 @@ impl StatementInjector {
 
     pub(crate) fn is_empty(&self) -> bool {
         self.pending.is_empty()
+            && self.statement_containers.is_empty()
+            && self.var_scopes.is_empty()
     }
 }
 

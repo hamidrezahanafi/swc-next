@@ -384,14 +384,9 @@ impl StaticBlocks {
         let Some((call, closure_name)) = call else {
             return;
         };
-        let var_scope = ctx
-            .ancestors()
-            .skip(1)
-            .find(|node| is_var_scope(*node, ctx.ast))
-            .expect("a class must belong to a generated-name var scope");
         ctx.state
             .statement_injector
-            .prepend_var(var_scope, closure_name, ctx.ast);
+            .prepend_var_current(closure_name);
         if is_expression {
             assert!(
                 self.expression_calls
@@ -400,7 +395,7 @@ impl StaticBlocks {
                 "a class expression can only be transformed once"
             );
         } else {
-            insert_call_after_class(class.node_id(), call, ctx);
+            insert_call_after_class(call, ctx);
         }
     }
 
@@ -421,46 +416,15 @@ impl StaticBlocks {
     }
 }
 
-fn is_var_scope(node: NodeId, ast: &Ast<'_>) -> bool {
-    matches!(
-        ast.kind_data(node),
-        NodeKindData::Program(_)
-            | NodeKindData::Function(_)
-            | NodeKindData::ArrowFunctionExpression(_)
-            | NodeKindData::StaticBlock(_)
-    )
-}
-
-fn insert_call_after_class<'a>(class: NodeId, call: Expr, ctx: &mut TransformerCtx<'_, 'a>) {
-    let mut statement = class;
-    let (container, statement) = ctx
-        .ancestors()
-        .skip(1)
-        .find_map(|ancestor| {
-            if is_statement_container(ancestor, ctx.ast) {
-                Some((ancestor, statement))
-            } else {
-                statement = ancestor;
-                None
-            }
-        })
-        .expect("a class declaration must belong to a statement list");
+fn insert_call_after_class<'a>(call: Expr, ctx: &mut TransformerCtx<'_, 'a>) {
+    let (container, anchor) = ctx
+        .state
+        .statement_injector
+        .current_insertion_target(ctx.path());
     let call = ctx.ast.stmt_expression_statement(DUMMY_SP, call);
     ctx.state
         .statement_injector
-        .insert_after(container, statement, call);
-}
-
-fn is_statement_container(node: NodeId, ast: &Ast<'_>) -> bool {
-    matches!(
-        ast.kind_data(node),
-        NodeKindData::Program(_)
-            | NodeKindData::FunctionBody(_)
-            | NodeKindData::BlockStatement(_)
-            | NodeKindData::StaticBlock(_)
-            | NodeKindData::SwitchCase(_)
-            | NodeKindData::TsModuleBlock(_)
-    )
+        .insert_after(container, anchor, call);
 }
 
 fn inferred_name(class: Class, parent: Option<NodeId>, ast: &mut Ast<'_>) -> Option<AstWtf8> {
