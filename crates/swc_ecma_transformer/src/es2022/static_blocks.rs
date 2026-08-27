@@ -18,12 +18,16 @@ use crate::state::TransformerCtx;
 pub(super) struct StaticBlocks {
     expression_calls: HashMap<NodeId, Expr>,
     closure_names: Option<GeneratedNameState>,
+    pending: Vec<BlockExpression>,
+    expressions: Vec<Expr>,
 }
 
 struct ClassTransform<'visit, 'a> {
     ast: &'visit mut Ast<'a>,
     semantic: &'visit mut Semantic<'a>,
     closure_names: &'visit mut Option<GeneratedNameState>,
+    pending: &'visit mut Vec<BlockExpression>,
+    expressions: &'visit mut Vec<Expr>,
 }
 
 impl<'a> ClassTransform<'_, 'a> {
@@ -56,7 +60,7 @@ impl<'a> ClassTransform<'_, 'a> {
         let mut elements = body.body(self.ast);
         let original_len = elements.len();
         let mut write_index = 0;
-        let mut pending = Vec::new();
+        debug_assert!(self.pending.is_empty());
         let mut first_static_property = None;
         let mut last_static_property = None;
 
@@ -66,9 +70,9 @@ impl<'a> ClassTransform<'_, 'a> {
                 .expect("read index must be inside the class body");
             let element = self.ast.get_node_in_sub_range(element_id);
             if let Some(block) = element.as_static_block(self.ast) {
-                let is_first_pending = pending.is_empty();
+                let is_first_pending = self.pending.is_empty();
                 if let Some(expression) = self.block_to_expression(block, is_first_pending) {
-                    pending.push(expression);
+                    self.pending.push(expression);
                 }
                 continue;
             }
@@ -76,11 +80,8 @@ impl<'a> ClassTransform<'_, 'a> {
             if let Some(property) = static_property(element, self.ast) {
                 first_static_property.get_or_insert(property);
                 last_static_property = Some(property);
-                if !pending.is_empty() {
-                    self.prepend_to_initializer(
-                        property,
-                        pending.drain(..).map(|block| block.expression).collect(),
-                    );
+                if !self.pending.is_empty() {
+                    self.prepend_pending_to_initializer(property);
                 }
             }
 
@@ -93,7 +94,7 @@ impl<'a> ClassTransform<'_, 'a> {
             write_index += 1;
         }
 
-        if pending.is_empty() {
+        if self.pending.is_empty() {
             if write_index != original_len {
                 elements.split_off(write_index);
                 body.set_body(self.ast, elements);
@@ -104,9 +105,9 @@ impl<'a> ClassTransform<'_, 'a> {
         if let Some(name) = inferred_name {
             let set_name = self.build_set_function_name(name);
             if let Some(property) = first_static_property {
-                self.prepend_to_initializer(property, vec![set_name]);
+                self.prepend_one_to_initializer(property, set_name);
             } else {
-                pending.insert(
+                self.pending.insert(
                     0,
                     BlockExpression {
                         expression: set_name,
@@ -118,16 +119,16 @@ impl<'a> ClassTransform<'_, 'a> {
         }
 
         let closure_name = self.next_closure_name();
-        let closure = self.build_trailing_closure(&pending, is_expression);
-        let assignment_span = if pending[0].block_body.is_none() {
-            pending[0].span
+        let closure = self.build_trailing_closure(is_expression);
+        let assignment_span = if self.pending[0].block_body.is_none() {
+            self.pending[0].span
         } else {
             DUMMY_SP
         };
         let assignment = self.build_assignment(closure_name, closure, assignment_span);
 
         if let Some(property) = last_static_property {
-            self.prepend_to_initializer(property, vec![assignment]);
+            self.prepend_one_to_initializer(property, assignment);
         } else {
             let private_name = self
                 .semantic
@@ -150,6 +151,7 @@ impl<'a> ClassTransform<'_, 'a> {
             body.set_body(self.ast, elements);
         }
 
+        self.pending.clear();
         Some((self.build_call(closure_name), closure_name))
     }
 
@@ -210,13 +212,9 @@ impl<'a> ClassTransform<'_, 'a> {
             .expr_call_expression(span, arrow, None, TypedSubRange::empty(), false)
     }
 
-    fn build_trailing_closure(
-        &mut self,
-        pending: &[BlockExpression],
-        needs_completion_value: bool,
-    ) -> Expr {
-        if pending.len() == 1 && pending[0].block_body.is_some() {
-            let statements = pending[0].block_body.expect("checked above");
+    fn build_trailing_closure(&mut self, needs_completion_value: bool) -> Expr {
+        if self.pending.len() == 1 && self.pending[0].block_body.is_some() {
+            let statements = self.pending[0].block_body.expect("checked above");
             let statements = if needs_completion_value {
                 let mut body = Vec::with_capacity(statements.len() + 1);
                 body.extend(
@@ -238,11 +236,14 @@ impl<'a> ClassTransform<'_, 'a> {
             return self.build_arrow(DUMMY_SP, body, false);
         }
 
-        let mut expressions: Vec<_> = pending.iter().map(|block| block.expression).collect();
+        self.expressions.clear();
+        self.expressions
+            .extend(self.pending.iter().map(|block| block.expression));
         if needs_completion_value {
-            expressions.push(self.ast.expr_this_expression(DUMMY_SP));
+            self.expressions
+                .push(self.ast.expr_this_expression(DUMMY_SP));
         }
-        let expression = self.sequence_or_single(expressions);
+        let expression = self.sequence_or_single();
         let body = ArrowFunctionBody::Expr(expression);
         self.build_arrow(DUMMY_SP, body, true)
     }
@@ -263,32 +264,50 @@ impl<'a> ClassTransform<'_, 'a> {
             .expr_arrow_function_expression(span, expression, false, None, params, None, body)
     }
 
-    fn sequence_or_single(&mut self, expressions: Vec<Expr>) -> Expr {
-        if expressions.len() == 1 {
-            expressions[0]
+    fn sequence_or_single(&mut self) -> Expr {
+        if self.expressions.len() == 1 {
+            self.expressions[0]
         } else {
-            let expressions = self.ast.add_typed_sub_range(expressions);
+            let expressions = self
+                .ast
+                .add_typed_sub_range(self.expressions.iter().copied());
             self.ast.expr_sequence_expression(DUMMY_SP, expressions)
         }
     }
 
-    fn prepend_to_initializer(&mut self, property: PropertyDefinition, mut expressions: Vec<Expr>) {
+    fn prepend_pending_to_initializer(&mut self, property: PropertyDefinition) {
+        self.expressions.clear();
+        self.expressions
+            .extend(self.pending.drain(..).map(|block| block.expression));
+        self.prepend_expressions_to_initializer(property);
+    }
+
+    fn prepend_one_to_initializer(&mut self, property: PropertyDefinition, expression: Expr) {
+        self.expressions.clear();
+        self.expressions.push(expression);
+        self.prepend_expressions_to_initializer(property);
+    }
+
+    fn prepend_expressions_to_initializer(&mut self, property: PropertyDefinition) {
         if let Some(value) = property.value(self.ast) {
-            expressions.push(value);
-            let expressions = self.ast.add_typed_sub_range(expressions);
+            self.expressions.push(value);
+            let expressions = self
+                .ast
+                .add_typed_sub_range(self.expressions.iter().copied());
             let sequence = self.ast.expr_sequence_expression(DUMMY_SP, expressions);
             property.set_value(self.ast, Some(sequence));
             return;
         }
 
-        let last = expressions
+        let last = self
+            .expressions
             .pop()
             .expect("at least one expression must be prepended");
         let last = self
             .ast
             .expr_unary_expression(DUMMY_SP, last, UnaryOperator::Void);
-        expressions.push(last);
-        let value = self.sequence_or_single(expressions);
+        self.expressions.push(last);
+        let value = self.sequence_or_single();
         property.set_value(self.ast, Some(value));
     }
 
@@ -367,6 +386,8 @@ impl StaticBlocks {
         Self {
             expression_calls: HashMap::new(),
             closure_names: None,
+            pending: Vec::new(),
+            expressions: Vec::new(),
         }
     }
 
@@ -392,6 +413,8 @@ impl StaticBlocks {
             ast: ctx.ast,
             semantic,
             closure_names: &mut self.closure_names,
+            pending: &mut self.pending,
+            expressions: &mut self.expressions,
         }
         .transform_class(class, is_expression, inferred_name);
 
