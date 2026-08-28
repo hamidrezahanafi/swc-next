@@ -537,8 +537,22 @@ impl ClassElementModifiers {
 
 enum ClassModifierStep {
     Consumed,
-    Key(PropertyKey),
+    Key(ParsedClassElementKey),
     None,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ClassElementName {
+    Other,
+    Constructor,
+    Prototype,
+    PrivateConstructor,
+}
+
+#[derive(Clone, Copy)]
+struct ParsedClassElementKey {
+    key: PropertyKey,
+    name: ClassElementName,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2644,8 +2658,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         loop {
             match self.consume_modifier(&mut modifiers)? {
                 ClassModifierStep::Consumed => {}
-                ClassModifierStep::Key(property_key) => {
-                    key = Some(property_key);
+                ClassModifierStep::Key(parsed_key) => {
+                    key = Some(parsed_key);
                     break;
                 }
                 ClassModifierStep::None => break,
@@ -2668,7 +2682,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             modifiers.computed = self.current_token.tag == TokenTag::LeftBracket;
             key = Some(self.parse_class_element_key()?);
         }
-        let key = key.unwrap();
+        let ParsedClassElementKey { key, name } = key.unwrap();
 
         let mut optional = false;
         let mut definite = false;
@@ -2686,9 +2700,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             }
         }
 
-        self.validate_private_constructor(key, modifiers.computed);
+        self.validate_private_constructor(key, name);
         let computed = modifiers.computed;
-        self.detect_constructor_kind(key, &mut modifiers, computed);
+        self.detect_constructor_kind(key, name, &mut modifiers, computed);
 
         let is_method_start = self.current_token.tag == TokenTag::LeftParen
             || (self.lang.is_typescript() && self.current_token.tag == TokenTag::LessThan);
@@ -2725,6 +2739,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 element_start,
                 decorators,
                 key,
+                name,
                 modifiers,
                 optional,
             );
@@ -2760,6 +2775,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             element_start,
             decorators,
             key,
+            name,
             modifiers,
             optional,
             definite,
@@ -2808,8 +2824,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         if !consume_as_modifier {
             self.advance_without_escape_check()?;
             let name = self.identifier_name(token);
+            let key = self.ast.property_key_identifier_name(token.span, name);
             return Some(ClassModifierStep::Key(
-                self.ast.property_key_identifier_name(token.span, name),
+                self.classify_class_element_key(token, key),
             ));
         }
 
@@ -2879,15 +2896,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn validate_private_constructor(&mut self, key: PropertyKey, computed: bool) {
-        if computed {
-            return;
-        }
-        if matches!(
-            self.ast.property_key_data(key),
-            PropertyKeyData::PrivateIdentifier(private)
-                if self.ast.get_flat_utf8(private.name(&self.ast)) == "constructor"
-        ) {
+    fn validate_private_constructor(&mut self, key: PropertyKey, name: ClassElementName) {
+        if name == ClassElementName::PrivateConstructor {
             self.report(
                 key.span(&self.ast),
                 "Classes can't have a private field named '#constructor'",
@@ -2899,15 +2909,17 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn detect_constructor_kind(
         &mut self,
         key: PropertyKey,
+        name: ClassElementName,
         modifiers: &mut ClassElementModifiers,
         computed: bool,
     ) {
         if modifiers.is_static || computed {
             return;
         }
-        let Some(span) = self.prop_name_eq(key, "constructor") else {
+        if name != ClassElementName::Constructor {
             return;
-        };
+        }
+        let span = key.span(&self.ast);
         match modifiers.kind {
             MethodDefinitionKind::Method => {
                 modifiers.kind = MethodDefinitionKind::Constructor;
@@ -2961,19 +2973,17 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn validate_static_prototype_or_constructor(
         &mut self,
         key: PropertyKey,
+        name: ClassElementName,
         kind: StaticMemberKind,
     ) {
-        if !self.ts_context.ambient()
-            && let Some(span) = self.prop_name_eq(key, "prototype")
-        {
+        let span = key.span(&self.ast);
+        if !self.ts_context.ambient() && name == ClassElementName::Prototype {
             self.report(
                 span,
                 "Classes may not have a static property named 'prototype'",
                 ReportOptions::default(),
             );
-        } else if kind == StaticMemberKind::Field
-            && let Some(span) = self.prop_name_eq(key, "constructor")
-        {
+        } else if kind == StaticMemberKind::Field && name == ClassElementName::Constructor {
             self.report(
                 span,
                 "Classes may not have a static field named 'constructor'",
@@ -2982,10 +2992,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn validate_field_constructor(&mut self, key: PropertyKey) {
-        if let Some(span) = self.prop_name_eq(key, "constructor") {
+    fn validate_field_constructor(&mut self, key: PropertyKey, name: ClassElementName) {
+        if name == ClassElementName::Constructor {
             self.report(
-                span,
+                key.span(&self.ast),
                 "Classes may not have a non-static field named 'constructor'",
                 ReportOptions::default(),
             );
@@ -2997,12 +3007,13 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         start: u32,
         decorators: TypedSubRange<Decorator>,
         key: PropertyKey,
+        name: ClassElementName,
         modifiers: ClassElementModifiers,
         optional: bool,
     ) -> Option<ClassElement> {
         self.validate_method_modifiers(key, modifiers);
         if modifiers.is_static && !modifiers.computed {
-            self.validate_static_prototype_or_constructor(key, StaticMemberKind::Method);
+            self.validate_static_prototype_or_constructor(key, name, StaticMemberKind::Method);
         }
 
         let function_start = self.current_token.span.start;
@@ -3111,15 +3122,16 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         start: u32,
         decorators: TypedSubRange<Decorator>,
         key: PropertyKey,
+        name: ClassElementName,
         modifiers: ClassElementModifiers,
         optional: bool,
         definite: bool,
     ) -> Option<ClassElement> {
         if !modifiers.computed {
             if modifiers.is_static {
-                self.validate_static_prototype_or_constructor(key, StaticMemberKind::Field);
+                self.validate_static_prototype_or_constructor(key, name, StaticMemberKind::Field);
             } else {
-                self.validate_field_constructor(key);
+                self.validate_field_constructor(key, name);
             }
         }
 
@@ -3250,23 +3262,6 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
 
         Some(expression)
-    }
-
-    fn prop_name_eq(&self, key: PropertyKey, expected: &str) -> Option<Span> {
-        let matches = match self.ast.property_key_data(key) {
-            PropertyKeyData::IdentifierName(identifier) => {
-                self.ast.get_flat_utf8(identifier.name(&self.ast)) == expected
-            }
-            PropertyKeyData::StringLiteral(string) => {
-                self.ast.get_wtf8(string.value(&self.ast)) == expected
-            }
-            _ => false,
-        };
-        if matches {
-            Some(key.span(&self.ast))
-        } else {
-            None
-        }
     }
 
     fn check_accessor_arity(
@@ -7310,8 +7305,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         matches!(
             self.ast.expr_data(expression),
             ExprData::IdentifierReference(identifier)
-                if self.ast.get_flat_utf8(identifier.name(&self.ast)) == "async"
-                    && self.span_text(identifier.span(&self.ast)) == "async"
+                if self.span_text(identifier.span(&self.ast)) == "async"
         )
     }
 
@@ -10034,7 +10028,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             || tag.is_identifier_like()
     }
 
-    fn parse_class_element_key(&mut self) -> Option<PropertyKey> {
+    fn parse_class_element_key(&mut self) -> Option<ParsedClassElementKey> {
         let token = self.current_token;
         if token.tag == TokenTag::LeftBracket {
             self.advance()?;
@@ -10047,7 +10041,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             ) {
                 return None;
             }
-            return Some(PropertyKey::Expr(expression));
+            return Some(ParsedClassElementKey {
+                key: PropertyKey::Expr(expression),
+                name: ClassElementName::Other,
+            });
         }
 
         let key = if token.tag == TokenTag::PrivateIdentifier {
@@ -10083,7 +10080,67 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             return None;
         };
 
-        Some(key)
+        Some(self.classify_class_element_key(token, key))
+    }
+
+    fn classify_class_element_key(&self, token: Token, key: PropertyKey) -> ParsedClassElementKey {
+        let name = match token.tag {
+            TokenTag::Constructor => ClassElementName::Constructor,
+            TokenTag::Identifier
+                if !token.is_escaped() && token.text(self.source) == "prototype" =>
+            {
+                ClassElementName::Prototype
+            }
+            TokenTag::PrivateIdentifier
+                if !token.is_escaped() && token.text(self.source) == "#constructor" =>
+            {
+                ClassElementName::PrivateConstructor
+            }
+            TokenTag::Identifier if token.is_escaped() => {
+                let PropertyKeyData::IdentifierName(identifier) = self.ast.property_key_data(key)
+                else {
+                    unreachable!("identifier token creates an identifier-name property key")
+                };
+                if self
+                    .ast
+                    .utf8_eq_bytes(identifier.name(&self.ast), b"prototype")
+                {
+                    ClassElementName::Prototype
+                } else {
+                    ClassElementName::Other
+                }
+            }
+            TokenTag::PrivateIdentifier if token.is_escaped() => {
+                let PropertyKeyData::PrivateIdentifier(identifier) =
+                    self.ast.property_key_data(key)
+                else {
+                    unreachable!("private token creates a private-identifier property key")
+                };
+                if self
+                    .ast
+                    .utf8_eq_bytes(identifier.name(&self.ast), b"constructor")
+                {
+                    ClassElementName::PrivateConstructor
+                } else {
+                    ClassElementName::Other
+                }
+            }
+            TokenTag::StringLiteral => {
+                let PropertyKeyData::StringLiteral(string) = self.ast.property_key_data(key) else {
+                    unreachable!("string token creates a string-literal property key")
+                };
+                let value = string.value(&self.ast);
+                if self.ast.wtf8_eq_bytes(value, b"constructor") {
+                    ClassElementName::Constructor
+                } else if self.ast.wtf8_eq_bytes(value, b"prototype") {
+                    ClassElementName::Prototype
+                } else {
+                    ClassElementName::Other
+                }
+            }
+            _ => ClassElementName::Other,
+        };
+        ParsedClassElementKey { key, name }
     }
 
     fn parse_property_key(&mut self, in_cover: bool) -> Option<PropertyKey> {
