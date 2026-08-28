@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{fmt::Write, path::PathBuf};
 
 use arrayvec::ArrayVec;
 use memchr::memchr3;
@@ -716,6 +716,19 @@ impl<'a> Printer<'a> {
         }
     }
 
+    #[inline(always)]
+    fn print_utf8_identifier(&mut self, prefix: &str, suffix: Option<u8>) {
+        self.print_space_before_identifier();
+        if !self.options.ascii_only || prefix.is_ascii() {
+            self.js.extend_from_slice_copy(prefix.as_bytes());
+        } else {
+            self.print_identifier_ascii_only(prefix);
+        }
+        if let Some(suffix) = suffix {
+            self.js.push(suffix);
+        }
+    }
+
     #[cold]
     fn print_identifier_ascii_only(&mut self, name: &str) {
         let name = name.as_bytes();
@@ -753,17 +766,27 @@ impl<'a> Printer<'a> {
         quote_into(&mut self.js, value, quote, self.options.ascii_only);
     }
 
-    fn print_quoted_ast_utf8(&mut self, value: AstUtf8, allow_backtick: bool) {
+    fn print_quoted_utf8(&mut self, prefix: &str, suffix: Option<u8>, allow_backtick: bool) {
         let mut selector = Utf8QuoteSelector::default();
-        self.ast
-            .write_utf8(value, &mut selector)
+        selector
+            .write_str(prefix)
             .expect("UTF-8 quote selector is infallible");
+        if let Some(suffix) = suffix {
+            selector
+                .write_char(char::from(suffix))
+                .expect("UTF-8 quote selector is infallible");
+        }
         let quote = selector.quote(allow_backtick);
 
-        let ast = self.ast;
         let mut writer = QuotedUtf8Writer::new(&mut self.js, quote, self.options.ascii_only);
-        ast.write_utf8(value, &mut writer)
+        writer
+            .write_str(prefix)
             .expect("UTF-8 quote writer is infallible");
+        if let Some(suffix) = suffix {
+            writer
+                .write_char(char::from(suffix))
+                .expect("UTF-8 quote writer is infallible");
+        }
         writer.finish();
     }
 
@@ -2300,22 +2323,32 @@ impl<'a> Printer<'a> {
         self.need_space_before_dot = usize::MAX;
         let property = e.property(self.ast);
         let property_data = self.ast.property_key_data(property);
-        let (identifier_name, property_text): (Option<AstUtf8>, Option<&Wtf8>) = match property_data
-        {
-            PropertyKeyData::IdentifierName(identifier) => (Some(identifier.name(self.ast)), None),
+        if !computed && let PropertyKeyData::IdentifierName(identifier) = property_data {
+            let ast = self.ast;
+            let name = identifier.name(ast);
+            ast.consume_utf8(name, |prefix, suffix| {
+                self.print_member_identifier(
+                    prefix,
+                    suffix,
+                    optional,
+                    need_space_before_dot,
+                    property.span(ast).start,
+                );
+            });
+            return;
+        }
+
+        let property_text = match property_data {
             PropertyKeyData::StringLiteral(string) => {
-                (None, Some(self.ast.get_wtf8(string.value(self.ast))))
+                Some(self.ast.get_wtf8(string.value(self.ast)))
             }
-            _ => (None, None),
+            _ => None,
         };
         let force_computed = !computed
-            && match identifier_name {
-                Some(name) => !self.can_print_ast_identifier(name),
-                None => property_text.is_some_and(|name| {
-                    name.as_str()
-                        .is_none_or(|name| !self.can_print_identifier(name))
-                }),
-            };
+            && property_text.is_some_and(|name| {
+                name.as_str()
+                    .is_none_or(|name| !self.can_print_identifier(name))
+            });
         if optional {
             self.print("?.");
         }
@@ -2323,11 +2356,7 @@ impl<'a> Printer<'a> {
             self.print("[");
             if force_computed {
                 self.add_source_mapping(property.span(self.ast).start);
-                if let Some(name) = identifier_name {
-                    self.print_quoted_ast_utf8(name, true);
-                } else {
-                    self.print_quoted(property_text.unwrap(), true);
-                }
+                self.print_quoted(property_text.unwrap(), true);
             } else {
                 let old_forbid_in = self.forbid_in;
                 self.forbid_in = false;
@@ -2346,11 +2375,39 @@ impl<'a> Printer<'a> {
                 self.print(".");
             }
             self.add_source_mapping(property.span(self.ast).start);
-            if matches!(property_data, PropertyKeyData::IdentifierName(_)) {
-                self.print_ast_identifier(identifier_name.unwrap());
-            } else {
-                self.print_property_key_plain_data(property, property_data);
+            self.print_property_key_plain_data(property, property_data);
+        }
+    }
+
+    #[inline(always)]
+    fn print_member_identifier(
+        &mut self,
+        prefix: &str,
+        suffix: Option<u8>,
+        optional: bool,
+        need_space_before_dot: bool,
+        source_offset: u32,
+    ) {
+        let force_computed = !self.can_print_utf8_identifier(prefix, suffix);
+        if optional {
+            self.print("?.");
+        }
+        if force_computed {
+            self.print("[");
+            self.add_source_mapping(source_offset);
+            self.print_quoted_utf8(prefix, suffix, true);
+            self.print("]");
+        } else {
+            if !optional {
+                if need_space_before_dot {
+                    // "1.toString" is a syntax error, so print
+                    // "1 .toString" instead.
+                    self.print(" ");
+                }
+                self.print(".");
             }
+            self.add_source_mapping(source_offset);
+            self.print_utf8_identifier(prefix, suffix);
         }
     }
 
@@ -2679,9 +2736,11 @@ impl<'a> Printer<'a> {
         property.shorthand(self.ast)
             && !property.computed(self.ast)
             && match self.ast.property_key_data(property.key(self.ast)) {
-                PropertyKeyData::IdentifierName(identifier) => {
-                    self.can_print_ast_identifier(identifier.name(self.ast))
-                }
+                PropertyKeyData::IdentifierName(identifier) => self
+                    .ast
+                    .consume_utf8(identifier.name(self.ast), |prefix, suffix| {
+                        self.can_print_utf8_identifier(prefix, suffix)
+                    }),
                 _ => false,
             }
     }
@@ -2732,11 +2791,14 @@ impl<'a> Printer<'a> {
         match data {
             PropertyKeyData::IdentifierName(value) => {
                 let name = value.name(self.ast);
-                if self.can_print_ast_identifier(name) {
-                    self.print_ast_identifier(name);
-                } else {
-                    self.print_quoted_ast_utf8(name, true);
-                }
+                let ast = self.ast;
+                ast.consume_utf8(name, |prefix, suffix| {
+                    if self.can_print_utf8_identifier(prefix, suffix) {
+                        self.print_utf8_identifier(prefix, suffix);
+                    } else {
+                        self.print_quoted_utf8(prefix, suffix, true);
+                    }
+                });
             }
             PropertyKeyData::NumericLiteral(value) => self.print_number_property_key(value),
             _ => self.print_property_key_expr(key),
@@ -4860,10 +4922,8 @@ impl Printer<'_> {
     }
 
     #[inline]
-    fn can_print_ast_identifier(&self, name: AstUtf8) -> bool {
-        let chunks = self.ast.utf8_chunks(name);
-        self.can_print_identifier(chunks.prefix())
-            && chunks.suffix().is_none_or(is_ident_continue_ascii)
+    fn can_print_utf8_identifier(&self, prefix: &str, suffix: Option<u8>) -> bool {
+        self.can_print_identifier(prefix) && suffix.is_none_or(is_ident_continue_ascii)
     }
 
     fn module_name_eq_utf8(&self, module_name: ModuleExportName, utf8: AstUtf8) -> bool {

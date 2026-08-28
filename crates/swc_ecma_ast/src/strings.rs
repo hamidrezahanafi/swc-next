@@ -551,15 +551,23 @@ impl<'a> StringPool<'a> {
         Ok(())
     }
 
-    #[inline]
-    pub fn utf8_chunks(&self, id: AstUtf8) -> Utf8Chunks<'_> {
+    /// Resolves a logical UTF-8 handle once and passes both of its segments to
+    /// a consumer.
+    #[inline(always)]
+    pub fn consume_utf8<'s, R>(
+        &'s self,
+        id: AstUtf8,
+        consumer: impl FnOnce(&'s str, Option<u8>) -> R,
+    ) -> R {
         let bytes = self.logical_bytes(AstInternedUtf8::from_utf8_range(id));
         // SAFETY: `AstUtf8` is valid UTF-8 and the optional suffix is ASCII.
         let prefix = unsafe { std::str::from_utf8_unchecked(bytes.prefix) };
-        Utf8Chunks {
-            prefix,
-            suffix: bytes.suffix,
-        }
+        consumer(prefix, bytes.suffix)
+    }
+
+    #[inline]
+    pub fn utf8_chunks(&self, id: AstUtf8) -> Utf8Chunks<'_> {
+        self.consume_utf8(id, |prefix, suffix| Utf8Chunks { prefix, suffix })
     }
 
     #[inline]
@@ -1351,6 +1359,11 @@ mod tests {
         let mut output = String::new();
         strings.write_utf8(generated.into(), &mut output).unwrap();
         assert_eq!(output, "_temp10");
+
+        let consumed = strings.consume_utf8(generated.into(), |prefix, suffix| {
+            (prefix.to_owned(), suffix)
+        });
+        assert_eq!(consumed, ("_temp1".to_string(), Some(b'0')));
     }
 
     #[test]

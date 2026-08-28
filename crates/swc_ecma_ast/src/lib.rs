@@ -474,6 +474,16 @@ impl<'a> Ast<'a> {
         self.strings.write_utf8(id, writer)
     }
 
+    /// Resolves a logical UTF-8 handle once and passes both segments to a consumer.
+    #[inline(always)]
+    pub fn consume_utf8<'s, R>(
+        &'s self,
+        id: AstUtf8,
+        consumer: impl FnOnce(&'s str, Option<u8>) -> R,
+    ) -> R {
+        self.strings.consume_utf8(id, consumer)
+    }
+
     /// Returns a non-allocating logical view of a flat or compact UTF-8 handle.
     #[inline]
     pub fn utf8_chunks(&self, id: AstUtf8) -> Utf8Chunks<'_> {
