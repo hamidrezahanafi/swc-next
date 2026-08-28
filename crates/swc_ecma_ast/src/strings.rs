@@ -88,6 +88,7 @@ impl AstWtf8 {
 }
 
 /// String-pool state shared by a sequence of generated names with one base.
+#[derive(Debug)]
 pub struct GeneratedUtf8State {
     base: AstInternedUtf8,
     block: u64,

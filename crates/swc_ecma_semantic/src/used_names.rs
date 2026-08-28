@@ -1,12 +1,21 @@
-use swc_next_allocator::{Allocator, hash_map::HashMap as ArenaHashMap};
+use swc_next_allocator::{
+    Allocator,
+    hash_map::{Entry, HashMap as ArenaHashMap},
+};
 use swc_next_ecma_ast::{Ast, AstInternedUtf8, GeneratedUtf8State};
 
 /// Tracks interned names used in one collision domain.
 ///
-/// The AST string pool owns content collision state. This type only keeps the
-/// suffix cursor associated with each generated-name base.
+/// The AST string pool owns content collision state. This type keeps the
+/// suffix cursor and current compact prefix associated with each generated-name base.
 pub struct UsedNameState<'a> {
-    next_suffixes: ArenaHashMap<'a, AstInternedUtf8, u64>,
+    next_names: ArenaHashMap<'a, AstInternedUtf8, NextNameState>,
+}
+
+#[derive(Debug)]
+struct NextNameState {
+    strings: GeneratedUtf8State,
+    next_suffix: u64,
 }
 
 /// Reusable state for allocating a series of names with the same base.
@@ -24,7 +33,7 @@ impl std::fmt::Debug for UsedNameState<'_> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("UsedNameState")
-            .field("next_suffixes", &self.next_suffixes)
+            .field("next_names", &self.next_names)
             .finish()
     }
 }
@@ -33,7 +42,7 @@ impl<'a> UsedNameState<'a> {
     /// Creates an empty name state backed by `allocator`.
     pub fn new(allocator: &'a Allocator) -> Self {
         Self {
-            next_suffixes: ArenaHashMap::new_in(allocator),
+            next_names: ArenaHashMap::new_in(allocator),
         }
     }
 
@@ -54,25 +63,30 @@ impl<'a> UsedNameState<'a> {
     /// `_temp2`.
     pub fn next_name(&mut self, ast: &mut Ast<'_>, base: &str, min_suffix: u64) -> AstInternedUtf8 {
         assert!(min_suffix > 0, "generated name suffix must be positive");
-        let mut strings = ast.generated_utf8_state(base);
+        let strings = ast.generated_utf8_state(base);
         let base_name = Ast::generated_utf8_base(&strings);
-        if ast.reserve_name(base_name) {
-            return base_name;
-        }
-        let mut suffix = self
-            .next_suffixes
-            .get(&base_name)
-            .copied()
-            .unwrap_or(min_suffix)
-            .max(min_suffix);
+        let state = match self.next_names.entry(base_name) {
+            Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Vacant(entry) => {
+                if ast.reserve_name(base_name) {
+                    return base_name;
+                }
+                entry.insert(NextNameState {
+                    strings,
+                    next_suffix: min_suffix,
+                })
+            }
+        };
+        let mut suffix = state.next_suffix.max(min_suffix);
 
         loop {
             let next_suffix = suffix
                 .checked_add(1)
                 .expect("generated name suffix overflow");
-            let (candidate, was_free) = ast.reserve_generated_name_from_state(&mut strings, suffix);
+            let (candidate, was_free) =
+                ast.reserve_generated_name_from_state(&mut state.strings, suffix);
             if was_free {
-                self.next_suffixes.insert(base_name, next_suffix);
+                state.next_suffix = next_suffix;
                 return candidate;
             }
             suffix = next_suffix;
