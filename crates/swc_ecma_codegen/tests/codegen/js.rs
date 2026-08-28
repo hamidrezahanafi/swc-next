@@ -161,6 +161,37 @@ fn synthesized_number_property_keys() {
     );
 }
 
+#[test]
+fn compact_identifier_name_prints_quoted_without_materializing() {
+    let allocator = Allocator::new();
+    let mut ast = Ast::new("", &allocator);
+    let base = ast.intern_utf8("not-\0");
+    let prefix = ast.generated_name_prefix(base, 0);
+    let name = ast.intern_generated_name(base, prefix, 0);
+    let key = ast.property_key_identifier_name(DUMMY_SP, name.into());
+    let value = ast.expr_numeric_literal(DUMMY_SP, 0.0, None);
+    let property = ast.object_property(
+        DUMMY_SP,
+        key,
+        value,
+        PropertyKind::Init,
+        false,
+        false,
+        false,
+    );
+    let properties = ast.add_typed_sub_range([ObjectPropertyKind::ObjectProperty(property)]);
+    let expression = ast.expr_object_expression(DUMMY_SP, properties);
+    let statement = ast.stmt_expression_statement(DUMMY_SP, expression);
+    let body = ast.add_typed_sub_range([statement]);
+    let program = ast.program(DUMMY_SP, TypedSubRange::empty(), body, None);
+    ast.set_root_program(program);
+
+    assert_eq!(
+        print(&allocator, &ast, PrintOptions::default()).code,
+        "({ \"not-\\x000\": 0 });\n"
+    );
+}
+
 fn print_synthesized_number_property_key(key_value: f64, computed: bool, minify: bool) -> String {
     let allocator = Allocator::new();
     let mut ast = Ast::new("", &allocator);

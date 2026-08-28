@@ -31,19 +31,10 @@ pub struct FnEnvHoister<'semantic, 'semantic_data, 'ast> {
 
 impl<'semantic, 'semantic_data, 'ast> FnEnvHoister<'semantic, 'semantic_data, 'ast> {
     pub fn new(ast: &mut Ast<'ast>, semantic: &'semantic Semantic<'semantic_data>) -> Self {
-        let mut used_names = UsedNameState::new(ast.allocator());
-        for entry in semantic.iter_symbols() {
-            if let Some(name) = entry.symbol.name.as_utf8() {
-                used_names.observe(name);
-            }
-        }
-        for entry in semantic.iter_references() {
-            used_names.observe(entry.reference.name);
-        }
         Self {
             semantic,
             frames: vec![CaptureFrame::default()],
-            used_names,
+            used_names: UsedNameState::new(ast.allocator()),
             in_arrow: false,
         }
     }

@@ -1,11 +1,14 @@
 use std::{
     borrow::Cow,
     fmt,
-    hash::{BuildHasher, Hash, Hasher},
+    hash::{BuildHasher, Hasher},
 };
 
 use swc_next_allocator::{
-    Allocator, hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec, wtf8::Wtf8,
+    Allocator,
+    hash_map::{HashMap as ArenaHashMap, RawEntryMut},
+    vec::Vec as ArenaVec,
+    wtf8::Wtf8,
 };
 
 const STORAGE_EXTRA: u32 = 1 << 31;
@@ -45,21 +48,6 @@ macro_rules! define_ast_string {
                 self.end & GENERATED_NAME == 0
                     && (self.start & FLAT_OFFSET_MASK) == (self.end & FLAT_OFFSET_MASK)
             }
-
-            #[inline]
-            #[allow(dead_code)]
-            pub(crate) const fn from_raw(raw: u64) -> Self {
-                Self {
-                    start: raw as u32,
-                    end: (raw >> 32) as u32,
-                }
-            }
-
-            #[inline]
-            #[allow(dead_code)]
-            pub(crate) const fn raw(self) -> u64 {
-                self.start as u64 | ((self.end as u64) << 32)
-            }
         }
     };
 }
@@ -67,6 +55,36 @@ macro_rules! define_ast_string {
 define_ast_string!(AstUtf8);
 define_ast_string!(AstInternedUtf8);
 define_ast_string!(AstWtf8);
+
+impl AstUtf8 {
+    #[inline]
+    pub(crate) const fn from_raw(raw: u64) -> Self {
+        Self {
+            start: raw as u32,
+            end: (raw >> 32) as u32,
+        }
+    }
+
+    #[inline]
+    pub(crate) const fn raw(self) -> u64 {
+        self.start as u64 | ((self.end as u64) << 32)
+    }
+}
+
+impl AstWtf8 {
+    #[inline]
+    pub(crate) const fn from_raw(raw: u64) -> Self {
+        Self {
+            start: raw as u32,
+            end: (raw >> 32) as u32,
+        }
+    }
+
+    #[inline]
+    pub(crate) const fn raw(self) -> u64 {
+        self.start as u64 | ((self.end as u64) << 32)
+    }
+}
 
 /// String-pool state shared by a sequence of generated names with one base.
 pub struct GeneratedUtf8State {
@@ -86,29 +104,12 @@ impl From<AstInternedUtf8> for AstUtf8 {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct StringId {
-    start: u32,
-    end: u32,
-}
-
-impl StringId {
-    const EMPTY: Self = Self { start: 0, end: 0 };
-
+impl AstInternedUtf8 {
     #[inline]
-    const fn try_flat_source(start: u32, end: u32) -> Option<Self> {
-        if start <= end && end <= FLAT_OFFSET_MASK {
-            Some(Self { start, end })
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    const fn flat_source(start: u32, end: u32) -> Self {
-        match Self::try_flat_source(start, end) {
-            Some(id) => id,
-            None => panic!("source string range exceeds 31-bit representation"),
+    const fn from_utf8_range(value: AstUtf8) -> Self {
+        Self {
+            start: value.start,
+            end: value.end,
         }
     }
 
@@ -197,6 +198,15 @@ impl StringId {
     }
 
     #[inline]
+    const fn generated_prefix(self) -> Self {
+        debug_assert!(self.is_generated());
+        Self {
+            start: (self.start & STORAGE_EXTRA) | self.start_offset(),
+            end: self.end_offset(),
+        }
+    }
+
+    #[inline]
     const fn can_be_compact_prefix(self) -> bool {
         !self.is_generated()
             && self.start_offset() <= COMPACT_OFFSET_MASK
@@ -204,91 +214,30 @@ impl StringId {
     }
 }
 
-impl From<AstUtf8> for StringId {
-    #[inline]
-    fn from(value: AstUtf8) -> Self {
-        Self {
-            start: value.start,
-            end: value.end,
-        }
+type DedupValue = (u32, u32);
+
+#[inline]
+fn dedup_value(id: AstInternedUtf8, used_as_name: bool) -> DedupValue {
+    debug_assert!(!id.is_generated());
+    (
+        id.start,
+        id.end | if used_as_name { GENERATED_NAME } else { 0 },
+    )
+}
+
+#[inline]
+fn dedup_id(value: DedupValue) -> AstInternedUtf8 {
+    AstInternedUtf8 {
+        start: value.0,
+        end: value.1 & !GENERATED_NAME,
     }
 }
 
-impl From<AstInternedUtf8> for StringId {
-    #[inline]
-    fn from(value: AstInternedUtf8) -> Self {
-        Self {
-            start: value.start,
-            end: value.end,
-        }
-    }
-}
-
-impl From<AstWtf8> for StringId {
-    #[inline]
-    fn from(value: AstWtf8) -> Self {
-        Self {
-            start: value.start,
-            end: value.end,
-        }
-    }
-}
-
-impl From<StringId> for AstUtf8 {
-    #[inline]
-    fn from(value: StringId) -> Self {
-        Self {
-            start: value.start,
-            end: value.end,
-        }
-    }
-}
-
-impl From<StringId> for AstInternedUtf8 {
-    #[inline]
-    fn from(value: StringId) -> Self {
-        Self {
-            start: value.start,
-            end: value.end,
-        }
-    }
-}
-
-impl From<StringId> for AstWtf8 {
-    #[inline]
-    fn from(value: StringId) -> Self {
-        debug_assert!(!value.is_generated());
-        Self {
-            start: value.start,
-            end: value.end,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct Utf8InternEntry {
-    hash: u64,
-    id: StringId,
-}
-
-impl Hash for Utf8InternEntry {
-    #[inline]
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.hash.hash(state);
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct Wtf8InternEntry {
-    hash: u64,
-    id: StringId,
-}
-
-impl Hash for Wtf8InternEntry {
-    #[inline]
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.hash.hash(state);
-    }
+#[inline]
+fn reserve_dedup_name(value: &mut DedupValue) -> bool {
+    let was_free = value.1 & GENERATED_NAME == 0;
+    value.1 |= GENERATED_NAME;
+    was_free
 }
 
 #[derive(Clone, Copy)]
@@ -328,15 +277,6 @@ impl LogicalBytes<'_> {
                 .is_some_and(|(last, prefix)| *last == suffix && prefix == self.prefix),
         }
     }
-
-    #[inline]
-    fn hash(self) -> u64 {
-        if let Some(suffix) = self.suffix {
-            hash_segmented_bytes(self.prefix, suffix)
-        } else {
-            hash_bytes(self.prefix)
-        }
-    }
 }
 
 const HASH_SEED1: u64 = 0x243f_6a88_85a3_08d3;
@@ -349,10 +289,8 @@ fn multiply_mix(left: u64, right: u64) -> u64 {
     full as u64 ^ (full >> 64) as u64
 }
 
-/// Fast content hash equivalent for flat and `prefix + suffix` strings.
-/// This follows rustc-hash's byte mixer, but reads the final virtual byte
-/// directly instead of materializing a contiguous candidate.
 #[inline]
+#[cfg(test)]
 fn hash_bytes(bytes: &[u8]) -> u64 {
     let len = bytes.len();
     let mut s0 = HASH_SEED1;
@@ -385,6 +323,8 @@ fn hash_bytes(bytes: &[u8]) -> u64 {
     multiply_mix(s0, s1) ^ len as u64
 }
 
+/// `rustc_hash::FxHasher::write`'s byte compression, evaluated over a
+/// non-contiguous `prefix + suffix` string.
 #[inline]
 fn hash_segmented_bytes(prefix: &[u8], suffix: u8) -> u64 {
     let len = prefix.len() + 1;
@@ -517,10 +457,12 @@ impl fmt::Display for Utf8Chunks<'_> {
 }
 
 pub(crate) struct StringPool<'a> {
+    allocator: &'a Allocator,
     pub(crate) source: &'a str,
     pub(crate) extra: ArenaVec<'a, u8>,
-    utf8_dedup: ArenaHashMap<'a, Utf8InternEntry, ()>,
-    wtf8_dedup: ArenaHashMap<'a, Wtf8InternEntry, ()>,
+    dedup: ArenaHashMap<'a, ArenaVec<'a, u8>, DedupValue>,
+    generated_names: ArenaHashMap<'a, AstInternedUtf8, u32>,
+    oversized_compact_prefixes: ArenaHashMap<'a, AstInternedUtf8, AstInternedUtf8>,
 }
 
 impl<'a> StringPool<'a> {
@@ -530,29 +472,46 @@ impl<'a> StringPool<'a> {
             "source exceeds 2 GiB string-handle range"
         );
         Self {
+            allocator,
             source,
             extra: ArenaVec::new_in(allocator),
-            utf8_dedup: ArenaHashMap::new_in(allocator),
-            wtf8_dedup: ArenaHashMap::new_in(allocator),
+            dedup: ArenaHashMap::new_in(allocator),
+            generated_names: ArenaHashMap::new_in(allocator),
+            oversized_compact_prefixes: ArenaHashMap::new_in(allocator),
         }
     }
 
     #[inline]
     pub fn get_flat_utf8(&self, id: AstUtf8) -> &str {
-        let id = StringId::from(id);
+        let id = AstInternedUtf8::from_utf8_range(id);
         debug_assert!(!id.is_generated(), "compact UTF-8 requires a logical view");
         // SAFETY: `AstUtf8` is guaranteed to reference valid UTF-8.
         unsafe { std::str::from_utf8_unchecked(self.get_flat_bytes(id)) }
     }
 
     #[inline]
-    pub fn utf8_to_cow(&self, id: AstUtf8) -> Cow<'_, str> {
+    /// Materializes a logical UTF-8 handle when its bytes are segmented.
+    ///
+    /// Test-only convenience API. Production callers should compare or write
+    /// handles through the string pool without materializing them.
+    pub fn get_utf8(&self, id: AstUtf8) -> Cow<'_, str> {
         self.utf8_chunks(id).to_cow()
+    }
+
+    /// Writes a logical UTF-8 handle without materializing segmented bytes.
+    #[inline]
+    pub fn write_utf8<W: fmt::Write>(&self, id: AstUtf8, writer: &mut W) -> fmt::Result {
+        let chunks = self.utf8_chunks(id);
+        writer.write_str(chunks.prefix())?;
+        if let Some(suffix) = chunks.suffix() {
+            writer.write_char(char::from(suffix))?;
+        }
+        Ok(())
     }
 
     #[inline]
     pub fn utf8_chunks(&self, id: AstUtf8) -> Utf8Chunks<'_> {
-        let bytes = self.logical_bytes(id.into());
+        let bytes = self.logical_bytes(AstInternedUtf8::from_utf8_range(id));
         // SAFETY: `AstUtf8` is valid UTF-8 and the optional suffix is ASCII.
         let prefix = unsafe { std::str::from_utf8_unchecked(bytes.prefix) };
         Utf8Chunks {
@@ -563,18 +522,19 @@ impl<'a> StringPool<'a> {
 
     #[inline]
     pub fn utf8_eq(&self, left: AstUtf8, right: AstUtf8) -> bool {
-        self.logical_bytes(left.into())
-            .eq(self.logical_bytes(right.into()))
+        self.logical_bytes(AstInternedUtf8::from_utf8_range(left))
+            .eq(self.logical_bytes(AstInternedUtf8::from_utf8_range(right)))
     }
 
     #[inline]
     pub fn utf8_eq_bytes(&self, id: AstUtf8, bytes: &[u8]) -> bool {
-        self.logical_bytes(id.into()).eq_slice(bytes)
+        self.logical_bytes(AstInternedUtf8::from_utf8_range(id))
+            .eq_slice(bytes)
     }
 
     #[inline]
     pub fn utf8_eq_wtf8(&self, utf8: AstUtf8, wtf8: AstWtf8) -> bool {
-        self.logical_bytes(utf8.into())
+        self.logical_bytes(AstInternedUtf8::from_utf8_range(utf8))
             .eq_slice(self.get_wtf8(wtf8).as_bytes())
     }
 
@@ -590,22 +550,20 @@ impl<'a> StringPool<'a> {
 
     #[inline]
     pub fn utf8_contains_byte(&self, id: AstUtf8, byte: u8) -> bool {
-        let bytes = self.logical_bytes(id.into());
+        let bytes = self.logical_bytes(AstInternedUtf8::from_utf8_range(id));
         bytes.prefix.contains(&byte) || bytes.suffix == Some(byte)
     }
 
     #[inline]
     pub fn utf8_first_byte(&self, id: AstUtf8) -> Option<u8> {
-        let bytes = self.logical_bytes(id.into());
+        let bytes = self.logical_bytes(AstInternedUtf8::from_utf8_range(id));
         bytes.prefix.first().copied().or(bytes.suffix)
     }
 
     #[inline]
     pub fn get_wtf8(&self, id: AstWtf8) -> &Wtf8 {
-        let id = StringId::from(id);
-        debug_assert!(!id.is_generated());
         // SAFETY: `AstWtf8` is guaranteed to reference valid WTF-8.
-        unsafe { Wtf8::from_bytes_unchecked(self.get_flat_bytes(id)) }
+        unsafe { Wtf8::from_bytes_unchecked(self.get_wtf8_bytes(id)) }
     }
 
     #[inline]
@@ -617,13 +575,18 @@ impl<'a> StringPool<'a> {
     }
 
     #[inline]
-    fn get_flat_bytes(&self, id: StringId) -> &[u8] {
+    fn get_flat_bytes(&self, id: AstInternedUtf8) -> &[u8] {
         debug_assert!(!id.is_generated());
         self.get_storage_bytes(id)
     }
 
     #[inline]
-    fn logical_bytes(&self, id: StringId) -> LogicalBytes<'_> {
+    fn get_wtf8_bytes(&self, id: AstWtf8) -> &[u8] {
+        wtf8_bytes_from(self.source, &self.extra, id)
+    }
+
+    #[inline]
+    fn logical_bytes(&self, id: AstInternedUtf8) -> LogicalBytes<'_> {
         LogicalBytes {
             prefix: self.get_storage_bytes(id),
             suffix: id.suffix().map(|suffix| HEX_DIGITS[usize::from(suffix)]),
@@ -631,7 +594,7 @@ impl<'a> StringPool<'a> {
     }
 
     #[inline]
-    fn get_storage_bytes(&self, id: StringId) -> &[u8] {
+    fn get_storage_bytes(&self, id: AstInternedUtf8) -> &[u8] {
         let start = id.start_offset() as usize;
         let end = id.end_offset() as usize;
         debug_assert!(end >= start);
@@ -647,8 +610,8 @@ impl<'a> StringPool<'a> {
     /// So external crates should be better not use this function directly.
     #[inline]
     pub fn source_slice(&self, start: u32, end: u32) -> AstUtf8 {
-        assert!(self.source.get(start as usize..end as usize).is_some());
-        StringId::flat_source(start, end).into()
+        debug_assert!(self.source.get(start as usize..end as usize).is_some());
+        AstUtf8 { start, end }
     }
 
     /// Returns a slice of the source string corresponding to the given start and end offsets.
@@ -656,8 +619,8 @@ impl<'a> StringPool<'a> {
     /// So external crates should be better not use this function directly.
     #[inline]
     pub fn source_slice_wtf8(&self, start: u32, end: u32) -> AstWtf8 {
-        assert!(self.source.get(start as usize..end as usize).is_some());
-        StringId::flat_source(start, end).into()
+        debug_assert!(self.source.get(start as usize..end as usize).is_some());
+        AstWtf8 { start, end }
     }
 
     #[inline]
@@ -667,23 +630,24 @@ impl<'a> StringPool<'a> {
 
     #[inline]
     pub fn add_wtf8(&mut self, text: &Wtf8) -> AstWtf8 {
-        let parts = LogicalBytes {
-            prefix: text.as_bytes(),
-            suffix: None,
-        };
-        let hash = parts.hash();
-        if let Some(id) =
-            Self::find_wtf8_in(&self.wtf8_dedup, self.source, &self.extra, parts, hash)
-        {
-            return id.into();
+        if let Some(&value) = self.dedup.get(text.as_bytes()) {
+            let id = dedup_id(value);
+            return AstWtf8 {
+                start: id.start,
+                end: id.end,
+            };
         }
-        let id = self.append_extra(text.as_bytes());
-        self.wtf8_dedup.insert(Wtf8InternEntry { hash, id }, ());
-        id.into()
+        let interned = self.append_extra(text.as_bytes());
+        let id = AstWtf8 {
+            start: interned.start,
+            end: interned.end,
+        };
+        self.insert_utf8(interned, false);
+        id
     }
 
     pub fn add_wtf8_prefixed_utf8(&mut self, prefix: &[u8], text: AstUtf8) -> AstWtf8 {
-        let text = self.logical_bytes(text.into());
+        let text = self.logical_bytes(AstInternedUtf8::from_utf8_range(text));
         let mut bytes = Vec::with_capacity(prefix.len() + text.len());
         bytes.extend_from_slice(prefix);
         bytes.extend_from_slice(text.prefix);
@@ -699,9 +663,12 @@ impl<'a> StringPool<'a> {
     /// Converts UTF-8 to the shared WTF-8 storage representation. Flat
     /// handles reuse their range; compact handles are materialized first.
     pub fn utf8_to_wtf8(&mut self, text: AstUtf8) -> AstWtf8 {
-        let id = StringId::from(text);
+        let id = AstInternedUtf8::from_utf8_range(text);
         if !id.is_generated() {
-            return id.into();
+            return AstWtf8 {
+                start: id.start,
+                end: id.end,
+            };
         }
         self.add_wtf8_prefixed_utf8(&[], text)
     }
@@ -709,28 +676,43 @@ impl<'a> StringPool<'a> {
     /// Canonicalizes a UTF-8 range already stored in this pool.
     #[inline]
     pub fn intern_utf8_range(&mut self, text: AstUtf8) -> AstInternedUtf8 {
-        let id = StringId::from(text);
-        let parts = self.logical_bytes(id);
-        let hash = parts.hash();
-        self.intern_utf8_id(hash, id)
+        self.intern_utf8_id(AstInternedUtf8::from_utf8_range(text), false)
+    }
+
+    /// Canonicalizes an identifier and records it in the program-wide UID
+    /// collision domain during the same interner lookup.
+    #[inline]
+    pub fn intern_name_range(&mut self, text: AstUtf8) -> AstInternedUtf8 {
+        let string = AstInternedUtf8::from_utf8_range(text);
+        if string.is_generated() || !self.generated_names.is_empty() {
+            return self.intern_utf8_id(string, true);
+        }
+
+        let bytes = logical_bytes_from(self.source, &self.extra, string).prefix;
+        if let Some(value) = self.dedup.get_mut(bytes) {
+            reserve_dedup_name(value);
+            return dedup_id(*value);
+        }
+        self.insert_utf8(string, true)
     }
 
     /// Canonicalizes a WTF-8 range already stored in this pool.
     #[inline]
     pub fn intern_wtf8_range(&mut self, text: AstWtf8) -> AstWtf8 {
-        let id = StringId::from(text);
-        let parts = LogicalBytes {
-            prefix: self.get_flat_bytes(id),
-            suffix: None,
-        };
-        let hash = parts.hash();
-        if let Some(existing) =
-            Self::find_wtf8_in(&self.wtf8_dedup, self.source, &self.extra, parts, hash)
-        {
-            return existing.into();
+        let bytes = self.get_wtf8_bytes(text);
+        if let Some(&value) = self.dedup.get(bytes) {
+            let id = dedup_id(value);
+            return AstWtf8 {
+                start: id.start,
+                end: id.end,
+            };
         }
-        self.wtf8_dedup.insert(Wtf8InternEntry { hash, id }, ());
-        id.into()
+        let id = AstInternedUtf8 {
+            start: text.start,
+            end: text.end,
+        };
+        self.insert_utf8(id, false);
+        text
     }
 
     /// Creates string-pool state for a generated-name sequence.
@@ -764,10 +746,25 @@ impl<'a> StringPool<'a> {
         self.intern_generated_name(state.base, state.prefix, suffix)
     }
 
+    /// Reserves a generated name in the pool's program-wide UID collision
+    /// domain. Returns the canonical handle and whether the name was free.
+    pub fn reserve_generated_name_from_state(
+        &mut self,
+        state: &mut GeneratedUtf8State,
+        suffix: u64,
+    ) -> (AstInternedUtf8, bool) {
+        let block = suffix >> 4;
+        if !state.initialized || state.block != block {
+            state.block = block;
+            state.prefix = self.generated_name_prefix(state.base, block);
+            state.initialized = true;
+        }
+        self.reserve_generated_name(state.base, state.prefix, suffix)
+    }
+
     /// Builds or reuses the physical prefix for one block of 16 generated names.
     /// Returns `None` when the prefix cannot fit in the compact 29-bit range.
     pub fn generated_name_prefix(&mut self, base: AstInternedUtf8, block: u64) -> Option<AstUtf8> {
-        let base = StringId::from(base);
         if block == 0 && base.can_be_compact_prefix() {
             return Some(base.into());
         }
@@ -794,13 +791,10 @@ impl<'a> StringPool<'a> {
     ) -> AstInternedUtf8 {
         let nibble = (suffix & 0xf) as u8;
         if let Some(prefix) = prefix {
-            let id = StringId::generated(prefix.into(), nibble);
-            let parts = self.logical_bytes(id);
-            let hash = parts.hash();
-            return self.intern_utf8_id(hash, id);
+            let id = AstInternedUtf8::generated(AstInternedUtf8::from_utf8_range(prefix), nibble);
+            return self.intern_compact_utf8(id);
         }
 
-        let base = StringId::from(base);
         let mut bytes = Vec::with_capacity(self.logical_bytes(base).len() + 16);
         let logical_base = self.logical_bytes(base);
         bytes.extend_from_slice(logical_base.prefix);
@@ -811,55 +805,113 @@ impl<'a> StringPool<'a> {
         self.intern_utf8_bytes(&bytes)
     }
 
-    fn compact_prefix_for_bytes(&mut self, bytes: &[u8]) -> Option<StringId> {
-        let parts = LogicalBytes {
-            prefix: bytes,
-            suffix: None,
-        };
-        let hash = parts.hash();
-        let existing = self.find_utf8_in(parts, hash);
-        if let Some(existing) = existing
-            && existing.can_be_compact_prefix()
-        {
-            return Some(existing);
+    fn reserve_generated_name(
+        &mut self,
+        base: AstInternedUtf8,
+        prefix: Option<AstUtf8>,
+        suffix: u64,
+    ) -> (AstInternedUtf8, bool) {
+        let nibble = (suffix & 0xf) as u8;
+        if let Some(prefix) = prefix {
+            let id = AstInternedUtf8::generated(AstInternedUtf8::from_utf8_range(prefix), nibble);
+            let parts = logical_bytes_from(self.source, &self.extra, id);
+            if let Some(value) = Self::find_dedup_mut(&mut self.dedup, parts) {
+                let was_free = reserve_dedup_name(value);
+                return (dedup_id(*value), was_free);
+            }
+
+            let prefix = AstInternedUtf8::from_utf8_range(prefix);
+            let bit = 1_u32 << nibble;
+            let used_bit = bit << 16;
+            let flags = self.generated_names.entry(prefix).or_insert(0);
+            let was_free = *flags & used_bit == 0;
+            *flags |= bit | used_bit;
+            return (AstInternedUtf8::generated(prefix, nibble), was_free);
+        }
+
+        let mut bytes = Vec::with_capacity(self.logical_bytes(base).len() + 16);
+        let logical_base = self.logical_bytes(base);
+        bytes.extend_from_slice(logical_base.prefix);
+        if let Some(base_suffix) = logical_base.suffix {
+            bytes.push(base_suffix);
+        }
+        append_hex(&mut bytes, suffix);
+        let name = self.intern_utf8_bytes(&bytes);
+        let was_free = self.reserve_name(name);
+        (name, was_free)
+    }
+
+    /// Marks an interned string as occupied in the program-wide generated-name
+    /// collision domain. Returns whether it was previously free.
+    pub fn reserve_name(&mut self, name: AstInternedUtf8) -> bool {
+        if let Some(nibble) = name.suffix() {
+            let bit = 1_u32 << nibble;
+            let used_bit = bit << 16;
+            let flags = self
+                .generated_names
+                .entry(name.generated_prefix())
+                .or_insert(0);
+            let was_free = *flags & used_bit == 0;
+            *flags |= bit | used_bit;
+            return was_free;
+        }
+
+        let parts = logical_bytes_from(self.source, &self.extra, name);
+        reserve_dedup_name(
+            Self::find_dedup_mut(&mut self.dedup, parts).expect("interned UTF-8 has a dedup entry"),
+        )
+    }
+
+    /// Returns whether a canonical string is occupied by generated-name
+    /// allocation.
+    pub fn is_name_reserved(&self, name: AstInternedUtf8) -> bool {
+        if let Some(nibble) = name.suffix() {
+            return self
+                .generated_names
+                .get(&name.generated_prefix())
+                .is_some_and(|flags| flags & ((1_u32 << nibble) << 16) != 0);
+        }
+        let parts = self.logical_bytes(name);
+        self.find_dedup(parts)
+            .is_some_and(|value| value.1 & GENERATED_NAME != 0)
+    }
+
+    fn compact_prefix_for_bytes(&mut self, bytes: &[u8]) -> Option<AstInternedUtf8> {
+        if let Some(&value) = self.dedup.get(bytes) {
+            let canonical = dedup_id(value);
+            if canonical.can_be_compact_prefix() {
+                return Some(canonical);
+            }
+            if let Some(&prefix) = self.oversized_compact_prefixes.get(&canonical) {
+                return Some(prefix);
+            }
+
+            compact_extra_range(self.extra.len(), bytes.len())?;
+            let id = self.append_extra(bytes);
+            self.oversized_compact_prefixes.insert(canonical, id);
+            return Some(id);
         }
 
         compact_extra_range(self.extra.len(), bytes.len())?;
         let id = self.append_extra(bytes);
-        if existing.is_none() {
-            self.insert_utf8(hash, id);
-        }
+        self.insert_utf8(id, false);
         Some(id)
     }
 
     fn intern_utf8_bytes(&mut self, text: &[u8]) -> AstInternedUtf8 {
-        let parts = LogicalBytes {
-            prefix: text,
-            suffix: None,
-        };
-        let hash = parts.hash();
-        let table_hash = self.utf8_dedup.hasher().hash_one(hash);
-        let next_id = self.next_extra_id(text.len());
-        let source = self.source;
-        let extra = &self.extra;
-        let (entry, ()) = self
-            .utf8_dedup
-            .raw_entry_mut()
-            .from_hash(table_hash, |entry| {
-                entry.hash == hash && logical_bytes_from(source, extra, entry.id).eq(parts)
-            })
-            .or_insert(Utf8InternEntry { hash, id: next_id }, ());
-        let id = entry.id;
-        if id == next_id {
-            let string = self.append_extra(text);
-            debug_assert_eq!(string, id);
+        if let Some(&value) = self.dedup.get(text) {
+            return dedup_id(value);
         }
-        id.into()
+        if let Some(id) = self.generated_utf8_for_flat_bytes(text) {
+            return id;
+        }
+        let id = self.append_extra(text);
+        self.insert_utf8(id, false)
     }
 
-    fn next_extra_id(&self, len: usize) -> StringId {
+    fn next_extra_id(&self, len: usize) -> AstInternedUtf8 {
         if len == 0 {
-            return StringId::EMPTY;
+            return AstInternedUtf8::EMPTY;
         }
         let start = self.extra.len();
         let end = start.checked_add(len).expect("string pool offset overflow");
@@ -867,62 +919,129 @@ impl<'a> StringPool<'a> {
             end <= FLAT_OFFSET_MASK as usize,
             "extra strings exceed 2 GiB string-handle range"
         );
-        StringId::flat_extra(start as u32, end as u32)
+        AstInternedUtf8::flat_extra(start as u32, end as u32)
     }
 
-    fn append_extra(&mut self, text: &[u8]) -> StringId {
+    fn append_extra(&mut self, text: &[u8]) -> AstInternedUtf8 {
         let id = self.next_extra_id(text.len());
         self.extra.extend_from_slice(text);
         id
     }
 
-    fn find_utf8_in(&self, parts: LogicalBytes<'_>, content_hash: u64) -> Option<StringId> {
-        let table_hash = self.utf8_dedup.hasher().hash_one(content_hash);
-        self.utf8_dedup
+    fn find_dedup(&self, parts: LogicalBytes<'_>) -> Option<&DedupValue> {
+        if parts.suffix.is_none() {
+            return self.dedup.get(parts.prefix);
+        }
+        let table_hash = logical_hash(self.dedup.hasher(), parts);
+        self.dedup
             .raw_entry()
-            .from_hash(table_hash, |entry| {
-                entry.hash == content_hash
-                    && logical_bytes_from(self.source, &self.extra, entry.id).eq(parts)
-            })
-            .map(|(entry, ())| entry.id)
+            .from_hash(table_hash, |key| parts.eq_slice(key))
+            .map(|(_, value)| value)
     }
 
-    fn intern_utf8_id(&mut self, hash: u64, string: StringId) -> AstInternedUtf8 {
-        let table_hash = self.utf8_dedup.hasher().hash_one(hash);
-        let source = self.source;
-        let extra = &self.extra;
-        let parts = logical_bytes_from(source, extra, string);
-        let (entry, ()) = self
-            .utf8_dedup
+    fn find_dedup_mut<'map>(
+        dedup: &'map mut ArenaHashMap<'a, ArenaVec<'a, u8>, DedupValue>,
+        parts: LogicalBytes<'_>,
+    ) -> Option<&'map mut DedupValue> {
+        if parts.suffix.is_none() {
+            return dedup.get_mut(parts.prefix);
+        }
+        let table_hash = logical_hash(dedup.hasher(), parts);
+        match dedup
             .raw_entry_mut()
-            .from_hash(table_hash, |entry| {
-                entry.hash == hash && logical_bytes_from(source, extra, entry.id).eq(parts)
-            })
-            .or_insert(Utf8InternEntry { hash, id: string }, ());
-        entry.id.into()
+            .from_hash(table_hash, |key| parts.eq_slice(key))
+        {
+            RawEntryMut::Occupied(entry) => Some(entry.into_key_value().1),
+            RawEntryMut::Vacant(_) => None,
+        }
+    }
+
+    fn generated_utf8_for_flat_bytes(&self, bytes: &[u8]) -> Option<AstInternedUtf8> {
+        if self.generated_names.is_empty() {
+            return None;
+        }
+        let (&suffix, prefix) = bytes.split_last()?;
+        let nibble = hex_nibble(suffix)?;
+        let canonical = dedup_id(*self.dedup.get(prefix)?);
+        let physical = if canonical.can_be_compact_prefix() {
+            canonical
+        } else {
+            *self.oversized_compact_prefixes.get(&canonical)?
+        };
+        if self.generated_names.get(&physical).copied().unwrap_or(0) & (1_u32 << nibble) == 0 {
+            return None;
+        }
+        Some(AstInternedUtf8::generated(physical, nibble))
+    }
+
+    fn intern_compact_utf8(&mut self, id: AstInternedUtf8) -> AstInternedUtf8 {
+        let parts = logical_bytes_from(self.source, &self.extra, id);
+        if let Some(&value) = self.find_dedup(parts) {
+            return dedup_id(value);
+        }
+        let nibble = id.suffix().expect("compact UTF-8 has a suffix");
+        *self
+            .generated_names
+            .entry(id.generated_prefix())
+            .or_insert(0) |= 1_u32 << nibble;
+        id
+    }
+
+    fn intern_utf8_id(&mut self, string: AstInternedUtf8, used_as_name: bool) -> AstInternedUtf8 {
+        let parts = logical_bytes_from(self.source, &self.extra, string);
+        if let Some(value) = Self::find_dedup_mut(&mut self.dedup, parts) {
+            if used_as_name {
+                reserve_dedup_name(value);
+            }
+            return dedup_id(*value);
+        }
+        if string.is_generated() {
+            let nibble = string.suffix().unwrap();
+            let bit = 1_u32 << nibble;
+            let flags = self
+                .generated_names
+                .entry(string.generated_prefix())
+                .or_insert(0);
+            *flags |= bit | if used_as_name { bit << 16 } else { 0 };
+            return string;
+        }
+        if let Some(id) = self.generated_utf8_for_flat_bytes(parts.prefix) {
+            if used_as_name {
+                self.reserve_name(id);
+            }
+            return id;
+        }
+        self.insert_utf8(string, used_as_name)
     }
 
     #[inline]
-    fn insert_utf8(&mut self, hash: u64, string: StringId) -> AstInternedUtf8 {
-        self.utf8_dedup
-            .insert(Utf8InternEntry { hash, id: string }, ());
-        string.into()
+    fn insert_utf8(&mut self, string: AstInternedUtf8, used_as_name: bool) -> AstInternedUtf8 {
+        let bytes = self.get_storage_bytes(string);
+        let mut key = ArenaVec::with_capacity_in(bytes.len(), self.allocator);
+        key.extend_from_slice(bytes);
+        self.dedup.insert(key, dedup_value(string, used_as_name));
+        string
     }
+}
 
-    fn find_wtf8_in(
-        dedup: &ArenaHashMap<'a, Wtf8InternEntry, ()>,
-        source: &str,
-        extra: &[u8],
-        parts: LogicalBytes<'_>,
-        content_hash: u64,
-    ) -> Option<StringId> {
-        let table_hash = dedup.hasher().hash_one(content_hash);
-        dedup
-            .raw_entry()
-            .from_hash(table_hash, |entry| {
-                entry.hash == content_hash && logical_bytes_from(source, extra, entry.id).eq(parts)
-            })
-            .map(|(entry, ())| entry.id)
+#[inline]
+fn logical_hash<S: BuildHasher>(build_hasher: &S, parts: LogicalBytes<'_>) -> u64 {
+    if let Some(suffix) = parts.suffix {
+        let mut hasher = build_hasher.build_hasher();
+        hasher.write_usize(parts.len());
+        hasher.write_u64(hash_segmented_bytes(parts.prefix, suffix));
+        hasher.finish()
+    } else {
+        build_hasher.hash_one(parts.prefix)
+    }
+}
+
+#[inline]
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        _ => None,
     }
 }
 
@@ -936,7 +1055,11 @@ fn compact_extra_range(start: usize, len: usize) -> Option<(u32, u32)> {
 }
 
 #[inline]
-fn logical_bytes_from<'a>(source: &'a str, extra: &'a [u8], id: StringId) -> LogicalBytes<'a> {
+fn logical_bytes_from<'a>(
+    source: &'a str,
+    extra: &'a [u8],
+    id: AstInternedUtf8,
+) -> LogicalBytes<'a> {
     let start = id.start_offset() as usize;
     let end = id.end_offset() as usize;
     let prefix = if id.is_extra() {
@@ -947,6 +1070,18 @@ fn logical_bytes_from<'a>(source: &'a str, extra: &'a [u8], id: StringId) -> Log
     LogicalBytes {
         prefix,
         suffix: id.suffix().map(|suffix| HEX_DIGITS[usize::from(suffix)]),
+    }
+}
+
+#[inline]
+fn wtf8_bytes_from<'a>(source: &'a str, extra: &'a [u8], id: AstWtf8) -> &'a [u8] {
+    let start = (id.start & FLAT_OFFSET_MASK) as usize;
+    let end = id.end as usize;
+    debug_assert!(end >= start);
+    if id.start & STORAGE_EXTRA != 0 {
+        &extra[start..end]
+    } else {
+        &source.as_bytes()[start..end]
     }
 }
 
@@ -966,13 +1101,13 @@ fn append_hex(output: &mut Vec<u8>, mut value: u64) {
 
 #[cfg(test)]
 mod tests {
-    use std::mem::size_of;
+    use std::{borrow::Cow, mem::size_of};
 
     use swc_next_allocator::Allocator;
 
     use super::{
-        AstInternedUtf8, AstUtf8, AstWtf8, COMPACT_OFFSET_MASK, FLAT_OFFSET_MASK, LogicalBytes,
-        StringId, StringPool, compact_extra_range, hash_bytes, hash_segmented_bytes,
+        AstInternedUtf8, AstUtf8, AstWtf8, COMPACT_OFFSET_MASK, DedupValue, FLAT_OFFSET_MASK,
+        StringPool, compact_extra_range, hash_bytes, hash_segmented_bytes,
     };
 
     #[test]
@@ -980,48 +1115,56 @@ mod tests {
         assert_eq!(size_of::<AstUtf8>(), 8);
         assert_eq!(size_of::<AstInternedUtf8>(), 8);
         assert_eq!(size_of::<AstWtf8>(), 8);
+        assert_eq!(size_of::<DedupValue>(), 8);
     }
 
     #[test]
     fn codec_round_trips_flat_and_generated_boundaries() {
-        let source = StringId::try_flat_source(0, FLAT_OFFSET_MASK).unwrap();
+        let source = AstInternedUtf8 {
+            start: 0,
+            end: FLAT_OFFSET_MASK,
+        };
         assert!(!source.is_extra());
         assert_eq!(source.start_offset(), 0);
         assert_eq!(source.end_offset(), FLAT_OFFSET_MASK);
 
-        let extra = StringId::try_flat_extra(0, FLAT_OFFSET_MASK).unwrap();
+        let extra = AstInternedUtf8::try_flat_extra(0, FLAT_OFFSET_MASK).unwrap();
         assert!(extra.is_extra());
         assert_eq!(extra.start_offset(), 0);
         assert_eq!(extra.end_offset(), FLAT_OFFSET_MASK);
 
-        let source_prefix = StringId::try_flat_source(0, COMPACT_OFFSET_MASK).unwrap();
-        let extra_prefix = StringId::try_flat_extra(0, COMPACT_OFFSET_MASK).unwrap();
+        let source_prefix = AstInternedUtf8 {
+            start: 0,
+            end: COMPACT_OFFSET_MASK,
+        };
+        let extra_prefix = AstInternedUtf8::try_flat_extra(0, COMPACT_OFFSET_MASK).unwrap();
         for suffix in 0..16 {
-            let source_name = StringId::try_generated(source_prefix, suffix).unwrap();
+            let source_name = AstInternedUtf8::try_generated(source_prefix, suffix).unwrap();
             assert!(!source_name.is_extra());
             assert_eq!(source_name.start_offset(), 0);
             assert_eq!(source_name.end_offset(), COMPACT_OFFSET_MASK);
             assert_eq!(source_name.suffix(), Some(suffix));
 
-            let extra_name = StringId::try_generated(extra_prefix, suffix).unwrap();
+            let extra_name = AstInternedUtf8::try_generated(extra_prefix, suffix).unwrap();
             assert!(extra_name.is_extra());
             assert_eq!(extra_name.start_offset(), 0);
             assert_eq!(extra_name.end_offset(), COMPACT_OFFSET_MASK);
             assert_eq!(extra_name.suffix(), Some(suffix));
         }
 
-        assert!(StringId::try_flat_source(1, 0).is_none());
-        assert!(StringId::try_flat_source(0, FLAT_OFFSET_MASK + 1).is_none());
-        assert!(StringId::try_flat_extra(1, 0).is_none());
-        assert!(StringId::try_flat_extra(0, FLAT_OFFSET_MASK + 1).is_none());
+        assert!(AstInternedUtf8::try_flat_extra(1, 0).is_none());
+        assert!(AstInternedUtf8::try_flat_extra(0, FLAT_OFFSET_MASK + 1).is_none());
         assert!(
-            StringId::try_generated(
-                StringId::flat_source(COMPACT_OFFSET_MASK + 1, COMPACT_OFFSET_MASK + 1),
+            AstInternedUtf8::try_generated(
+                AstInternedUtf8 {
+                    start: COMPACT_OFFSET_MASK + 1,
+                    end: COMPACT_OFFSET_MASK + 1,
+                },
                 0,
             )
             .is_none()
         );
-        assert!(StringId::try_generated(source_prefix, 16).is_none());
+        assert!(AstInternedUtf8::try_generated(source_prefix, 16).is_none());
     }
 
     #[test]
@@ -1032,22 +1175,6 @@ mod tests {
         );
         assert_eq!(compact_extra_range(COMPACT_OFFSET_MASK as usize, 1), None);
         assert_eq!(compact_extra_range(usize::MAX, 1), None);
-    }
-
-    #[test]
-    fn segmented_hash_matches_flat_hash() {
-        let bytes: Vec<u8> = (0..96).map(|index| b'a' + index % 26).collect();
-        for prefix_len in 0..bytes.len() {
-            let prefix = &bytes[..prefix_len];
-            let suffix = b'f';
-            let mut flat = prefix.to_vec();
-            flat.push(suffix);
-            assert_eq!(
-                hash_segmented_bytes(prefix, suffix),
-                hash_bytes(&flat),
-                "prefix length {prefix_len}"
-            );
-        }
     }
 
     #[test]
@@ -1063,11 +1190,11 @@ mod tests {
         assert_eq!(strings.extra.len(), 0);
         assert_eq!(strings.intern_utf8_range(second), canonical);
         assert_eq!(strings.extra.len(), 0);
-        assert_eq!(strings.utf8_dedup.len(), 1);
+        assert_eq!(strings.dedup.len(), 1);
     }
 
     #[test]
-    fn added_strings_store_bytes_once() {
+    fn added_strings_reuse_the_extra_range() {
         let allocator = Allocator::new();
         let mut strings = StringPool::new_in(&allocator, "");
         let first = strings.add_utf8("generated");
@@ -1075,7 +1202,21 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(strings.extra.as_slice(), b"generated");
-        assert_eq!(strings.utf8_dedup.len(), 1);
+        assert_eq!(strings.dedup.len(), 1);
+    }
+
+    #[test]
+    fn utf8_and_wtf8_share_one_dedup_entry() {
+        let allocator = Allocator::new();
+        let mut strings = StringPool::new_in(&allocator, "");
+        let utf8 = strings.add_utf8("shared");
+        // SAFETY: ASCII is valid WTF-8.
+        let text = unsafe { swc_next_allocator::wtf8::Wtf8::from_bytes_unchecked(b"shared") };
+        let wtf8 = strings.add_wtf8(text);
+
+        assert_eq!((utf8.start, utf8.end), (wtf8.start, wtf8.end));
+        assert_eq!(strings.extra.as_slice(), b"shared");
+        assert_eq!(strings.dedup.len(), 1);
     }
 
     #[test]
@@ -1083,7 +1224,7 @@ mod tests {
         let allocator = Allocator::new();
         let mut strings = StringPool::new_in(&allocator, "source");
         let added = strings.add_utf8("extra");
-        let id = StringId::from(added);
+        let id = added;
 
         assert!(id.is_extra());
         assert_eq!(id.start_offset(), 0);
@@ -1108,6 +1249,44 @@ mod tests {
     }
 
     #[test]
+    fn generated_names_do_not_add_full_dedup_entries() {
+        let allocator = Allocator::new();
+        let mut strings = StringPool::new_in(&allocator, "");
+        let mut state = strings.generated_utf8_state("_temp");
+        strings.reserve_name(StringPool::generated_utf8_base(&state));
+        for suffix in 2..=1_001 {
+            let (_, was_free) = strings.reserve_generated_name_from_state(&mut state, suffix);
+            assert!(was_free);
+        }
+
+        // One entry for `_temp`, then one shared prefix for each later block
+        // of 16 generated names. There is no entry per complete generated name.
+        assert_eq!(strings.dedup.len(), 63);
+        assert_eq!(strings.generated_names.len(), 63);
+        assert!(strings.oversized_compact_prefixes.is_empty());
+    }
+
+    #[test]
+    fn gets_or_writes_logical_utf8() {
+        let allocator = Allocator::new();
+        let mut strings = StringPool::new_in(&allocator, "source");
+        let source = strings.source_slice(0, 6);
+        assert_eq!(strings.get_utf8(source), Cow::Borrowed("source"));
+
+        let base = strings.add_utf8("_temp");
+        let prefix = strings.generated_name_prefix(base, 1).unwrap();
+        let generated = strings.intern_generated_name(base, Some(prefix), 0x10);
+        assert!(matches!(
+            strings.get_utf8(generated.into()),
+            Cow::Owned(value) if value == "_temp10"
+        ));
+
+        let mut output = String::new();
+        strings.write_utf8(generated.into(), &mut output).unwrap();
+        assert_eq!(output, "_temp10");
+    }
+
+    #[test]
     fn generated_name_collides_with_existing_flat_name() {
         let allocator = Allocator::new();
         let mut strings = StringPool::new_in(&allocator, "_temp10");
@@ -1120,18 +1299,28 @@ mod tests {
     }
 
     #[test]
-    fn hash_collision_still_compares_logical_content() {
+    fn flat_name_reuses_an_existing_compact_generated_name() {
         let allocator = Allocator::new();
-        let mut strings = StringPool::new_in(&allocator, "a b");
-        let a = StringId::from(strings.source_slice(0, 1));
-        let b = LogicalBytes {
-            prefix: b"b",
-            suffix: None,
-        };
-        strings.insert_utf8(b.hash(), a);
+        let mut strings = StringPool::new_in(&allocator, "_temp10");
+        let base = strings.add_utf8("_temp");
+        let prefix = strings.generated_name_prefix(base, 1).unwrap();
+        let generated = strings.intern_generated_name(base, Some(prefix), 0x10);
+        let flat = strings.intern_name_range(strings.source_slice(0, 7));
 
-        let canonical_b = strings.intern_utf8_range(strings.source_slice(2, 3));
-        assert!(strings.utf8_eq_bytes(canonical_b.into(), b"b"));
-        assert_eq!(strings.utf8_dedup.len(), 2);
+        assert_eq!(flat, generated);
+        assert!(strings.is_name_reserved(generated));
+        assert_eq!(strings.dedup.len(), 2);
+    }
+
+    #[test]
+    fn segmented_hash_matches_flat_hash() {
+        let bytes: Vec<u8> = (0..96).map(|index| b'a' + index % 26).collect();
+        for prefix_len in 0..bytes.len() {
+            let prefix = &bytes[..prefix_len];
+            let suffix = b'f';
+            let mut flat = prefix.to_vec();
+            flat.push(suffix);
+            assert_eq!(hash_segmented_bytes(prefix, suffix), hash_bytes(&flat));
+        }
     }
 }

@@ -6,7 +6,10 @@ use swc_next_allocator::{Allocator, vec::Vec as ArenaVec, wtf8::Wtf8};
 use swc_next_ecma_ast::*;
 
 use crate::operator::{BinaryExprVisitor, Binaryish, BinaryishOperator, OperatorCode};
-use crate::util::{next_code_point, push_code_point_escape, push_u16_escape, quote_into};
+use crate::util::{
+    QuotedUtf8Writer, Utf8QuoteSelector, next_code_point, push_code_point_escape, push_u16_escape,
+    quote_into,
+};
 
 use crate::{
     SourceMap,
@@ -748,6 +751,20 @@ impl<'a> Printer<'a> {
             b'"'
         };
         quote_into(&mut self.js, value, quote, self.options.ascii_only);
+    }
+
+    fn print_quoted_ast_utf8(&mut self, value: AstUtf8, allow_backtick: bool) {
+        let mut selector = Utf8QuoteSelector::default();
+        self.ast
+            .write_utf8(value, &mut selector)
+            .expect("UTF-8 quote selector is infallible");
+        let quote = selector.quote(allow_backtick);
+
+        let ast = self.ast;
+        let mut writer = QuotedUtf8Writer::new(&mut self.js, quote, self.options.ascii_only);
+        ast.write_utf8(value, &mut writer)
+            .expect("UTF-8 quote writer is infallible");
+        writer.finish();
     }
 
     fn print_stmt(&mut self, stmt: Stmt) {
@@ -2307,8 +2324,7 @@ impl<'a> Printer<'a> {
             if force_computed {
                 self.add_source_mapping(property.span(self.ast).start);
                 if let Some(name) = identifier_name {
-                    let name = self.ast.utf8_to_cow(name);
-                    self.print_quoted(Wtf8::from_str(&name), true);
+                    self.print_quoted_ast_utf8(name, true);
                 } else {
                     self.print_quoted(property_text.unwrap(), true);
                 }
@@ -2719,8 +2735,7 @@ impl<'a> Printer<'a> {
                 if self.can_print_ast_identifier(name) {
                     self.print_ast_identifier(name);
                 } else {
-                    let name = self.ast.utf8_to_cow(name);
-                    self.print_quoted(Wtf8::from_str(&name), true);
+                    self.print_quoted_ast_utf8(name, true);
                 }
             }
             PropertyKeyData::NumericLiteral(value) => self.print_number_property_key(value),

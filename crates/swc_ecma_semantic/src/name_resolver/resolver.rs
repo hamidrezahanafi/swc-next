@@ -218,7 +218,7 @@ struct Resolver<'visit, 'ast> {
 
 impl Resolver<'_, '_> {
     fn name(&mut self, name: AstUtf8) -> AstInternedUtf8 {
-        self.ast.intern_utf8_range(name)
+        self.ast.intern_name_range(name)
     }
 
     fn is_declared(&self, name: AstInternedUtf8, start_scope: ScopeId) -> Option<DeclKind> {

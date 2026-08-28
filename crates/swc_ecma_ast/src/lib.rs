@@ -369,6 +369,13 @@ impl<'a> Ast<'a> {
         self.strings.intern_utf8_range(value)
     }
 
+    /// Canonicalizes an identifier and records it for generated-name collision
+    /// checks without a second content lookup.
+    #[inline]
+    pub fn intern_name_range(&mut self, value: AstUtf8) -> AstInternedUtf8 {
+        self.strings.intern_name_range(value)
+    }
+
     #[inline]
     pub fn generated_utf8_state(&mut self, base: &str) -> GeneratedUtf8State {
         self.strings.generated_utf8_state(base)
@@ -386,6 +393,26 @@ impl<'a> Ast<'a> {
         suffix: u64,
     ) -> AstInternedUtf8 {
         self.strings.intern_generated_name_from_state(state, suffix)
+    }
+
+    #[inline]
+    pub fn reserve_generated_name_from_state(
+        &mut self,
+        state: &mut GeneratedUtf8State,
+        suffix: u64,
+    ) -> (AstInternedUtf8, bool) {
+        self.strings
+            .reserve_generated_name_from_state(state, suffix)
+    }
+
+    #[inline]
+    pub fn reserve_name(&mut self, name: AstInternedUtf8) -> bool {
+        self.strings.reserve_name(name)
+    }
+
+    #[inline]
+    pub fn is_name_reserved(&self, name: AstInternedUtf8) -> bool {
+        self.strings.is_name_reserved(name)
     }
 
     /// Builds or reuses the physical prefix shared by one block of 16 generated names.
@@ -432,9 +459,19 @@ impl<'a> Ast<'a> {
     }
 
     /// Returns a borrowed or materialized logical UTF-8 string.
+    ///
+    /// Test-only convenience API. Production callers should use the
+    /// non-materializing string-pool operations instead.
+    #[doc(hidden)]
     #[inline]
-    pub fn utf8_to_cow(&self, id: AstUtf8) -> std::borrow::Cow<'_, str> {
-        self.strings.utf8_to_cow(id)
+    pub fn get_utf8(&self, id: AstUtf8) -> std::borrow::Cow<'_, str> {
+        self.strings.get_utf8(id)
+    }
+
+    /// Writes a logical UTF-8 handle without materializing segmented bytes.
+    #[inline]
+    pub fn write_utf8<W: std::fmt::Write>(&self, id: AstUtf8, writer: &mut W) -> std::fmt::Result {
+        self.strings.write_utf8(id, writer)
     }
 
     /// Returns a non-allocating logical view of a flat or compact UTF-8 handle.
