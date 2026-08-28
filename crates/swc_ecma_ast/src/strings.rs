@@ -1,7 +1,7 @@
 use std::{
     borrow::Cow,
     fmt,
-    hash::{BuildHasher, Hasher},
+    hash::{BuildHasherDefault, Hash, Hasher},
 };
 
 use swc_next_allocator::{
@@ -214,31 +214,82 @@ impl AstInternedUtf8 {
     }
 }
 
-type DedupValue = (u32, u32);
+type InternBuildHasher = BuildHasherDefault<PrecomputedHasher>;
 
-#[inline]
-fn dedup_value(id: AstInternedUtf8, used_as_name: bool) -> DedupValue {
-    debug_assert!(!id.is_generated());
-    (
-        id.start,
-        id.end | if used_as_name { GENERATED_NAME } else { 0 },
-    )
-}
+#[derive(Default)]
+struct PrecomputedHasher(u64);
 
-#[inline]
-fn dedup_id(value: DedupValue) -> AstInternedUtf8 {
-    AstInternedUtf8 {
-        start: value.0,
-        end: value.1 & !GENERATED_NAME,
+impl Hasher for PrecomputedHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, _bytes: &[u8]) {
+        unreachable!("InternEntry writes a precomputed u64 hash")
+    }
+
+    #[inline]
+    fn write_u64(&mut self, hash: u64) {
+        self.0 = hash;
     }
 }
 
-#[inline]
-fn reserve_dedup_name(value: &mut DedupValue) -> bool {
-    let was_free = value.1 & GENERATED_NAME == 0;
-    value.1 |= GENERATED_NAME;
-    was_free
+#[derive(Clone, Copy, Debug)]
+struct InternEntry {
+    hash: u64,
+    id: AstInternedUtf8,
 }
+
+impl InternEntry {
+    #[inline]
+    fn new(hash: u64, id: AstInternedUtf8, used_as_name: bool) -> Self {
+        debug_assert!(!id.is_generated());
+        Self {
+            hash,
+            id: AstInternedUtf8 {
+                start: id.start,
+                end: id.end | if used_as_name { GENERATED_NAME } else { 0 },
+            },
+        }
+    }
+
+    #[inline]
+    fn id(self) -> AstInternedUtf8 {
+        AstInternedUtf8 {
+            start: self.id.start,
+            end: self.id.end & !GENERATED_NAME,
+        }
+    }
+
+    #[inline]
+    fn used_as_name(self) -> bool {
+        self.id.end & GENERATED_NAME != 0
+    }
+
+    #[inline]
+    fn reserve_name(&mut self) -> bool {
+        let was_free = !self.used_as_name();
+        self.id.end |= GENERATED_NAME;
+        was_free
+    }
+}
+
+impl Hash for InternEntry {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.hash);
+    }
+}
+
+impl PartialEq for InternEntry {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.hash == other.hash && self.id() == other.id()
+    }
+}
+
+impl Eq for InternEntry {}
 
 #[derive(Clone, Copy)]
 struct LogicalBytes<'a> {
@@ -277,6 +328,15 @@ impl LogicalBytes<'_> {
                 .is_some_and(|(last, prefix)| *last == suffix && prefix == self.prefix),
         }
     }
+
+    #[inline]
+    fn hash(self) -> u64 {
+        if let Some(suffix) = self.suffix {
+            hash_segmented_bytes(self.prefix, suffix)
+        } else {
+            hash_bytes(self.prefix)
+        }
+    }
 }
 
 const HASH_SEED1: u64 = 0x243f_6a88_85a3_08d3;
@@ -290,7 +350,6 @@ fn multiply_mix(left: u64, right: u64) -> u64 {
 }
 
 #[inline]
-#[cfg(test)]
 fn hash_bytes(bytes: &[u8]) -> u64 {
     let len = bytes.len();
     let mut s0 = HASH_SEED1;
@@ -457,10 +516,9 @@ impl fmt::Display for Utf8Chunks<'_> {
 }
 
 pub(crate) struct StringPool<'a> {
-    allocator: &'a Allocator,
     pub(crate) source: &'a str,
     pub(crate) extra: ArenaVec<'a, u8>,
-    dedup: ArenaHashMap<'a, ArenaVec<'a, u8>, DedupValue>,
+    dedup: ArenaHashMap<'a, InternEntry, (), InternBuildHasher>,
     generated_names: ArenaHashMap<'a, AstInternedUtf8, u32>,
     oversized_compact_prefixes: ArenaHashMap<'a, AstInternedUtf8, AstInternedUtf8>,
 }
@@ -472,10 +530,9 @@ impl<'a> StringPool<'a> {
             "source exceeds 2 GiB string-handle range"
         );
         Self {
-            allocator,
             source,
             extra: ArenaVec::new_in(allocator),
-            dedup: ArenaHashMap::new_in(allocator),
+            dedup: ArenaHashMap::with_hasher_in(InternBuildHasher::default(), allocator),
             generated_names: ArenaHashMap::new_in(allocator),
             oversized_compact_prefixes: ArenaHashMap::new_in(allocator),
         }
@@ -630,8 +687,13 @@ impl<'a> StringPool<'a> {
 
     #[inline]
     pub fn add_wtf8(&mut self, text: &Wtf8) -> AstWtf8 {
-        if let Some(&value) = self.dedup.get(text.as_bytes()) {
-            let id = dedup_id(value);
+        let parts = LogicalBytes {
+            prefix: text.as_bytes(),
+            suffix: None,
+        };
+        let hash = parts.hash();
+        if let Some(entry) = self.find_intern_entry(parts, hash) {
+            let id = entry.id();
             return AstWtf8 {
                 start: id.start,
                 end: id.end,
@@ -642,7 +704,7 @@ impl<'a> StringPool<'a> {
             start: interned.start,
             end: interned.end,
         };
-        self.insert_utf8(interned, false);
+        self.insert_utf8(hash, interned, false);
         id
     }
 
@@ -688,20 +750,30 @@ impl<'a> StringPool<'a> {
             return self.intern_utf8_id(string, true);
         }
 
-        let bytes = logical_bytes_from(self.source, &self.extra, string).prefix;
-        if let Some(value) = self.dedup.get_mut(bytes) {
-            reserve_dedup_name(value);
-            return dedup_id(*value);
-        }
-        self.insert_utf8(string, true)
+        let parts = logical_bytes_from(self.source, &self.extra, string);
+        let hash = parts.hash();
+        let (entry, ()) = self
+            .dedup
+            .raw_entry_mut()
+            .from_hash(hash, |entry| {
+                entry.hash == hash
+                    && logical_bytes_from(self.source, &self.extra, entry.id()).eq(parts)
+            })
+            .or_insert(InternEntry::new(hash, string, true), ());
+        entry.reserve_name();
+        entry.id()
     }
 
     /// Canonicalizes a WTF-8 range already stored in this pool.
     #[inline]
     pub fn intern_wtf8_range(&mut self, text: AstWtf8) -> AstWtf8 {
-        let bytes = self.get_wtf8_bytes(text);
-        if let Some(&value) = self.dedup.get(bytes) {
-            let id = dedup_id(value);
+        let parts = LogicalBytes {
+            prefix: self.get_wtf8_bytes(text),
+            suffix: None,
+        };
+        let hash = parts.hash();
+        if let Some(entry) = self.find_intern_entry(parts, hash) {
+            let id = entry.id();
             return AstWtf8 {
                 start: id.start,
                 end: id.end,
@@ -711,7 +783,7 @@ impl<'a> StringPool<'a> {
             start: text.start,
             end: text.end,
         };
-        self.insert_utf8(id, false);
+        self.insert_utf8(hash, id, false);
         text
     }
 
@@ -815,9 +887,12 @@ impl<'a> StringPool<'a> {
         if let Some(prefix) = prefix {
             let id = AstInternedUtf8::generated(AstInternedUtf8::from_utf8_range(prefix), nibble);
             let parts = logical_bytes_from(self.source, &self.extra, id);
-            if let Some(value) = Self::find_dedup_mut(&mut self.dedup, parts) {
-                let was_free = reserve_dedup_name(value);
-                return (dedup_id(*value), was_free);
+            let hash = parts.hash();
+            if let Some(entry) =
+                Self::find_intern_entry_mut(&mut self.dedup, self.source, &self.extra, parts, hash)
+            {
+                let was_free = entry.reserve_name();
+                return (entry.id(), was_free);
             }
 
             let prefix = AstInternedUtf8::from_utf8_range(prefix);
@@ -857,9 +932,10 @@ impl<'a> StringPool<'a> {
         }
 
         let parts = logical_bytes_from(self.source, &self.extra, name);
-        reserve_dedup_name(
-            Self::find_dedup_mut(&mut self.dedup, parts).expect("interned UTF-8 has a dedup entry"),
-        )
+        let hash = parts.hash();
+        Self::find_intern_entry_mut(&mut self.dedup, self.source, &self.extra, parts, hash)
+            .expect("interned UTF-8 has a dedup entry")
+            .reserve_name()
     }
 
     /// Returns whether a canonical string is occupied by generated-name
@@ -872,13 +948,18 @@ impl<'a> StringPool<'a> {
                 .is_some_and(|flags| flags & ((1_u32 << nibble) << 16) != 0);
         }
         let parts = self.logical_bytes(name);
-        self.find_dedup(parts)
-            .is_some_and(|value| value.1 & GENERATED_NAME != 0)
+        self.find_intern_entry(parts, parts.hash())
+            .is_some_and(|entry| entry.used_as_name())
     }
 
     fn compact_prefix_for_bytes(&mut self, bytes: &[u8]) -> Option<AstInternedUtf8> {
-        if let Some(&value) = self.dedup.get(bytes) {
-            let canonical = dedup_id(value);
+        let parts = LogicalBytes {
+            prefix: bytes,
+            suffix: None,
+        };
+        let hash = parts.hash();
+        if let Some(entry) = self.find_intern_entry(parts, hash) {
+            let canonical = entry.id();
             if canonical.can_be_compact_prefix() {
                 return Some(canonical);
             }
@@ -894,19 +975,24 @@ impl<'a> StringPool<'a> {
 
         compact_extra_range(self.extra.len(), bytes.len())?;
         let id = self.append_extra(bytes);
-        self.insert_utf8(id, false);
+        self.insert_utf8(hash, id, false);
         Some(id)
     }
 
     fn intern_utf8_bytes(&mut self, text: &[u8]) -> AstInternedUtf8 {
-        if let Some(&value) = self.dedup.get(text) {
-            return dedup_id(value);
+        let parts = LogicalBytes {
+            prefix: text,
+            suffix: None,
+        };
+        let hash = parts.hash();
+        if let Some(entry) = self.find_intern_entry(parts, hash) {
+            return entry.id();
         }
         if let Some(id) = self.generated_utf8_for_flat_bytes(text) {
             return id;
         }
         let id = self.append_extra(text);
-        self.insert_utf8(id, false)
+        self.insert_utf8(hash, id, false)
     }
 
     fn next_extra_id(&self, len: usize) -> AstInternedUtf8 {
@@ -928,30 +1014,27 @@ impl<'a> StringPool<'a> {
         id
     }
 
-    fn find_dedup(&self, parts: LogicalBytes<'_>) -> Option<&DedupValue> {
-        if parts.suffix.is_none() {
-            return self.dedup.get(parts.prefix);
-        }
-        let table_hash = logical_hash(self.dedup.hasher(), parts);
+    fn find_intern_entry(&self, parts: LogicalBytes<'_>, hash: u64) -> Option<&InternEntry> {
         self.dedup
             .raw_entry()
-            .from_hash(table_hash, |key| parts.eq_slice(key))
-            .map(|(_, value)| value)
+            .from_hash(hash, |entry| {
+                entry.hash == hash
+                    && logical_bytes_from(self.source, &self.extra, entry.id()).eq(parts)
+            })
+            .map(|(entry, ())| entry)
     }
 
-    fn find_dedup_mut<'map>(
-        dedup: &'map mut ArenaHashMap<'a, ArenaVec<'a, u8>, DedupValue>,
+    fn find_intern_entry_mut<'map>(
+        dedup: &'map mut ArenaHashMap<'a, InternEntry, (), InternBuildHasher>,
+        source: &str,
+        extra: &[u8],
         parts: LogicalBytes<'_>,
-    ) -> Option<&'map mut DedupValue> {
-        if parts.suffix.is_none() {
-            return dedup.get_mut(parts.prefix);
-        }
-        let table_hash = logical_hash(dedup.hasher(), parts);
-        match dedup
-            .raw_entry_mut()
-            .from_hash(table_hash, |key| parts.eq_slice(key))
-        {
-            RawEntryMut::Occupied(entry) => Some(entry.into_key_value().1),
+        hash: u64,
+    ) -> Option<&'map mut InternEntry> {
+        match dedup.raw_entry_mut().from_hash(hash, |entry| {
+            entry.hash == hash && logical_bytes_from(source, extra, entry.id()).eq(parts)
+        }) {
+            RawEntryMut::Occupied(entry) => Some(entry.into_key_value().0),
             RawEntryMut::Vacant(_) => None,
         }
     }
@@ -962,7 +1045,11 @@ impl<'a> StringPool<'a> {
         }
         let (&suffix, prefix) = bytes.split_last()?;
         let nibble = hex_nibble(suffix)?;
-        let canonical = dedup_id(*self.dedup.get(prefix)?);
+        let parts = LogicalBytes {
+            prefix,
+            suffix: None,
+        };
+        let canonical = self.find_intern_entry(parts, parts.hash())?.id();
         let physical = if canonical.can_be_compact_prefix() {
             canonical
         } else {
@@ -976,8 +1063,9 @@ impl<'a> StringPool<'a> {
 
     fn intern_compact_utf8(&mut self, id: AstInternedUtf8) -> AstInternedUtf8 {
         let parts = logical_bytes_from(self.source, &self.extra, id);
-        if let Some(&value) = self.find_dedup(parts) {
-            return dedup_id(value);
+        let hash = parts.hash();
+        if let Some(entry) = self.find_intern_entry(parts, hash) {
+            return entry.id();
         }
         let nibble = id.suffix().expect("compact UTF-8 has a suffix");
         *self
@@ -989,11 +1077,14 @@ impl<'a> StringPool<'a> {
 
     fn intern_utf8_id(&mut self, string: AstInternedUtf8, used_as_name: bool) -> AstInternedUtf8 {
         let parts = logical_bytes_from(self.source, &self.extra, string);
-        if let Some(value) = Self::find_dedup_mut(&mut self.dedup, parts) {
+        let hash = parts.hash();
+        if let Some(entry) =
+            Self::find_intern_entry_mut(&mut self.dedup, self.source, &self.extra, parts, hash)
+        {
             if used_as_name {
-                reserve_dedup_name(value);
+                entry.reserve_name();
             }
-            return dedup_id(*value);
+            return entry.id();
         }
         if string.is_generated() {
             let nibble = string.suffix().unwrap();
@@ -1011,28 +1102,19 @@ impl<'a> StringPool<'a> {
             }
             return id;
         }
-        self.insert_utf8(string, used_as_name)
+        self.insert_utf8(hash, string, used_as_name)
     }
 
     #[inline]
-    fn insert_utf8(&mut self, string: AstInternedUtf8, used_as_name: bool) -> AstInternedUtf8 {
-        let bytes = self.get_storage_bytes(string);
-        let mut key = ArenaVec::with_capacity_in(bytes.len(), self.allocator);
-        key.extend_from_slice(bytes);
-        self.dedup.insert(key, dedup_value(string, used_as_name));
+    fn insert_utf8(
+        &mut self,
+        hash: u64,
+        string: AstInternedUtf8,
+        used_as_name: bool,
+    ) -> AstInternedUtf8 {
+        self.dedup
+            .insert(InternEntry::new(hash, string, used_as_name), ());
         string
-    }
-}
-
-#[inline]
-fn logical_hash<S: BuildHasher>(build_hasher: &S, parts: LogicalBytes<'_>) -> u64 {
-    if let Some(suffix) = parts.suffix {
-        let mut hasher = build_hasher.build_hasher();
-        hasher.write_usize(parts.len());
-        hasher.write_u64(hash_segmented_bytes(parts.prefix, suffix));
-        hasher.finish()
-    } else {
-        build_hasher.hash_one(parts.prefix)
     }
 }
 
@@ -1106,7 +1188,7 @@ mod tests {
     use swc_next_allocator::Allocator;
 
     use super::{
-        AstInternedUtf8, AstUtf8, AstWtf8, COMPACT_OFFSET_MASK, DedupValue, FLAT_OFFSET_MASK,
+        AstInternedUtf8, AstUtf8, AstWtf8, COMPACT_OFFSET_MASK, FLAT_OFFSET_MASK, InternEntry,
         StringPool, compact_extra_range, hash_bytes, hash_segmented_bytes,
     };
 
@@ -1115,7 +1197,7 @@ mod tests {
         assert_eq!(size_of::<AstUtf8>(), 8);
         assert_eq!(size_of::<AstInternedUtf8>(), 8);
         assert_eq!(size_of::<AstWtf8>(), 8);
-        assert_eq!(size_of::<DedupValue>(), 8);
+        assert_eq!(size_of::<InternEntry>(), 16);
     }
 
     #[test]
@@ -1322,5 +1404,24 @@ mod tests {
             flat.push(suffix);
             assert_eq!(hash_segmented_bytes(prefix, suffix), hash_bytes(&flat));
         }
+    }
+
+    #[test]
+    fn precomputed_hash_collisions_compare_string_bytes() {
+        let allocator = Allocator::new();
+        let mut strings = StringPool::new_in(&allocator, "ab");
+        let first = AstInternedUtf8::from_utf8_range(strings.source_slice(0, 1));
+        let second = AstInternedUtf8::from_utf8_range(strings.source_slice(1, 2));
+        strings.dedup.insert(InternEntry::new(1, first, false), ());
+        strings.dedup.insert(InternEntry::new(1, second, false), ());
+
+        assert_eq!(strings.dedup.len(), 2);
+        assert_eq!(
+            strings
+                .find_intern_entry(strings.logical_bytes(second), 1)
+                .unwrap()
+                .id(),
+            second
+        );
     }
 }
