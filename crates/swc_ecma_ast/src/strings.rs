@@ -68,6 +68,14 @@ define_ast_string!(AstUtf8);
 define_ast_string!(AstInternedUtf8);
 define_ast_string!(AstWtf8);
 
+/// String-pool state shared by a sequence of generated names with one base.
+pub struct GeneratedUtf8State {
+    base: AstInternedUtf8,
+    block: u64,
+    prefix: Option<AstUtf8>,
+    initialized: bool,
+}
+
 impl From<AstInternedUtf8> for AstUtf8 {
     #[inline]
     fn from(value: AstInternedUtf8) -> Self {
@@ -258,12 +266,25 @@ impl From<StringId> for AstWtf8 {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct InternEntry {
+struct Utf8InternEntry {
     hash: u64,
     id: StringId,
 }
 
-impl Hash for InternEntry {
+impl Hash for Utf8InternEntry {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.hash.hash(state);
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Wtf8InternEntry {
+    hash: u64,
+    id: StringId,
+}
+
+impl Hash for Wtf8InternEntry {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.hash.hash(state);
@@ -498,8 +519,8 @@ impl fmt::Display for Utf8Chunks<'_> {
 pub(crate) struct StringPool<'a> {
     pub(crate) source: &'a str,
     pub(crate) extra: ArenaVec<'a, u8>,
-    utf8_dedup: ArenaHashMap<'a, InternEntry, ()>,
-    wtf8_dedup: ArenaHashMap<'a, InternEntry, ()>,
+    utf8_dedup: ArenaHashMap<'a, Utf8InternEntry, ()>,
+    wtf8_dedup: ArenaHashMap<'a, Wtf8InternEntry, ()>,
 }
 
 impl<'a> StringPool<'a> {
@@ -641,7 +662,7 @@ impl<'a> StringPool<'a> {
 
     #[inline]
     pub fn add_utf8(&mut self, text: &str) -> AstInternedUtf8 {
-        self.intern_utf8_bytes(text.as_bytes()).into()
+        self.intern_utf8_bytes(text.as_bytes())
     }
 
     #[inline]
@@ -650,11 +671,14 @@ impl<'a> StringPool<'a> {
             prefix: text.as_bytes(),
             suffix: None,
         };
-        if let Some(id) = Self::find_in(&self.wtf8_dedup, self.source, &self.extra, parts) {
+        let hash = parts.hash();
+        if let Some(id) =
+            Self::find_wtf8_in(&self.wtf8_dedup, self.source, &self.extra, parts, hash)
+        {
             return id.into();
         }
         let id = self.append_extra(text.as_bytes());
-        Self::insert_in(&mut self.wtf8_dedup, parts.hash(), id);
+        self.wtf8_dedup.insert(Wtf8InternEntry { hash, id }, ());
         id.into()
     }
 
@@ -687,12 +711,8 @@ impl<'a> StringPool<'a> {
     pub fn intern_utf8_range(&mut self, text: AstUtf8) -> AstInternedUtf8 {
         let id = StringId::from(text);
         let parts = self.logical_bytes(id);
-        if let Some(existing) = Self::find_in(&self.utf8_dedup, self.source, &self.extra, parts) {
-            return existing.into();
-        }
         let hash = parts.hash();
-        Self::insert_in(&mut self.utf8_dedup, hash, id);
-        id.into()
+        self.intern_utf8_id(hash, id)
     }
 
     /// Canonicalizes a WTF-8 range already stored in this pool.
@@ -703,12 +723,45 @@ impl<'a> StringPool<'a> {
             prefix: self.get_flat_bytes(id),
             suffix: None,
         };
-        if let Some(existing) = Self::find_in(&self.wtf8_dedup, self.source, &self.extra, parts) {
+        let hash = parts.hash();
+        if let Some(existing) =
+            Self::find_wtf8_in(&self.wtf8_dedup, self.source, &self.extra, parts, hash)
+        {
             return existing.into();
         }
-        let hash = parts.hash();
-        Self::insert_in(&mut self.wtf8_dedup, hash, id);
+        self.wtf8_dedup.insert(Wtf8InternEntry { hash, id }, ());
         id.into()
+    }
+
+    /// Creates string-pool state for a generated-name sequence.
+    pub fn generated_utf8_state(&mut self, base: &str) -> GeneratedUtf8State {
+        GeneratedUtf8State {
+            base: self.add_utf8(base),
+            block: 0,
+            prefix: None,
+            initialized: false,
+        }
+    }
+
+    /// Returns the canonical base name for generated state.
+    #[inline]
+    pub fn generated_utf8_base(state: &GeneratedUtf8State) -> AstInternedUtf8 {
+        state.base
+    }
+
+    /// Interns the next suffix while keeping prefix representation details in the pool layer.
+    pub fn intern_generated_name_from_state(
+        &mut self,
+        state: &mut GeneratedUtf8State,
+        suffix: u64,
+    ) -> AstInternedUtf8 {
+        let block = suffix >> 4;
+        if !state.initialized || state.block != block {
+            state.block = block;
+            state.prefix = self.generated_name_prefix(state.base, block);
+            state.initialized = true;
+        }
+        self.intern_generated_name(state.base, state.prefix, suffix)
     }
 
     /// Builds or reuses the physical prefix for one block of 16 generated names.
@@ -743,13 +796,8 @@ impl<'a> StringPool<'a> {
         if let Some(prefix) = prefix {
             let id = StringId::generated(prefix.into(), nibble);
             let parts = self.logical_bytes(id);
-            if let Some(existing) = Self::find_in(&self.utf8_dedup, self.source, &self.extra, parts)
-            {
-                return existing.into();
-            }
             let hash = parts.hash();
-            Self::insert_in(&mut self.utf8_dedup, hash, id);
-            return id.into();
+            return self.intern_utf8_id(hash, id);
         }
 
         let base = StringId::from(base);
@@ -760,7 +808,7 @@ impl<'a> StringPool<'a> {
             bytes.push(base_suffix);
         }
         append_hex(&mut bytes, suffix);
-        self.intern_utf8_bytes(&bytes).into()
+        self.intern_utf8_bytes(&bytes)
     }
 
     fn compact_prefix_for_bytes(&mut self, bytes: &[u8]) -> Option<StringId> {
@@ -768,7 +816,9 @@ impl<'a> StringPool<'a> {
             prefix: bytes,
             suffix: None,
         };
-        if let Some(existing) = Self::find_in(&self.utf8_dedup, self.source, &self.extra, parts)
+        let hash = parts.hash();
+        let existing = self.find_utf8_in(parts, hash);
+        if let Some(existing) = existing
             && existing.can_be_compact_prefix()
         {
             return Some(existing);
@@ -776,51 +826,96 @@ impl<'a> StringPool<'a> {
 
         compact_extra_range(self.extra.len(), bytes.len())?;
         let id = self.append_extra(bytes);
-        if Self::find_in(&self.utf8_dedup, self.source, &self.extra, parts).is_none() {
-            Self::insert_in(&mut self.utf8_dedup, parts.hash(), id);
+        if existing.is_none() {
+            self.insert_utf8(hash, id);
         }
         Some(id)
     }
 
-    fn intern_utf8_bytes(&mut self, text: &[u8]) -> StringId {
-        if text.is_empty() {
-            return StringId::EMPTY;
-        }
+    fn intern_utf8_bytes(&mut self, text: &[u8]) -> AstInternedUtf8 {
         let parts = LogicalBytes {
             prefix: text,
             suffix: None,
         };
-        if let Some(id) = Self::find_in(&self.utf8_dedup, self.source, &self.extra, parts) {
-            return id;
+        let hash = parts.hash();
+        let table_hash = self.utf8_dedup.hasher().hash_one(hash);
+        let next_id = self.next_extra_id(text.len());
+        let source = self.source;
+        let extra = &self.extra;
+        let (entry, ()) = self
+            .utf8_dedup
+            .raw_entry_mut()
+            .from_hash(table_hash, |entry| {
+                entry.hash == hash && logical_bytes_from(source, extra, entry.id).eq(parts)
+            })
+            .or_insert(Utf8InternEntry { hash, id: next_id }, ());
+        let id = entry.id;
+        if id == next_id {
+            let string = self.append_extra(text);
+            debug_assert_eq!(string, id);
         }
-        let id = self.append_extra(text);
-        Self::insert_in(&mut self.utf8_dedup, parts.hash(), id);
-        id
+        id.into()
     }
 
-    fn append_extra(&mut self, text: &[u8]) -> StringId {
-        if text.is_empty() {
+    fn next_extra_id(&self, len: usize) -> StringId {
+        if len == 0 {
             return StringId::EMPTY;
         }
         let start = self.extra.len();
-        let end = start
-            .checked_add(text.len())
-            .expect("string pool offset overflow");
+        let end = start.checked_add(len).expect("string pool offset overflow");
         assert!(
             end <= FLAT_OFFSET_MASK as usize,
             "extra strings exceed 2 GiB string-handle range"
         );
-        self.extra.extend_from_slice(text);
         StringId::flat_extra(start as u32, end as u32)
     }
 
-    fn find_in(
-        dedup: &ArenaHashMap<'a, InternEntry, ()>,
+    fn append_extra(&mut self, text: &[u8]) -> StringId {
+        let id = self.next_extra_id(text.len());
+        self.extra.extend_from_slice(text);
+        id
+    }
+
+    fn find_utf8_in(&self, parts: LogicalBytes<'_>, content_hash: u64) -> Option<StringId> {
+        let table_hash = self.utf8_dedup.hasher().hash_one(content_hash);
+        self.utf8_dedup
+            .raw_entry()
+            .from_hash(table_hash, |entry| {
+                entry.hash == content_hash
+                    && logical_bytes_from(self.source, &self.extra, entry.id).eq(parts)
+            })
+            .map(|(entry, ())| entry.id)
+    }
+
+    fn intern_utf8_id(&mut self, hash: u64, string: StringId) -> AstInternedUtf8 {
+        let table_hash = self.utf8_dedup.hasher().hash_one(hash);
+        let source = self.source;
+        let extra = &self.extra;
+        let parts = logical_bytes_from(source, extra, string);
+        let (entry, ()) = self
+            .utf8_dedup
+            .raw_entry_mut()
+            .from_hash(table_hash, |entry| {
+                entry.hash == hash && logical_bytes_from(source, extra, entry.id).eq(parts)
+            })
+            .or_insert(Utf8InternEntry { hash, id: string }, ());
+        entry.id.into()
+    }
+
+    #[inline]
+    fn insert_utf8(&mut self, hash: u64, string: StringId) -> AstInternedUtf8 {
+        self.utf8_dedup
+            .insert(Utf8InternEntry { hash, id: string }, ());
+        string.into()
+    }
+
+    fn find_wtf8_in(
+        dedup: &ArenaHashMap<'a, Wtf8InternEntry, ()>,
         source: &str,
         extra: &[u8],
         parts: LogicalBytes<'_>,
+        content_hash: u64,
     ) -> Option<StringId> {
-        let content_hash = parts.hash();
         let table_hash = dedup.hasher().hash_one(content_hash);
         dedup
             .raw_entry()
@@ -828,11 +923,6 @@ impl<'a> StringPool<'a> {
                 entry.hash == content_hash && logical_bytes_from(source, extra, entry.id).eq(parts)
             })
             .map(|(entry, ())| entry.id)
-    }
-
-    #[inline]
-    fn insert_in(dedup: &mut ArenaHashMap<'a, InternEntry, ()>, hash: u64, id: StringId) {
-        dedup.insert(InternEntry { hash, id }, ());
     }
 }
 
@@ -881,8 +971,8 @@ mod tests {
     use swc_next_allocator::Allocator;
 
     use super::{
-        AstInternedUtf8, AstUtf8, AstWtf8, COMPACT_OFFSET_MASK, FLAT_OFFSET_MASK, InternEntry,
-        LogicalBytes, StringId, StringPool, compact_extra_range, hash_bytes, hash_segmented_bytes,
+        AstInternedUtf8, AstUtf8, AstWtf8, COMPACT_OFFSET_MASK, FLAT_OFFSET_MASK, LogicalBytes,
+        StringId, StringPool, compact_extra_range, hash_bytes, hash_segmented_bytes,
     };
 
     #[test]
@@ -1038,13 +1128,7 @@ mod tests {
             prefix: b"b",
             suffix: None,
         };
-        strings.utf8_dedup.insert(
-            InternEntry {
-                hash: b.hash(),
-                id: a,
-            },
-            (),
-        );
+        strings.insert_utf8(b.hash(), a);
 
         let canonical_b = strings.intern_utf8_range(strings.source_slice(2, 3));
         assert!(strings.utf8_eq_bytes(canonical_b.into(), b"b"));

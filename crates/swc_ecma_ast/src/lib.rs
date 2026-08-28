@@ -32,7 +32,7 @@ pub use generated::ast_node::{NodeKind, NodeKindData};
 pub use generated::ast_visitor::*;
 pub use node_id::{AstNode, ExtraDataCompact, ExtraDataId, NodeId, SubRange, TypedSubRange};
 pub use semantic::{ReferenceId, ScopeId, SymbolId};
-pub use strings::{AstInternedUtf8, AstUtf8, AstWtf8, Utf8Chunks};
+pub use strings::{AstInternedUtf8, AstUtf8, AstWtf8, GeneratedUtf8State, Utf8Chunks};
 pub use syntax::*;
 pub use visit::{TraverseAction, TraverseCtx};
 
@@ -367,6 +367,25 @@ impl<'a> Ast<'a> {
     #[inline]
     pub fn intern_utf8_range(&mut self, value: AstUtf8) -> AstInternedUtf8 {
         self.strings.intern_utf8_range(value)
+    }
+
+    #[inline]
+    pub fn generated_utf8_state(&mut self, base: &str) -> GeneratedUtf8State {
+        self.strings.generated_utf8_state(base)
+    }
+
+    #[inline]
+    pub fn generated_utf8_base(state: &GeneratedUtf8State) -> AstInternedUtf8 {
+        StringPool::generated_utf8_base(state)
+    }
+
+    #[inline]
+    pub fn intern_generated_name_from_state(
+        &mut self,
+        state: &mut GeneratedUtf8State,
+        suffix: u64,
+    ) -> AstInternedUtf8 {
+        self.strings.intern_generated_name_from_state(state, suffix)
     }
 
     /// Builds or reuses the physical prefix shared by one block of 16 generated names.

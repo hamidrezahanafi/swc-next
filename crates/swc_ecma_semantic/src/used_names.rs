@@ -1,16 +1,16 @@
 use swc_next_allocator::{
-    Allocator,
-    hash_map::{Entry, HashMap as ArenaHashMap},
+    Allocator, hash_map::HashMap as ArenaHashMap, hash_set::HashSet as ArenaHashSet,
 };
-use swc_next_ecma_ast::{Ast, AstInternedUtf8, AstUtf8};
+use swc_next_ecma_ast::{Ast, AstInternedUtf8, GeneratedUtf8State};
 
 /// Tracks interned names used in one collision domain.
 ///
 /// Names use their canonical AST handles, avoiding a second owned copy in
-/// semantic state. The map value is the next suffix to try for that name, so
-/// repeated allocation does not rescan earlier candidates.
+/// semantic state. Suffix cursors are stored separately and only allocated for
+/// bases that actually generate colliding names.
 pub struct UsedNameState<'a> {
-    names: ArenaHashMap<'a, AstInternedUtf8, u64>,
+    names: ArenaHashSet<'a, AstInternedUtf8>,
+    next_suffixes: ArenaHashMap<'a, AstInternedUtf8, u64>,
 }
 
 /// Reusable state for allocating a series of names with the same base.
@@ -19,12 +19,9 @@ pub struct UsedNameState<'a> {
 /// suffix cursor and cached physical prefix here while [`UsedNameState`]
 /// remains the source of truth for collisions.
 pub struct GeneratedNameState {
-    base_name: AstInternedUtf8,
+    strings: GeneratedUtf8State,
     next_suffix: u64,
     return_base: bool,
-    prefix_block: u64,
-    prefix: Option<AstUtf8>,
-    has_prefix_block: bool,
 }
 
 impl std::fmt::Debug for UsedNameState<'_> {
@@ -32,6 +29,7 @@ impl std::fmt::Debug for UsedNameState<'_> {
         formatter
             .debug_struct("UsedNameState")
             .field("names", &self.names)
+            .field("next_suffixes", &self.next_suffixes)
             .finish()
     }
 }
@@ -40,18 +38,19 @@ impl<'a> UsedNameState<'a> {
     /// Creates an empty name state backed by `allocator`.
     pub fn new(allocator: &'a Allocator) -> Self {
         Self {
-            names: ArenaHashMap::new_in(allocator),
+            names: ArenaHashSet::new_in(allocator),
+            next_suffixes: ArenaHashMap::new_in(allocator),
         }
     }
 
     /// Records an interned name and initializes its suffix cursor.
     pub fn observe(&mut self, name: AstInternedUtf8) {
-        self.names.entry(name).or_insert(1);
+        self.names.insert(name);
     }
 
     /// Returns whether an interned name is observed or reserved.
     pub fn contains(&self, name: AstInternedUtf8) -> bool {
-        self.names.contains_key(&name)
+        self.names.contains(&name)
     }
 
     /// Reserves and returns an available generated name based on `base`.
@@ -61,36 +60,28 @@ impl<'a> UsedNameState<'a> {
     /// `_temp2`.
     pub fn next_name(&mut self, ast: &mut Ast<'_>, base: &str, min_suffix: u64) -> AstInternedUtf8 {
         assert!(min_suffix > 0, "generated name suffix must be positive");
-        let base_name = ast.intern_utf8(base);
-        let mut suffix = match self.names.entry(base_name) {
-            Entry::Occupied(entry) => (*entry.get()).max(min_suffix),
-            Entry::Vacant(entry) => {
-                entry.insert(min_suffix);
-                return base_name;
-            }
-        };
+        let mut strings = ast.generated_utf8_state(base);
+        let base_name = Ast::generated_utf8_base(&strings);
+        if self.names.insert(base_name) {
+            return base_name;
+        }
+        let mut suffix = self
+            .next_suffixes
+            .get(&base_name)
+            .copied()
+            .unwrap_or(min_suffix)
+            .max(min_suffix);
 
-        let mut prefix_block = u64::MAX;
-        let mut prefix = None;
         loop {
             let next_suffix = suffix
                 .checked_add(1)
                 .expect("generated name suffix overflow");
-            *self.names.get_mut(&base_name).expect("base name exists") = next_suffix;
-
-            let block = suffix >> 4;
-            if prefix_block != block {
-                prefix_block = block;
-                prefix = ast.generated_name_prefix(base_name, block);
+            let candidate = ast.intern_generated_name_from_state(&mut strings, suffix);
+            if self.names.insert(candidate) {
+                self.next_suffixes.insert(base_name, next_suffix);
+                return candidate;
             }
-            let candidate_name = ast.intern_generated_name(base_name, prefix, suffix);
-            match self.names.entry(candidate_name) {
-                Entry::Occupied(_) => suffix = next_suffix,
-                Entry::Vacant(entry) => {
-                    entry.insert(min_suffix);
-                    return candidate_name;
-                }
-            }
+            suffix = next_suffix;
         }
     }
 
@@ -103,21 +94,13 @@ impl<'a> UsedNameState<'a> {
         min_suffix: u64,
     ) -> GeneratedNameState {
         assert!(min_suffix > 0, "generated name suffix must be positive");
-        let base_name = ast.intern_utf8(base);
-        let (next_suffix, return_base) = match self.names.entry(base_name) {
-            Entry::Occupied(entry) => ((*entry.get()).max(min_suffix), false),
-            Entry::Vacant(entry) => {
-                entry.insert(min_suffix);
-                (min_suffix, true)
-            }
-        };
+        let strings = ast.generated_utf8_state(base);
+        let base_name = Ast::generated_utf8_base(&strings);
+        let return_base = self.names.insert(base_name);
         GeneratedNameState {
-            base_name,
-            next_suffix,
+            strings,
+            next_suffix: min_suffix,
             return_base,
-            prefix_block: 0,
-            prefix: None,
-            has_prefix_block: false,
         }
     }
 
@@ -130,7 +113,7 @@ impl<'a> UsedNameState<'a> {
     ) -> AstInternedUtf8 {
         if state.return_base {
             state.return_base = false;
-            return state.base_name;
+            return Ast::generated_utf8_base(&state.strings);
         }
 
         loop {
@@ -138,27 +121,16 @@ impl<'a> UsedNameState<'a> {
             state.next_suffix = suffix
                 .checked_add(1)
                 .expect("generated name suffix overflow");
-            let block = suffix >> 4;
-            if !state.has_prefix_block || state.prefix_block != block {
-                state.prefix_block = block;
-                state.prefix = ast.generated_name_prefix(state.base_name, block);
-                state.has_prefix_block = true;
-            }
-
-            let candidate_name = ast.intern_generated_name(state.base_name, state.prefix, suffix);
-            match self.names.entry(candidate_name) {
-                Entry::Occupied(_) => {}
-                Entry::Vacant(entry) => {
-                    entry.insert(1);
-                    return candidate_name;
-                }
+            let candidate = ast.intern_generated_name_from_state(&mut state.strings, suffix);
+            if self.names.insert(candidate) {
+                return candidate;
             }
         }
     }
 
     /// Iterates all interned names currently observed or reserved.
     pub fn names(&self) -> impl Iterator<Item = AstInternedUtf8> + '_ {
-        self.names.keys().copied()
+        self.names.iter().copied()
     }
 }
 
@@ -233,8 +205,7 @@ mod tests {
         let allocator = Allocator::new();
         let mut ast = Ast::new("", &allocator);
         let mut names = UsedNameState::new(&allocator);
-        let base = ast.intern_utf8("_temp");
-        names.observe(base);
+        names.observe(ast.intern_utf8("_temp"));
 
         let mut state = names.generated_name_state(&mut ast, "_temp", 0xf);
         let f = names.next_name_from_state(&mut ast, &mut state);
