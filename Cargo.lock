@@ -175,6 +175,7 @@ dependencies = [
  "swc_next_ecma_codegen",
  "swc_next_ecma_parser",
  "swc_next_ecma_semantic",
+ "swc_next_type_strip",
  "tracy-client",
 ]
 
@@ -2881,6 +2882,15 @@ dependencies = [
  "rustc-hash",
  "swc_next_allocator",
  "unicode-id-start",
+]
+
+[[package]]
+name = "swc_next_type_strip"
+version = "0.1.3"
+dependencies = [
+ "swc_next_allocator",
+ "swc_next_ecma_ast",
+ "swc_next_ecma_parser",
 ]
 
 [[package]]
