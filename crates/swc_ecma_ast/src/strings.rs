@@ -1,9 +1,10 @@
 use std::{
     borrow::Cow,
     fmt,
-    hash::{BuildHasherDefault, Hash, Hasher},
+    hash::{Hash, Hasher},
 };
 
+use nohash_hasher::{BuildNoHashHasher, IsEnabled};
 use swc_next_allocator::{
     Allocator,
     hash_map::{HashMap as ArenaHashMap, RawEntryMut},
@@ -214,26 +215,7 @@ impl AstInternedUtf8 {
     }
 }
 
-type InternBuildHasher = BuildHasherDefault<PrecomputedHasher>;
-
-#[derive(Default)]
-struct PrecomputedHasher(u64);
-
-impl Hasher for PrecomputedHasher {
-    #[inline]
-    fn finish(&self) -> u64 {
-        self.0
-    }
-
-    fn write(&mut self, _bytes: &[u8]) {
-        unreachable!("InternEntry writes a precomputed u64 hash")
-    }
-
-    #[inline]
-    fn write_u64(&mut self, hash: u64) {
-        self.0 = hash;
-    }
-}
+type InternBuildHasher = BuildNoHashHasher<InternEntry>;
 
 #[derive(Clone, Copy, Debug)]
 struct InternEntry {
@@ -290,6 +272,8 @@ impl PartialEq for InternEntry {
 }
 
 impl Eq for InternEntry {}
+
+impl IsEnabled for InternEntry {}
 
 #[derive(Clone, Copy)]
 struct LogicalBytes<'a> {

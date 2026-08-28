@@ -12,6 +12,7 @@ version               = "0.1.3"
 shared_string_allocator = []
 
 [dependencies]
+nohash-hasher    = { workspace = true }
 oxc_index        = { workspace = true }
 unicode-id-start = { workspace = true }
 
