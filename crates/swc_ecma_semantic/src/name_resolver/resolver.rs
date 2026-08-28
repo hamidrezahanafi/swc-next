@@ -13,7 +13,7 @@ use super::{
 
 /// Resolve every value identifier in `ast` using the legacy resolver's
 /// hoist-then-resolve algorithm.
-pub fn resolver<'ast>(ast: &mut Ast<'ast>) -> JsNameResolver<'ast> {
+pub fn resolver<'ast>(ast: &'ast Ast<'ast>) -> JsNameResolver<'ast> {
     let allocator = ast.allocator();
     let mut scopes = IndexVec::new();
     let unresolved_scope_id = scopes.push(Scope::new(ScopeKind::Fn, None));
@@ -36,8 +36,7 @@ pub fn resolver<'ast>(ast: &mut Ast<'ast>) -> JsNameResolver<'ast> {
         strict_mode: false,
     };
 
-    let program = resolver.ast.root_program();
-    program.visit_with(&mut resolver);
+    ast.root_program().visit_with(&mut resolver);
 
     JsNameResolver {
         top_level_scope_id,
@@ -97,13 +96,13 @@ impl JsNameResolver<'_> {
 }
 
 #[derive(Debug)]
-struct Scope {
+struct Scope<'ast> {
     parent: Option<ScopeId>,
     kind: ScopeKind,
-    declared_symbols: HashMap<AstInternedUtf8, DeclKind, FxBuildHasher>,
+    declared_symbols: HashMap<&'ast [u8], DeclKind, FxBuildHasher>,
 }
 
-impl Scope {
+impl<'ast> Scope<'ast> {
     fn new(kind: ScopeKind, parent: Option<ScopeId>) -> Self {
         Self {
             parent,
@@ -203,9 +202,9 @@ impl ScopeOwner {
 /// The resolver has the same two phases as the legacy implementation:
 /// declarations visible in a scope are hoisted first, then references are
 /// resolved while walking the source in order.
-struct Resolver<'visit, 'ast> {
-    ast: &'visit mut Ast<'ast>,
-    scopes: IndexVec<ScopeId, Scope>,
+struct Resolver<'ast> {
+    ast: &'ast Ast<'ast>,
+    scopes: IndexVec<ScopeId, Scope<'ast>>,
     node_scopes: ArenaVec<'ast, Option<ScopeId>>,
     top_level_scope_id: ScopeId,
     unresolved_scope_id: ScopeId,
@@ -216,16 +215,16 @@ struct Resolver<'visit, 'ast> {
     strict_mode: bool,
 }
 
-impl Resolver<'_, '_> {
-    fn name(&mut self, name: AstUtf8) -> AstInternedUtf8 {
-        self.ast.intern_name_range(name)
+impl<'ast> Resolver<'ast> {
+    fn name(&self, name: AstUtf8) -> &'ast [u8] {
+        self.ast.get_flat_utf8(name).as_bytes()
     }
 
-    fn is_declared(&self, name: AstInternedUtf8, start_scope: ScopeId) -> Option<DeclKind> {
+    fn is_declared(&self, name: &[u8], start_scope: ScopeId) -> Option<DeclKind> {
         let mut scope = Some(start_scope);
         while let Some(scope_id) = scope {
             let current = &self.scopes[scope_id];
-            if let Some(kind) = current.declared_symbols.get(&name) {
+            if let Some(kind) = current.declared_symbols.get(name) {
                 return Some(*kind);
             }
             scope = current.parent;
@@ -267,7 +266,7 @@ impl Resolver<'_, '_> {
         self.set_scope_once(owner.node_id(), scope);
     }
 
-    fn scope_of_name(&self, name: AstInternedUtf8, stop_at_fn_scope: bool) -> Option<ScopeId> {
+    fn scope_of_name(&self, name: &[u8], stop_at_fn_scope: bool) -> Option<ScopeId> {
         // Every scope uses the same stateless FxBuildHasher, so reuse the hash
         // instead of hashing the identifier again for each ancestor scope.
         let hash = self.scopes[self.current]
@@ -283,9 +282,7 @@ impl Resolver<'_, '_> {
                 .from_hash(hash, |candidate| *candidate == name)
                 .is_some()
             {
-                return if (self.ast.utf8_eq_bytes(name.into(), b"undefined")
-                    || self.ast.utf8_eq_bytes(name.into(), b"NaN")
-                    || self.ast.utf8_eq_bytes(name.into(), b"Infinity"))
+                return if (name == b"undefined" || name == b"NaN" || name == b"Infinity")
                     && scope_id == self.top_level_scope_id
                     && !self.is_module
                 {
@@ -332,30 +329,24 @@ impl Resolver<'_, '_> {
                     property.parameter(self.ast)
                 }
             };
-            let mut identifiers = ArenaVec::new_in(self.ast.allocator());
-            for_each_binding_id(self.ast, pattern, |identifier| identifiers.push(identifier));
-            for identifier in identifiers {
+            let ast = self.ast;
+            for_each_binding_id(ast, pattern, |identifier| {
                 self.declare(identifier, DeclKind::Param);
-            }
+            });
         }
 
         if let Some(rest) = parameters.rest(self.ast) {
-            let argument = rest.argument(self.ast);
-            let mut identifiers = ArenaVec::new_in(self.ast.allocator());
-            for_each_binding_id(self.ast, argument, |identifier| {
-                identifiers.push(identifier)
-            });
-            for identifier in identifiers {
+            let ast = self.ast;
+            for_each_binding_id(ast, rest.argument(ast), |identifier| {
                 self.declare(identifier, DeclKind::Param);
-            }
+            });
         }
     }
 
     fn has_use_strict(&self, directives: TypedSubRange<Directive>) -> bool {
         directives.iter().any(|id| {
             let directive = self.ast.get_node_in_sub_range(id);
-            self.ast
-                .utf8_eq_bytes(directive.value(self.ast), b"use strict")
+            self.name(directive.value(self.ast)) == b"use strict"
         })
     }
 
@@ -389,7 +380,7 @@ impl Resolver<'_, '_> {
     }
 }
 
-impl<'ast> Visit<'ast> for Resolver<'_, 'ast> {
+impl<'ast> Visit<'ast> for Resolver<'ast> {
     fn ast(&self) -> &Ast<'ast> {
         self.ast
     }
@@ -443,11 +434,7 @@ impl<'ast> Visit<'ast> for Resolver<'_, 'ast> {
         match self.ast.jsx_element_name_data(name) {
             JsxElementNameData::JsxIdentifier(identifier) => {
                 let name = self.name(identifier.name(self.ast));
-                let scope = if self
-                    .ast
-                    .utf8_first_byte(name.into())
-                    .is_some_and(|byte| byte.is_ascii_lowercase())
-                {
+                let scope = if name.first().is_some_and(u8::is_ascii_lowercase) {
                     self.unresolved_scope_id
                 } else {
                     self.scope_of_name(name, false)
@@ -793,27 +780,26 @@ impl<'ast> Visit<'ast> for Resolver<'_, 'ast> {
     fn visit_ts_type(&mut self, _: TsType) {}
 }
 
-struct Hoister<'resolver, 'visit, 'ast> {
-    resolver: &'resolver mut Resolver<'visit, 'ast>,
+struct Hoister<'resolver, 'ast> {
+    resolver: &'resolver mut Resolver<'ast>,
     kind: DeclKind,
     in_block: bool,
     in_catch_body: bool,
-    excluded_from_catch: FxHashSet<AstInternedUtf8>,
-    catch_param_decls: FxHashSet<AstInternedUtf8>,
+    excluded_from_catch: FxHashSet<&'ast [u8]>,
+    catch_param_decls: FxHashSet<&'ast [u8]>,
 }
 
-impl Hoister<'_, '_, '_> {
+impl<'resolver, 'ast> Hoister<'resolver, 'ast> {
     fn add_binding(&mut self, identifier: BindingIdentifier) {
         let name = self.resolver.name(identifier.name(self.resolver.ast));
         if self.in_catch_body {
             if self.resolver.scope_of_name(name, true).is_some()
-                && self.catch_param_decls.contains(&name)
+                && self.catch_param_decls.contains(name)
             {
                 return;
             }
             self.excluded_from_catch.insert(name);
-        } else if self.catch_param_decls.contains(&name)
-            && !self.excluded_from_catch.contains(&name)
+        } else if self.catch_param_decls.contains(name) && !self.excluded_from_catch.contains(name)
         {
             return;
         }
@@ -821,7 +807,7 @@ impl Hoister<'_, '_, '_> {
     }
 }
 
-impl<'ast> Visit<'ast> for Hoister<'_, '_, 'ast> {
+impl<'ast> Visit<'ast> for Hoister<'_, 'ast> {
     fn ast(&self) -> &Ast<'ast> {
         self.resolver.ast
     }
@@ -875,7 +861,7 @@ impl<'ast> Visit<'ast> for Hoister<'_, '_, 'ast> {
             return;
         };
         let name = self.resolver.name(identifier.name(self.resolver.ast));
-        if self.catch_param_decls.contains(&name) {
+        if self.catch_param_decls.contains(name) {
             return;
         }
         if self.in_block {
@@ -937,15 +923,11 @@ impl<'ast> Visit<'ast> for Hoister<'_, '_, 'ast> {
 
         let original_params = self.catch_param_decls.clone();
         if let Some(param) = catch.param(self.resolver.ast) {
-            let mut identifiers = ArenaVec::new_in(self.resolver.ast.allocator());
-            for_each_binding_id(self.resolver.ast, param, |identifier| {
-                identifiers.push(identifier);
-            });
-            for identifier in identifiers {
-                let raw = identifier.name(self.resolver.ast);
-                let name = self.resolver.name(raw);
+            let ast = self.resolver.ast;
+            for_each_binding_id(ast, param, |identifier| {
+                let name = ast.get_flat_utf8(identifier.name(ast)).as_bytes();
                 self.catch_param_decls.insert(name);
-            }
+            });
         }
 
         self.in_catch_body = true;

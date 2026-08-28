@@ -41,8 +41,8 @@ impl Runner<SwcResolverCase> for ResolverRunner {
 
 fn run_case(case: &SwcResolverCase) -> Result<(), String> {
     let allocator = Allocator::new();
-    let mut ast = parse_case(&allocator, case)?;
-    let resolver = resolver(&mut ast);
+    let ast = parse_case(&allocator, case)?;
+    let resolver = resolver(&ast);
     let actual = resolver_snapshot(&ast, &resolver);
 
     if actual == case.expected() {
