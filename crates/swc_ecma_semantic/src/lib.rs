@@ -503,7 +503,7 @@ mod tests {
         source_type: SourceType,
         options: AnalyzeOptions,
     ) -> (Ast<'a>, Semantic<'a>) {
-        let parse = Parser::init(
+        let parse = Parser::init_copying(
             allocator,
             source,
             Options {
@@ -524,7 +524,7 @@ mod tests {
 
     fn syntax_diagnostics(source: &str) -> Vec<(String, Span)> {
         let allocator = Allocator::new();
-        let mut parse = Parser::init(
+        let mut parse = Parser::init_copying(
             &allocator,
             source,
             Options {

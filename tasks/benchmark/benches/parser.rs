@@ -7,11 +7,12 @@ use swc_next_ecma_ast::Lang;
 use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
 
 fn bench_new(b: &mut Bencher, src: &'static str, lang: Lang) {
+    let mut source = src.to_owned();
     b.iter(|| {
         let allocator = Allocator::new();
         Parser::init(
             &allocator,
-            src,
+            source.as_mut_str(),
             Options {
                 lang,
                 ..Options::default()

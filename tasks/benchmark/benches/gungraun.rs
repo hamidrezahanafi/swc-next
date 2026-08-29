@@ -30,7 +30,19 @@ const ASTRO_CONFIG: &str = include_str!("../files/astro-config.ts");
 const EFFECT_SCHEMA_AST: &str = include_str!("../files/effect-schema-ast.ts");
 const HONO_TYPES: &str = include_str!("../files/hono-types.ts");
 
-#[library_benchmark]
+struct ParserSetup {
+    source: &'static mut str,
+    lang: Lang,
+}
+
+fn setup_parser(source: &str, lang: Lang) -> ParserSetup {
+    ParserSetup {
+        source: Box::leak(source.to_owned().into_boxed_str()),
+        lang,
+    }
+}
+
+#[library_benchmark(setup = setup_parser)]
 #[bench::angular(ANGULAR, Lang::Js)]
 #[bench::backbone(BACKBONE, Lang::Js)]
 #[bench::jquery(JQUERY, Lang::Js)]
@@ -41,15 +53,15 @@ const HONO_TYPES: &str = include_str!("../files/hono-types.ts");
 #[bench::yui(YUI, Lang::Js)]
 #[bench::typescript(TYPESCRIPT, Lang::Js)]
 #[bench::cal_com_tsx(CAL_COM_TSX, Lang::Tsx)]
-fn bench_parser(source: &str, lang: Lang) {
-    let source = black_box(source);
+fn bench_parser(setup: ParserSetup) {
+    let source = black_box(setup.source);
     let allocator = Allocator::new();
     black_box(
         Parser::init(
             &allocator,
             source,
             Options {
-                lang,
+                lang: setup.lang,
                 ..Options::default()
             },
             NoTokenParserConfig,
@@ -60,7 +72,7 @@ fn bench_parser(source: &str, lang: Lang) {
 
 fn setup_program(source: &'static str, lang: Lang) -> Ast<'static> {
     let allocator = Box::leak(Box::new(Allocator::new()));
-    let result = Parser::init(
+    let result = Parser::init_copying(
         allocator,
         source,
         Options {

@@ -72,7 +72,7 @@ pub fn strip_types(source: &str, options: Options) -> StripResult<'_> {
     parser_options.preserve_parens = true;
     parser_options.comments = CommentMode::None;
     let allocator = Allocator::default();
-    let parse = Parser::init(&allocator, source, parser_options, TokenParserConfig).parse();
+    let parse = Parser::init_copying(&allocator, source, parser_options, TokenParserConfig).parse();
     let ParseReturn {
         ast,
         tokens,

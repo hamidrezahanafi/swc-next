@@ -2,9 +2,12 @@ use std::{
     borrow::Cow,
     fmt,
     hash::{Hash, Hasher},
+    marker::PhantomData,
+    ptr::NonNull,
 };
 
 use nohash_hasher::{BuildNoHashHasher, IsEnabled};
+use rustc_hash::FxHasher;
 use swc_next_allocator::{
     Allocator,
     hash_map::{HashMap as ArenaHashMap, RawEntryMut},
@@ -316,117 +319,26 @@ impl LogicalBytes<'_> {
 
     #[inline]
     fn hash(self) -> u64 {
-        if let Some(suffix) = self.suffix {
-            hash_segmented_bytes(self.prefix, suffix)
-        } else {
-            hash_bytes(self.prefix)
-        }
+        debug_assert!(self.suffix.is_none());
+        hash_bytes(self.prefix)
     }
-}
-
-const HASH_SEED1: u64 = 0x243f_6a88_85a3_08d3;
-const HASH_SEED2: u64 = 0x1319_8a2e_0370_7344;
-const HASH_PREVENT_ZERO: u64 = 0xa409_3822_299f_31d0;
-
-#[inline]
-fn multiply_mix(left: u64, right: u64) -> u64 {
-    let full = (left as u128).wrapping_mul(right as u128);
-    full as u64 ^ (full >> 64) as u64
 }
 
 #[inline]
 fn hash_bytes(bytes: &[u8]) -> u64 {
-    let len = bytes.len();
-    let mut s0 = HASH_SEED1;
-    let mut s1 = HASH_SEED2;
-    if len <= 16 {
-        if len >= 8 {
-            s0 ^= u64::from_le_bytes(bytes[..8].try_into().unwrap());
-            s1 ^= u64::from_le_bytes(bytes[len - 8..].try_into().unwrap());
-        } else if len >= 4 {
-            s0 ^= u32::from_le_bytes(bytes[..4].try_into().unwrap()) as u64;
-            s1 ^= u32::from_le_bytes(bytes[len - 4..].try_into().unwrap()) as u64;
-        } else if len > 0 {
-            s0 ^= u64::from(bytes[0]);
-            s1 ^= (u64::from(bytes[len - 1]) << 8) | u64::from(bytes[len / 2]);
-        }
-    } else {
-        let mut bulk = &bytes[..len - 1];
-        while let Some((chunk, rest)) = bulk.split_first_chunk::<16>() {
-            let x = u64::from_le_bytes(chunk[..8].try_into().unwrap());
-            let y = u64::from_le_bytes(chunk[8..].try_into().unwrap());
-            let next = multiply_mix(s0 ^ x, HASH_PREVENT_ZERO ^ y);
-            s0 = s1;
-            s1 = next;
-            bulk = rest;
-        }
-        let suffix = &bytes[len - 16..];
-        s0 ^= u64::from_le_bytes(suffix[..8].try_into().unwrap());
-        s1 ^= u64::from_le_bytes(suffix[8..].try_into().unwrap());
-    }
-    multiply_mix(s0, s1) ^ len as u64
+    let mut hasher = FxHasher::default();
+    hasher.write(bytes);
+    hasher.finish()
 }
 
-/// `rustc_hash::FxHasher::write`'s byte compression, evaluated over a
-/// non-contiguous `prefix + suffix` string.
 #[inline]
-fn hash_segmented_bytes(prefix: &[u8], suffix: u8) -> u64 {
-    let len = prefix.len() + 1;
-    let byte = |index: usize| {
-        if index == prefix.len() {
-            suffix
-        } else {
-            prefix[index]
-        }
-    };
-    let read_u32 = |start: usize| {
-        u32::from_le_bytes([
-            byte(start),
-            byte(start + 1),
-            byte(start + 2),
-            byte(start + 3),
-        ])
-    };
-    let read_u64 = |start: usize| {
-        u64::from_le_bytes([
-            byte(start),
-            byte(start + 1),
-            byte(start + 2),
-            byte(start + 3),
-            byte(start + 4),
-            byte(start + 5),
-            byte(start + 6),
-            byte(start + 7),
-        ])
-    };
-
-    let mut s0 = HASH_SEED1;
-    let mut s1 = HASH_SEED2;
-    if len <= 16 {
-        if len >= 8 {
-            s0 ^= read_u64(0);
-            s1 ^= read_u64(len - 8);
-        } else if len >= 4 {
-            s0 ^= u64::from(read_u32(0));
-            s1 ^= u64::from(read_u32(len - 4));
-        } else {
-            s0 ^= u64::from(byte(0));
-            s1 ^= (u64::from(suffix) << 8) | u64::from(byte(len / 2));
-        }
-    } else {
-        let mut bulk = prefix;
-        while let Some((chunk, rest)) = bulk.split_first_chunk::<16>() {
-            let x = u64::from_le_bytes(chunk[..8].try_into().unwrap());
-            let y = u64::from_le_bytes(chunk[8..].try_into().unwrap());
-            let next = multiply_mix(s0 ^ x, HASH_PREVENT_ZERO ^ y);
-            s0 = s1;
-            s1 = next;
-            bulk = rest;
-        }
-        s0 ^= read_u64(len - 16);
-        s1 ^= read_u64(len - 8);
-    }
-    multiply_mix(s0, s1) ^ len as u64
+fn hash_with_scratch(buffer: &mut [u8], start: usize, end: usize, suffix: u8) -> u64 {
+    debug_assert!(start <= end && end < buffer.len());
+    let saved = buffer[end];
+    buffer[end] = suffix;
+    let hash = hash_bytes(&buffer[start..=end]);
+    buffer[end] = saved;
+    hash
 }
 
 /// A non-allocating logical view of a UTF-8 handle.
@@ -501,7 +413,9 @@ impl fmt::Display for Utf8Chunks<'_> {
 }
 
 pub(crate) struct StringPool<'a> {
-    pub(crate) source: &'a str,
+    source: NonNull<u8>,
+    source_len: usize,
+    source_lifetime: PhantomData<&'a mut str>,
     pub(crate) extra: ArenaVec<'a, u8>,
     dedup: ArenaHashMap<'a, InternEntry, (), InternBuildHasher>,
     generated_names: ArenaHashMap<'a, AstInternedUtf8, u32>,
@@ -509,18 +423,41 @@ pub(crate) struct StringPool<'a> {
 }
 
 impl<'a> StringPool<'a> {
-    pub fn new_in(allocator: &'a Allocator, source: &'a str) -> Self {
+    pub fn new_in(allocator: &'a Allocator, source: &'a mut str) -> Self {
+        let source_len = source.len();
         assert!(
-            source.len() <= FLAT_OFFSET_MASK as usize,
+            source_len <= FLAT_OFFSET_MASK as usize,
             "source exceeds 2 GiB string-handle range"
         );
+        let mut extra = ArenaVec::new_in(allocator);
+        extra.push(0);
         Self {
-            source,
-            extra: ArenaVec::new_in(allocator),
+            source: NonNull::new(source.as_mut_ptr()).expect("str pointers are non-null"),
+            source_len,
+            source_lifetime: PhantomData,
+            extra,
             dedup: ArenaHashMap::with_hasher_in(InternBuildHasher::default(), allocator),
             generated_names: ArenaHashMap::new_in(allocator),
             oversized_compact_prefixes: ArenaHashMap::new_in(allocator),
         }
+    }
+
+    #[inline]
+    pub(crate) fn source(&self) -> &str {
+        // SAFETY: construction borrows a valid `str`.
+        unsafe { std::str::from_utf8_unchecked(self.source_bytes()) }
+    }
+
+    #[inline]
+    fn source_bytes(&self) -> &[u8] {
+        // SAFETY: `source` is borrowed for `'a` by `source_lifetime`.
+        unsafe { std::slice::from_raw_parts(self.source.as_ptr(), self.source_len) }
+    }
+
+    #[inline]
+    fn source_storage_mut(&mut self) -> &mut [u8] {
+        // SAFETY: mutation requires exclusive access to the pool.
+        unsafe { std::slice::from_raw_parts_mut(self.source.as_ptr(), self.source_len) }
     }
 
     #[inline]
@@ -632,7 +569,7 @@ impl<'a> StringPool<'a> {
 
     #[inline]
     fn get_wtf8_bytes(&self, id: AstWtf8) -> &[u8] {
-        wtf8_bytes_from(self.source, &self.extra, id)
+        wtf8_bytes_from(self.source_bytes(), &self.extra, id)
     }
 
     #[inline]
@@ -640,6 +577,26 @@ impl<'a> StringPool<'a> {
         LogicalBytes {
             prefix: self.get_storage_bytes(id),
             suffix: id.suffix().map(|suffix| HEX_DIGITS[usize::from(suffix)]),
+        }
+    }
+
+    /// Hashes an interned handle as one contiguous byte slice. Compact generated
+    /// names use the byte immediately after their prefix as scratch storage for
+    /// the final hexadecimal digit.
+    #[inline]
+    fn hash_interned(&mut self, id: AstInternedUtf8) -> u64 {
+        let Some(suffix) = id.suffix() else {
+            return hash_bytes(self.get_storage_bytes(id));
+        };
+
+        let start = id.start_offset() as usize;
+        let end = id.end_offset() as usize;
+        let suffix = HEX_DIGITS[usize::from(suffix)];
+        if id.is_extra() {
+            hash_with_scratch(&mut self.extra, start, end, suffix)
+        } else {
+            debug_assert!(end < self.source_len);
+            hash_with_scratch(self.source_storage_mut(), start, end, suffix)
         }
     }
 
@@ -651,7 +608,7 @@ impl<'a> StringPool<'a> {
         if id.is_extra() {
             &self.extra[start..end]
         } else {
-            &self.source.as_bytes()[start..end]
+            &self.source_bytes()[start..end]
         }
     }
 
@@ -660,7 +617,7 @@ impl<'a> StringPool<'a> {
     /// So external crates should be better not use this function directly.
     #[inline]
     pub fn source_slice(&self, start: u32, end: u32) -> AstUtf8 {
-        debug_assert!(self.source.get(start as usize..end as usize).is_some());
+        debug_assert!(self.source().get(start as usize..end as usize).is_some());
         AstUtf8 { start, end }
     }
 
@@ -669,7 +626,7 @@ impl<'a> StringPool<'a> {
     /// So external crates should be better not use this function directly.
     #[inline]
     pub fn source_slice_wtf8(&self, start: u32, end: u32) -> AstWtf8 {
-        debug_assert!(self.source.get(start as usize..end as usize).is_some());
+        debug_assert!(self.source().get(start as usize..end as usize).is_some());
         AstWtf8 { start, end }
     }
 
@@ -743,14 +700,14 @@ impl<'a> StringPool<'a> {
             return self.intern_utf8_id(string, true);
         }
 
-        let parts = logical_bytes_from(self.source, &self.extra, string);
+        let source = unsafe { source_bytes_from(self.source, self.source_len) };
+        let parts = logical_bytes_from(source, &self.extra, string);
         let hash = parts.hash();
         let (entry, ()) = self
             .dedup
             .raw_entry_mut()
             .from_hash(hash, |entry| {
-                entry.hash == hash
-                    && logical_bytes_from(self.source, &self.extra, entry.id()).eq(parts)
+                entry.hash == hash && logical_bytes_from(source, &self.extra, entry.id()).eq(parts)
             })
             .or_insert(InternEntry::new(hash, string, true), ());
         entry.reserve_name();
@@ -830,7 +787,7 @@ impl<'a> StringPool<'a> {
     /// Builds or reuses the physical prefix for one block of 16 generated names.
     /// Returns `None` when the prefix cannot fit in the compact 29-bit range.
     pub fn generated_name_prefix(&mut self, base: AstInternedUtf8, block: u64) -> Option<AstUtf8> {
-        if block == 0 && base.can_be_compact_prefix() {
+        if block == 0 && self.can_hash_compact_prefix(base) {
             return Some(base.into());
         }
 
@@ -879,10 +836,11 @@ impl<'a> StringPool<'a> {
         let nibble = (suffix & 0xf) as u8;
         if let Some(prefix) = prefix {
             let id = AstInternedUtf8::generated(AstInternedUtf8::from_utf8_range(prefix), nibble);
-            let parts = logical_bytes_from(self.source, &self.extra, id);
-            let hash = parts.hash();
+            let hash = self.hash_interned(id);
+            let source = unsafe { source_bytes_from(self.source, self.source_len) };
+            let parts = logical_bytes_from(source, &self.extra, id);
             if let Some(entry) =
-                Self::find_intern_entry_mut(&mut self.dedup, self.source, &self.extra, parts, hash)
+                Self::find_intern_entry_mut(&mut self.dedup, source, &self.extra, parts, hash)
             {
                 let was_free = entry.reserve_name();
                 return (entry.id(), was_free);
@@ -924,9 +882,10 @@ impl<'a> StringPool<'a> {
             return was_free;
         }
 
-        let parts = logical_bytes_from(self.source, &self.extra, name);
+        let source = unsafe { source_bytes_from(self.source, self.source_len) };
+        let parts = logical_bytes_from(source, &self.extra, name);
         let hash = parts.hash();
-        Self::find_intern_entry_mut(&mut self.dedup, self.source, &self.extra, parts, hash)
+        Self::find_intern_entry_mut(&mut self.dedup, source, &self.extra, parts, hash)
             .expect("interned UTF-8 has a dedup entry")
             .reserve_name()
     }
@@ -953,20 +912,20 @@ impl<'a> StringPool<'a> {
         let hash = parts.hash();
         if let Some(entry) = self.find_intern_entry(parts, hash) {
             let canonical = entry.id();
-            if canonical.can_be_compact_prefix() {
+            if self.can_hash_compact_prefix(canonical) {
                 return Some(canonical);
             }
             if let Some(&prefix) = self.oversized_compact_prefixes.get(&canonical) {
                 return Some(prefix);
             }
 
-            compact_extra_range(self.extra.len(), bytes.len())?;
+            compact_extra_range(self.extra_content_len(), bytes.len())?;
             let id = self.append_extra(bytes);
             self.oversized_compact_prefixes.insert(canonical, id);
             return Some(id);
         }
 
-        compact_extra_range(self.extra.len(), bytes.len())?;
+        compact_extra_range(self.extra_content_len(), bytes.len())?;
         let id = self.append_extra(bytes);
         self.insert_utf8(hash, id, false);
         Some(id)
@@ -992,7 +951,7 @@ impl<'a> StringPool<'a> {
         if len == 0 {
             return AstInternedUtf8::EMPTY;
         }
-        let start = self.extra.len();
+        let start = self.extra_content_len();
         let end = start.checked_add(len).expect("string pool offset overflow");
         assert!(
             end <= FLAT_OFFSET_MASK as usize,
@@ -1002,24 +961,35 @@ impl<'a> StringPool<'a> {
     }
 
     fn append_extra(&mut self, text: &[u8]) -> AstInternedUtf8 {
+        if text.is_empty() {
+            return AstInternedUtf8::EMPTY;
+        }
         let id = self.next_extra_id(text.len());
+        self.extra.pop();
         self.extra.extend_from_slice(text);
+        self.extra.push(0);
         id
     }
 
+    #[inline]
+    fn extra_content_len(&self) -> usize {
+        debug_assert!(!self.extra.is_empty());
+        self.extra.len() - 1
+    }
+
     fn find_intern_entry(&self, parts: LogicalBytes<'_>, hash: u64) -> Option<&InternEntry> {
+        let source = unsafe { source_bytes_from(self.source, self.source_len) };
         self.dedup
             .raw_entry()
             .from_hash(hash, |entry| {
-                entry.hash == hash
-                    && logical_bytes_from(self.source, &self.extra, entry.id()).eq(parts)
+                entry.hash == hash && logical_bytes_from(source, &self.extra, entry.id()).eq(parts)
             })
             .map(|(entry, ())| entry)
     }
 
     fn find_intern_entry_mut<'map>(
         dedup: &'map mut ArenaHashMap<'a, InternEntry, (), InternBuildHasher>,
-        source: &str,
+        source: &[u8],
         extra: &[u8],
         parts: LogicalBytes<'_>,
         hash: u64,
@@ -1043,7 +1013,7 @@ impl<'a> StringPool<'a> {
             suffix: None,
         };
         let canonical = self.find_intern_entry(parts, parts.hash())?.id();
-        let physical = if canonical.can_be_compact_prefix() {
+        let physical = if self.can_hash_compact_prefix(canonical) {
             canonical
         } else {
             *self.oversized_compact_prefixes.get(&canonical)?
@@ -1054,9 +1024,15 @@ impl<'a> StringPool<'a> {
         Some(AstInternedUtf8::generated(physical, nibble))
     }
 
+    #[inline]
+    fn can_hash_compact_prefix(&self, id: AstInternedUtf8) -> bool {
+        id.can_be_compact_prefix()
+            && (id.is_extra() || (id.end_offset() as usize) < self.source_len)
+    }
+
     fn intern_compact_utf8(&mut self, id: AstInternedUtf8) -> AstInternedUtf8 {
-        let parts = logical_bytes_from(self.source, &self.extra, id);
-        let hash = parts.hash();
+        let hash = self.hash_interned(id);
+        let parts = logical_bytes_from(self.source_bytes(), &self.extra, id);
         if let Some(entry) = self.find_intern_entry(parts, hash) {
             return entry.id();
         }
@@ -1069,10 +1045,11 @@ impl<'a> StringPool<'a> {
     }
 
     fn intern_utf8_id(&mut self, string: AstInternedUtf8, used_as_name: bool) -> AstInternedUtf8 {
-        let parts = logical_bytes_from(self.source, &self.extra, string);
-        let hash = parts.hash();
+        let hash = self.hash_interned(string);
+        let source = unsafe { source_bytes_from(self.source, self.source_len) };
+        let parts = logical_bytes_from(source, &self.extra, string);
         if let Some(entry) =
-            Self::find_intern_entry_mut(&mut self.dedup, self.source, &self.extra, parts, hash)
+            Self::find_intern_entry_mut(&mut self.dedup, source, &self.extra, parts, hash)
         {
             if used_as_name {
                 entry.reserve_name();
@@ -1131,7 +1108,7 @@ fn compact_extra_range(start: usize, len: usize) -> Option<(u32, u32)> {
 
 #[inline]
 fn logical_bytes_from<'a>(
-    source: &'a str,
+    source: &'a [u8],
     extra: &'a [u8],
     id: AstInternedUtf8,
 ) -> LogicalBytes<'a> {
@@ -1140,7 +1117,7 @@ fn logical_bytes_from<'a>(
     let prefix = if id.is_extra() {
         &extra[start..end]
     } else {
-        &source.as_bytes()[start..end]
+        &source[start..end]
     };
     LogicalBytes {
         prefix,
@@ -1149,14 +1126,19 @@ fn logical_bytes_from<'a>(
 }
 
 #[inline]
-fn wtf8_bytes_from<'a>(source: &'a str, extra: &'a [u8], id: AstWtf8) -> &'a [u8] {
+unsafe fn source_bytes_from<'a>(source: NonNull<u8>, len: usize) -> &'a [u8] {
+    unsafe { std::slice::from_raw_parts(source.as_ptr(), len) }
+}
+
+#[inline]
+fn wtf8_bytes_from<'a>(source: &'a [u8], extra: &'a [u8], id: AstWtf8) -> &'a [u8] {
     let start = (id.start & FLAT_OFFSET_MASK) as usize;
     let end = id.end as usize;
     debug_assert!(end >= start);
     if id.start & STORAGE_EXTRA != 0 {
         &extra[start..end]
     } else {
-        &source.as_bytes()[start..end]
+        &source[start..end]
     }
 }
 
@@ -1178,12 +1160,20 @@ fn append_hex(output: &mut Vec<u8>, mut value: u64) {
 mod tests {
     use std::{borrow::Cow, mem::size_of};
 
-    use swc_next_allocator::Allocator;
+    use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
 
     use super::{
         AstInternedUtf8, AstUtf8, AstWtf8, COMPACT_OFFSET_MASK, FLAT_OFFSET_MASK, InternEntry,
-        StringPool, compact_extra_range, hash_bytes, hash_segmented_bytes,
+        StringPool, compact_extra_range,
     };
+
+    fn string_pool<'a>(allocator: &'a Allocator, source: &str) -> StringPool<'a> {
+        let mut copied = ArenaVec::with_capacity_in(source.len(), allocator);
+        copied.extend_from_slice(source.as_bytes());
+        // SAFETY: the buffer was copied from a valid `str`.
+        let source = unsafe { std::str::from_utf8_unchecked_mut(copied.into_bump_slice_mut()) };
+        StringPool::new_in(allocator, source)
+    }
 
     #[test]
     fn string_handles_remain_eight_bytes() {
@@ -1253,51 +1243,52 @@ mod tests {
     }
 
     #[test]
-    fn interns_existing_ranges_without_moving_the_first_value() {
+    fn interns_existing_ranges_without_copying_to_extra() {
         let allocator = Allocator::new();
-        let mut strings = StringPool::new_in(&allocator, "name name");
+        let mut strings = string_pool(&allocator, "name name");
         let first = strings.source_slice(0, 4);
         let second = strings.source_slice(5, 9);
 
         let canonical = strings.intern_utf8_range(first);
-        assert_eq!(canonical.start, 0);
-        assert_eq!(canonical.end, 4);
-        assert_eq!(strings.extra.len(), 0);
+        assert!(!canonical.is_extra());
+        assert_eq!(canonical.start_offset(), 0);
+        assert_eq!(canonical.end_offset(), 4);
+        assert_eq!(strings.extra.as_slice(), b"\0");
         assert_eq!(strings.intern_utf8_range(second), canonical);
-        assert_eq!(strings.extra.len(), 0);
+        assert_eq!(strings.extra.as_slice(), b"\0");
         assert_eq!(strings.dedup.len(), 1);
     }
 
     #[test]
     fn added_strings_reuse_the_extra_range() {
         let allocator = Allocator::new();
-        let mut strings = StringPool::new_in(&allocator, "");
+        let mut strings = string_pool(&allocator, "");
         let first = strings.add_utf8("generated");
         let second = strings.add_utf8("generated");
 
         assert_eq!(first, second);
-        assert_eq!(strings.extra.as_slice(), b"generated");
+        assert_eq!(strings.extra.as_slice(), b"generated\0");
         assert_eq!(strings.dedup.len(), 1);
     }
 
     #[test]
     fn utf8_and_wtf8_share_one_dedup_entry() {
         let allocator = Allocator::new();
-        let mut strings = StringPool::new_in(&allocator, "");
+        let mut strings = string_pool(&allocator, "");
         let utf8 = strings.add_utf8("shared");
         // SAFETY: ASCII is valid WTF-8.
         let text = unsafe { swc_next_allocator::wtf8::Wtf8::from_bytes_unchecked(b"shared") };
         let wtf8 = strings.add_wtf8(text);
 
         assert_eq!((utf8.start, utf8.end), (wtf8.start, wtf8.end));
-        assert_eq!(strings.extra.as_slice(), b"shared");
+        assert_eq!(strings.extra.as_slice(), b"shared\0");
         assert_eq!(strings.dedup.len(), 1);
     }
 
     #[test]
     fn flat_extra_uses_independent_offsets() {
         let allocator = Allocator::new();
-        let mut strings = StringPool::new_in(&allocator, "source");
+        let mut strings = string_pool(&allocator, "source");
         let added = strings.add_utf8("extra");
         let id = added;
 
@@ -1310,7 +1301,7 @@ mod tests {
     #[test]
     fn generated_names_share_one_prefix_per_block() {
         let allocator = Allocator::new();
-        let mut strings = StringPool::new_in(&allocator, "");
+        let mut strings = string_pool(&allocator, "");
         let base = strings.add_utf8("_temp");
         let prefix = strings.generated_name_prefix(base, 1).unwrap();
         let extra_after_prefix = strings.extra.len();
@@ -1324,9 +1315,57 @@ mod tests {
     }
 
     #[test]
+    fn generated_name_hash_restores_the_following_byte() {
+        let allocator = Allocator::new();
+        let mut strings = string_pool(&allocator, "");
+        let base = strings.add_utf8("_temp");
+        let following = strings.add_utf8("next");
+        let prefix = strings.generated_name_prefix(base, 0).unwrap();
+
+        let generated = strings.intern_generated_name(base, Some(prefix), 0);
+
+        assert!(strings.utf8_eq_bytes(generated.into(), b"_temp0"));
+        assert!(strings.utf8_eq_bytes(following.into(), b"next"));
+        assert_eq!(strings.extra.as_slice(), b"_tempnext\0");
+    }
+
+    #[test]
+    fn generated_name_hash_restores_the_following_source_byte() {
+        let allocator = Allocator::new();
+        let mut strings = string_pool(&allocator, "_tempnext");
+        let base = strings.intern_utf8_range(strings.source_slice(0, 5));
+        let following = strings.source_slice(5, 9);
+        let prefix = strings.generated_name_prefix(base, 0).unwrap();
+
+        let generated = strings.intern_generated_name(base, Some(prefix), 0);
+
+        assert!(strings.utf8_eq_bytes(generated.into(), b"_temp0"));
+        assert_eq!(strings.get_flat_utf8(following), "next");
+        assert_eq!(strings.source(), "_tempnext");
+        assert_eq!(strings.extra.as_slice(), b"\0");
+    }
+
+    #[test]
+    fn generated_name_prefix_at_source_end_is_copied_once() {
+        let allocator = Allocator::new();
+        let mut strings = string_pool(&allocator, "_temp");
+        let base = strings.intern_utf8_range(strings.source_slice(0, 5));
+
+        let first = strings.generated_name_prefix(base, 0).unwrap();
+        let second = strings.generated_name_prefix(base, 0).unwrap();
+        let generated = strings.intern_generated_name(base, Some(first), 0);
+
+        assert_eq!(first, second);
+        assert!(AstInternedUtf8::from_utf8_range(first).is_extra());
+        assert!(strings.utf8_eq_bytes(generated.into(), b"_temp0"));
+        assert_eq!(strings.source(), "_temp");
+        assert_eq!(strings.extra.as_slice(), b"_temp\0");
+    }
+
+    #[test]
     fn generated_names_do_not_add_full_dedup_entries() {
         let allocator = Allocator::new();
-        let mut strings = StringPool::new_in(&allocator, "");
+        let mut strings = string_pool(&allocator, "");
         let mut state = strings.generated_utf8_state("_temp");
         strings.reserve_name(StringPool::generated_utf8_base(&state));
         for suffix in 2..=1_001 {
@@ -1344,7 +1383,7 @@ mod tests {
     #[test]
     fn gets_or_writes_logical_utf8() {
         let allocator = Allocator::new();
-        let mut strings = StringPool::new_in(&allocator, "source");
+        let mut strings = string_pool(&allocator, "source");
         let source = strings.source_slice(0, 6);
         assert_eq!(strings.get_utf8(source), Cow::Borrowed("source"));
 
@@ -1369,7 +1408,7 @@ mod tests {
     #[test]
     fn generated_name_collides_with_existing_flat_name() {
         let allocator = Allocator::new();
-        let mut strings = StringPool::new_in(&allocator, "_temp10");
+        let mut strings = string_pool(&allocator, "_temp10");
         let existing = strings.intern_utf8_range(strings.source_slice(0, 7));
         let base = strings.add_utf8("_temp");
         let prefix = strings.generated_name_prefix(base, 1).unwrap();
@@ -1381,7 +1420,7 @@ mod tests {
     #[test]
     fn flat_name_reuses_an_existing_compact_generated_name() {
         let allocator = Allocator::new();
-        let mut strings = StringPool::new_in(&allocator, "_temp10");
+        let mut strings = string_pool(&allocator, "_temp10");
         let base = strings.add_utf8("_temp");
         let prefix = strings.generated_name_prefix(base, 1).unwrap();
         let generated = strings.intern_generated_name(base, Some(prefix), 0x10);
@@ -1393,21 +1432,9 @@ mod tests {
     }
 
     #[test]
-    fn segmented_hash_matches_flat_hash() {
-        let bytes: Vec<u8> = (0..96).map(|index| b'a' + index % 26).collect();
-        for prefix_len in 0..bytes.len() {
-            let prefix = &bytes[..prefix_len];
-            let suffix = b'f';
-            let mut flat = prefix.to_vec();
-            flat.push(suffix);
-            assert_eq!(hash_segmented_bytes(prefix, suffix), hash_bytes(&flat));
-        }
-    }
-
-    #[test]
     fn precomputed_hash_collisions_compare_string_bytes() {
         let allocator = Allocator::new();
-        let mut strings = StringPool::new_in(&allocator, "ab");
+        let mut strings = string_pool(&allocator, "ab");
         let first = AstInternedUtf8::from_utf8_range(strings.source_slice(0, 1));
         let second = AstInternedUtf8::from_utf8_range(strings.source_slice(1, 2));
         strings.dedup.insert(InternEntry::new(1, first, false), ());

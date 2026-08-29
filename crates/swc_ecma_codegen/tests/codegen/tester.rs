@@ -109,7 +109,8 @@ fn expect_printed_common_with_options(
         preserve_parens: false,
         comments: CommentMode::Flat,
     };
-    let result = Parser::init(&allocator, source, parse_options, NoTokenParserConfig).parse();
+    let result =
+        Parser::init_copying(&allocator, source, parse_options, NoTokenParserConfig).parse();
     let has_errors = result
         .diagnostics
         .iter()

@@ -61,7 +61,7 @@ fn test_number_format() {
 #[test]
 fn numeric_literal_value_invalidates_raw() {
     let allocator = Allocator::new();
-    let mut ast = Ast::new("0x1", &allocator);
+    let mut ast = Ast::new_copying("0x1", &allocator);
     let raw = ast.source_slice(0, 3);
     let expression = ast.expr_numeric_literal(DUMMY_SP, 1.0, Some(raw));
     let ExprData::NumericLiteral(literal) = ast.expr_data(expression) else {
@@ -88,7 +88,7 @@ fn numeric_literal_value_invalidates_raw() {
 #[test]
 fn numeric_literal_value_compares_float_bits() {
     let allocator = Allocator::new();
-    let mut ast = Ast::new("0", &allocator);
+    let mut ast = Ast::new_copying("0", &allocator);
     let raw = ast.source_slice(0, 1);
     let expression = ast.expr_numeric_literal(DUMMY_SP, 0.0, Some(raw));
     let ExprData::NumericLiteral(literal) = ast.expr_data(expression) else {
@@ -164,7 +164,7 @@ fn synthesized_number_property_keys() {
 #[test]
 fn compact_identifier_name_prints_quoted_without_materializing() {
     let allocator = Allocator::new();
-    let mut ast = Ast::new("", &allocator);
+    let mut ast = Ast::new_copying("", &allocator);
     let base = ast.intern_utf8("not-\0");
     let prefix = ast.generated_name_prefix(base, 0);
     let name = ast.intern_generated_name(base, prefix, 0);
@@ -194,7 +194,7 @@ fn compact_identifier_name_prints_quoted_without_materializing() {
 
 fn print_synthesized_number_property_key(key_value: f64, computed: bool, minify: bool) -> String {
     let allocator = Allocator::new();
-    let mut ast = Ast::new("", &allocator);
+    let mut ast = Ast::new_copying("", &allocator);
     let key = ast.property_key_numeric_literal(DUMMY_SP, key_value, None);
     let value = ast.expr_numeric_literal(DUMMY_SP, 0.0, None);
     let property = ast.object_property(
@@ -228,7 +228,7 @@ fn print_synthesized_number_property_key(key_value: f64, computed: bool, minify:
 
 fn print_negative_number_contexts(number_format: NumberFormat) -> String {
     let allocator = Allocator::new();
-    let mut ast = Ast::new("", &allocator);
+    let mut ast = Ast::new_copying("", &allocator);
 
     let member_object = ast.expr_numeric_literal(DUMMY_SP, -2.0, None);
     let property_name = ast.add_utf8("toString");

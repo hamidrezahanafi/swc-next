@@ -331,8 +331,8 @@ impl<'a> Ast<'a> {
     }
 
     #[inline]
-    pub fn source(&self) -> &'a str {
-        self.strings.source
+    pub fn source(&self) -> &str {
+        self.strings.source()
     }
 
     /// Returns a slice of the source string corresponding to the given start and end offsets.
@@ -571,8 +571,16 @@ impl<'a> Ast<'a> {
 
 #[doc(hidden)]
 impl<'a> Ast<'a> {
+    pub fn new_copying(source: &str, allocator: &'a Allocator) -> Self {
+        let mut copied = ArenaVec::with_capacity_in(source.len(), allocator);
+        copied.extend_from_slice(source.as_bytes());
+        // SAFETY: the buffer was copied from a valid `str`.
+        let source = unsafe { std::str::from_utf8_unchecked_mut(copied.into_bump_slice_mut()) };
+        Self::new(source, allocator)
+    }
+
     /// Create a flattening AST backed by `source` and `allocator`.
-    pub fn new(source: &'a str, allocator: &'a Allocator) -> Self {
+    pub fn new(source: &'a mut str, allocator: &'a Allocator) -> Self {
         Self {
             allocator,
             root: None,

@@ -28,7 +28,7 @@ fn bench_semantic(c: &mut Criterion) {
             let allocator = Allocator::new();
             b.iter_batched(
                 || {
-                    let result = Parser::init(
+                    let result = Parser::init_copying(
                         &allocator,
                         source,
                         Options {
