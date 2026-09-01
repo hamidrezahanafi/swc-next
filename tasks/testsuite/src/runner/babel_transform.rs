@@ -152,7 +152,7 @@ fn parse_program<'a>(
         ..ParserOptions::default()
     };
     let (ast, error) = {
-        let result = Parser::init(allocator, source, options, NoTokenParserConfig).parse();
+        let result = Parser::init_copying(allocator, source, options, NoTokenParserConfig).parse();
         let error = result
             .diagnostics
             .iter()

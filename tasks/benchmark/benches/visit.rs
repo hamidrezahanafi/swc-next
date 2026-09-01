@@ -11,7 +11,7 @@ use swc_next_ecma_ast::{
 use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
 
 fn parse_program<'a>(src: &'a str, allocator: &'a Allocator, lang: Lang) -> Ast<'a> {
-    let result = Parser::init(
+    let result = Parser::init_copying(
         allocator,
         src,
         Options {

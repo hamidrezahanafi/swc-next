@@ -32,7 +32,7 @@ fn parse<'a>(
     source_type: SourceType,
     lang: Lang,
 ) -> Result<Ast<'a>, String> {
-    let result = Parser::init(
+    let result = Parser::init_copying(
         allocator,
         source,
         Options {
