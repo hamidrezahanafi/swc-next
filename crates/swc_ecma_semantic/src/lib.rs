@@ -544,8 +544,10 @@ mod tests {
 
         let source = "interface A {} interface B {} interface A {} interface \\u0041 {}";
         let (mut ast, semantic) = analyze_source(&allocator, source, ts_script);
-        let a_name = ast.intern_utf8("A");
-        let b_name = ast.intern_utf8("B");
+        let a_name = ast.add_utf8("A");
+        let a_name = ast.intern_utf8(a_name);
+        let b_name = ast.add_utf8("B");
+        let b_name = ast.intern_utf8(b_name);
         let a = semantic.binding(ScopeId::ROOT, a_name).unwrap();
         let b = semantic.binding(ScopeId::ROOT, b_name).unwrap();
         let mut a_declarations = semantic.declaration_ids(a);
@@ -738,7 +740,8 @@ mod tests {
 
         let source = "let value; with ({}) { value; }";
         let (mut ast, semantic) = analyze_source(&allocator, source, js_script);
-        let value_name = ast.intern_utf8("value");
+        let value_name = ast.add_utf8("value");
+        let value_name = ast.intern_utf8(value_name);
         let value_symbol = semantic.binding(ScopeId::ROOT, value_name).unwrap();
         let value = semantic
             .iter_references()
@@ -819,7 +822,8 @@ mod tests {
         assert_eq!(references[0].name, references[1].name);
         assert_eq!(ast.get_utf8(references[0].name.into()), "value");
 
-        let value_name = ast.intern_utf8("value");
+        let value_name = ast.add_utf8("value");
+        let value_name = ast.intern_utf8(value_name);
         let symbol = semantic.binding(ScopeId::ROOT, value_name).unwrap();
         assert_eq!(
             semantic.symbol(symbol).name,

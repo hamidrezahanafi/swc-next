@@ -450,9 +450,9 @@ impl<'a> CheckerState<'a> {
         for index in 0..self.export_specifiers.len() {
             let specifier = &self.export_specifiers[index];
             let local_name = match specifier.local_name {
-                ModuleExportNameValue::Utf8(name) => Some(tree.intern_utf8_range(name)),
+                ModuleExportNameValue::Utf8(name) => Some(tree.intern_utf8(name)),
                 ModuleExportNameValue::Wtf8(name) => {
-                    tree.as_utf8(name).map(|name| tree.intern_utf8_range(name))
+                    tree.as_utf8(name).map(|name| tree.intern_utf8(name))
                 }
             };
             let binding = local_name.and_then(|name| symbols.binding(ScopeId::MODULE, name));
