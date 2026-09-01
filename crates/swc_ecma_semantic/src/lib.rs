@@ -29,7 +29,7 @@ mod used_names;
 pub use binder::{Declaration, Reference, ReferenceFlags, ReferenceSpace, Symbol, SymbolFlags};
 pub use module_record::{
     ExportEntry, ExportName, ExportOrigin, ExportTarget, ExternalExportName, ModuleName,
-    ModuleRecord,
+    ModuleNameValue, ModuleRecord,
 };
 pub use swc_next_ecma_ast::ReferenceId;
 pub use used_names::UsedNameState;

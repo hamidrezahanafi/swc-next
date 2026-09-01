@@ -8,15 +8,15 @@ use swc_next_ecma_ast::{
     Visit, VisitWith, YieldExpression,
 };
 use swc_next_ecma_parser::{Options, Parser, Token, TokenParserConfig, TokenTag};
-use swc_next_ecma_semantic::name_resolver::resolver;
+use swc_next_ecma_semantic::{AnalyzeOptions, Semantic, analyze};
 
 pub fn run(src: &'static str) {
     let allocator = Allocator::new();
     let (mut ast, tokens) = run_parse(src, &allocator);
-    let _semantic = resolver(&mut ast);
+    let semantic = run_semantic(&mut ast);
     let semicolons = run_collect_semicolons(&ast, &tokens);
     let idents = run_scan_dependencies(&ast);
-    drop((ast, tokens, semicolons, idents));
+    drop((ast, semantic, tokens, semicolons, idents));
 }
 
 #[inline(never)]
@@ -33,6 +33,18 @@ fn run_parse<'a>(src: &'a str, allocator: &'a Allocator) -> (Ast<'a>, ArenaVec<'
     .parse();
     assert!(result.diagnostics.is_empty());
     (result.ast, result.tokens)
+}
+
+#[inline(never)]
+fn run_semantic<'a>(ast: &mut Ast<'a>) -> Semantic<'a> {
+    analyze(
+        ast,
+        AnalyzeOptions {
+            check_syntax: true,
+            build_module_record: false,
+        },
+    )
+    .semantic
 }
 
 #[inline(never)]
