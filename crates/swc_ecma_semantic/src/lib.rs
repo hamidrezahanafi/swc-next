@@ -51,14 +51,16 @@ impl From<AstInternedUtf8> for SymbolName {
     }
 }
 
-impl From<AstWtf8> for SymbolName {
-    #[inline]
-    fn from(name: AstWtf8) -> Self {
-        Self::Wtf8(name)
-    }
-}
-
 impl SymbolName {
+    /// Canonicalizes a WTF-8 name into the same representation used by semantic bindings.
+    #[inline]
+    pub fn intern_wtf8(ast: &mut Ast<'_>, name: AstWtf8) -> Self {
+        if let Some(name) = ast.as_utf8(name) {
+            return Self::Utf8(ast.intern_utf8(name));
+        }
+        Self::Wtf8(ast.intern_wtf8(name))
+    }
+
     #[inline]
     pub fn as_utf8(self) -> Option<AstInternedUtf8> {
         match self {
@@ -494,7 +496,7 @@ pub fn analyze<'a>(ast: &mut Ast<'a>, options: AnalyzeOptions) -> SemanticReturn
 
 #[cfg(test)]
 mod tests {
-    use swc_next_allocator::Allocator;
+    use swc_next_allocator::{Allocator, wtf8::Wtf8};
     use swc_next_ecma_ast::{Ast, Lang, ScopeId, SourceType};
     use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
 
@@ -589,7 +591,23 @@ mod tests {
             source_type: SourceType::Script,
             ..Options::default()
         };
-        let (_, semantic) = analyze_source(&allocator, r#"enum E { "\ud800" }"#, ts_script);
+
+        let (mut ast, semantic) = analyze_source(&allocator, r#"enum E { "foo" }"#, ts_script);
+        let member = semantic
+            .iter_symbols()
+            .find(|entry| entry.symbol.flags.contains(SymbolFlags::ENUM_MEMBER))
+            .unwrap();
+        let name = ast.add_wtf8(Wtf8::from_str("foo"));
+        let name = SymbolName::intern_wtf8(&mut ast, name);
+
+        assert_eq!(name, member.symbol.name);
+        assert_eq!(semantic.binding(member.symbol.scope, name), Some(member.id));
+        assert_eq!(
+            semantic.lookup(member.symbol.scope, name, ReferenceSpace::Any),
+            Some(member.id)
+        );
+
+        let (mut ast, semantic) = analyze_source(&allocator, r#"enum E { "\ud800" }"#, ts_script);
         let member = semantic
             .iter_symbols()
             .find(|entry| {
@@ -597,13 +615,13 @@ mod tests {
                     && matches!(entry.symbol.name, SymbolName::Wtf8(_))
             })
             .unwrap();
+        let name = ast.add_wtf8(Wtf8::from_bytes(b"\xed\xa0\x80").unwrap());
+        let name = SymbolName::intern_wtf8(&mut ast, name);
 
+        assert_eq!(name, member.symbol.name);
+        assert_eq!(semantic.binding(member.symbol.scope, name), Some(member.id));
         assert_eq!(
-            semantic.binding(member.symbol.scope, member.symbol.name),
-            Some(member.id)
-        );
-        assert_eq!(
-            semantic.lookup(member.symbol.scope, member.symbol.name, ReferenceSpace::Any),
+            semantic.lookup(member.symbol.scope, name, ReferenceSpace::Any),
             Some(member.id)
         );
     }

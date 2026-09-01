@@ -1281,13 +1281,8 @@ impl<'a> SymbolTracker<'a> {
 
     fn declare_wtf8(&mut self, tree: &mut Ast, name: AstWtf8, node: NodeId) -> SymbolId {
         debug_assert!(node.index() < tree.node_count());
-        if let Some(name) = tree.as_utf8(name) {
-            let name = tree.intern_utf8(name);
-            return self.declare_name(ScopeName::Utf8(name), node);
-        }
-
-        let name = tree.intern_wtf8(name);
-        self.declare_name(ScopeName::Wtf8(name), node)
+        let name = ScopeName::intern_wtf8(tree, name);
+        self.declare_name(name, node)
     }
 
     fn declare_name(&mut self, scope_name: ScopeName, node: NodeId) -> SymbolId {
