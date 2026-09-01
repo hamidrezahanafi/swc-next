@@ -23,21 +23,6 @@ macro_rules! define_ast_string {
             pub const fn is_empty(self) -> bool {
                 self.start == self.end
             }
-
-            #[inline]
-            #[allow(dead_code)]
-            pub(crate) const fn from_raw(raw: u64) -> Self {
-                Self {
-                    start: raw as u32,
-                    end: (raw >> 32) as u32,
-                }
-            }
-
-            #[inline]
-            #[allow(dead_code)]
-            pub(crate) const fn raw(self) -> u64 {
-                self.start as u64 | ((self.end as u64) << 32)
-            }
         }
     };
 }
@@ -45,6 +30,36 @@ macro_rules! define_ast_string {
 define_ast_string!(AstUtf8);
 define_ast_string!(AstInternedUtf8);
 define_ast_string!(AstWtf8);
+
+impl AstUtf8 {
+    #[inline]
+    pub(crate) const fn from_raw(raw: u64) -> Self {
+        Self {
+            start: raw as u32,
+            end: (raw >> 32) as u32,
+        }
+    }
+
+    #[inline]
+    pub(crate) const fn raw(self) -> u64 {
+        self.start as u64 | ((self.end as u64) << 32)
+    }
+}
+
+impl AstWtf8 {
+    #[inline]
+    pub(crate) const fn from_raw(raw: u64) -> Self {
+        Self {
+            start: raw as u32,
+            end: (raw >> 32) as u32,
+        }
+    }
+
+    #[inline]
+    pub(crate) const fn raw(self) -> u64 {
+        self.start as u64 | ((self.end as u64) << 32)
+    }
+}
 
 impl From<AstInternedUtf8> for AstUtf8 {
     #[inline]
