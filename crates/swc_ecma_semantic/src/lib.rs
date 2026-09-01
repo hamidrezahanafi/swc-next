@@ -58,7 +58,7 @@ impl SymbolName {
     #[inline]
     pub fn intern_wtf8(ast: &mut Ast<'_>, name: AstWtf8) -> Self {
         if let Some(name) = ast.as_utf8(name) {
-            return Self::Utf8(ast.intern_name_range(name));
+            return Self::Utf8(ast.intern_name(name));
         }
         Self::Wtf8(ast.intern_wtf8(name))
     }
@@ -520,8 +520,7 @@ mod tests {
         parser_options: Options,
         analyze_options: AnalyzeOptions,
     ) -> (Ast<'a>, Semantic<'a>) {
-        let parse =
-            Parser::init_copying(allocator, source, parser_options, NoTokenParserConfig).parse();
+        let parse = Parser::init(allocator, source, parser_options, NoTokenParserConfig).parse();
         let mut ast = parse.ast;
         assert!(parse.diagnostics.is_empty());
 

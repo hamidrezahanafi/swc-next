@@ -49,7 +49,7 @@ fn main() -> Result<(), String> {
         preserve_parens: args.preserve_parens,
         ..ParserOptions::default()
     };
-    let ret = EcmaParser::init_copying(&allocator, source, options, NoTokenParserConfig).parse();
+    let ret = EcmaParser::init(&allocator, source, options, NoTokenParserConfig).parse();
     assert!(ret.diagnostics.is_empty());
 
     // Generate JavaScript from the parsed program

@@ -127,7 +127,7 @@ mod tests {
     fn range_lookup_skips_trivia_and_respects_direction() {
         let source = "import { A, /* keep */ type B, C } from 'm';";
         let allocator = Allocator::default();
-        let parsed = Parser::init_copying(
+        let parsed = Parser::init(
             &allocator,
             source,
             Options {
@@ -155,7 +155,7 @@ mod tests {
     fn range_endpoints_use_parser_token_boundaries() {
         let source = "type Result = Box<Foo>;";
         let allocator = Allocator::default();
-        let parsed = Parser::init_copying(
+        let parsed = Parser::init(
             &allocator,
             source,
             Options {

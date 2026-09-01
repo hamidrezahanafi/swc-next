@@ -65,7 +65,7 @@ impl ImportAttributeName {
             (Self::Utf8(utf8), Self::Wtf8(wtf8)) | (Self::Wtf8(wtf8), Self::Utf8(utf8)) => {
                 ast.utf8_eq_wtf8(utf8, wtf8)
             }
-            (Self::Wtf8(left), Self::Wtf8(right)) => ast.wtf8_eq(left, right),
+            (Self::Wtf8(left), Self::Wtf8(right)) => ast.get_wtf8(left) == ast.get_wtf8(right),
         }
     }
 }

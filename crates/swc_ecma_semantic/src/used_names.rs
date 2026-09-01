@@ -35,16 +35,6 @@ impl<'a> UsedNameState<'a> {
         }
     }
 
-    /// Records an interned name in the AST string pool's UID collision domain.
-    pub fn observe(&mut self, ast: &mut Ast<'_>, name: AstInternedUtf8) {
-        ast.reserve_name(name);
-    }
-
-    /// Returns whether an interned name is observed or reserved.
-    pub fn contains(&self, ast: &Ast<'_>, name: AstInternedUtf8) -> bool {
-        ast.is_name_reserved(name)
-    }
-
     /// Reserves and returns an available generated name based on `base`.
     ///
     /// The unsuffixed base is preferred. If it is occupied, suffixes start at
@@ -53,7 +43,7 @@ impl<'a> UsedNameState<'a> {
     pub fn next_name(&mut self, ast: &mut Ast<'_>, base: &str, min_suffix: u64) -> AstInternedUtf8 {
         assert!(min_suffix > 0, "generated name suffix must be positive");
         let strings = ast.generated_utf8_state(base);
-        let base_name = Ast::generated_utf8_base(&strings);
+        let base_name = strings.base();
         let state = match self.next_names.entry(base_name) {
             Entry::Occupied(entry) => entry.into_mut(),
             Entry::Vacant(entry) => {
@@ -95,7 +85,7 @@ mod tests {
     #[test]
     fn semantic_canonicalization_populates_collision_state() {
         let allocator = Allocator::new();
-        let mut ast = Parser::init_copying(
+        let mut ast = Parser::init(
             &allocator,
             "_temp; _temp2;",
             Options {
@@ -117,10 +107,10 @@ mod tests {
     #[test]
     fn allocates_interned_generated_names() {
         let allocator = Allocator::new();
-        let mut ast = Ast::new_copying("", &allocator);
+        let mut ast = Ast::new("", &allocator);
         let mut names = UsedNameState::new(&allocator);
         let temp = ast.add_utf8("_temp");
-        names.observe(&mut ast, temp);
+        ast.reserve_name(temp);
 
         let second = names.next_name(&mut ast, "_temp", 2);
         let third = names.next_name(&mut ast, "_temp", 2);
@@ -132,12 +122,12 @@ mod tests {
     #[test]
     fn skips_interned_collisions() {
         let allocator = Allocator::new();
-        let mut ast = Ast::new_copying("", &allocator);
+        let mut ast = Ast::new("", &allocator);
         let mut names = UsedNameState::new(&allocator);
         let temp = ast.add_utf8("_temp");
         let temp2 = ast.add_utf8("_temp2");
-        names.observe(&mut ast, temp);
-        names.observe(&mut ast, temp2);
+        ast.reserve_name(temp);
+        ast.reserve_name(temp2);
 
         let name = names.next_name(&mut ast, "_temp", 2);
 
@@ -147,10 +137,10 @@ mod tests {
     #[test]
     fn allocates_hexadecimal_suffix_blocks() {
         let allocator = Allocator::new();
-        let mut ast = Ast::new_copying("", &allocator);
+        let mut ast = Ast::new("", &allocator);
         let mut names = UsedNameState::new(&allocator);
         let temp = ast.add_utf8("_temp");
-        names.observe(&mut ast, temp);
+        ast.reserve_name(temp);
 
         let f = names.next_name(&mut ast, "_temp", 0xf);
         let ten = names.next_name(&mut ast, "_temp", 0xf);
@@ -164,10 +154,10 @@ mod tests {
     #[test]
     fn crosses_hexadecimal_prefix_blocks() {
         let allocator = Allocator::new();
-        let mut ast = Ast::new_copying("", &allocator);
+        let mut ast = Ast::new("", &allocator);
         let mut names = UsedNameState::new(&allocator);
         let temp = ast.add_utf8("_temp");
-        names.observe(&mut ast, temp);
+        ast.reserve_name(temp);
 
         let one_f = names.next_name(&mut ast, "_temp", 0x1f);
         let twenty = names.next_name(&mut ast, "_temp", 0x1f);
@@ -175,7 +165,7 @@ mod tests {
         assert_eq!(twenty, ast.add_utf8("_temp20"));
 
         let other = ast.add_utf8("_other");
-        names.observe(&mut ast, other);
+        ast.reserve_name(other);
         let ff = names.next_name(&mut ast, "_other", 0xff);
         let hundred = names.next_name(&mut ast, "_other", 0xff);
         assert_eq!(ff, ast.add_utf8("_otherff"));
@@ -185,11 +175,11 @@ mod tests {
     #[test]
     fn supports_unicode_long_and_hex_ending_bases() {
         let allocator = Allocator::new();
-        let mut ast = Ast::new_copying("", &allocator);
+        let mut ast = Ast::new("", &allocator);
         let mut names = UsedNameState::new(&allocator);
         let base = "变量abcdef0123456789abcdef0123456789f";
         let base_name = ast.add_utf8(base);
-        names.observe(&mut ast, base_name);
+        ast.reserve_name(base_name);
 
         let generated = names.next_name(&mut ast, base, 0x10);
         assert_eq!(generated, ast.add_utf8(&format!("{base}10")));

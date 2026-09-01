@@ -167,8 +167,7 @@ fn main() -> Result<(), String> {
         ..ParserOptions::default()
     };
     let mut parse =
-        EcmaParser::init_copying(&allocator, &source_text, parse_options, NoTokenParserConfig)
-            .parse();
+        EcmaParser::init(&allocator, &source_text, parse_options, NoTokenParserConfig).parse();
     assert!(parse.diagnostics.is_empty());
 
     let semantic = analyze(

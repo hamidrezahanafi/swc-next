@@ -76,14 +76,6 @@ impl Default for Options {
     }
 }
 
-#[allow(clippy::mut_from_ref)]
-fn source_in<'a>(allocator: &'a Allocator, source: &str) -> &'a mut str {
-    let mut output = ArenaVec::with_capacity_in(source.len(), allocator);
-    output.extend_from_slice(source.as_bytes());
-    // SAFETY: the buffer was copied from a valid `str`.
-    unsafe { std::str::from_utf8_unchecked_mut(output.into_bump_slice_mut()) }
-}
-
 bitflags! {
     /// The active values of ECMAScript expression grammatical parameters.
     ///
@@ -849,32 +841,9 @@ fn estimate_ast_capacity(source_len: usize) -> (usize, usize) {
 }
 
 impl<'a, C: ParserConfig> Parser<'a, C> {
-    pub fn init_copying(
-        allocator: &'a Allocator,
-        source: &str,
-        options: Options,
-        config: C,
-    ) -> Self {
-        Self::init(allocator, source_in(allocator, source), options, config)
-    }
-
-    /// Initializes a parser without copying its source.
-    pub fn init(
-        allocator: &'a Allocator,
-        source: &'a mut str,
-        options: Options,
-        config: C,
-    ) -> Self {
-        let source_len = source.len();
-        assert!(source_len <= u32::MAX as usize);
-        let source_ptr = source.as_ptr();
+    pub fn init(allocator: &'a Allocator, source: &'a str, options: Options, config: C) -> Self {
+        assert!(source.len() <= u32::MAX as usize);
         let mut ast = Ast::new(source, allocator);
-        // SAFETY: `Ast` owns the mutable source for `'a`. The parser and
-        // lexer only read this view and are dropped before the returned AST can
-        // temporarily mutate bytes while hashing generated names.
-        let source = unsafe {
-            std::str::from_utf8_unchecked(std::slice::from_raw_parts(source_ptr, source_len))
-        };
         ast.set_source_metadata(options.source_type, options.lang);
         let allow_html_like_comments = options.source_type != SourceType::Module;
         let lexer = Lexer::init(
@@ -940,7 +909,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 cold_path();
                 let mut parser = {
                     let allocator = self.ast.allocator();
-                    let source = source_in(allocator, self.source);
+                    let source = self.source;
                     let config = self.lexer.config.clone();
                     let options = Options {
                         source_type: SourceType::Script,
@@ -1064,7 +1033,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 cold_path();
                 let mut parser = {
                     let allocator = self.ast.allocator();
-                    let source = source_in(allocator, self.source);
+                    let source = self.source;
                     let config = self.lexer.config.clone();
                     let options = Options {
                         source_type: SourceType::Script,
@@ -12671,7 +12640,7 @@ mod tests {
 
     fn parse_typescript_diagnostics(source: &str) -> Vec<Diagnostic<'static>> {
         let allocator = Allocator::new();
-        Parser::init_copying(
+        Parser::init(
             &allocator,
             source,
             Options {
@@ -12687,7 +12656,7 @@ mod tests {
     #[test]
     fn parse_expression_fragment() {
         fn parse<'a>(allocator: &'a Allocator, source: &'a str, options: Options) -> Ast<'a> {
-            Parser::init_copying(allocator, source, options, NoTokenParserConfig)
+            Parser::init(allocator, source, options, NoTokenParserConfig)
                 .parse_expression_fragment(FragmentContext::TopLevel)
                 .unwrap()
         }
@@ -12751,7 +12720,7 @@ mod tests {
     fn await_using_context() {
         fn parse(source: &str, source_type: SourceType) -> Vec<Diagnostic<'static>> {
             let allocator = Allocator::new();
-            Parser::init_copying(
+            Parser::init(
                 &allocator,
                 source,
                 Options {
@@ -12782,7 +12751,7 @@ mod tests {
     #[test]
     fn private_name_early_errors() {
         let allocator = Allocator::new();
-        let result = Parser::init_copying(
+        let result = Parser::init(
             &allocator,
             "class C { #x; m() { a + #x in object; } }",
             Options {
@@ -12817,7 +12786,7 @@ mod tests {
                 lang,
                 ..Options::default()
             };
-            let unambiguous_result = Parser::init_copying(
+            let unambiguous_result = Parser::init(
                 &unambiguous_allocator,
                 source,
                 unambiguous_options,
@@ -12833,7 +12802,7 @@ mod tests {
                 lang,
                 ..Options::default()
             };
-            let explicit_result = Parser::init_copying(
+            let explicit_result = Parser::init(
                 &explicit_allocator,
                 source,
                 explicit_options,
@@ -12939,7 +12908,7 @@ mod tests {
         assert_unambiguous_source_type("foo(await 0);", SourceType::Module);
 
         fn parse<'a>(allocator: &'a Allocator, source: &'a str) -> ParseReturn<'a> {
-            let parser = Parser::init_copying(
+            let parser = Parser::init(
                 allocator,
                 source,
                 Options {
@@ -12981,7 +12950,7 @@ mod tests {
             options: Options,
             context: FragmentContext,
         ) -> Result<Ast<'a>, Vec<Diagnostic<'a>>> {
-            let parser = Parser::init_copying(allocator, source, options, NoTokenParserConfig);
+            let parser = Parser::init(allocator, source, options, NoTokenParserConfig);
             parser.parse_expression_fragment(context)
         }
 
@@ -13055,8 +13024,7 @@ mod tests {
                 preserve_parens,
                 ..Options::default()
             };
-            let result =
-                Parser::init_copying(&allocator, source, options, NoTokenParserConfig).parse();
+            let result = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
 
             assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
             result.ast.comments().to_vec()

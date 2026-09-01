@@ -450,9 +450,9 @@ impl<'a> CheckerState<'a> {
         for index in 0..self.export_specifiers.len() {
             let specifier = &self.export_specifiers[index];
             let local_name = match specifier.local_name {
-                ModuleExportNameValue::Utf8(name) => Some(tree.intern_name_range(name)),
+                ModuleExportNameValue::Utf8(name) => Some(tree.intern_name(name)),
                 ModuleExportNameValue::Wtf8(name) => {
-                    tree.as_utf8(name).map(|name| tree.intern_name_range(name))
+                    tree.as_utf8(name).map(|name| tree.intern_name(name))
                 }
             };
             let binding = local_name.and_then(|name| symbols.binding(ScopeId::MODULE, name));
@@ -1607,9 +1607,9 @@ pub(super) fn check_object_expression(checker: &mut Checker<'_, '_>, object: Obj
             NodeKindData::IdentifierName(identifier) => context
                 .ast
                 .utf8_eq_bytes(identifier.name(context.ast), b"__proto__"),
-            NodeKindData::StringLiteral(string) => context
-                .ast
-                .wtf8_eq_bytes(string.value(context.ast), b"__proto__"),
+            NodeKindData::StringLiteral(string) => {
+                context.ast.get_wtf8(string.value(context.ast)).as_bytes() == b"__proto__"
+            }
             _ => continue,
         };
         if !is_proto {

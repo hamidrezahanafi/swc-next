@@ -331,8 +331,8 @@ impl<'a> Ast<'a> {
     }
 
     #[inline]
-    pub fn source(&self) -> &str {
-        self.strings.source()
+    pub fn source(&self) -> &'a str {
+        self.strings.source
     }
 
     /// Returns a slice of the source string corresponding to the given start and end offsets.
@@ -365,27 +365,13 @@ impl<'a> Ast<'a> {
     /// Canonicalizes an identifier and records it for generated-name collision
     /// checks without a second content lookup.
     #[inline]
-    pub fn intern_name_range(&mut self, value: AstUtf8) -> AstInternedUtf8 {
-        self.strings.intern_name_range(value)
+    pub fn intern_name(&mut self, value: AstUtf8) -> AstInternedUtf8 {
+        self.strings.intern_name(value)
     }
 
     #[inline]
     pub fn generated_utf8_state(&mut self, base: &str) -> GeneratedUtf8State {
         self.strings.generated_utf8_state(base)
-    }
-
-    #[inline]
-    pub fn generated_utf8_base(state: &GeneratedUtf8State) -> AstInternedUtf8 {
-        StringPool::generated_utf8_base(state)
-    }
-
-    #[inline]
-    pub fn intern_generated_name_from_state(
-        &mut self,
-        state: &mut GeneratedUtf8State,
-        suffix: u64,
-    ) -> AstInternedUtf8 {
-        self.strings.intern_generated_name_from_state(state, suffix)
     }
 
     #[inline]
@@ -404,35 +390,8 @@ impl<'a> Ast<'a> {
     }
 
     #[inline]
-    pub fn is_name_reserved(&self, name: AstInternedUtf8) -> bool {
-        self.strings.is_name_reserved(name)
-    }
-
-    /// Builds or reuses the physical prefix shared by one block of 16 generated names.
-    #[inline]
-    pub fn generated_name_prefix(&mut self, base: AstInternedUtf8, block: u64) -> Option<AstUtf8> {
-        self.strings.generated_name_prefix(base, block)
-    }
-
-    /// Interns a generated name from a cached prefix and hexadecimal suffix.
-    #[inline]
-    pub fn intern_generated_name(
-        &mut self,
-        base: AstInternedUtf8,
-        prefix: Option<AstUtf8>,
-        suffix: u64,
-    ) -> AstInternedUtf8 {
-        self.strings.intern_generated_name(base, prefix, suffix)
-    }
-
-    #[inline]
     pub fn add_wtf8(&mut self, value: &swc_next_allocator::wtf8::Wtf8) -> AstWtf8 {
         self.strings.add_wtf8(value)
-    }
-
-    #[inline]
-    pub fn add_wtf8_prefixed_utf8(&mut self, prefix: &[u8], value: AstUtf8) -> AstWtf8 {
-        self.strings.add_wtf8_prefixed_utf8(prefix, value)
     }
 
     #[inline]
@@ -461,22 +420,6 @@ impl<'a> Ast<'a> {
         self.strings.get_utf8(id)
     }
 
-    /// Writes a logical UTF-8 handle without materializing segmented bytes.
-    #[inline]
-    pub fn write_utf8<W: std::fmt::Write>(&self, id: AstUtf8, writer: &mut W) -> std::fmt::Result {
-        self.strings.write_utf8(id, writer)
-    }
-
-    /// Resolves a logical UTF-8 handle once and passes both segments to a consumer.
-    #[inline(always)]
-    pub fn consume_utf8<'s, R>(
-        &'s self,
-        id: AstUtf8,
-        consumer: impl FnOnce(&'s str, Option<u8>) -> R,
-    ) -> R {
-        self.strings.consume_utf8(id, consumer)
-    }
-
     /// Returns a non-allocating logical view of a flat or compact UTF-8 handle.
     #[inline]
     pub fn utf8_chunks(&self, id: AstUtf8) -> Utf8Chunks<'_> {
@@ -496,26 +439,6 @@ impl<'a> Ast<'a> {
     #[inline]
     pub fn utf8_eq_wtf8(&self, utf8: AstUtf8, wtf8: AstWtf8) -> bool {
         self.strings.utf8_eq_wtf8(utf8, wtf8)
-    }
-
-    #[inline]
-    pub fn wtf8_eq(&self, left: AstWtf8, right: AstWtf8) -> bool {
-        self.strings.wtf8_eq(left, right)
-    }
-
-    #[inline]
-    pub fn wtf8_eq_bytes(&self, id: AstWtf8, bytes: &[u8]) -> bool {
-        self.strings.wtf8_eq_bytes(id, bytes)
-    }
-
-    #[inline]
-    pub fn utf8_contains_byte(&self, id: AstUtf8, byte: u8) -> bool {
-        self.strings.utf8_contains_byte(id, byte)
-    }
-
-    #[inline]
-    pub fn utf8_first_byte(&self, id: AstUtf8) -> Option<u8> {
-        self.strings.utf8_first_byte(id)
     }
 
     #[inline]
@@ -564,16 +487,8 @@ impl<'a> Ast<'a> {
 
 #[doc(hidden)]
 impl<'a> Ast<'a> {
-    pub fn new_copying(source: &str, allocator: &'a Allocator) -> Self {
-        let mut copied = ArenaVec::with_capacity_in(source.len(), allocator);
-        copied.extend_from_slice(source.as_bytes());
-        // SAFETY: the buffer was copied from a valid `str`.
-        let source = unsafe { std::str::from_utf8_unchecked_mut(copied.into_bump_slice_mut()) };
-        Self::new(source, allocator)
-    }
-
     /// Create a flattening AST backed by `source` and `allocator`.
-    pub fn new(source: &'a mut str, allocator: &'a Allocator) -> Self {
+    pub fn new(source: &'a str, allocator: &'a Allocator) -> Self {
         Self {
             allocator,
             root: None,

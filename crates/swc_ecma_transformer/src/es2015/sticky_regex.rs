@@ -17,7 +17,7 @@ impl StickyRegex {
                 literal.span(ast),
                 literal.pattern(ast),
                 flags,
-                ast.utf8_contains_byte(flags, b'y'),
+                ast.utf8_chunks(flags).contains_byte(b'y'),
             )
         };
         if !is_sticky {

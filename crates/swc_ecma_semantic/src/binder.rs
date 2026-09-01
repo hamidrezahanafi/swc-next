@@ -1225,7 +1225,7 @@ impl<'a> SymbolTracker<'a> {
         match tree.kind_data(member_name) {
             NodeKindData::IdentifierName(identifier) => {
                 let raw = identifier.name(tree);
-                let name = tree.intern_name_range(raw);
+                let name = tree.intern_name(raw);
                 self.declare(tree, name, member.node_id());
             }
             NodeKindData::StringLiteral(literal) => {
@@ -1264,7 +1264,8 @@ impl<'a> SymbolTracker<'a> {
             return;
         };
         if tree
-            .utf8_first_byte(identifier.name(tree))
+            .utf8_chunks(identifier.name(tree))
+            .first_byte()
             .is_some_and(|byte| byte.is_ascii_uppercase())
         {
             self.add_reference(
@@ -1380,7 +1381,7 @@ impl<'a> SymbolTracker<'a> {
     }
 
     pub(crate) fn canonicalize_name(&mut self, tree: &mut Ast, name: AstUtf8) -> AstInternedUtf8 {
-        tree.intern_name_range(name)
+        tree.intern_name(name)
     }
 
     /// The symbol with the given id.

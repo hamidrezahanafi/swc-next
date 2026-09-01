@@ -8,7 +8,7 @@ pub use self::options::{CommentMode, Lang, ParserOptions, SourceType};
 
 pub fn parse_to_buffer(source: &str, options: Option<ParserOptions>) -> Vec<u8> {
     let allocator = Allocator::default();
-    let result = Parser::init_copying(
+    let result = Parser::init(
         &allocator,
         source,
         options.unwrap_or_default().into(),

@@ -21,7 +21,7 @@ pub fn run(src: &'static str) {
 
 #[inline(never)]
 fn run_parse<'a>(src: &'a str, allocator: &'a Allocator) -> (Ast<'a>, ArenaVec<'a, Token>) {
-    let result = Parser::init_copying(
+    let result = Parser::init(
         allocator,
         src,
         Options {

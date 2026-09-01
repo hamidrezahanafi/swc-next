@@ -2326,15 +2326,14 @@ impl<'a> Printer<'a> {
         if !computed && let PropertyKeyData::IdentifierName(identifier) = property_data {
             let ast = self.ast;
             let name = identifier.name(ast);
-            ast.consume_utf8(name, |prefix, suffix| {
-                self.print_member_identifier(
-                    prefix,
-                    suffix,
-                    optional,
-                    need_space_before_dot,
-                    property.span(ast).start,
-                );
-            });
+            let chunks = ast.utf8_chunks(name);
+            self.print_member_identifier(
+                chunks.prefix(),
+                chunks.suffix(),
+                optional,
+                need_space_before_dot,
+                property.span(ast).start,
+            );
             return;
         }
 
@@ -2736,11 +2735,10 @@ impl<'a> Printer<'a> {
         property.shorthand(self.ast)
             && !property.computed(self.ast)
             && match self.ast.property_key_data(property.key(self.ast)) {
-                PropertyKeyData::IdentifierName(identifier) => self
-                    .ast
-                    .consume_utf8(identifier.name(self.ast), |prefix, suffix| {
-                        self.can_print_utf8_identifier(prefix, suffix)
-                    }),
+                PropertyKeyData::IdentifierName(identifier) => {
+                    let chunks = self.ast.utf8_chunks(identifier.name(self.ast));
+                    self.can_print_utf8_identifier(chunks.prefix(), chunks.suffix())
+                }
                 _ => false,
             }
     }
@@ -2792,13 +2790,12 @@ impl<'a> Printer<'a> {
             PropertyKeyData::IdentifierName(value) => {
                 let name = value.name(self.ast);
                 let ast = self.ast;
-                ast.consume_utf8(name, |prefix, suffix| {
-                    if self.can_print_utf8_identifier(prefix, suffix) {
-                        self.print_utf8_identifier(prefix, suffix);
-                    } else {
-                        self.print_quoted_utf8(prefix, suffix, true);
-                    }
-                });
+                let chunks = ast.utf8_chunks(name);
+                if self.can_print_utf8_identifier(chunks.prefix(), chunks.suffix()) {
+                    self.print_utf8_identifier(chunks.prefix(), chunks.suffix());
+                } else {
+                    self.print_quoted_utf8(chunks.prefix(), chunks.suffix(), true);
+                }
             }
             PropertyKeyData::NumericLiteral(value) => self.print_number_property_key(value),
             _ => self.print_property_key_expr(key),
@@ -4961,9 +4958,9 @@ impl Printer<'_> {
             (
                 ModuleExportNameData::StringLiteral(left),
                 ModuleExportNameData::StringLiteral(right),
-            ) => self
-                .ast
-                .wtf8_eq(left.value(self.ast), right.value(self.ast)),
+            ) => {
+                self.ast.get_wtf8(left.value(self.ast)) == self.ast.get_wtf8(right.value(self.ast))
+            }
         }
     }
 }
