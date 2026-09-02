@@ -335,10 +335,15 @@ impl<'a> Printer<'a> {
     fn add_source_mapping_for_utf8(&mut self, original_offset: u32, name: AstUtf8) {
         if self.options.source_map_path.is_some() {
             let chunks = self.ast.utf8_chunks(name);
-            let original_name = if chunks.suffix().is_none() {
-                chunks.prefix().as_bytes()
-            } else {
-                &[]
+            let original_name = match chunks.suffix() {
+                None => chunks.prefix().as_bytes(),
+                Some(suffix) => {
+                    let mut name =
+                        ArenaVec::with_capacity_in(chunks.prefix().len() + 1, self.allocator);
+                    name.extend_from_slice_copy(chunks.prefix().as_bytes());
+                    name.push(suffix);
+                    name.into_bump_slice()
+                }
             };
             self.builder
                 .add_source_mapping(original_offset, original_name, self.js.as_slice());

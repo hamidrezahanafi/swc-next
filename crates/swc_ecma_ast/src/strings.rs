@@ -407,6 +407,8 @@ pub(crate) struct StringPool<'a> {
     pub(crate) extra: ArenaVec<'a, u8>,
     dedup: ArenaHashMap<'a, InternEntry, (), InternBuildHasher>,
     generated_names: ArenaHashMap<'a, AstInternedUtf8, u32>,
+    // Compact UTF-8 is segmented, so WTF-8 needs one flat alias for the same content.
+    generated_wtf8_aliases: ArenaHashMap<'a, AstInternedUtf8, AstWtf8>,
     compact_prefixes: ArenaHashMap<'a, AstInternedUtf8, AstInternedUtf8>,
 }
 
@@ -423,6 +425,7 @@ impl<'a> StringPool<'a> {
             extra,
             dedup: ArenaHashMap::with_hasher_in(InternBuildHasher::default(), allocator),
             generated_names: ArenaHashMap::new_in(allocator),
+            generated_wtf8_aliases: ArenaHashMap::new_in(allocator),
             compact_prefixes: ArenaHashMap::new_in(allocator),
         }
     }
@@ -571,6 +574,9 @@ impl<'a> StringPool<'a> {
                 end: id.end,
             };
         }
+        if let Some(generated) = self.generated_utf8_for_flat_bytes(text.as_bytes()) {
+            return self.add_generated_wtf8_alias(generated, text.as_bytes());
+        }
         let interned = self.append_extra(text.as_bytes());
         let id = AstWtf8 {
             start: interned.start,
@@ -580,8 +586,8 @@ impl<'a> StringPool<'a> {
         id
     }
 
-    /// Converts UTF-8 to the shared WTF-8 storage representation. Flat
-    /// handles reuse their range; compact handles are materialized first.
+    /// Reinterprets a flat UTF-8 handle as WTF-8 without copying. Compact
+    /// handles are materialized without changing generated-name reservations.
     pub fn utf8_to_wtf8(&mut self, text: AstUtf8) -> AstWtf8 {
         let id = AstInternedUtf8::from_utf8_range(text);
         if !id.is_generated() {
@@ -637,6 +643,13 @@ impl<'a> StringPool<'a> {
                 start: id.start,
                 end: id.end,
             };
+        }
+        if let Some(generated) = self.generated_utf8_for_flat_bytes(parts.prefix) {
+            if let Some(&alias) = self.generated_wtf8_aliases.get(&generated) {
+                return alias;
+            }
+            self.generated_wtf8_aliases.insert(generated, text);
+            return text;
         }
         let id = AstInternedUtf8 {
             start: text.start,
@@ -819,6 +832,19 @@ impl<'a> StringPool<'a> {
         self.extra.extend_from_slice(text);
         self.extra.push(0);
         id
+    }
+
+    fn add_generated_wtf8_alias(&mut self, generated: AstInternedUtf8, text: &[u8]) -> AstWtf8 {
+        if let Some(&alias) = self.generated_wtf8_aliases.get(&generated) {
+            return alias;
+        }
+        let id = self.append_extra(text);
+        let alias = AstWtf8 {
+            start: id.start,
+            end: id.end,
+        };
+        self.generated_wtf8_aliases.insert(generated, alias);
+        alias
     }
 
     #[inline]
@@ -1204,6 +1230,29 @@ mod tests {
         assert_eq!(strings.dedup.len(), 63);
         assert_eq!(strings.generated_names.len(), 63);
         assert!(strings.compact_prefixes.is_empty());
+    }
+
+    #[test]
+    fn wtf8_operations_preserve_compact_generated_name_reservation() {
+        let allocator = Allocator::new();
+        let mut strings = string_pool(&allocator, "");
+        let mut state = strings.generated_utf8_state("_temp");
+        let (generated, was_free) = strings.reserve_generated_name_from_state(&mut state, 0);
+        assert!(was_free);
+
+        let converted = strings.utf8_to_wtf8(generated.into());
+        assert_eq!(strings.get_wtf8(converted).as_bytes(), b"_temp0");
+
+        let added = strings.add_wtf8(swc_next_allocator::wtf8::Wtf8::from_str("_temp0"));
+        assert_eq!(strings.get_wtf8(added).as_bytes(), b"_temp0");
+        assert_eq!(added, converted);
+        assert_eq!(strings.intern_wtf8(added), added);
+
+        let (reserved_again, was_free) = strings.reserve_generated_name_from_state(&mut state, 0);
+        assert_eq!(reserved_again, generated);
+        assert!(!was_free);
+        assert_eq!(strings.dedup.len(), 1);
+        assert_eq!(strings.generated_wtf8_aliases.len(), 1);
     }
 
     #[test]

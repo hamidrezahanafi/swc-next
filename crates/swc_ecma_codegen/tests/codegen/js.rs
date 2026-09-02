@@ -1,6 +1,6 @@
 use swc_next_allocator::Allocator;
 use swc_next_ecma_ast::{
-    Ast, BinaryOperator, DUMMY_SP, ExprData, ObjectPropertyKind, PropertyKey, PropertyKind,
+    Ast, BinaryOperator, DUMMY_SP, ExprData, ObjectPropertyKind, PropertyKey, PropertyKind, Span,
     TypedSubRange,
 };
 use swc_next_ecma_codegen::{NumberFormat, Options as PrintOptions, print};
@@ -107,6 +107,33 @@ fn numeric_literal_value_compares_float_bits() {
         print(&allocator, &ast, PrintOptions::default()).code,
         "-0;\n"
     );
+}
+
+#[test]
+fn source_map_preserves_compact_identifier_names() {
+    let allocator = Allocator::new();
+    let mut ast = Ast::new(" _temp", &allocator);
+    let mut state = ast.generated_utf8_state("_temp");
+    let (name, was_free) = ast.reserve_generated_name_from_state(&mut state, 2);
+    assert!(was_free);
+
+    let expression = ast.expr_identifier_reference(Span::new(1, 6), name.into());
+    let statement = ast.stmt_expression_statement(DUMMY_SP, expression);
+    let body = ast.add_typed_sub_range([statement]);
+    let program = ast.program(DUMMY_SP, TypedSubRange::empty(), body, None);
+    ast.set_root_program(program);
+
+    let result = print(
+        &allocator,
+        &ast,
+        PrintOptions {
+            source_map_path: Some("input.js".into()),
+            ..PrintOptions::default()
+        },
+    );
+
+    assert_eq!(result.code, "_temp2;\n");
+    assert_eq!(result.map.unwrap().names(), &[b"_temp2".as_slice()]);
 }
 
 #[test]
