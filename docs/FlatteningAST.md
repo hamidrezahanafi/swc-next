@@ -21,6 +21,7 @@ First, the AST context stores everything about the AST, where all CRUD should ha
 pub struct Ast {
     nodes: IndexVec<NodeId, AstNode>,
     extra_data: IndexVec<ExtraDataId, ExtraData>,
+    list_data: IndexVec<ListDataId, u32>,
     bigint: IndexVec<BigIntId, BigIntValue>,
     string_allocator: StringAllocator,
 }
@@ -52,7 +53,7 @@ The `ExtraData` is used to represent the fields of AST node. It's usally another
 
 - For data smaller than 8 bytes, such as `bool` and `number`, they are directly stored in the `ExtraData`.
 - For data larger than 8 bytes, such as `BigIntValue`, `ExtraData` stores their Ids, while their values are stored in another typed arena of AST context.
-- For data with undetermined length, such as `Vec<Expr>`, only their start and end `ExtraDataId` are stored in `ExtraData`.
+- For data with undetermined length, such as `Vec<Expr>`, their compact `u32` node handles are stored in `list_data`. Only the start and end `ListDataId` are stored in the node payload or `ExtraData`.
 
 ```rs
 assert!(size_of::<ExtraData>() == 8);
@@ -223,6 +224,6 @@ impl VisitMut for ExampleVisitor {
 Other changes in AST definictions include:
 
 1. `Box<T>` in ASTs are unnecessary, since all nodes are referred with `NodeId`.
-2. `Vec<T>` is replaced with `TypedSubRange<T>`. It only stores the start and the end `ExtraDataId`, with which we can query the list of `NodeId`s from the AST context.
+2. `Vec<T>` is replaced with `TypedSubRange<T>`. It only stores the start and the end `ListDataId`, with which we can query compact `u32` node handles from the AST context. `Option<NodeId>` list elements use `u32::MAX` as the `None` sentinel.
 3. `Atom` is replaced with `Utf8Ref`, and `Wtf8Atom` is replaced with `Wtf8Ref`. Both of them are two `u32`s to represent the start index and the end index of shared string pools, which are just a rust `String` and `Wtf8Buf`.
 4. `Option<T>` is specialized for the primitives, such as `OptionalNodeId` and `OptionUtf8Ref`. This is a manual null pointer optimization as `u32::MAX` is used to represent `None` in `Option<T>`.

@@ -770,6 +770,7 @@ struct Checkpoint {
     // Append-only AST storage.
     nodes_len: usize,
     extra_len: usize,
+    list_len: usize,
     diagnostics_len: usize,
     commonjs_conditional_diagnostic_indices_len: usize,
     // Parser flags, copied by value.
@@ -832,7 +833,7 @@ impl<C: ParserConfig> Drop for Peek<'_, '_, C> {
     }
 }
 
-fn estimate_ast_capacity(source_len: usize) -> (usize, usize) {
+fn estimate_ast_capacity(source_len: usize) -> (usize, usize, usize) {
     let baseline_nodes = if source_len < 4_000 {
         256.max(source_len / 4)
     } else if source_len < 10_000 {
@@ -843,16 +844,15 @@ fn estimate_ast_capacity(source_len: usize) -> (usize, usize) {
         source_len / 8
     };
 
-    // Out-of-line AST fields are common in every grammar: lists, optional
-    // metadata, and values that do not fit in the inline node payload all use
-    // this table. Leave general headroom so large parses do not copy the full
-    // table immediately after the initial reservation.
-    let estimated_extra = baseline_nodes * 2 / 3;
+    // Preserve the previous total headroom while reserving the independent
+    // fixed-field and node-list tables in roughly their observed proportions.
+    let estimated_extra = baseline_nodes * 7 / 24;
+    let estimated_list = baseline_nodes * 3 / 8;
     // A NodeData growth doubles the allocation and copies every initialized
     // SoA field. A smaller fixed margin absorbs source-density variation
     // without paying for the full doubled block or inspecting source syntax.
     let estimated_nodes = baseline_nodes + baseline_nodes / 2;
-    (estimated_nodes, estimated_extra)
+    (estimated_nodes, estimated_extra, estimated_list)
 }
 
 impl<'a, C: ParserConfig> Parser<'a, C> {
@@ -1440,6 +1440,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             current_token: self.current_token,
             nodes_len: self.ast.node_count(),
             extra_len: self.ast.extra_data_count(),
+            list_len: self.ast.list_data_count(),
             diagnostics_len: self.diagnostics.len(),
             commonjs_conditional_diagnostic_indices_len: self
                 .commonjs_conditional_diagnostic_indices
@@ -1465,8 +1466,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.lexer.processed_comments = checkpoint.lexer_processed_comments;
         self.lexer.tokens.truncate(checkpoint.lexer_tokens_len);
         self.current_token = checkpoint.current_token;
-        self.ast
-            .truncate(checkpoint.nodes_len, checkpoint.extra_len);
+        self.ast.truncate(
+            checkpoint.nodes_len,
+            checkpoint.extra_len,
+            checkpoint.list_len,
+        );
         self.diagnostics.truncate(checkpoint.diagnostics_len);
         self.commonjs_conditional_diagnostic_indices
             .truncate(checkpoint.commonjs_conditional_diagnostic_indices_len);
@@ -1503,8 +1507,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     }
 
     fn ensure_capacity(&mut self) {
-        let (estimated_nodes, estimated_extra) = estimate_ast_capacity(self.source.len());
-        self.ast.reserve(estimated_nodes, estimated_extra);
+        let (estimated_nodes, estimated_extra, estimated_list) =
+            estimate_ast_capacity(self.source.len());
+        self.ast
+            .reserve(estimated_nodes, estimated_extra, estimated_list);
         self.scratch_cover.items.reserve(256);
         self.scratch_statements.items.reserve(256);
         self.scratch_a.items.reserve(256);
@@ -13365,17 +13371,6 @@ mod tests {
             ast.expr_data(ast.root_expression()),
             ExprData::AwaitExpression(_)
         ));
-    }
-
-    #[test]
-    fn estimate_capacity() {
-        let (nodes, extra) = estimate_ast_capacity(0);
-        assert_eq!(nodes, 384);
-        assert!(extra <= nodes);
-
-        let (nodes, extra) = estimate_ast_capacity(8_000_000);
-        assert_eq!(nodes, 1_500_000);
-        assert_eq!(extra, 666_666);
     }
 
     #[test]

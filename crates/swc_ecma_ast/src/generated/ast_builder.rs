@@ -4537,7 +4537,7 @@ impl<'a> Ast<'a> {
         optional: bool,
     ) -> BindingIdentifier {
         let _extra_data = [name.to_extra_data(self), decorators.to_extra_data(self)];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
+        let _extra_data_start = self.add_extra_data_sub_range(&_extra_data);
         BindingIdentifier(self.add_node(
             span,
             NodeKind::BindingIdentifier,
@@ -4547,7 +4547,7 @@ impl<'a> Ast<'a> {
                         as u128)
                         << 8usize)
                     | ((optional as u32 as u128) << 0usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
+                    | ((_extra_data_start.index() as u128) << 96usize),
             ),
         ))
     }
@@ -4578,7 +4578,7 @@ impl<'a> Ast<'a> {
         optional: bool,
     ) -> AssignmentPattern {
         let _extra_data = [decorators.to_extra_data(self), right.to_extra_data(self)];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
+        let _extra_data_start = self.add_extra_data_sub_range(&_extra_data);
         AssignmentPattern(self.add_node(
             span,
             NodeKind::AssignmentPattern,
@@ -4589,7 +4589,7 @@ impl<'a> Ast<'a> {
                         as u128)
                         << 40usize)
                     | ((optional as u32 as u128) << 0usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
+                    | ((_extra_data_start.index() as u128) << 96usize),
             ),
         ))
     }
@@ -4628,7 +4628,7 @@ impl<'a> Ast<'a> {
         optional: bool,
     ) -> ArrayPattern {
         let _extra_data = [decorators.to_extra_data(self), elements.to_extra_data(self)];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
+        let _extra_data_start = self.add_extra_data_sub_range(&_extra_data);
         ArrayPattern(self.add_node(
             span,
             NodeKind::ArrayPattern,
@@ -4640,7 +4640,7 @@ impl<'a> Ast<'a> {
                         as u128)
                         << 40usize)
                     | ((optional as u32 as u128) << 0usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
+                    | ((_extra_data_start.index() as u128) << 96usize),
             ),
         ))
     }
@@ -4658,7 +4658,7 @@ impl<'a> Ast<'a> {
             decorators.to_extra_data(self),
             properties.to_extra_data(self),
         ];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
+        let _extra_data_start = self.add_extra_data_sub_range(&_extra_data);
         ObjectPattern(self.add_node(
             span,
             NodeKind::ObjectPattern,
@@ -4670,7 +4670,7 @@ impl<'a> Ast<'a> {
                         as u128)
                         << 40usize)
                     | ((optional as u32 as u128) << 0usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
+                    | ((_extra_data_start.index() as u128) << 96usize),
             ),
         ))
     }
@@ -5136,7 +5136,7 @@ impl<'a> Ast<'a> {
             implements.to_extra_data(self),
             body.to_extra_data(self),
         ];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
+        let _extra_data_start = self.add_extra_data_sub_range(&_extra_data);
         Class(self.add_node(
             span,
             NodeKind::Class,
@@ -5150,7 +5150,7 @@ impl<'a> Ast<'a> {
                         << 56usize)
                     | ((r#abstract as u32 as u128) << 8usize)
                     | ((declare as u32 as u128) << 16usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
+                    | ((_extra_data_start.index() as u128) << 96usize),
             ),
         ))
     }
@@ -5178,7 +5178,7 @@ impl<'a> Ast<'a> {
         accessibility: Accessibility,
     ) -> MethodDefinition {
         let _extra_data = [decorators.to_extra_data(self), value.to_extra_data(self)];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
+        let _extra_data_start = self.add_extra_data_sub_range(&_extra_data);
         MethodDefinition(self.add_node(
             span,
             NodeKind::MethodDefinition,
@@ -5192,7 +5192,7 @@ impl<'a> Ast<'a> {
                     | ((optional as u32 as u128) << 32usize)
                     | ((r#abstract as u32 as u128) << 40usize)
                     | ((accessibility as u32 as u128) << 48usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
+                    | ((_extra_data_start.index() as u128) << 96usize),
             ),
         ))
     }
@@ -5221,7 +5221,7 @@ impl<'a> Ast<'a> {
             type_annotation.to_extra_data(self),
             value.to_extra_data(self),
         ];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
+        let _extra_data_start = self.add_extra_data_sub_range(&_extra_data);
         PropertyDefinition(self.add_node(
             span,
             NodeKind::PropertyDefinition,
@@ -5237,7 +5237,7 @@ impl<'a> Ast<'a> {
                     | ((readonly as u32 as u128) << 56usize)
                     | ((r#abstract as u32 as u128) << 64usize)
                     | ((accessibility as u32 as u128) << 72usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
+                    | ((_extra_data_start.index() as u128) << 96usize),
             ),
         ))
     }
@@ -5267,7 +5267,7 @@ impl<'a> Ast<'a> {
             return_type.to_extra_data(self),
             body.to_extra_data(self),
         ];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
+        let _extra_data_start = self.add_extra_data_sub_range(&_extra_data);
         Function(self.add_node(
             span,
             NodeKind::Function,
@@ -5281,7 +5281,7 @@ impl<'a> Ast<'a> {
                         << 56usize)
                     | ((generator as u32 as u128) << 8usize)
                     | ((r#async as u32 as u128) << 16usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
+                    | ((_extra_data_start.index() as u128) << 96usize),
             ),
         ))
     }
@@ -5463,7 +5463,7 @@ impl<'a> Ast<'a> {
         body: ArrowFunctionBody,
     ) -> ArrowFunctionExpression {
         let _extra_data = [return_type.to_extra_data(self), body.to_extra_data(self)];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
+        let _extra_data_start = self.add_extra_data_sub_range(&_extra_data);
         ArrowFunctionExpression(self.add_node(
             span,
             NodeKind::ArrowFunctionExpression,
@@ -5475,7 +5475,7 @@ impl<'a> Ast<'a> {
                         as u128)
                         << 16usize)
                     | ((params.node_id().index() as u32 as u128) << 48usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
+                    | ((_extra_data_start.index() as u128) << 96usize),
             ),
         ))
     }
@@ -5669,7 +5669,7 @@ impl<'a> Ast<'a> {
             attributes.to_extra_data(self),
             phase.to_extra_data(self),
         ];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
+        let _extra_data_start = self.add_extra_data_sub_range(&_extra_data);
         ImportDeclaration(self.add_node(
             span,
             NodeKind::ImportDeclaration,
@@ -5677,7 +5677,7 @@ impl<'a> Ast<'a> {
                 0u128
                     | ((source.node_id().index() as u32 as u128) << 8usize)
                     | ((import_kind as u32 as u128) << 0usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
+                    | ((_extra_data_start.index() as u128) << 96usize),
             ),
         ))
     }
@@ -5755,7 +5755,7 @@ impl<'a> Ast<'a> {
             specifiers.to_extra_data(self),
             attributes.to_extra_data(self),
         ];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
+        let _extra_data_start = self.add_extra_data_sub_range(&_extra_data);
         ExportNamedDeclaration(self.add_node(
             span,
             NodeKind::ExportNamedDeclaration,
@@ -5767,7 +5767,7 @@ impl<'a> Ast<'a> {
                     | ((source.map_or(u32::MAX, |node| node.node_id().index() as u32) as u128)
                         << 40usize)
                     | ((export_kind as u32 as u128) << 0usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
+                    | ((_extra_data_start.index() as u128) << 96usize),
             ),
         ))
     }
@@ -7335,7 +7335,7 @@ impl<'a> Ast<'a> {
         declare: bool,
     ) -> TsFunction {
         let _extra_data = [params.to_extra_data(self), return_type.to_extra_data(self)];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
+        let _extra_data_start = self.add_extra_data_sub_range(&_extra_data);
         TsFunction(self.add_node(
             span,
             NodeKind::TsFunction,
@@ -7349,7 +7349,7 @@ impl<'a> Ast<'a> {
                     | ((generator as u32 as u128) << 0usize)
                     | ((r#async as u32 as u128) << 8usize)
                     | ((declare as u32 as u128) << 16usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
+                    | ((_extra_data_start.index() as u128) << 96usize),
             ),
         ))
     }
@@ -7369,7 +7369,7 @@ impl<'a> Ast<'a> {
         accessibility: Accessibility,
     ) -> TsMethodDefinition {
         let _extra_data = [decorators.to_extra_data(self), value.to_extra_data(self)];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
+        let _extra_data_start = self.add_extra_data_sub_range(&_extra_data);
         TsMethodDefinition(self.add_node(
             span,
             NodeKind::TsMethodDefinition,
@@ -7383,7 +7383,7 @@ impl<'a> Ast<'a> {
                     | ((optional as u32 as u128) << 32usize)
                     | ((r#abstract as u32 as u128) << 40usize)
                     | ((accessibility as u32 as u128) << 48usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
+                    | ((_extra_data_start.index() as u128) << 96usize),
             ),
         ))
     }
@@ -7889,7 +7889,7 @@ impl<'a> Ast<'a> {
             name_type.to_extra_data(self),
             type_annotation.to_extra_data(self),
         ];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
+        let _extra_data_start = self.add_extra_data_sub_range(&_extra_data);
         TsMappedType(self.add_node(
             span,
             NodeKind::TsMappedType,
@@ -7899,7 +7899,7 @@ impl<'a> Ast<'a> {
                     | ((constraint.node_id().index() as u32 as u128) << 48usize)
                     | ((optional as u32 as u128) << 0usize)
                     | ((readonly as u32 as u128) << 8usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
+                    | ((_extra_data_start.index() as u128) << 96usize),
             ),
         ))
     }
@@ -7941,7 +7941,7 @@ impl<'a> Ast<'a> {
         optional: bool,
     ) -> TsMethodSignature {
         let _extra_data = [params.to_extra_data(self), return_type.to_extra_data(self)];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
+        let _extra_data_start = self.add_extra_data_sub_range(&_extra_data);
         TsMethodSignature(self.add_node(
             span,
             NodeKind::TsMethodSignature,
@@ -7954,7 +7954,7 @@ impl<'a> Ast<'a> {
                     | ((kind as u32 as u128) << 0usize)
                     | ((computed as u32 as u128) << 8usize)
                     | ((optional as u32 as u128) << 16usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
+                    | ((_extra_data_start.index() as u128) << 96usize),
             ),
         ))
     }
@@ -8059,7 +8059,7 @@ impl<'a> Ast<'a> {
         declare: bool,
     ) -> TsInterfaceDeclaration {
         let _extra_data = [extends.to_extra_data(self), body.to_extra_data(self)];
-        let _extra_data_range = self.add_extra_data_sub_range(&_extra_data);
+        let _extra_data_start = self.add_extra_data_sub_range(&_extra_data);
         TsInterfaceDeclaration(self.add_node(
             span,
             NodeKind::TsInterfaceDeclaration,
@@ -8070,7 +8070,7 @@ impl<'a> Ast<'a> {
                         as u128)
                         << 40usize)
                     | ((declare as u32 as u128) << 0usize)
-                    | ((_extra_data_range.start.index() as u128) << 96usize),
+                    | ((_extra_data_start.index() as u128) << 96usize),
             ),
         ))
     }

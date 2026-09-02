@@ -63,11 +63,12 @@ fn main() -> Result<(), String> {
     }
 
     println!(
-        "Parsed successfully as {} {:?}: {} nodes, {} extra-data entries.",
+        "Parsed successfully as {} {:?}: {} nodes, {} extra-data entries, {} list-data entries.",
         source_type.as_str(),
         lang,
         ret.ast.node_count(),
         ret.ast.extra_data_count(),
+        ret.ast.list_data_count(),
     );
 
     println!("Tokens: {:?}", ret.tokens);

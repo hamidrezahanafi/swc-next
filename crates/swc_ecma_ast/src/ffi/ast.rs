@@ -11,13 +11,15 @@
 //! - `node_count` one-byte node kinds, padded to four bytes;
 //! - `node_count` raw 16-byte `NodePayload` values;
 //! - `extra_count` raw 8-byte `ExtraData` values;
+//! - `list_count` raw 4-byte compact node handles;
 //! - the raw extra string pool, padded to four bytes;
 //! - `comment_count` raw 16-byte [`Comment`] records in source order.
 //!   Each record contains the full start, full end, attachment offset,
 //!   kind (`0` line, `1` block), and attachment position.
 //!
-//! Attached comments and diagnostics are intentionally omitted for now. Their
-//! counts in the header are always zero.
+//! Attached comments and diagnostics are intentionally omitted for now. The
+//! former header slot for attached comments stores `list_count`; the diagnostic
+//! count remains zero.
 
 use std::{
     mem::{offset_of, size_of},
@@ -31,6 +33,7 @@ const SPAN_SIZE: usize = 8;
 const NODE_KIND_SIZE: usize = 1;
 const NODE_PAYLOAD_SIZE: usize = 16;
 const EXTRA_DATA_SIZE: usize = 8;
+const LIST_DATA_SIZE: usize = 4;
 const COMMENT_SIZE: usize = 16;
 const FLAG_TS: u32 = 1 << 0;
 const FLAG_SOURCE_TYPE_SHIFT: u32 = 1;
@@ -57,6 +60,7 @@ pub fn buffer_size(tree: &Ast<'_>) -> usize {
         + align_to_four(tree.node_count() * NODE_KIND_SIZE)
         + tree.node_count() * NODE_PAYLOAD_SIZE
         + tree.extra_data_count() * EXTRA_DATA_SIZE
+        + tree.list_data_count() * LIST_DATA_SIZE
         + align_to_four(tree.strings.extra.len())
         + tree.comments().len() * COMMENT_SIZE
 }
@@ -75,6 +79,8 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
     let node_count = u32::try_from(tree.node_count()).expect("AST node count exceeds u32");
     let extra_count =
         u32::try_from(tree.extra_data_count()).expect("AST extra-data count exceeds u32");
+    let list_count =
+        u32::try_from(tree.list_data_count()).expect("AST list-data count exceeds u32");
     let string_pool_len =
         u32::try_from(tree.strings.extra.len()).expect("AST string pool exceeds u32");
     let source_len = u32::try_from(tree.source().len()).expect("AST source length exceeds u32");
@@ -87,7 +93,7 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
         string_pool_len,
         source_len,
         comment_count,
-        0, // attached_comment_count
+        list_count,
         0, // diag_count
         tree.root_node_id().index() as u32,
         (if tree.is_ts() { FLAG_TS } else { 0 })
@@ -136,6 +142,16 @@ pub fn serialize_into(tree: &Ast<'_>, buf: &mut [u8]) -> usize {
     };
     buf[pos..pos + extra_data.len()].copy_from_slice(extra_data);
     pos += extra_data.len();
+
+    // ==================== List Data =====================
+    let list_data = unsafe {
+        slice::from_raw_parts(
+            tree.list_data.as_slice().as_ptr().cast::<u8>(),
+            tree.list_data_count() * LIST_DATA_SIZE,
+        )
+    };
+    buf[pos..pos + list_data.len()].copy_from_slice(list_data);
+    pos += list_data.len();
 
     // =================== String Pool ====================
     let string_pool = &tree.strings.extra;

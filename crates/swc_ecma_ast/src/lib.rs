@@ -29,7 +29,10 @@ pub use derive::*;
 pub use diagnostic::*;
 pub use generated::ast_node::{NodeKind, NodeKindData};
 pub use generated::ast_visitor::*;
-pub use node_id::{AstNode, ExtraDataCompact, ExtraDataId, NodeId, SubRange, TypedSubRange};
+pub use node_id::{
+    AstNode, ExtraDataCompact, ExtraDataId, ListDataCompact, ListDataId, NodeId, NodeListDataId,
+    SubRange, TypedSubRange,
+};
 pub use semantic::{ReferenceId, ScopeId, SymbolId};
 pub use strings::{AstUtf8, AstWtf8};
 pub use syntax::*;
@@ -56,6 +59,9 @@ pub struct Ast<'a> {
 
     /// Flattening AST fields.
     extra_data: ArenaVec<'a, ExtraData>,
+
+    /// Compact node handles belonging to AST list fields.
+    list_data: ArenaVec<'a, u32>,
 
     /// Source-backed and decoded AST strings.
     strings: StringPool<'a>,
@@ -236,33 +242,38 @@ impl<'a> Ast<'a> {
     }
 
     #[inline]
-    pub fn add_typed_sub_range<N: ExtraDataCompact<'a>, I: IntoIterator<Item = N>>(
+    pub fn add_typed_sub_range<N: ListDataCompact, I: IntoIterator<Item = N>>(
         &mut self,
         iter: I,
     ) -> TypedSubRange<N> {
-        let start = self.next_extra_data_id();
+        let start = self.next_list_data_id();
         for node in iter {
-            let data = node.to_extra_data(self);
-            self.extra_data.push(data);
+            self.list_data.push(node.to_list_data());
         }
         TypedSubRange {
             inner: SubRange {
                 start,
-                end: self.next_extra_data_id(),
+                end: self.next_list_data_id(),
             },
             _phantom: PhantomData,
         }
     }
 
+    #[inline]
+    fn next_list_data_id(&self) -> ListDataId {
+        let index = self.list_data.len();
+        assert!(
+            index <= ListDataId::MAX,
+            "list data index exceeds ListDataId range"
+        );
+        ListDataId::from_usize_unchecked(index)
+    }
+
     /// Append pre-encoded extra data as a single contiguous range.
-    pub fn add_extra_data_sub_range(&mut self, data: &[ExtraData]) -> SubRange {
+    pub(crate) fn add_extra_data_sub_range(&mut self, data: &[ExtraData]) -> ExtraDataId {
         let start = self.next_extra_data_id();
-        let end = start.index() + data.len();
         self.extra_data.extend_from_slice_copy(data);
-        SubRange {
-            start,
-            end: ExtraDataId::from_usize_unchecked(end),
-        }
+        start
     }
 
     #[inline]
@@ -391,6 +402,12 @@ impl<'a> Ast<'a> {
         self.extra_data.len()
     }
 
+    /// Returns the number of compact node handles in AST list fields.
+    #[inline]
+    pub fn list_data_count(&self) -> usize {
+        self.list_data.len()
+    }
+
     /// Returns the concrete type stored at `node_id`.
     #[inline]
     pub fn node_kind(&self, node_id: NodeId) -> NodeKind {
@@ -416,6 +433,7 @@ impl<'a> Ast<'a> {
             attached_comments: ArenaVec::new_in(allocator),
             nodes: NodeData::new_in(allocator),
             extra_data: ArenaVec::with_capacity_in(0, allocator),
+            list_data: ArenaVec::with_capacity_in(0, allocator),
             strings: StringPool::new_in(allocator, source),
         }
     }
@@ -451,18 +469,26 @@ impl<'a> Ast<'a> {
 
     /// Reserves storage for parser output without changing logical lengths.
     #[inline]
-    pub fn reserve(&mut self, additional_nodes: usize, additional_extra_data: usize) {
+    pub fn reserve(
+        &mut self,
+        additional_nodes: usize,
+        additional_extra_data: usize,
+        additional_list_data: usize,
+    ) {
         self.nodes.reserve(additional_nodes);
         self.extra_data.reserve(additional_extra_data);
+        self.list_data.reserve(additional_list_data);
     }
 
-    /// Rewinds node and out-of-line field storage to an earlier checkpoint.
+    /// Rewinds node, out-of-line field, and list storage to an earlier checkpoint.
     #[inline]
-    pub fn truncate(&mut self, nodes_len: usize, extra_data_len: usize) {
+    pub fn truncate(&mut self, nodes_len: usize, extra_data_len: usize, list_data_len: usize) {
         assert!(nodes_len <= self.nodes.len());
         assert!(extra_data_len <= self.extra_data.len());
+        assert!(list_data_len <= self.list_data.len());
         self.nodes.truncate(nodes_len);
         self.extra_data.truncate(extra_data_len);
+        self.list_data.truncate(list_data_len);
     }
 }
 

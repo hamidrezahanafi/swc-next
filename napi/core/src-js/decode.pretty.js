@@ -103,6 +103,7 @@ export function decode(buffer, source) {
   const stringPoolLength = _u32[2];
   const sourceLength = _u32[3];
   const commentCount = _u32[4];
+  const listCount = _u32[5];
   const programIndex = _u32[7];
   const isTs = (_u32[8] & 1) !== 0;
 
@@ -110,7 +111,8 @@ export function decode(buffer, source) {
   const kinds = spans + nodeCount * 8;
   const payloads = (kinds + nodeCount + 3) & ~3;
   const extra = payloads + nodeCount * 16;
-  const strings = extra + extraCount * 8;
+  const lists = extra + extraCount * 8;
+  const strings = lists + listCount * 4;
   const comments = strings + ((stringPoolLength + 3) & ~3);
   const positions =
     source.length === sourceLength ? null : buildPosMap(source, sourceLength);
@@ -135,7 +137,7 @@ export function decode(buffer, source) {
   const nodeArray = (start, end, holes) => {
     const result = new Array(end - start);
     for (let i = start; i < end; i++) {
-      const index = _u32[(extra >> 2) + i * 2];
+      const index = _u32[(lists >> 2) + i];
       result[i - start] = holes && index === NULL ? null : node(index);
     }
     return result;

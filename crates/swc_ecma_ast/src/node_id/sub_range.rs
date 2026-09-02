@@ -1,22 +1,23 @@
 use std::{marker::PhantomData, ops::Deref};
 
-use crate::{
-    Ast,
-    node_id::{ExtraDataCompact, ExtraDataId},
-};
+use crate::{Ast, node_id::ListDataCompact};
 
 pub const EMPTY_SUB_RANGE: SubRange = SubRange {
-    start: ExtraDataId::from_raw(0),
-    end: ExtraDataId::from_raw(0),
+    start: ListDataId::from_raw(0),
+    end: ListDataId::from_raw(0),
 };
 
-/// [SubRange] is a cheap way to represent a undetermined range of nodes in an arena, just like a [std::vec::Vec].
+oxc_index::define_index_type! {
+    pub struct ListDataId = u32;
+}
+
+/// [SubRange] is a cheap way to represent an undetermined range of nodes in an arena, just like a [std::vec::Vec].
 ///
-/// It only contains the start and end of the range in [crate::ast_list::NodeList].
+/// It only contains the start and end of the range in the AST list-data table.
 #[derive(Debug, Clone, Copy, Hash)]
 pub struct SubRange {
-    pub start: ExtraDataId,
-    pub end: ExtraDataId,
+    pub start: ListDataId,
+    pub end: ListDataId,
 }
 
 impl SubRange {
@@ -64,20 +65,20 @@ impl<T> TypedSubRange<T> {
     }
 
     /// Similar to `Vec::remove(0)`
-    pub fn remove_first(&mut self) -> NodeExtraDataId<T> {
+    pub fn remove_first(&mut self) -> NodeListDataId<T> {
         assert!(!self.is_empty());
         let start = self.start;
         self.inner.start += 1;
-        NodeExtraDataId {
+        NodeListDataId {
             inner: start,
             _phantom: PhantomData,
         }
     }
 
-    pub fn get(self, index: usize) -> Option<NodeExtraDataId<T>> {
+    pub fn get(self, index: usize) -> Option<NodeListDataId<T>> {
         if index < self.len() {
             let id = self.start + index;
-            return Some(NodeExtraDataId {
+            return Some(NodeListDataId {
                 inner: id,
                 _phantom: PhantomData,
             });
@@ -85,23 +86,23 @@ impl<T> TypedSubRange<T> {
         None
     }
 
-    pub fn first(self) -> Option<NodeExtraDataId<T>> {
+    pub fn first(self) -> Option<NodeListDataId<T>> {
         if self.is_empty() {
             return None;
         }
 
-        Some(NodeExtraDataId {
+        Some(NodeListDataId {
             inner: self.start,
             _phantom: PhantomData,
         })
     }
 
-    pub fn last(self) -> Option<NodeExtraDataId<T>> {
+    pub fn last(self) -> Option<NodeListDataId<T>> {
         if self.is_empty() {
             return None;
         }
 
-        Some(NodeExtraDataId {
+        Some(NodeListDataId {
             inner: self.end - 1,
             _phantom: PhantomData,
         })
@@ -140,18 +141,17 @@ impl<T> TypedSubRange<T> {
 
 impl<T> TypedSubRange<T> {
     #[inline]
-    pub fn replace_slot<'a>(self, ast: &mut Ast<'a>, at: NodeExtraDataId<T>, new: T)
+    pub fn replace_slot<'a>(self, ast: &mut Ast<'a>, at: NodeListDataId<T>, new: T)
     where
-        T: ExtraDataCompact<'a>,
+        T: ListDataCompact,
     {
-        let data = new.to_extra_data(ast);
-        ast.extra_data[at.inner.index()] = data;
+        ast.list_data[at.inner.index()] = new.to_list_data();
     }
 
     #[inline]
     pub fn get_node<'a>(self, ast: &Ast<'a>, index: usize) -> Option<T>
     where
-        T: ExtraDataCompact<'a>,
+        T: ListDataCompact,
     {
         self.get(index).map(|id| ast.get_node_in_sub_range(id))
     }
@@ -166,13 +166,13 @@ impl<T> Deref for TypedSubRange<T> {
 }
 
 pub struct TypedSubRangeIterator<T> {
-    cur: ExtraDataId,
-    end: ExtraDataId,
+    cur: ListDataId,
+    end: ListDataId,
     _phantom: PhantomData<T>,
 }
 
 impl<T> Iterator for TypedSubRangeIterator<T> {
-    type Item = NodeExtraDataId<T>;
+    type Item = NodeListDataId<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur == self.end {
@@ -182,10 +182,10 @@ impl<T> Iterator for TypedSubRangeIterator<T> {
         let next = self.cur;
         debug_assert!(next < self.end);
 
-        self.cur = ExtraDataId::from_usize_unchecked(self.cur.index().wrapping_add(1));
+        self.cur = ListDataId::from_usize_unchecked(self.cur.index().wrapping_add(1));
         debug_assert!(self.cur <= self.end);
 
-        Some(NodeExtraDataId {
+        Some(NodeListDataId {
             inner: next,
             _phantom: PhantomData,
         })
@@ -198,35 +198,30 @@ impl<T> DoubleEndedIterator for TypedSubRangeIterator<T> {
             return None;
         }
 
-        self.end = ExtraDataId::from_usize_unchecked(self.end.index().wrapping_sub(1));
+        self.end = ListDataId::from_usize_unchecked(self.end.index().wrapping_sub(1));
         debug_assert!(self.cur <= self.end);
 
         let next = self.end;
         debug_assert!(next >= self.cur);
 
-        Some(NodeExtraDataId {
+        Some(NodeListDataId {
             inner: next,
             _phantom: PhantomData,
         })
     }
 }
 
-/// This is a wrapper around `ExtraDataId` that is used to represent a node in a sub-range.
+/// This is a typed index into the AST list-data table.
 /// It's type safe and can be used to access nodes in the AST context.
 #[derive(Debug, Clone, Copy)]
-pub struct NodeExtraDataId<T> {
-    inner: ExtraDataId,
+pub struct NodeListDataId<T> {
+    inner: ListDataId,
     _phantom: PhantomData<T>,
 }
 
 impl<'a> Ast<'a> {
-    pub fn get_node_in_sub_range<T: ExtraDataCompact<'a>>(&self, id: NodeExtraDataId<T>) -> T {
-        // Safety: `NodeExtraDataId<T>` should always be valid
-        unsafe {
-            T::from_extra_data(
-                *self.extra_data.as_slice().get_unchecked(id.inner.index()),
-                self,
-            )
-        }
+    pub fn get_node_in_sub_range<T: ListDataCompact>(&self, id: NodeListDataId<T>) -> T {
+        // Safety: `NodeListDataId<T>` should always be valid and typed for `T`.
+        unsafe { T::from_list_data(*self.list_data.as_slice().get_unchecked(id.inner.index())) }
     }
 }
