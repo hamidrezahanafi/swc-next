@@ -655,6 +655,12 @@ mod tests {
         assert_syntax_modes("const Foo = () => null; <Foo></Foo>;", tsx_module);
 
         assert_syntax_modes("<div />;", tsx_module);
+
+        assert_syntax_modes("enum E { a, b = a }", ts_module);
+
+        assert_syntax_modes(r#"enum E { "a", b = a }"#, ts_module);
+
+        assert_syntax_modes(r#"enum E { "\ud800" }"#, ts_module);
     }
 
     #[test]
@@ -714,7 +720,22 @@ mod tests {
             ..Options::default()
         };
 
-        let (mut ast, semantic) = analyze_source(&allocator, r#"enum E { "foo" }"#, ts_script);
+        let (ast, semantic) = analyze_source(&allocator, "enum E { foo, bar = foo }", ts_script);
+        let member = semantic
+            .iter_symbols()
+            .find(|entry| symbol_name_bytes(&ast, entry.symbol.name) == b"foo")
+            .unwrap();
+        let reference = semantic.iter_references().next().unwrap().reference;
+
+        assert_eq!(reference.symbol, Some(member.id));
+        assert_eq!(Some(reference.name), member.symbol.name.as_utf8());
+        assert_eq!(
+            semantic.binding(member.symbol.scope, reference.name),
+            Some(member.id)
+        );
+
+        let (mut ast, semantic) =
+            analyze_source(&allocator, r#"enum E { "foo", bar = foo }"#, ts_script);
         let member = semantic
             .iter_symbols()
             .find(|entry| entry.symbol.flags.contains(SymbolFlags::ENUM_MEMBER))
@@ -726,6 +747,10 @@ mod tests {
         assert_eq!(semantic.binding(member.symbol.scope, name), Some(member.id));
         assert_eq!(
             semantic.lookup(member.symbol.scope, name, ReferenceSpace::Any),
+            Some(member.id)
+        );
+        assert_eq!(
+            semantic.iter_references().next().unwrap().reference.symbol,
             Some(member.id)
         );
 

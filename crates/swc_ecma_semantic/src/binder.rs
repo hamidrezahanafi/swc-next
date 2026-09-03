@@ -1,7 +1,7 @@
 use oxc_index::Idx;
 use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
 use swc_next_ecma_ast::{
-    Ast, AstInternedUtf8, AstWtf8, BindingIdentifier, Class, ClassType, ExportNamedDeclaration,
+    Ast, AstInternedUtf8, BindingIdentifier, Class, ClassType, ExportNamedDeclaration,
     ExportSpecifier, Function, FunctionType, IdentifierReference, ImportDeclaration,
     ImportOrExportKind, ImportSpecifier, JsxClosingElement, JsxElementName, JsxElementNameData,
     JsxIdentifier, JsxMemberExpressionObjectData, JsxOpeningElement, NodeId, NodeKind,
@@ -1194,8 +1194,12 @@ impl<'a> SymbolTracker<'a> {
         }
         let member_name = member.id(tree).node_id();
         let name = match tree.kind_data(member_name) {
-            NodeKindData::IdentifierName(identifier) => identifier.name(tree).into(),
-            NodeKindData::StringLiteral(literal) => literal.value(tree),
+            NodeKindData::IdentifierName(identifier) => {
+                ScopeName::Utf8(tree.intern_utf8(identifier.name(tree)))
+            }
+            NodeKindData::StringLiteral(literal) => {
+                ScopeName::intern_wtf8(tree, literal.value(tree))
+            }
             _ => return,
         };
         let saved = self.pending;
@@ -1204,7 +1208,7 @@ impl<'a> SymbolTracker<'a> {
             excludes: Excludes::ENUM_MEMBER,
             scope: scope.current,
         };
-        self.declare_wtf8(tree, name, member.node_id());
+        self.declare_name(name, member.node_id());
         self.pending = saved;
     }
 
@@ -1255,12 +1259,6 @@ impl<'a> SymbolTracker<'a> {
     pub fn declare(&mut self, tree: &Ast, name: AstInternedUtf8, node: NodeId) -> SymbolId {
         debug_assert!(node.index() < tree.node_count());
         self.declare_name(ScopeName::Utf8(name), node)
-    }
-
-    fn declare_wtf8(&mut self, tree: &mut Ast, name: AstWtf8, node: NodeId) -> SymbolId {
-        debug_assert!(node.index() < tree.node_count());
-        let name = ScopeName::intern_wtf8(tree, name);
-        self.declare_name(name, node)
     }
 
     fn declare_name(&mut self, scope_name: ScopeName, node: NodeId) -> SymbolId {
