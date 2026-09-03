@@ -450,8 +450,8 @@ impl<'a> CheckerState<'a> {
         for index in 0..self.export_specifiers.len() {
             let specifier = &self.export_specifiers[index];
             let local_name = match specifier.local_name {
-                ModuleExportNameValue::Utf8(name) => Some(tree.intern_utf8(name)),
-                ModuleExportNameValue::Wtf8(name) => {
+                LocalExportName::Utf8(name) => Some(name),
+                LocalExportName::Wtf8(name) => {
                     tree.as_utf8(name).map(|name| tree.intern_utf8(name))
                 }
             };
@@ -1074,19 +1074,13 @@ pub(super) fn check_identifier_reference(
 pub(super) fn check_binding_identifier(
     checker: &mut Checker<'_, '_>,
     identifier: BindingIdentifier,
+    name_id: AstInternedUtf8,
 ) {
     let checks = &mut checker.checks;
     let context = &mut checker.context;
     let node_id = identifier.node_id();
-    let name_id = context
-        .state
-        .symbols
-        .canonicalize_name(context.ast, identifier.name(context.ast));
     let name = context.ast.get_utf8(name_id.into()).as_bytes();
     let flags = context.state.symbols.pending.flags;
-    if context.state.in_type_position() && !flags.contains(SymbolFlags::TYPE_PARAMETER) {
-        return;
-    }
     if context.state.scope.is_strict() && !flags.contains(SymbolFlags::AMBIENT) {
         checks.check_strict_reserved(name, node_id, context, "a binding identifier");
         if is_eval_or_arguments(name) {
@@ -1906,7 +1900,11 @@ pub(super) fn check_export_all_declaration(
     checks.check_duplicate_with_attributes(declaration.attributes(context.ast), context);
 }
 
-pub(super) fn check_export_specifier(checker: &mut Checker<'_, '_>, specifier: ExportSpecifier) {
+pub(super) fn check_export_specifier(
+    checker: &mut Checker<'_, '_>,
+    specifier: ExportSpecifier,
+    local_name: Option<AstInternedUtf8>,
+) {
     let checks = &mut checker.checks;
     let context = &mut checker.context;
     let exported_name = module_export_name(context.ast, specifier.exported(context.ast).node_id());
@@ -1921,7 +1919,16 @@ pub(super) fn check_export_specifier(checker: &mut Checker<'_, '_>, specifier: E
         && declaration.source(context.ast).is_none()
         && declaration.export_kind(context.ast) != ImportOrExportKind::Type
     {
-        let local_name = module_export_name_id(context.ast, specifier.local(context.ast).node_id());
+        let local_name = match local_name {
+            Some(name) => LocalExportName::Utf8(name),
+            None => LocalExportName::Wtf8(
+                specifier
+                    .local(context.ast)
+                    .as_string_literal(context.ast)
+                    .expect("local export identifiers have a canonical name")
+                    .value(context.ast),
+            ),
+        };
         checks.export_specifiers.push(ExportSpecifierInfo {
             local_name,
             node: specifier.node_id(),

@@ -1,13 +1,13 @@
 use oxc_index::Idx;
 use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
 use swc_next_ecma_ast::{
-    Ast, AstInternedUtf8, AstUtf8, AstWtf8, BindingIdentifier, Class, ClassType,
-    ExportNamedDeclaration, ExportSpecifier, Function, FunctionType, IdentifierReference,
-    ImportDeclaration, ImportOrExportKind, ImportSpecifier, JsxClosingElement, JsxElementName,
-    JsxElementNameData, JsxIdentifier, JsxMemberExpressionObjectData, JsxOpeningElement, NodeId,
-    NodeKind, NodeKindData, ReferenceId, ScopeId, SourceType, SymbolId, TsEnumDeclaration,
-    TsEnumMember, TsInterfaceDeclaration, TsModuleDeclaration, TsTypeAliasDeclaration,
-    TsTypePredicate, VariableDeclaration, VariableKind,
+    Ast, AstInternedUtf8, AstWtf8, BindingIdentifier, Class, ClassType, ExportNamedDeclaration,
+    ExportSpecifier, Function, FunctionType, IdentifierReference, ImportDeclaration,
+    ImportOrExportKind, ImportSpecifier, JsxClosingElement, JsxElementName, JsxElementNameData,
+    JsxIdentifier, JsxMemberExpressionObjectData, JsxOpeningElement, NodeId, NodeKind,
+    NodeKindData, ReferenceId, ScopeId, SourceType, SymbolId, TsEnumDeclaration, TsEnumMember,
+    TsInterfaceDeclaration, TsModuleDeclaration, TsTypeAliasDeclaration, TsTypePredicate,
+    VariableDeclaration, VariableKind,
 };
 
 use crate::{
@@ -1074,19 +1074,13 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn declare_binding_identifier(
         &mut self,
-        tree: &mut Ast,
+        tree: &Ast,
         identifier: BindingIdentifier,
+        name: AstInternedUtf8,
         scope: &ScopeTracker<'a>,
-        space: ReferenceSpace,
-    ) -> Option<SymbolId> {
+    ) -> SymbolId {
         self.sync_scope_maps_from(scope);
         let node = identifier.node_id();
-        // Type-position identifiers are parameter labels. Only type
-        // parameters are real declarations there.
-        if space.in_type_position() && !self.pending.flags.contains(SymbolFlags::TYPE_PARAMETER) {
-            return None;
-        }
-        let name = self.canonicalize_name(tree, identifier.name(tree));
         let symbol_id = self.declare(tree, name, node);
 
         // Register a hoisting var in every block it passes through so
@@ -1101,7 +1095,7 @@ impl<'a> SymbolTracker<'a> {
                     .or_insert(symbol_id);
             }
         }
-        Some(symbol_id)
+        symbol_id
     }
 
     pub fn add_identifier_reference(
@@ -1112,31 +1106,21 @@ impl<'a> SymbolTracker<'a> {
         flags: ReferenceFlags,
     ) {
         self.sync_scope_maps_from(scope);
-        self.add_reference(
-            tree,
-            identifier.name(tree),
-            scope.current,
-            identifier.node_id(),
-            flags,
-        );
+        let name = tree.intern_utf8(identifier.name(tree));
+        self.add_reference(tree, name, scope.current, identifier.node_id(), flags);
     }
 
     pub fn add_var_write_reference(
         &mut self,
-        tree: &mut Ast,
+        tree: &Ast,
         identifier: BindingIdentifier,
+        name: AstInternedUtf8,
         scope: &ScopeTracker<'a>,
         flags: ReferenceFlags,
     ) {
         debug_assert!(flags.is_write_only());
         debug_assert!(scope.var_write_crosses_with());
-        self.add_reference(
-            tree,
-            identifier.name(tree),
-            scope.current,
-            identifier.node_id(),
-            flags,
-        );
+        self.add_reference(tree, name, scope.current, identifier.node_id(), flags);
     }
 
     pub fn add_local_export_reference(
@@ -1145,18 +1129,12 @@ impl<'a> SymbolTracker<'a> {
         specifier: ExportSpecifier,
         scope: &ScopeTracker<'a>,
         flags: ReferenceFlags,
-    ) {
-        let Some(local) = specifier.local(tree).as_identifier_name(tree) else {
-            return;
-        };
+    ) -> Option<AstInternedUtf8> {
+        let local = specifier.local(tree).as_identifier_name(tree)?;
         self.sync_scope_maps_from(scope);
-        self.add_reference(
-            tree,
-            local.name(tree),
-            scope.current,
-            local.node_id(),
-            flags,
-        );
+        let name = tree.intern_utf8(local.name(tree));
+        self.add_reference(tree, name, scope.current, local.node_id(), flags);
+        Some(name)
     }
 
     pub fn add_ts_type_predicate_reference(
@@ -1176,8 +1154,7 @@ impl<'a> SymbolTracker<'a> {
         let NodeKindData::IdentifierName(parameter_name) = tree.kind_data(parameter_node) else {
             return;
         };
-        let name = parameter_name.name(tree);
-        let canonical_name = self.canonicalize_name(tree, name);
+        let canonical_name = tree.intern_utf8(parameter_name.name(tree));
         let Some(parameter) = self.own_binding(scope.current, canonical_name) else {
             return;
         };
@@ -1190,7 +1167,7 @@ impl<'a> SymbolTracker<'a> {
         }
         self.add_reference(
             tree,
-            name,
+            canonical_name,
             scope.current,
             parameter_node,
             ReferenceFlags::default().with_space(ReferenceSpace::Typeof),
@@ -1260,9 +1237,10 @@ impl<'a> SymbolTracker<'a> {
         };
         let text = tree.get_utf8(identifier.name(tree));
         if text.as_bytes().first().is_some_and(u8::is_ascii_uppercase) {
+            let name = tree.intern_utf8(identifier.name(tree));
             self.add_reference(
                 tree,
-                identifier.name(tree),
+                name,
                 scope,
                 identifier.node_id(),
                 ReferenceFlags::default(),
@@ -1341,17 +1319,16 @@ impl<'a> SymbolTracker<'a> {
         id
     }
 
-    /// Records an identifier reference at `node` in `scope`.
+    /// Records a reference to an already canonicalized name at `node` in `scope`.
     pub fn add_reference(
         &mut self,
-        tree: &mut Ast,
-        name: AstUtf8,
+        tree: &Ast,
+        name: AstInternedUtf8,
         scope: ScopeId,
         node: NodeId,
         flags: ReferenceFlags,
     ) -> ReferenceId {
         debug_assert!(node.index() < tree.node_count());
-        let name = self.canonicalize_name(tree, name);
         // Ambient syntax still resolves through the same declaration space,
         // but its erased expressions do not access the binding at runtime.
         // Normalize only actual references instead of checking ambient state
@@ -1370,10 +1347,6 @@ impl<'a> SymbolTracker<'a> {
             flags,
         });
         id
-    }
-
-    pub(crate) fn canonicalize_name(&mut self, tree: &mut Ast, name: AstUtf8) -> AstInternedUtf8 {
-        tree.intern_utf8(name)
     }
 
     /// The symbol with the given id.

@@ -535,6 +535,128 @@ mod tests {
         (ast, result.semantic)
     }
 
+    fn assert_syntax_modes(source: &str, parser_options: Options) {
+        let allocator = Allocator::new();
+        let options = AnalyzeOptions {
+            build_module_record: true,
+            ..AnalyzeOptions::default()
+        };
+        let checked_options = AnalyzeOptions {
+            check_syntax: true,
+            ..options
+        };
+        let (ast, semantic) = analyze_with_options(&allocator, source, parser_options, options);
+        let (checked_ast, checked) =
+            analyze_with_options(&allocator, source, parser_options, checked_options);
+        let scopes = |semantic: &Semantic<'_>| {
+            semantic
+                .iter_scopes()
+                .map(|entry| {
+                    let scope = entry.scope;
+                    (
+                        entry.id,
+                        scope.node,
+                        scope.parent,
+                        scope.hoist_target,
+                        scope.kind,
+                        scope.flags.strict,
+                        scope.flags.direct_eval,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let symbols = |ast: &Ast<'_>, semantic: &Semantic<'_>| {
+            semantic
+                .iter_symbols()
+                .map(|entry| {
+                    let symbol = entry.symbol;
+                    (
+                        entry.id,
+                        symbol_name_bytes(ast, symbol.name).to_vec(),
+                        symbol.flags,
+                        symbol.scope,
+                        semantic
+                            .declarations(entry.id)
+                            .map(|declaration| (declaration.node, declaration.flags))
+                            .collect::<Vec<_>>(),
+                        semantic.uses(entry.id).to_vec(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let references = |ast: &Ast<'_>, semantic: &Semantic<'_>| {
+            semantic
+                .iter_references()
+                .map(|entry| {
+                    let reference = entry.reference;
+                    (
+                        entry.id,
+                        ast.get_utf8(reference.name.into()).to_owned(),
+                        reference.node,
+                        reference.scope,
+                        reference.symbol,
+                        reference.flags,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(scopes(&semantic), scopes(&checked));
+        assert_eq!(symbols(&ast, &semantic), symbols(&checked_ast, &checked));
+        assert_eq!(
+            references(&ast, &semantic),
+            references(&checked_ast, &checked)
+        );
+        assert_eq!(semantic.node_symbols, checked.node_symbols);
+        assert_eq!(semantic.node_references, checked.node_references);
+        assert_eq!(
+            semantic.module_record().exports(),
+            checked.module_record().exports()
+        );
+    }
+
+    #[test]
+    fn syntax_modes() {
+        let js_script = Options {
+            source_type: SourceType::Script,
+            ..Options::default()
+        };
+        let js_module = Options::default();
+        let ts_module = Options {
+            lang: Lang::Ts,
+            ..js_module
+        };
+        let tsx_module = Options {
+            lang: Lang::Tsx,
+            ..js_module
+        };
+
+        assert_syntax_modes("let value; v\\u0061lue;", js_script);
+
+        assert_syntax_modes("var value; var value;", js_script);
+
+        assert_syntax_modes("with ({}) { var value = 1; }", js_script);
+
+        assert_syntax_modes(
+            "function f<T>(value: T): value is T { return true; }",
+            ts_module,
+        );
+
+        assert_syntax_modes("type F = <T>(label: T) => label is T;", ts_module);
+
+        assert_syntax_modes("export { value as result }; const value = 1;", js_module);
+
+        assert_syntax_modes("export { value as result } from 'dep';", js_module);
+
+        assert_syntax_modes("export type { T }; interface T {}", ts_module);
+
+        assert_syntax_modes("namespace N { export const value = 1; }", ts_module);
+
+        assert_syntax_modes("const Foo = () => null; <Foo></Foo>;", tsx_module);
+
+        assert_syntax_modes("<div />;", tsx_module);
+    }
+
     #[test]
     fn symbols() {
         let allocator = Allocator::new();

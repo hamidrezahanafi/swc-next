@@ -183,8 +183,23 @@ impl ModuleExportNameValue {
 }
 
 struct ExportSpecifierInfo {
-    local_name: ModuleExportNameValue,
+    local_name: LocalExportName,
     node: NodeId,
+}
+
+#[derive(Clone, Copy)]
+enum LocalExportName {
+    Utf8(AstInternedUtf8),
+    Wtf8(AstWtf8),
+}
+
+impl LocalExportName {
+    fn bytes<'b>(self, tree: &'b Ast<'_>) -> &'b [u8] {
+        match self {
+            Self::Utf8(name) => tree.get_utf8(name.into()).as_bytes(),
+            Self::Wtf8(name) => tree.get_wtf8(name).as_bytes(),
+        }
+    }
 }
 
 impl<'a> CheckerState<'a> {
@@ -210,7 +225,6 @@ impl Checker<'_, '_> {
             NodeKindData::NumericLiteral(node) => js::check_numeric_literal(self, node),
             NodeKindData::RegExpLiteral(node) => js::check_reg_exp_literal(self, node),
             NodeKindData::IdentifierReference(node) => js::check_identifier_reference(self, node),
-            NodeKindData::BindingIdentifier(node) => js::check_binding_identifier(self, node),
             NodeKindData::LabelIdentifier(node) => js::check_label_identifier(self, node),
             NodeKindData::BinaryExpression(node) => js::check_binary_expression(self, node),
             NodeKindData::UnaryExpression(node) => js::check_unary_expression(self, node),
@@ -243,7 +257,6 @@ impl Checker<'_, '_> {
             NodeKindData::ExportAllDeclaration(node) => {
                 js::check_export_all_declaration(self, node)
             }
-            NodeKindData::ExportSpecifier(node) => js::check_export_specifier(self, node),
             _ => {}
         }
     }
@@ -469,24 +482,46 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
     fn visit_binding_identifier(&mut self, node: BindingIdentifier) {
         let flags = self.context.enter_node(node.node_id());
         node.visit_children_with(self);
-        self.leave_node(NodeKindData::BindingIdentifier(node));
+        // Type-position parameter labels do not declare. Keep the checker's
+        // syntactic type context distinct from the binder's reference space.
+        let type_parameter = self
+            .context
+            .state
+            .symbols
+            .pending
+            .flags
+            .contains(SymbolFlags::TYPE_PARAMETER);
+        let declares = !flags.space.in_type_position() || type_parameter;
+        let checks =
+            self.check_syntax && (!self.context.state.in_type_position() || type_parameter);
+        if !declares && !checks {
+            self.context.leave_node(node.node_id());
+            return;
+        }
+        let name = self.context.ast.intern_utf8(node.name(self.context.ast));
+        if checks {
+            js::check_binding_identifier(self, node, name);
+        }
+        self.context.leave_node(node.node_id());
+        if !declares {
+            return;
+        }
         let direct_export = self.context.state.symbols.export_state.named();
         let direct_export = direct_export.filter(|_| !self.context.state.in_ts_namespace());
         let state = &mut self.context.state;
-        let declaration = state.symbols.declare_binding_identifier(
-            self.context.ast,
-            node,
-            &state.scope,
-            flags.space,
-        );
-        if declaration.is_some() && flags.is_write_only() {
-            state
-                .symbols
-                .add_var_write_reference(self.context.ast, node, &state.scope, flags);
+        state
+            .symbols
+            .declare_binding_identifier(self.context.ast, node, name, &state.scope);
+        if flags.is_write_only() {
+            state.symbols.add_var_write_reference(
+                self.context.ast,
+                node,
+                name,
+                &state.scope,
+                flags,
+            );
         }
-        if declaration.is_some()
-            && let Some(statement) = direct_export
-        {
+        if let Some(statement) = direct_export {
             state
                 .module_record
                 .add_direct_export(self.context.ast, node.node_id(), statement);
@@ -678,15 +713,22 @@ impl<'a> Visit<'a> for Checker<'_, 'a> {
         if type_only {
             flags = flags.no_access();
         }
-        if declaration.is_some_and(|declaration| declaration.source(self.context.ast).is_none()) {
+        let local_name = if declaration
+            .is_some_and(|declaration| declaration.source(self.context.ast).is_none())
+        {
             let state = &mut self.context.state;
             state
                 .symbols
-                .add_local_export_reference(self.context.ast, node, &state.scope, flags);
-        }
+                .add_local_export_reference(self.context.ast, node, &state.scope, flags)
+        } else {
+            None
+        };
         self.visit_with_reference_flags(node.local(self.context.ast), flags);
         node.exported(self.context.ast).visit_with(self);
-        self.leave_node(NodeKindData::ExportSpecifier(node));
+        if self.check_syntax {
+            js::check_export_specifier(self, node, local_name);
+        }
+        self.context.leave_node(node.node_id());
     }
 
     fn visit_formal_parameters(&mut self, node: FormalParameters) {
