@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, de::DeserializeOwned};
 use swc_next_ecma_codegen::{NumberFormat, Options as CodegenOptions};
 use swc_next_ecma_transformer::{
-    TransformerOptions, assumptions::Assumptions, es2015::ES2015Options,
+    TransformerOptions, assumptions::Assumptions, es2015::ES2015Options, es2022::ES2022Options,
+    proposal::ProposalOptions,
 };
 
 mod plugins;
@@ -76,10 +77,6 @@ pub struct BabelOptions {
     /// Allow `super` outside class methods.
     #[serde(default)]
     pub allow_super_outside_method: bool,
-
-    /// Whether helpers are provided by external runtime instead of inlined behavior.
-    #[serde(default = "default_as_true")]
-    pub external_helpers: bool,
 }
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -108,6 +105,12 @@ impl From<BabelOptions> for TransformerOptions {
                 arrow_functions: plugins.arrow_function,
                 shorthand_properties: plugins.shorthand_properties,
                 sticky_regex: plugins.sticky_regex,
+            },
+            es2022: ES2022Options {
+                static_blocks: plugins.static_blocks,
+            },
+            proposal: ProposalOptions {
+                prevent_extensions: plugins.static_blocks,
             },
         }
     }
@@ -143,10 +146,6 @@ impl PluginPresetEntry {
             }
         }
     }
-}
-
-fn default_as_true() -> bool {
-    true
 }
 
 impl BabelOptions {

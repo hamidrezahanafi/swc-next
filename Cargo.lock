@@ -175,6 +175,7 @@ dependencies = [
  "swc_next_ecma_codegen",
  "swc_next_ecma_parser",
  "swc_next_ecma_semantic",
+ "swc_next_ecma_transformer",
  "swc_next_type_strip",
  "tracy-client",
 ]
@@ -2836,8 +2837,12 @@ dependencies = [
 name = "swc_next_ecma_transformer"
 version = "0.2.3"
 dependencies = [
+ "bitflags",
+ "rustc-hash",
  "serde",
+ "swc_next_allocator",
  "swc_next_ecma_ast",
+ "swc_next_ecma_parser",
  "swc_next_ecma_semantic",
 ]
 

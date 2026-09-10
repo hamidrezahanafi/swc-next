@@ -9,13 +9,16 @@ Run all commands below from the workspace root.
 
 ## Fixtures
 
-The harness expects three upstream repositories under `tasks/testsuite/fixtures`:
+The harness uses pinned upstream repositories under `tasks/testsuite/fixtures`:
 
 | Directory             | Upstream suite                                                  | Used for                                                |
 | --------------------- | --------------------------------------------------------------- | ------------------------------------------------------- |
 | `fixtures/test262`    | [TC39 Test262](https://github.com/tc39/test262)                 | JavaScript parser and codegen coverage                  |
 | `fixtures/typescript` | [microsoft/TypeScript](https://github.com/microsoft/TypeScript) | TypeScript parser and codegen coverage                  |
 | `fixtures/babel`      | [babel/babel](https://github.com/babel/babel)                   | Babel parser/codegen coverage and transform comparisons |
+| `fixtures/swc`        | [swc-project/swc](https://github.com/swc-project/swc)           | SWC resolver inputs and transform comparisons           |
+| `fixtures/swc-conformance` | [CPunisher/swc-conformance](https://github.com/CPunisher/swc-conformance) | Expected SWC name resolution text              |
+| `fixtures/estree-conformance` | [oxc-project/estree-conformance](https://github.com/oxc-project/estree-conformance) | N-API ESTree comparisons                 |
 
 For a fresh checkout, clone the fixtures with:
 
@@ -88,6 +91,38 @@ skipped. The full run writes
 `tasks/testsuite/snapshots/babel_transform.snap`, including totals and
 per-package diagnostics.
 
+## SWC transform conformance
+
+Run the SWC static-block transform fixtures:
+
+```sh
+cargo run -p testsuite --bin swc_transform
+```
+
+This reads `input.js`/`output.js` pairs from
+`swc/crates/swc_ecma_transforms_compat/tests/static-blocks` at the revision
+pinned in `scripts/clone_fixtures.sh`. It uses the same parse → analyze →
+transform → print comparison as the Babel runner. Transform options follow
+SWC's `es2022_static_blocks.rs` test entry: standalone static blocks run with
+`static_blocks=true` and the default `prevent_extensions=false`; fixtures under
+`class-properties/` are counted as skipped until that transform is supported.
+
+The SWC run writes `tasks/testsuite/snapshots/swc_transform.snap`. Both transform
+runners write normalized `expected/`, `actual/`, and `differences.md` files under
+`tasks/testsuite/outputs/{babel_transform,swc_transform}/`. Missing fixtures and
+panics fail the command; ordinary output mismatches are recorded in snapshots.
+CI runs both commands and checks the snapshots for changes.
+
+To cover both static-block lowering modes locally, run:
+
+```sh
+cargo run --locked -p testsuite --bin swc_transform
+cargo run --locked -p testsuite --bin babel_transform
+```
+
+The Babel static-block fixtures use `prevent_extensions=true`, exercising the
+closure lowering; the SWC fixtures exercise the default private-field lowering.
+
 ## Debug one case
 
 Run one uniquely matched case without updating snapshots:
@@ -99,10 +134,23 @@ cargo run -p testsuite --bin debug -- \
   --filter "optional-chaining - strict"
 ```
 
-Supported runners are `parser`, `codegen`, and `babel_transform`. The case
-argument selects `test262`, `typescript`, `babel`, or `local`; the filter is a contains
-match against the combined fixture path and case name. If it matches multiple
-cases, the command lists candidates that can be used to narrow it.
+Supported runner/case combinations are:
+
+| Runner | Case |
+| ------ | ---- |
+| `parser`, `codegen` | `test262`, `typescript`, `babel`, `local` |
+| `babel_transform` | `babel` |
+| `swc_transform` | `swc` |
+| `resolver` | `swc_resolver` |
+
+The filter is a contains match against the combined fixture path and case name.
+If it matches multiple cases, the command lists candidates that can be used to
+narrow it. For example, debug SWC private-name collision handling with:
+
+```sh
+cargo run -p testsuite --bin debug -- \
+  --runner swc_transform --case swc --filter 'static-blocks/basic/name-conflicts02'
+```
 
 ## Recommended workflow
 

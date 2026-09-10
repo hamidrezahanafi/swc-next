@@ -13,7 +13,15 @@ use swc_next_ecma_ast::{
 };
 use swc_next_ecma_codegen::{Options as CodegenOptions, print};
 use swc_next_ecma_parser::{CommentMode, NoTokenParserConfig, Options, Parser};
-use swc_next_ecma_semantic::{AnalyzeOptions, analyze, name_resolver::resolver as resolve_names};
+use swc_next_ecma_semantic::{
+    AnalyzeOptions, Semantic, analyze, name_resolver::resolver as resolve_names,
+};
+use swc_next_ecma_transformer::{
+    Transformer, TransformerOptions,
+    es2015::{ES2015Options, arrow::ArrowFunctionsOptions},
+    es2022::ES2022Options,
+    proposal::ProposalOptions,
+};
 use swc_next_type_strip::strip_types;
 
 const ANGULAR: &str = include_str!("../files/angular-1.2.5.js");
@@ -29,6 +37,7 @@ const CAL_COM_TSX: &str = include_str!("../files/cal.com.tsx");
 const ASTRO_CONFIG: &str = include_str!("../files/astro-config.ts");
 const EFFECT_SCHEMA_AST: &str = include_str!("../files/effect-schema-ast.ts");
 const HONO_TYPES: &str = include_str!("../files/hono-types.ts");
+const TRANSFORM: &str = include_str!("../files/transform.js");
 
 #[library_benchmark]
 #[bench::angular(ANGULAR, Lang::Js)]
@@ -105,6 +114,75 @@ fn bench_resolver(ast: Ast<'static>) {
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
 fn bench_codegen(ast: Ast<'static>) {
     black_box(print(ast.allocator(), &ast, CodegenOptions::default()));
+}
+
+fn all_transform_options() -> TransformerOptions {
+    TransformerOptions {
+        es2015: ES2015Options {
+            arrow_functions: Some(ArrowFunctionsOptions::default()),
+            shorthand_properties: true,
+            sticky_regex: true,
+        },
+        es2022: ES2022Options {
+            static_blocks: true,
+        },
+        proposal: ProposalOptions {
+            prevent_extensions: true,
+        },
+        ..TransformerOptions::default()
+    }
+}
+
+// Keep transform-specific semantic collection inside its own measured function.
+#[library_benchmark]
+#[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
+#[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
+#[bench::transform(setup_program(TRANSFORM, Lang::Js))]
+fn bench_semantic_for_transform(ast: Ast<'static>) {
+    black_box(analyze(
+        &ast,
+        AnalyzeOptions {
+            features: all_transform_options().semantic_features(),
+            ..AnalyzeOptions::default()
+        },
+    ));
+}
+
+type TransformInput = (Ast<'static>, Semantic<'static>, TransformerOptions);
+
+fn setup_transform(source: &'static str, lang: Lang) -> TransformInput {
+    let ast = setup_program(source, lang);
+    let options = all_transform_options();
+    let semantic = analyze(
+        &ast,
+        AnalyzeOptions {
+            features: options.semantic_features(),
+            ..AnalyzeOptions::default()
+        },
+    )
+    .semantic;
+    (ast, semantic, options)
+}
+
+#[library_benchmark]
+#[bench::angular(setup_transform(ANGULAR, Lang::Js))]
+#[bench::backbone(setup_transform(BACKBONE, Lang::Js))]
+#[bench::jquery(setup_transform(JQUERY, Lang::Js))]
+#[bench::jquery_mobile(setup_transform(JQUERY_MOBILE, Lang::Js))]
+#[bench::mootools(setup_transform(MOOTOOLS, Lang::Js))]
+#[bench::underscore(setup_transform(UNDERSCORE, Lang::Js))]
+#[bench::three(setup_transform(THREE, Lang::Js))]
+#[bench::yui(setup_transform(YUI, Lang::Js))]
+#[bench::typescript(setup_transform(TYPESCRIPT, Lang::Js))]
+#[bench::cal_com_tsx(setup_transform(CAL_COM_TSX, Lang::Tsx))]
+#[bench::astro_config(setup_transform(ASTRO_CONFIG, Lang::Ts))]
+#[bench::effect_schema_ast(setup_transform(EFFECT_SCHEMA_AST, Lang::Ts))]
+#[bench::hono_types(setup_transform(HONO_TYPES, Lang::Ts))]
+#[bench::transform(setup_transform(TRANSFORM, Lang::Js))]
+fn bench_transform(input: TransformInput) {
+    let (mut ast, mut semantic, options) = black_box(input);
+    Transformer::transform(&mut ast, &mut semantic, options);
+    black_box((ast, semantic));
 }
 
 fn type_strip_options(lang: Lang) -> Options {
@@ -295,12 +373,18 @@ library_benchmark_group!(name = parser, benchmarks = bench_parser);
 
 library_benchmark_group!(
     name = semantic,
-    benchmarks = [bench_analyze, bench_syntax_check]
+    benchmarks = [
+        bench_analyze,
+        bench_syntax_check,
+        bench_semantic_for_transform
+    ]
 );
 
 library_benchmark_group!(name = resolver, benchmarks = bench_resolver);
 
 library_benchmark_group!(name = codegen, benchmarks = bench_codegen);
+
+library_benchmark_group!(name = transform, benchmarks = bench_transform);
 
 library_benchmark_group!(name = type_strip, benchmarks = bench_type_strip);
 
@@ -314,5 +398,7 @@ main!(
         LibraryBenchmarkConfig::default().tool(
             Callgrind::with_args(["--branch-sim=no", "--cache-sim=no",]).format([EventKind::Ir]),
         ),
-    library_benchmark_groups = [parser, semantic, resolver, codegen, type_strip, visit]
+    library_benchmark_groups = [
+        parser, semantic, resolver, codegen, transform, type_strip, visit
+    ]
 );

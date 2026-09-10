@@ -4,10 +4,10 @@ babel transform
 Total
 -----
 Cases: 4069
-Passed: 449/4069 (11.03%)
-Failed: 54/4069 (1.33%)
+Passed: 453/4069 (11.13%)
+Failed: 60/4069 (1.47%)
 Panicked: 0/4069 (0.00%)
-Skipped: 3566/4069 (87.64%)
+Skipped: 3556/4069 (87.39%)
 
 Packages
 ========
@@ -328,18 +328,26 @@ Skipped: 117/117 (100.00%)
 babel-plugin-transform-class-properties
 ---------------------------------------
 Cases: 267
-Passed: 2/267 (0.75%)
-Failed: 0/267 (0.00%)
+Passed: 0/267 (0.00%)
+Failed: 2/267 (0.75%)
 Panicked: 0/267 (0.00%)
 Skipped: 265/267 (99.25%)
+Messages:
+Failed: fixtures/babel/packages/babel-plugin-transform-class-properties/test/fixtures/public-loose/arrow-static-this-without-transform/input.js - babel-plugin-transform-class-properties/test/fixtures/public-loose/arrow-static-this-without-transform: transformed output differs from output.js
+Failed: fixtures/babel/packages/babel-plugin-transform-class-properties/test/fixtures/public/arrow-static-this-without-transform/input.js - babel-plugin-transform-class-properties/test/fixtures/public/arrow-static-this-without-transform: transformed output differs from output.js
 
 babel-plugin-transform-class-static-block
 -----------------------------------------
 Cases: 24
-Passed: 0/24 (0.00%)
-Failed: 0/24 (0.00%)
+Passed: 6/24 (25.00%)
+Failed: 4/24 (16.67%)
 Panicked: 0/24 (0.00%)
-Skipped: 24/24 (100.00%)
+Skipped: 14/24 (58.33%)
+Messages:
+Failed: fixtures/babel/packages/babel-plugin-transform-class-static-block/test/fixtures/class-static-block/class-inferred-name/input.js - babel-plugin-transform-class-static-block/test/fixtures/class-static-block/class-inferred-name: transformed output differs from output.js
+Failed: fixtures/babel/packages/babel-plugin-transform-class-static-block/test/fixtures/class-static-block/multiple-static-initializers/input.js - babel-plugin-transform-class-static-block/test/fixtures/class-static-block/multiple-static-initializers: transformed output differs from output.js
+Failed: fixtures/babel/packages/babel-plugin-transform-class-static-block/test/fixtures/class-static-block/preserve-comments/input.js - babel-plugin-transform-class-static-block/test/fixtures/class-static-block/preserve-comments: transformed output differs from output.js
+Failed: fixtures/babel/packages/babel-plugin-transform-class-static-block/test/fixtures/class-static-block/var-scope/input.js - babel-plugin-transform-class-static-block/test/fixtures/class-static-block/var-scope: transformed output differs from output.js
 
 babel-plugin-transform-classes
 ------------------------------

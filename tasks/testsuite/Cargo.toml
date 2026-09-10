@@ -27,4 +27,7 @@ name = "conformance"
 name = "babel_transform"
 
 [[bin]]
+name = "swc_transform"
+
+[[bin]]
 name = "debug"

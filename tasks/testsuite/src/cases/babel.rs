@@ -7,8 +7,10 @@ use std::{
 use jwalk::WalkDir;
 use rayon::prelude::*;
 use swc_next_ecma_ast::{Lang, SourceType};
+use swc_next_ecma_codegen::Options as CodegenOptions;
+use swc_next_ecma_transformer::TransformerOptions;
 
-use crate::cases::{Case, fixtures};
+use crate::cases::{Case, fixtures, transform::TransformCase};
 
 pub mod options;
 
@@ -166,6 +168,28 @@ impl Case for BabelTransformCase {
 
     fn expects_error(&self) -> bool {
         false
+    }
+}
+
+impl TransformCase for BabelTransformCase {
+    fn package_name(&self) -> &str {
+        &self.package_name
+    }
+
+    fn output_path(&self) -> &Path {
+        &self.output_path
+    }
+
+    fn output(&self) -> &str {
+        &self.output
+    }
+
+    fn transformer_options(&self) -> TransformerOptions {
+        self.options.clone().into()
+    }
+
+    fn codegen_options(&self) -> CodegenOptions {
+        self.options.codegen_options()
     }
 }
 

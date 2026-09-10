@@ -134,6 +134,8 @@ jobs:
         run: cargo run --locked -p testsuite --bin conformance --profile conformance
       - name: Run Babel transform conformance
         run: cargo run --locked -p testsuite --bin babel_transform
+      - name: Run SWC transform conformance
+        run: cargo run --locked -p testsuite --bin swc_transform
       - name: Build Node.js bindings
         run: pnpm build --release
       - name: Run ESTree conformance
