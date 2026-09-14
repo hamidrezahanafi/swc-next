@@ -17,16 +17,11 @@ pub fn estree_decoder(schema: &Schema) -> Vec<RawOutput> {
         let name = if is_ts { "decode_ts" } else { "decode_js" };
         writeln!(output, "\nexport function {name}(buffer, source) {{").unwrap();
         output.push_str(DECODER_PREAMBLE);
-        for (kind, ty) in schema
-            .types
-            .iter()
-            .filter_map(|ty| match ty {
-                AstType::Struct(ast) => Some(ast),
-                _ => None,
-            })
-            .enumerate()
-        {
-            write_node_case(&mut output, kind, ty, schema, is_ts);
+        for ty in schema.types.iter().filter_map(|ty| match ty {
+            AstType::Struct(ast) => Some(ast),
+            _ => None,
+        }) {
+            write_node_function(&mut output, ty, schema, is_ts);
         }
         output.push_str(POSTAMBLE);
         write_outputs(&mut outputs, name, &output);
@@ -48,14 +43,8 @@ fn write_outputs(outputs: &mut Vec<RawOutput>, name: &str, source: &str) {
     });
 }
 
-fn write_node_case(
-    output: &mut String,
-    kind: usize,
-    ast: &AstStruct,
-    schema: &Schema,
-    is_ts: bool,
-) {
-    writeln!(output, "      case {kind}: {{").unwrap();
+fn write_node_function(output: &mut String, ast: &AstStruct, schema: &Schema, is_ts: bool) {
+    writeln!(output, "    function decode{}(index) {{", ast.name).unwrap();
 
     let layout = calculate_inline_layout(ast, schema);
     let mut fields = Vec::new();
@@ -91,20 +80,35 @@ fn write_node_case(
         });
     }
 
-    if fields
+    let needs_extra = fields
         .iter()
-        .any(|field| field.expression.contains("extraId"))
+        .any(|field| field.expression.contains("extraId"));
+    if !matches!(ast.name.as_str(), "FormalParameter" | "FormalParameters") {
+        writeln!(output, "        const span = spans + index * 8;").unwrap();
+        if ast.name != "Program" || !is_ts {
+            writeln!(output, "        const start = pos(_u32[span >> 2]);").unwrap();
+        }
+        writeln!(output, "        const end = pos(_u32[(span >> 2) + 1]);").unwrap();
+    }
+    if needs_extra
+        || fields
+            .iter()
+            .any(|field| field.expression.contains("payload"))
     {
+        writeln!(output, "        const payload = payloads + index * 16;").unwrap();
+    }
+    if needs_extra {
         writeln!(output, "        const extraId = _u32[(payload + 12) >> 2];").unwrap();
     }
+    writeln!(output, "        let result;").unwrap();
 
     if is_special_node(&ast.name) {
         write_special_node(output, &ast.name, &fields, is_ts);
     } else {
         write_generic_node(output, &ast.name, &fields, is_ts);
     }
-    writeln!(output, "        break;").unwrap();
-    writeln!(output, "      }}").unwrap();
+    writeln!(output, "        return result;").unwrap();
+    writeln!(output, "    }},").unwrap();
 }
 
 struct DecodedField {
@@ -1032,19 +1036,18 @@ const DECODER_PREAMBLE: &str = r#"  const arrayBuffer = buffer instanceof ArrayB
     return result;
   };
 
-  function node(index) {
-    const span = spans + index * 8;
-    const start = pos(_u32[span >> 2]);
-    const end = pos(_u32[(span >> 2) + 1]);
-    const payload = payloads + index * 16;
-    let result;
-    switch (bytes[kinds + index]) {
+  const nodeDecoders = [
 "#;
 
-const POSTAMBLE: &str = r#"      default:
-        throw new RangeError(`Unknown AST node kind ${bytes[kinds + index]}`);
+const POSTAMBLE: &str = r#"  ];
+
+  function node(index) {
+    const kind = bytes[kinds + index];
+    const decodeNode = nodeDecoders[kind];
+    if (decodeNode === undefined) {
+      throw new RangeError(`Unknown AST node kind ${kind}`);
     }
-    return result;
+    return decodeNode(index);
   }
 
   let _program, _comments, _diagnostics;
