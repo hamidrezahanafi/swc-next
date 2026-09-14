@@ -435,8 +435,8 @@ export function decode_ts(buffer, source) {
         result = { type: "Identifier", start, end,
           name: str(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]),
           decorators: nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false),
-          typeAnnotation: optionalNode(_dv.getUint32(payload + 1, true)),
           optional: _dv.getUint8(payload + 0) !== 0,
+          typeAnnotation: optionalNode(_dv.getUint32(payload + 1, true)),
         };
         return result;
     },
@@ -513,10 +513,11 @@ export function decode_ts(buffer, source) {
         const f_typeAnnotation = optionalNode(_dv.getUint32(payload + 5, true));
         const f_optional = _dv.getUint8(payload + 0) !== 0;
         const elements = f_rest === null ? f_elements : [...f_elements, f_rest];
-        result = { type: "ArrayPattern", start, end, elements };
-        result.decorators = f_decorators;
-        result.optional = f_optional;
-        result.typeAnnotation = f_typeAnnotation;
+        result = { type: "ArrayPattern", start, end, elements,
+          decorators: f_decorators,
+          optional: f_optional,
+          typeAnnotation: f_typeAnnotation,
+        };
         return result;
     },
     function decodeObjectPattern(index) {
@@ -532,10 +533,11 @@ export function decode_ts(buffer, source) {
         const f_typeAnnotation = optionalNode(_dv.getUint32(payload + 5, true));
         const f_optional = _dv.getUint8(payload + 0) !== 0;
         const properties = f_rest === null ? f_properties : [...f_properties, f_rest];
-        result = { type: "ObjectPattern", start, end, properties };
-        result.decorators = f_decorators;
-        result.optional = f_optional;
-        result.typeAnnotation = f_typeAnnotation;
+        result = { type: "ObjectPattern", start, end, properties,
+          decorators: f_decorators,
+          optional: f_optional,
+          typeAnnotation: f_typeAnnotation,
+        };
         return result;
     },
     function decodeBindingProperty(index) {
@@ -549,11 +551,11 @@ export function decode_ts(buffer, source) {
         const f_shorthand = _dv.getUint8(payload + 8) !== 0;
         const f_computed = _dv.getUint8(payload + 9) !== 0;
         result = {
-          type: "Property", start, end, kind: "init",
-          key: f_key, value: f_value,
+          type: "Property", start, end,
+          key: f_key, value: f_value, kind: "init",
           method: false, shorthand: f_shorthand, computed: f_computed,
+          optional: false,
         };
-        result.optional = false;
         return result;
     },
     function decodeBinaryExpression(index) {
@@ -898,12 +900,12 @@ export function decode_ts(buffer, source) {
           id: f_id,
           superClass: f_superClass,
           body: f_body,
+          typeParameters: f_typeParameters,
+          superTypeArguments: f_superTypeArguments,
+          implements: f_implements,
+          abstract: f_abstract,
+          declare: f_declare,
         };
-        result.typeParameters = f_typeParameters;
-        result.superTypeArguments = f_superTypeArguments;
-        result.implements = f_implements;
-        result.abstract = f_abstract;
-        result.declare = f_declare;
         return result;
     },
     function decodeClassBody(index) {
@@ -935,7 +937,7 @@ export function decode_ts(buffer, source) {
         const f_abstract = _dv.getUint8(payload + 5) !== 0;
         const f_accessibility = enumValue("Accessibility", _dv.getUint8(payload + 6));
         result = {
-          type: "MethodDefinition",
+          type: f_abstract ? "TSAbstractMethodDefinition" : "MethodDefinition",
           start, end,
           decorators: f_decorators,
           key: f_key,
@@ -943,11 +945,10 @@ export function decode_ts(buffer, source) {
           kind: f_kind,
           computed: f_computed,
           static: f_static,
+          override: f_override,
+          optional: f_optional,
+          accessibility: f_accessibility,
         };
-        result.override = f_override;
-        result.optional = f_optional;
-        result.accessibility = f_accessibility;
-        if (f_abstract) result.type = "TSAbstractMethodDefinition";
         return result;
     },
     function decodePropertyDefinition(index) {
@@ -971,28 +972,22 @@ export function decode_ts(buffer, source) {
         const f_readonly = _dv.getUint8(payload + 7) !== 0;
         const f_abstract = _dv.getUint8(payload + 8) !== 0;
         const f_accessibility = enumValue("Accessibility", _dv.getUint8(payload + 9));
-        const accessor = f_accessor;
+        const type = f_abstract ? (f_accessor ? "TSAbstractAccessorProperty" : "TSAbstractPropertyDefinition") : (f_accessor ? "AccessorProperty" : "PropertyDefinition");
         result = {
-          type: accessor ? "AccessorProperty" : "PropertyDefinition",
-          start, end,
+          type, start, end,
           decorators: f_decorators,
           key: f_key,
           value: f_value,
           computed: f_computed,
           static: f_static,
+          typeAnnotation: f_typeAnnotation,
+          declare: f_declare,
+          override: f_override,
+          optional: f_optional,
+          definite: f_definite,
+          readonly: f_readonly,
+          accessibility: f_accessibility,
         };
-        result.typeAnnotation = f_typeAnnotation;
-        result.declare = f_declare;
-        result.override = f_override;
-        result.optional = f_optional;
-        result.definite = f_definite;
-        result.readonly = f_readonly;
-        result.accessibility = f_accessibility;
-        if (f_abstract) {
-          result.type = accessor
-            ? "TSAbstractAccessorProperty"
-            : "TSAbstractPropertyDefinition";
-        }
         return result;
     },
     function decodeStaticBlock(index) {
@@ -1029,10 +1024,10 @@ export function decode_ts(buffer, source) {
           params: f_params.params,
           body: f_body,
           expression: false,
+          typeParameters: f_typeParameters,
+          returnType: f_returnType,
+          declare: false,
         };
-        result.typeParameters = f_typeParameters;
-        result.returnType = f_returnType;
-        result.declare = false;
         return result;
     },
     function decodeFunctionBody(index) {
@@ -1187,9 +1182,9 @@ export function decode_ts(buffer, source) {
           id: null, generator: false, async: f_async,
           params: f_params.params,
           body: f_body, expression: f_expression,
+          typeParameters: f_typeParameters,
+          returnType: f_returnType,
         };
-        result.typeParameters = f_typeParameters;
-        result.returnType = f_returnType;
         return result;
     },
     function decodeSequenceExpression(index) {
@@ -1504,11 +1499,10 @@ export function decode_ts(buffer, source) {
           kind: f_kind,
           computed: f_computed,
           static: f_static,
+          override: f_override,
+          optional: f_optional,
+          accessibility: f_accessibility,
         };
-        result.override = f_override;
-        result.optional = f_optional;
-        result.accessibility = f_accessibility;
-        if (f_abstract) result.type = "TSAbstractMethodDefinition";
         return result;
     },
     function decodeTsTypeAnnotation(index) {
@@ -2053,10 +2047,10 @@ export function decode_ts(buffer, source) {
           typeParameters: f_typeParameters,
           params: f_params.params,
           returnType: f_returnType,
+          accessibility: null,
+          readonly: false,
+          static: false,
         };
-        result.accessibility = null;
-        result.readonly = false;
-        result.static = false;
         return result;
     },
     function decodeTsCallSignatureDeclaration(index) {
@@ -2221,11 +2215,17 @@ export function decode_ts(buffer, source) {
         const f_body = optionalNode(_u32[(payload + 4) >> 2]);
         const f_kind = enumValue("TsModuleDeclarationKind", _dv.getUint8(payload + 8));
         const f_declare = _dv.getUint8(payload + 9) !== 0;
-        result = {
-          type: "TSModuleDeclaration", start, end,
-          id: f_id, kind: f_kind, declare: f_declare, global: false,
-        };
-        if (f_body !== null) result.body = f_body;
+        if (f_body === null) {
+          result = {
+            type: "TSModuleDeclaration", start, end,
+            id: f_id, kind: f_kind, declare: f_declare, global: false,
+          };
+        } else {
+          result = {
+            type: "TSModuleDeclaration", start, end,
+            id: f_id, body: f_body, kind: f_kind, declare: f_declare, global: false,
+          };
+        }
         return result;
     },
     function decodeTsModuleBlock(index) {
@@ -2280,7 +2280,7 @@ export function decode_ts(buffer, source) {
         const f_typeAnnotation = optionalNode(_u32[(payload + 0) >> 2]);
         result = {
           type: "Identifier", start, end,
-          decorators: [], name: "this", optional: false,
+          name: "this", decorators: [], optional: false,
           typeAnnotation: f_typeAnnotation,
         };
         return result;

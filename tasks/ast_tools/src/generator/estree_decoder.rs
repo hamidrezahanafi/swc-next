@@ -222,16 +222,23 @@ fn write_object_literal<'a>(
     indent: usize,
 ) {
     let padding = " ".repeat(indent);
+    let mut fields: Vec<_> = fields
+        .map(|field| (field.name.as_str(), field.expression.as_str()))
+        .chain(extras.iter().copied())
+        .collect();
+    // Different Rust identifier types become the same ESTree node. Keep their
+    // property order identical so consumers can share one object shape.
+    if estree_type(name) == "Identifier" {
+        const ORDER: &[&str] = &["name", "decorators", "optional", "typeAnnotation"];
+        fields.sort_by_key(|(name, _)| ORDER.iter().position(|field| field == name).unwrap());
+    }
     writeln!(
         output,
         "{padding}result = {{ type: \"{}\", start, end,",
         estree_type(name)
     )
     .unwrap();
-    for field in fields {
-        writeln!(output, "{padding}  {}: {},", field.name, field.expression).unwrap();
-    }
-    for (field, value) in extras {
+    for (field, value) in fields {
         writeln!(output, "{padding}  {field}: {value},").unwrap();
     }
     writeln!(output, "{padding}}};").unwrap();
@@ -334,17 +341,17 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField], 
           params: f_params.params,
           body: f_body,
           expression: false,
-        };
 "#,
             );
             if is_ts {
                 output.push_str(
-                    r#"        result.typeParameters = f_typeParameters;
-        result.returnType = f_returnType;
-        result.declare = false;
+                    r#"          typeParameters: f_typeParameters,
+          returnType: f_returnType,
+          declare: false,
 "#,
                 );
             }
+            output.push_str("        };\n");
         }
         "TsFunction" => output.push_str(
             r#"        result = {
@@ -369,16 +376,16 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField], 
           id: null, generator: false, async: f_async,
           params: f_params.params,
           body: f_body, expression: f_expression,
-        };
 "#,
             );
             if is_ts {
                 output.push_str(
-                    r#"        result.typeParameters = f_typeParameters;
-        result.returnType = f_returnType;
+                    r#"          typeParameters: f_typeParameters,
+          returnType: f_returnType,
 "#,
                 );
             }
+            output.push_str("        };\n");
         }
         "Directive" => output.push_str(
             r#"        result = {
@@ -451,19 +458,19 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField], 
           id: f_id,
           superClass: f_superClass,
           body: f_body,
-        };
 "#,
             );
             if is_ts {
                 output.push_str(
-                    r#"        result.typeParameters = f_typeParameters;
-        result.superTypeArguments = f_superTypeArguments;
-        result.implements = f_implements;
-        result.abstract = f_abstract;
-        result.declare = f_declare;
+                    r#"          typeParameters: f_typeParameters,
+          superTypeArguments: f_superTypeArguments,
+          implements: f_implements,
+          abstract: f_abstract,
+          declare: f_declare,
 "#,
                 );
             }
+            output.push_str("        };\n");
         }
         "MethodDefinition" | "TsMethodDefinition" => {
             if name == "TsMethodDefinition" {
@@ -472,7 +479,7 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField], 
             writeln!(
                 output,
                 "        result = {{\n          type: {},",
-                if name == "TsMethodDefinition" {
+                if is_ts || name == "TsMethodDefinition" {
                     "f_abstract ? \"TSAbstractMethodDefinition\" : \"MethodDefinition\""
                 } else {
                     "\"MethodDefinition\""
@@ -487,50 +494,52 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField], 
           kind: f_kind,
           computed: f_computed,
           static: f_static,
-        };
 "#,
             );
             if is_ts {
                 output.push_str(
-                    r#"        result.override = f_override;
-        result.optional = f_optional;
-        result.accessibility = f_accessibility;
-        if (f_abstract) result.type = "TSAbstractMethodDefinition";
+                    r#"          override: f_override,
+          optional: f_optional,
+          accessibility: f_accessibility,
 "#,
                 );
             }
+            output.push_str("        };\n");
         }
         "PropertyDefinition" => {
+            writeln!(
+                output,
+                "        const type = {};",
+                if is_ts {
+                    "f_abstract ? (f_accessor ? \"TSAbstractAccessorProperty\" : \"TSAbstractPropertyDefinition\") : (f_accessor ? \"AccessorProperty\" : \"PropertyDefinition\")"
+                } else {
+                    "f_accessor ? \"AccessorProperty\" : \"PropertyDefinition\""
+                }
+            )
+            .unwrap();
             output.push_str(
-                r#"        const accessor = f_accessor;
-        result = {
-          type: accessor ? "AccessorProperty" : "PropertyDefinition",
-          start, end,
+                r#"        result = {
+          type, start, end,
           decorators: f_decorators,
           key: f_key,
           value: f_value,
           computed: f_computed,
           static: f_static,
-        };
 "#,
             );
             if is_ts {
                 output.push_str(
-                    r#"        result.typeAnnotation = f_typeAnnotation;
-        result.declare = f_declare;
-        result.override = f_override;
-        result.optional = f_optional;
-        result.definite = f_definite;
-        result.readonly = f_readonly;
-        result.accessibility = f_accessibility;
-        if (f_abstract) {
-          result.type = accessor
-            ? "TSAbstractAccessorProperty"
-            : "TSAbstractPropertyDefinition";
-        }
+                    r#"          typeAnnotation: f_typeAnnotation,
+          declare: f_declare,
+          override: f_override,
+          optional: f_optional,
+          definite: f_definite,
+          readonly: f_readonly,
+          accessibility: f_accessibility,
 "#,
                 );
             }
+            output.push_str("        };\n");
         }
         "UnaryExpression" => output.push_str(
             r#"        result = {
@@ -542,48 +551,50 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField], 
         "BindingProperty" => {
             output.push_str(
                 r#"        result = {
-          type: "Property", start, end, kind: "init",
-          key: f_key, value: f_value,
+          type: "Property", start, end,
+          key: f_key, value: f_value, kind: "init",
           method: false, shorthand: f_shorthand, computed: f_computed,
-        };
 "#,
             );
             if is_ts {
                 output.push_str(
-                    r#"        result.optional = false;
+                    r#"          optional: false,
 "#,
                 );
             }
+            output.push_str("        };\n");
         }
         "ArrayPattern" => {
             output.push_str(
                 r#"        const elements = f_rest === null ? f_elements : [...f_elements, f_rest];
-        result = { type: "ArrayPattern", start, end, elements };
+        result = { type: "ArrayPattern", start, end, elements,
 "#,
             );
             if is_ts {
                 output.push_str(
-                    r#"        result.decorators = f_decorators;
-        result.optional = f_optional;
-        result.typeAnnotation = f_typeAnnotation;
+                    r#"          decorators: f_decorators,
+          optional: f_optional,
+          typeAnnotation: f_typeAnnotation,
 "#,
                 );
             }
+            output.push_str("        };\n");
         }
         "ObjectPattern" => {
             output.push_str(
                 r#"        const properties = f_rest === null ? f_properties : [...f_properties, f_rest];
-        result = { type: "ObjectPattern", start, end, properties };
+        result = { type: "ObjectPattern", start, end, properties,
 "#,
             );
             if is_ts {
                 output.push_str(
-                    r#"        result.decorators = f_decorators;
-        result.optional = f_optional;
-        result.typeAnnotation = f_typeAnnotation;
+                    r#"          decorators: f_decorators,
+          optional: f_optional,
+          typeAnnotation: f_typeAnnotation,
 "#,
                 );
             }
+            output.push_str("        };\n");
         }
         "JsxText" => output.push_str(
             "        result = { type: \"JSXText\", start, end, value: f_value, raw: f_value };\n",
@@ -615,17 +626,17 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField], 
                 r#"          typeParameters: f_typeParameters,
           params: f_params.params,
           returnType: f_returnType,
-        };
 "#,
             );
             if name == "TsMethodSignature" {
                 output.push_str(
-                    r#"        result.accessibility = null;
-        result.readonly = false;
-        result.static = false;
+                    r#"          accessibility: null,
+          readonly: false,
+          static: false,
 "#,
                 );
             }
+            output.push_str("        };\n");
         }
         "TsMappedType" => output.push_str(
             r#"        result = {
@@ -638,11 +649,17 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField], 
 "#,
         ),
         "TsModuleDeclaration" => output.push_str(
-            r#"        result = {
-          type: "TSModuleDeclaration", start, end,
-          id: f_id, kind: f_kind, declare: f_declare, global: false,
-        };
-        if (f_body !== null) result.body = f_body;
+            r#"        if (f_body === null) {
+          result = {
+            type: "TSModuleDeclaration", start, end,
+            id: f_id, kind: f_kind, declare: f_declare, global: false,
+          };
+        } else {
+          result = {
+            type: "TSModuleDeclaration", start, end,
+            id: f_id, body: f_body, kind: f_kind, declare: f_declare, global: false,
+          };
+        }
 "#,
         ),
         "TsGlobalDeclaration" => output.push_str(
@@ -656,7 +673,7 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField], 
         "TsThisParameter" => output.push_str(
             r#"        result = {
           type: "Identifier", start, end,
-          decorators: [], name: "this", optional: false,
+          name: "this", decorators: [], optional: false,
           typeAnnotation: f_typeAnnotation,
         };
 "#,

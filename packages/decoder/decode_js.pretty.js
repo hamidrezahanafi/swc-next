@@ -491,7 +491,8 @@ export function decode_js(buffer, source) {
         const f_elements = nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], true);
         const f_rest = optionalNode(_dv.getUint32(payload + 1, true));
         const elements = f_rest === null ? f_elements : [...f_elements, f_rest];
-        result = { type: "ArrayPattern", start, end, elements };
+        result = { type: "ArrayPattern", start, end, elements,
+        };
         return result;
     },
     function decodeObjectPattern(index) {
@@ -504,7 +505,8 @@ export function decode_js(buffer, source) {
         const f_properties = nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false);
         const f_rest = optionalNode(_dv.getUint32(payload + 1, true));
         const properties = f_rest === null ? f_properties : [...f_properties, f_rest];
-        result = { type: "ObjectPattern", start, end, properties };
+        result = { type: "ObjectPattern", start, end, properties,
+        };
         return result;
     },
     function decodeBindingProperty(index) {
@@ -518,8 +520,8 @@ export function decode_js(buffer, source) {
         const f_shorthand = _dv.getUint8(payload + 8) !== 0;
         const f_computed = _dv.getUint8(payload + 9) !== 0;
         result = {
-          type: "Property", start, end, kind: "init",
-          key: f_key, value: f_value,
+          type: "Property", start, end,
+          key: f_key, value: f_value, kind: "init",
           method: false, shorthand: f_shorthand, computed: f_computed,
         };
         return result;
@@ -910,10 +912,9 @@ export function decode_js(buffer, source) {
         const f_computed = _dv.getUint8(payload + 0) !== 0;
         const f_static = _dv.getUint8(payload + 1) !== 0;
         const f_accessor = _dv.getUint8(payload + 2) !== 0;
-        const accessor = f_accessor;
+        const type = f_accessor ? "AccessorProperty" : "PropertyDefinition";
         result = {
-          type: accessor ? "AccessorProperty" : "PropertyDefinition",
-          start, end,
+          type, start, end,
           decorators: f_decorators,
           key: f_key,
           value: f_value,
@@ -1952,10 +1953,10 @@ export function decode_js(buffer, source) {
           typeParameters: f_typeParameters,
           params: f_params.params,
           returnType: f_returnType,
+          accessibility: null,
+          readonly: false,
+          static: false,
         };
-        result.accessibility = null;
-        result.readonly = false;
-        result.static = false;
         return result;
     },
     function decodeTsCallSignatureDeclaration(index) {
@@ -2118,11 +2119,17 @@ export function decode_js(buffer, source) {
         const f_body = optionalNode(_u32[(payload + 4) >> 2]);
         const f_kind = enumValue("TsModuleDeclarationKind", _dv.getUint8(payload + 8));
         const f_declare = _dv.getUint8(payload + 9) !== 0;
-        result = {
-          type: "TSModuleDeclaration", start, end,
-          id: f_id, kind: f_kind, declare: f_declare, global: false,
-        };
-        if (f_body !== null) result.body = f_body;
+        if (f_body === null) {
+          result = {
+            type: "TSModuleDeclaration", start, end,
+            id: f_id, kind: f_kind, declare: f_declare, global: false,
+          };
+        } else {
+          result = {
+            type: "TSModuleDeclaration", start, end,
+            id: f_id, body: f_body, kind: f_kind, declare: f_declare, global: false,
+          };
+        }
         return result;
     },
     function decodeTsModuleBlock(index) {
@@ -2176,7 +2183,7 @@ export function decode_js(buffer, source) {
         const f_typeAnnotation = optionalNode(_u32[(payload + 0) >> 2]);
         result = {
           type: "Identifier", start, end,
-          decorators: [], name: "this", optional: false,
+          name: "this", decorators: [], optional: false,
           typeAnnotation: f_typeAnnotation,
         };
         return result;
