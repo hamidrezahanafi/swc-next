@@ -23,6 +23,15 @@ pub fn estree_decoder(schema: &Schema) -> Vec<RawOutput> {
         }) {
             write_node_function(&mut output, ty, schema, is_ts);
         }
+        write_node_helpers(&mut output, schema);
+        output.push_str("  const nodeDecoders = [\n");
+        // Keep the table in schema order: its indices are the binary node kinds.
+        for ty in &schema.types {
+            if let AstType::Struct(ast) = ty {
+                writeln!(output, "    decode{},", ast.name).unwrap();
+            }
+        }
+        output.push_str("  ];\n");
         output.push_str(POSTAMBLE);
         write_outputs(&mut outputs, name, &output);
     }
@@ -108,7 +117,57 @@ fn write_node_function(output: &mut String, ast: &AstStruct, schema: &Schema, is
         write_generic_node(output, &ast.name, &fields, is_ts);
     }
     writeln!(output, "        return result;").unwrap();
-    writeln!(output, "    }},").unwrap();
+    writeln!(output, "    }}\n").unwrap();
+}
+
+fn node_decoder(ty: &AstType, schema: &Schema) -> String {
+    match ty {
+        AstType::Struct(ast) => format!("decode{}", ast.name),
+        AstType::Enum(_) => "node".into(),
+        AstType::Option(option) => match &schema.types[option.inner_type_id] {
+            AstType::Struct(ast) => format!("decodeOptional{}", ast.name),
+            AstType::Enum(_) => "optionalNode".into(),
+            inner => panic!("unsupported optional node type: {}", inner.name()),
+        },
+        _ => panic!("unsupported node type: {}", ty.name()),
+    }
+}
+
+fn write_node_helpers(output: &mut String, schema: &Schema) {
+    for ty in &schema.types {
+        match ty {
+            AstType::Option(option) => {
+                if let AstType::Struct(ast) = &schema.types[option.inner_type_id] {
+                    writeln!(
+                        output,
+                        "  function decodeOptional{}(index) {{\n    return index === NULL ? null : decode{}(index);\n  }}\n",
+                        ast.name, ast.name
+                    )
+                    .unwrap();
+                }
+            }
+            AstType::SubRange(range) => {
+                let decoder = node_decoder(&schema.types[range.inner_type_id], schema);
+                if decoder == "node" || decoder == "optionalNode" {
+                    continue;
+                }
+                writeln!(
+                    output,
+                    r#"  function {decoder}Array(start, end) {{
+    const result = new Array(end - start);
+    for (let i = start; i < end; i++) {{
+      const index = _u32[(extra >> 2) + i * 2];
+      result[i - start] = {decoder}(index);
+    }}
+    return result;
+  }}
+"#
+                )
+                .unwrap();
+            }
+            _ => {}
+        }
+    }
 }
 
 struct DecodedField {
@@ -119,21 +178,28 @@ struct DecodedField {
 fn read_expression(ty: &AstType, schema: &Schema, location: &str, aligned_u32: bool) -> String {
     match ty {
         AstType::Struct(_) | AstType::Enum(_) => {
-            format!("node({})", read_u32(location, aligned_u32))
+            format!(
+                "{}({})",
+                node_decoder(ty, schema),
+                read_u32(location, aligned_u32)
+            )
         }
         AstType::SubRange(range) => {
             let inner = &schema.types[range.inner_type_id];
-            let holes = matches!(inner, AstType::Option(_));
             let start = read_u32(location, aligned_u32);
             let end = read_u32(&format!("{location} + 4"), aligned_u32);
-            format!("nodeArray({start}, {end}, {holes})")
+            format!("{}Array({start}, {end})", node_decoder(inner, schema))
         }
         AstType::Option(option) => match &schema.types[option.inner_type_id] {
             AstType::Struct(_) | AstType::Enum(_) => {
-                format!("optionalNode({})", read_u32(location, aligned_u32))
+                format!(
+                    "{}({})",
+                    node_decoder(ty, schema),
+                    read_u32(location, aligned_u32)
+                )
             }
             AstType::Primitive(primitive) if primitive.name == "ImportPhase" => {
-                format!("optionalEnum(\"ImportPhase\", _dv.getUint8({location}))")
+                format!("optionalEnum(ENUMS.ImportPhase, _dv.getUint8({location}))")
             }
             AstType::Primitive(primitive) if matches!(primitive.name, "ScopeId" | "SymbolId") => {
                 "undefined".into()
@@ -194,7 +260,7 @@ fn read_expression(ty: &AstType, schema: &Schema, location: &str, aligned_u32: b
                         | "TsMappedTypeModifier"
                 ) =>
             {
-                format!("enumValue(\"{name}\", _dv.getUint8({location}))")
+                format!("enumValue(ENUMS.{name}, _dv.getUint8({location}))")
             }
             name => panic!("unsupported primitive decoder type: {name}"),
         },
@@ -976,19 +1042,26 @@ const DECODER_PREAMBLE: &str = r#"  const arrayBuffer = buffer instanceof ArrayB
       strings + end - sourceLength,
     ));
   };
-  const enumValue = (name, value) => {
-    const values = ENUMS[name];
+  const enumValue = (values, value) => {
     return values !== undefined && value < values.length ? values[value] : value;
   };
-  const sourceType = enumValue("SourceType", (flags >> 1) & 3);
-  const optionalEnum = (name, value) =>
-    value === 0xff ? null : enumValue(name, value);
+  const sourceType = enumValue(ENUMS.SourceType, (flags >> 1) & 3);
+  const optionalEnum = (values, value) =>
+    value === 0xff ? null : enumValue(values, value);
   const optionalNode = index => index === NULL ? null : node(index);
-  const nodeArray = (start, end, holes) => {
+  const nodeArray = (start, end) => {
     const result = new Array(end - start);
     for (let i = start; i < end; i++) {
       const index = _u32[(extra >> 2) + i * 2];
-      result[i - start] = holes && index === NULL ? null : node(index);
+      result[i - start] = node(index);
+    }
+    return result;
+  };
+  const optionalNodeArray = (start, end) => {
+    const result = new Array(end - start);
+    for (let i = start; i < end; i++) {
+      const index = _u32[(extra >> 2) + i * 2];
+      result[i - start] = optionalNode(index);
     }
     return result;
   };
@@ -1053,12 +1126,9 @@ const DECODER_PREAMBLE: &str = r#"  const arrayBuffer = buffer instanceof ArrayB
     return result;
   };
 
-  const nodeDecoders = [
 "#;
 
-const POSTAMBLE: &str = r#"  ];
-
-  function node(index) {
+const POSTAMBLE: &str = r#"  function node(index) {
     const kind = bytes[kinds + index];
     const decodeNode = nodeDecoders[kind];
     if (decodeNode === undefined) {

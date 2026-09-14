@@ -174,19 +174,26 @@ export function decode_ts(buffer, source) {
       strings + end - sourceLength,
     ));
   };
-  const enumValue = (name, value) => {
-    const values = ENUMS[name];
+  const enumValue = (values, value) => {
     return values !== undefined && value < values.length ? values[value] : value;
   };
-  const sourceType = enumValue("SourceType", (flags >> 1) & 3);
-  const optionalEnum = (name, value) =>
-    value === 0xff ? null : enumValue(name, value);
+  const sourceType = enumValue(ENUMS.SourceType, (flags >> 1) & 3);
+  const optionalEnum = (values, value) =>
+    value === 0xff ? null : enumValue(values, value);
   const optionalNode = index => index === NULL ? null : node(index);
-  const nodeArray = (start, end, holes) => {
+  const nodeArray = (start, end) => {
     const result = new Array(end - start);
     for (let i = start; i < end; i++) {
       const index = _u32[(extra >> 2) + i * 2];
-      result[i - start] = holes && index === NULL ? null : node(index);
+      result[i - start] = node(index);
+    }
+    return result;
+  };
+  const optionalNodeArray = (start, end) => {
+    const result = new Array(end - start);
+    for (let i = start; i < end; i++) {
+      const index = _u32[(extra >> 2) + i * 2];
+      result[i - start] = optionalNode(index);
     }
     return result;
   };
@@ -251,16 +258,15 @@ export function decode_ts(buffer, source) {
     return result;
   };
 
-  const nodeDecoders = [
     function decodeProgram(index) {
         const span = spans + index * 8;
         const end = pos(_u32[(span >> 2) + 1]);
         const payload = payloads + index * 16;
         const extraId = _u32[(payload + 12) >> 2];
         let result;
-        const f_directives = nodeArray(_u32[(payload + 4) >> 2], _u32[(payload + 4 + 4) >> 2], false);
-        const f_body = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
-        const f_hashbang = optionalNode(_u32[(payload + 0) >> 2]);
+        const f_directives = decodeDirectiveArray(_u32[(payload + 4) >> 2], _u32[(payload + 4 + 4) >> 2]);
+        const f_body = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]);
+        const f_hashbang = decodeOptionalHashbang(_u32[(payload + 0) >> 2]);
         const body = [...f_directives, ...f_body];
         const programStart = body.length !== 0 ? body[0].start : end;
 
@@ -271,7 +277,8 @@ export function decode_ts(buffer, source) {
           body,
         };
         return result;
-    },
+    }
+
     function decodeSuper(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -280,7 +287,8 @@ export function decode_ts(buffer, source) {
         result = { type: "Super", start, end,
         };
         return result;
-    },
+    }
+
     function decodeThisExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -289,7 +297,8 @@ export function decode_ts(buffer, source) {
         result = { type: "ThisExpression", start, end,
         };
         return result;
-    },
+    }
+
     function decodeStringLiteral(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -300,7 +309,8 @@ export function decode_ts(buffer, source) {
         const f_raw = str(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2]);
         result = { type: "Literal", start, end, value: f_value, raw: f_raw };
         return result;
-    },
+    }
+
     function decodeNumericLiteral(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -313,7 +323,8 @@ export function decode_ts(buffer, source) {
         const raw = f_raw ?? String(value);
         result = { type: "Literal", start, end, value, raw };
         return result;
-    },
+    }
+
     function decodeBigIntLiteral(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -325,7 +336,8 @@ export function decode_ts(buffer, source) {
         const value = BigInt(f_raw.replaceAll("_", ""));
         result = { type: "Literal", start, end, value, raw, bigint: value.toString() };
         return result;
-    },
+    }
+
     function decodeBooleanLiteral(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -338,7 +350,8 @@ export function decode_ts(buffer, source) {
           value: f_value, raw: f_value ? "true" : "false",
         };
         return result;
-    },
+    }
+
     function decodeNullLiteral(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -346,7 +359,8 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "Literal", start, end, value: null, raw: "null" };
         return result;
-    },
+    }
+
     function decodeRegExpLiteral(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -365,7 +379,8 @@ export function decode_ts(buffer, source) {
           regex: { pattern: f_pattern, flags: [...f_flags].sort().join("") },
         };
         return result;
-    },
+    }
+
     function decodeTemplateLiteral(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -373,11 +388,12 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TemplateLiteral", start, end,
-          quasis: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
-          expressions: nodeArray(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2], false),
+          quasis: decodeTemplateElementArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
+          expressions: nodeArray(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTemplateElement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -399,7 +415,8 @@ export function decode_ts(buffer, source) {
           tail: f_tail,
         };
         return result;
-    },
+    }
+
     function decodeIdentifierReference(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -413,7 +430,8 @@ export function decode_ts(buffer, source) {
           typeAnnotation: null,
         };
         return result;
-    },
+    }
+
     function decodePrivateIdentifier(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -424,7 +442,8 @@ export function decode_ts(buffer, source) {
           name: str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeBindingIdentifier(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -434,12 +453,13 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "Identifier", start, end,
           name: str(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]),
-          decorators: nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false),
+          decorators: decodeDecoratorArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2]),
           optional: _dv.getUint8(payload + 0) !== 0,
-          typeAnnotation: optionalNode(_dv.getUint32(payload + 1, true)),
+          typeAnnotation: decodeOptionalTsTypeAnnotation(_dv.getUint32(payload + 1, true)),
         };
         return result;
-    },
+    }
+
     function decodeIdentifierName(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -453,7 +473,8 @@ export function decode_ts(buffer, source) {
           typeAnnotation: null,
         };
         return result;
-    },
+    }
+
     function decodeLabelIdentifier(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -467,7 +488,8 @@ export function decode_ts(buffer, source) {
           typeAnnotation: null,
         };
         return result;
-    },
+    }
+
     function decodeAssignmentPattern(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -476,14 +498,15 @@ export function decode_ts(buffer, source) {
         const extraId = _u32[(payload + 12) >> 2];
         let result;
         result = { type: "AssignmentPattern", start, end,
-          decorators: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+          decorators: decodeDecoratorArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]),
           left: node(_dv.getUint32(payload + 1, true)),
-          typeAnnotation: optionalNode(_dv.getUint32(payload + 5, true)),
+          typeAnnotation: decodeOptionalTsTypeAnnotation(_dv.getUint32(payload + 5, true)),
           right: node(_u32[(extra + (extraId + 1) * 8) >> 2]),
           optional: _dv.getUint8(payload + 0) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeBindingRestElement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -492,14 +515,15 @@ export function decode_ts(buffer, source) {
         const extraId = _u32[(payload + 12) >> 2];
         let result;
         result = { type: "RestElement", start, end,
-          decorators: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+          decorators: decodeDecoratorArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]),
           argument: node(_dv.getUint32(payload + 1, true)),
-          typeAnnotation: optionalNode(_dv.getUint32(payload + 5, true)),
+          typeAnnotation: decodeOptionalTsTypeAnnotation(_dv.getUint32(payload + 5, true)),
           optional: _dv.getUint8(payload + 0) !== 0,
           value: null,
         };
         return result;
-    },
+    }
+
     function decodeArrayPattern(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -507,10 +531,10 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         const extraId = _u32[(payload + 12) >> 2];
         let result;
-        const f_decorators = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
-        const f_elements = nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], true);
-        const f_rest = optionalNode(_dv.getUint32(payload + 1, true));
-        const f_typeAnnotation = optionalNode(_dv.getUint32(payload + 5, true));
+        const f_decorators = decodeDecoratorArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]);
+        const f_elements = optionalNodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2]);
+        const f_rest = decodeOptionalBindingRestElement(_dv.getUint32(payload + 1, true));
+        const f_typeAnnotation = decodeOptionalTsTypeAnnotation(_dv.getUint32(payload + 5, true));
         const f_optional = _dv.getUint8(payload + 0) !== 0;
         const elements = f_rest === null ? f_elements : [...f_elements, f_rest];
         result = { type: "ArrayPattern", start, end, elements,
@@ -519,7 +543,8 @@ export function decode_ts(buffer, source) {
           typeAnnotation: f_typeAnnotation,
         };
         return result;
-    },
+    }
+
     function decodeObjectPattern(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -527,10 +552,10 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         const extraId = _u32[(payload + 12) >> 2];
         let result;
-        const f_decorators = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
-        const f_properties = nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false);
-        const f_rest = optionalNode(_dv.getUint32(payload + 1, true));
-        const f_typeAnnotation = optionalNode(_dv.getUint32(payload + 5, true));
+        const f_decorators = decodeDecoratorArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]);
+        const f_properties = decodeBindingPropertyArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2]);
+        const f_rest = decodeOptionalBindingRestElement(_dv.getUint32(payload + 1, true));
+        const f_typeAnnotation = decodeOptionalTsTypeAnnotation(_dv.getUint32(payload + 5, true));
         const f_optional = _dv.getUint8(payload + 0) !== 0;
         const properties = f_rest === null ? f_properties : [...f_properties, f_rest];
         result = { type: "ObjectPattern", start, end, properties,
@@ -539,7 +564,8 @@ export function decode_ts(buffer, source) {
           typeAnnotation: f_typeAnnotation,
         };
         return result;
-    },
+    }
+
     function decodeBindingProperty(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -557,7 +583,8 @@ export function decode_ts(buffer, source) {
           optional: false,
         };
         return result;
-    },
+    }
+
     function decodeBinaryExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -567,10 +594,11 @@ export function decode_ts(buffer, source) {
         result = { type: "BinaryExpression", start, end,
           left: node(_u32[(payload + 0) >> 2]),
           right: node(_u32[(payload + 4) >> 2]),
-          operator: enumValue("BinaryOperator", _dv.getUint8(payload + 8)),
+          operator: enumValue(ENUMS.BinaryOperator, _dv.getUint8(payload + 8)),
         };
         return result;
-    },
+    }
+
     function decodeLogicalExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -580,10 +608,11 @@ export function decode_ts(buffer, source) {
         result = { type: "LogicalExpression", start, end,
           left: node(_u32[(payload + 0) >> 2]),
           right: node(_u32[(payload + 4) >> 2]),
-          operator: enumValue("LogicalOperator", _dv.getUint8(payload + 8)),
+          operator: enumValue(ENUMS.LogicalOperator, _dv.getUint8(payload + 8)),
         };
         return result;
-    },
+    }
+
     function decodeConditionalExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -596,7 +625,8 @@ export function decode_ts(buffer, source) {
           alternate: node(_u32[(payload + 8) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeUnaryExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -604,13 +634,14 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         const f_argument = node(_u32[(payload + 0) >> 2]);
-        const f_operator = enumValue("UnaryOperator", _dv.getUint8(payload + 4));
+        const f_operator = enumValue(ENUMS.UnaryOperator, _dv.getUint8(payload + 4));
         result = {
           type: "UnaryExpression", start, end,
           operator: f_operator, prefix: true, argument: f_argument,
         };
         return result;
-    },
+    }
+
     function decodeUpdateExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -619,11 +650,12 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "UpdateExpression", start, end,
           argument: node(_u32[(payload + 0) >> 2]),
-          operator: enumValue("UpdateOperator", _dv.getUint8(payload + 4)),
+          operator: enumValue(ENUMS.UpdateOperator, _dv.getUint8(payload + 4)),
           prefix: _dv.getUint8(payload + 5) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeAssignmentExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -633,10 +665,11 @@ export function decode_ts(buffer, source) {
         result = { type: "AssignmentExpression", start, end,
           left: node(_u32[(payload + 0) >> 2]),
           right: node(_u32[(payload + 4) >> 2]),
-          operator: enumValue("AssignmentOperator", _dv.getUint8(payload + 8)),
+          operator: enumValue(ENUMS.AssignmentOperator, _dv.getUint8(payload + 8)),
         };
         return result;
-    },
+    }
+
     function decodeVariableDeclaration(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -644,12 +677,13 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "VariableDeclaration", start, end,
-          kind: enumValue("VariableKind", _dv.getUint8(payload + 8)),
-          declarations: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          kind: enumValue(ENUMS.VariableKind, _dv.getUint8(payload + 8)),
+          declarations: decodeVariableDeclaratorArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
           declare: _dv.getUint8(payload + 9) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeVariableDeclarator(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -662,7 +696,8 @@ export function decode_ts(buffer, source) {
           definite: _dv.getUint8(payload + 8) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeIfStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -675,7 +710,8 @@ export function decode_ts(buffer, source) {
           alternate: optionalNode(_u32[(payload + 8) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeSwitchStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -684,10 +720,11 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "SwitchStatement", start, end,
           discriminant: node(_u32[(payload + 8) >> 2]),
-          cases: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          cases: decodeSwitchCaseArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeSwitchCase(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -696,10 +733,11 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "SwitchCase", start, end,
           test: optionalNode(_u32[(payload + 8) >> 2]),
-          consequent: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          consequent: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeForStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -713,7 +751,8 @@ export function decode_ts(buffer, source) {
           body: node(_u32[(payload + 12) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeForInStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -726,7 +765,8 @@ export function decode_ts(buffer, source) {
           body: node(_u32[(payload + 8) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeForOfStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -740,7 +780,8 @@ export function decode_ts(buffer, source) {
           await: _dv.getUint8(payload + 12) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeTryStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -748,12 +789,13 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TryStatement", start, end,
-          block: node(_u32[(payload + 0) >> 2]),
-          handler: optionalNode(_u32[(payload + 4) >> 2]),
-          finalizer: optionalNode(_u32[(payload + 8) >> 2]),
+          block: decodeBlockStatement(_u32[(payload + 0) >> 2]),
+          handler: decodeOptionalCatchClause(_u32[(payload + 4) >> 2]),
+          finalizer: decodeOptionalBlockStatement(_u32[(payload + 8) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeCatchClause(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -762,10 +804,11 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "CatchClause", start, end,
           param: optionalNode(_u32[(payload + 0) >> 2]),
-          body: node(_u32[(payload + 4) >> 2]),
+          body: decodeBlockStatement(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeBreakStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -773,10 +816,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "BreakStatement", start, end,
-          label: optionalNode(_u32[(payload + 0) >> 2]),
+          label: decodeOptionalLabelIdentifier(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeContinueStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -784,10 +828,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "ContinueStatement", start, end,
-          label: optionalNode(_u32[(payload + 0) >> 2]),
+          label: decodeOptionalLabelIdentifier(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeLabeledStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -795,11 +840,12 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "LabeledStatement", start, end,
-          label: node(_u32[(payload + 0) >> 2]),
+          label: decodeLabelIdentifier(_u32[(payload + 0) >> 2]),
           body: node(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeExpressionStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -811,7 +857,8 @@ export function decode_ts(buffer, source) {
           directive: null,
         };
         return result;
-    },
+    }
+
     function decodeReturnStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -822,7 +869,8 @@ export function decode_ts(buffer, source) {
           argument: optionalNode(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeThrowStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -833,7 +881,8 @@ export function decode_ts(buffer, source) {
           argument: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeDebuggerStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -842,7 +891,8 @@ export function decode_ts(buffer, source) {
         result = { type: "DebuggerStatement", start, end,
         };
         return result;
-    },
+    }
+
     function decodeEmptyStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -851,21 +901,23 @@ export function decode_ts(buffer, source) {
         result = { type: "EmptyStatement", start, end,
         };
         return result;
-    },
+    }
+
     function decodeDirective(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
         const end = pos(_u32[(span >> 2) + 1]);
         const payload = payloads + index * 16;
         let result;
-        const f_expression = node(_u32[(payload + 8) >> 2]);
+        const f_expression = decodeStringLiteral(_u32[(payload + 8) >> 2]);
         const f_value = str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]);
         result = {
           type: "ExpressionStatement", start, end,
           expression: f_expression, directive: f_value,
         };
         return result;
-    },
+    }
+
     function decodeDecorator(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -876,7 +928,8 @@ export function decode_ts(buffer, source) {
           expression: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeClass(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -884,14 +937,14 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         const extraId = _u32[(payload + 12) >> 2];
         let result;
-        const f_classType = enumValue("ClassType", _dv.getUint8(payload + 0));
-        const f_decorators = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
-        const f_id = optionalNode(_dv.getUint32(payload + 3, true));
-        const f_typeParameters = optionalNode(_dv.getUint32(payload + 7, true));
+        const f_classType = enumValue(ENUMS.ClassType, _dv.getUint8(payload + 0));
+        const f_decorators = decodeDecoratorArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]);
+        const f_id = decodeOptionalBindingIdentifier(_dv.getUint32(payload + 3, true));
+        const f_typeParameters = decodeOptionalTsTypeParameterDeclaration(_dv.getUint32(payload + 7, true));
         const f_superClass = optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]);
-        const f_superTypeArguments = optionalNode(_u32[(extra + (extraId + 2) * 8) >> 2]);
-        const f_implements = nodeArray(_u32[(extra + (extraId + 3) * 8) >> 2], _u32[(extra + (extraId + 3) * 8 + 4) >> 2], false);
-        const f_body = node(_u32[(extra + (extraId + 4) * 8) >> 2]);
+        const f_superTypeArguments = decodeOptionalTsTypeParameterInstantiation(_u32[(extra + (extraId + 2) * 8) >> 2]);
+        const f_implements = decodeTsClassImplementsArray(_u32[(extra + (extraId + 3) * 8) >> 2], _u32[(extra + (extraId + 3) * 8 + 4) >> 2]);
+        const f_body = decodeClassBody(_u32[(extra + (extraId + 4) * 8) >> 2]);
         const f_abstract = _dv.getUint8(payload + 1) !== 0;
         const f_declare = _dv.getUint8(payload + 2) !== 0;
         result = {
@@ -907,7 +960,8 @@ export function decode_ts(buffer, source) {
           declare: f_declare,
         };
         return result;
-    },
+    }
+
     function decodeClassBody(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -915,10 +969,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "ClassBody", start, end,
-          body: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          body: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeMethodDefinition(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -926,16 +981,16 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         const extraId = _u32[(payload + 12) >> 2];
         let result;
-        const f_decorators = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
+        const f_decorators = decodeDecoratorArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]);
         const f_key = node(_dv.getUint32(payload + 7, true));
-        const f_value = node(_u32[(extra + (extraId + 1) * 8) >> 2]);
-        const f_kind = enumValue("MethodDefinitionKind", _dv.getUint8(payload + 0));
+        const f_value = decodeFunction(_u32[(extra + (extraId + 1) * 8) >> 2]);
+        const f_kind = enumValue(ENUMS.MethodDefinitionKind, _dv.getUint8(payload + 0));
         const f_computed = _dv.getUint8(payload + 1) !== 0;
         const f_static = _dv.getUint8(payload + 2) !== 0;
         const f_override = _dv.getUint8(payload + 3) !== 0;
         const f_optional = _dv.getUint8(payload + 4) !== 0;
         const f_abstract = _dv.getUint8(payload + 5) !== 0;
-        const f_accessibility = enumValue("Accessibility", _dv.getUint8(payload + 6));
+        const f_accessibility = enumValue(ENUMS.Accessibility, _dv.getUint8(payload + 6));
         result = {
           type: f_abstract ? "TSAbstractMethodDefinition" : "MethodDefinition",
           start, end,
@@ -950,7 +1005,8 @@ export function decode_ts(buffer, source) {
           accessibility: f_accessibility,
         };
         return result;
-    },
+    }
+
     function decodePropertyDefinition(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -958,9 +1014,9 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         const extraId = _u32[(payload + 12) >> 2];
         let result;
-        const f_decorators = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
+        const f_decorators = decodeDecoratorArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]);
         const f_key = node(_u32[(extra + (extraId + 1) * 8) >> 2]);
-        const f_typeAnnotation = optionalNode(_u32[(extra + (extraId + 2) * 8) >> 2]);
+        const f_typeAnnotation = decodeOptionalTsTypeAnnotation(_u32[(extra + (extraId + 2) * 8) >> 2]);
         const f_value = optionalNode(_u32[(extra + (extraId + 3) * 8) >> 2]);
         const f_computed = _dv.getUint8(payload + 0) !== 0;
         const f_static = _dv.getUint8(payload + 1) !== 0;
@@ -971,7 +1027,7 @@ export function decode_ts(buffer, source) {
         const f_definite = _dv.getUint8(payload + 6) !== 0;
         const f_readonly = _dv.getUint8(payload + 7) !== 0;
         const f_abstract = _dv.getUint8(payload + 8) !== 0;
-        const f_accessibility = enumValue("Accessibility", _dv.getUint8(payload + 9));
+        const f_accessibility = enumValue(ENUMS.Accessibility, _dv.getUint8(payload + 9));
         const type = f_abstract ? (f_accessor ? "TSAbstractAccessorProperty" : "TSAbstractPropertyDefinition") : (f_accessor ? "AccessorProperty" : "PropertyDefinition");
         result = {
           type, start, end,
@@ -989,7 +1045,8 @@ export function decode_ts(buffer, source) {
           accessibility: f_accessibility,
         };
         return result;
-    },
+    }
+
     function decodeStaticBlock(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -997,10 +1054,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "StaticBlock", start, end,
-          body: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          body: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeFunction(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1008,12 +1066,12 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         const extraId = _u32[(payload + 12) >> 2];
         let result;
-        const f_functionType = enumValue("FunctionType", _dv.getUint8(payload + 0));
-        const f_id = optionalNode(_dv.getUint32(payload + 3, true));
-        const f_typeParameters = optionalNode(_dv.getUint32(payload + 7, true));
-        const f_params = node(_u32[(extra + (extraId + 0) * 8) >> 2]);
-        const f_returnType = optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]);
-        const f_body = node(_u32[(extra + (extraId + 2) * 8) >> 2]);
+        const f_functionType = enumValue(ENUMS.FunctionType, _dv.getUint8(payload + 0));
+        const f_id = decodeOptionalBindingIdentifier(_dv.getUint32(payload + 3, true));
+        const f_typeParameters = decodeOptionalTsTypeParameterDeclaration(_dv.getUint32(payload + 7, true));
+        const f_params = decodeFormalParameters(_u32[(extra + (extraId + 0) * 8) >> 2]);
+        const f_returnType = decodeOptionalTsTypeAnnotation(_u32[(extra + (extraId + 1) * 8) >> 2]);
+        const f_body = decodeFunctionBody(_u32[(extra + (extraId + 2) * 8) >> 2]);
         const f_generator = _dv.getUint8(payload + 1) !== 0;
         const f_async = _dv.getUint8(payload + 2) !== 0;
         result = {
@@ -1029,18 +1087,20 @@ export function decode_ts(buffer, source) {
           declare: false,
         };
         return result;
-    },
+    }
+
     function decodeFunctionBody(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
         const end = pos(_u32[(span >> 2) + 1]);
         const payload = payloads + index * 16;
         let result;
-        const f_directives = nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false);
-        const f_body = nodeArray(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2], false);
+        const f_directives = decodeDirectiveArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]);
+        const f_body = nodeArray(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2]);
         result = { type: "BlockStatement", start, end, body: [...f_directives, ...f_body] };
         return result;
-    },
+    }
+
     function decodeBlockStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1048,10 +1108,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "BlockStatement", start, end,
-          body: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          body: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeWhileStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1063,7 +1124,8 @@ export function decode_ts(buffer, source) {
           body: node(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeDoWhileStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1075,7 +1137,8 @@ export function decode_ts(buffer, source) {
           test: node(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeWithStatement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1087,22 +1150,25 @@ export function decode_ts(buffer, source) {
           body: node(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeFormalParameters(index) {
         const payload = payloads + index * 16;
         let result;
-        const f_items = nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false);
-        const f_rest = optionalNode(_u32[(payload + 8) >> 2]);
+        const f_items = nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]);
+        const f_rest = decodeOptionalBindingRestElement(_u32[(payload + 8) >> 2]);
         result = { params: f_rest === null ? f_items : [...f_items, f_rest] };
         return result;
-    },
+    }
+
     function decodeFormalParameter(index) {
         const payload = payloads + index * 16;
         let result;
         const f_pattern = node(_u32[(payload + 0) >> 2]);
         result = f_pattern;
         return result;
-    },
+    }
+
     function decodeArrayExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1110,10 +1176,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "ArrayExpression", start, end,
-          elements: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], true),
+          elements: optionalNodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeObjectExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1121,10 +1188,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "ObjectExpression", start, end,
-          properties: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          properties: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeSpreadElement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1135,7 +1203,8 @@ export function decode_ts(buffer, source) {
           argument: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeObjectProperty(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1145,14 +1214,15 @@ export function decode_ts(buffer, source) {
         result = { type: "Property", start, end,
           key: node(_u32[(payload + 0) >> 2]),
           value: node(_u32[(payload + 4) >> 2]),
-          kind: enumValue("PropertyKind", _dv.getUint8(payload + 8)),
+          kind: enumValue(ENUMS.PropertyKind, _dv.getUint8(payload + 8)),
           method: _dv.getUint8(payload + 9) !== 0,
           shorthand: _dv.getUint8(payload + 10) !== 0,
           computed: _dv.getUint8(payload + 11) !== 0,
           optional: false,
         };
         return result;
-    },
+    }
+
     function decodeParenthesizedExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1163,7 +1233,8 @@ export function decode_ts(buffer, source) {
           expression: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeArrowFunctionExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1173,9 +1244,9 @@ export function decode_ts(buffer, source) {
         let result;
         const f_expression = _dv.getUint8(payload + 0) !== 0;
         const f_async = _dv.getUint8(payload + 1) !== 0;
-        const f_typeParameters = optionalNode(_dv.getUint32(payload + 2, true));
-        const f_params = node(_dv.getUint32(payload + 6, true));
-        const f_returnType = optionalNode(_u32[(extra + (extraId + 0) * 8) >> 2]);
+        const f_typeParameters = decodeOptionalTsTypeParameterDeclaration(_dv.getUint32(payload + 2, true));
+        const f_params = decodeFormalParameters(_dv.getUint32(payload + 6, true));
+        const f_returnType = decodeOptionalTsTypeAnnotation(_u32[(extra + (extraId + 0) * 8) >> 2]);
         const f_body = node(_u32[(extra + (extraId + 1) * 8) >> 2]);
         result = {
           type: "ArrowFunctionExpression", start, end,
@@ -1186,7 +1257,8 @@ export function decode_ts(buffer, source) {
           returnType: f_returnType,
         };
         return result;
-    },
+    }
+
     function decodeSequenceExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1194,10 +1266,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "SequenceExpression", start, end,
-          expressions: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          expressions: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeMemberExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1211,7 +1284,8 @@ export function decode_ts(buffer, source) {
           optional: _dv.getUint8(payload + 9) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeCallExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1221,12 +1295,13 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "CallExpression", start, end,
           callee: node(_dv.getUint32(payload + 1, true)),
-          typeArguments: optionalNode(_dv.getUint32(payload + 5, true)),
-          arguments: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+          typeArguments: decodeOptionalTsTypeParameterInstantiation(_dv.getUint32(payload + 5, true)),
+          arguments: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]),
           optional: _dv.getUint8(payload + 0) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeChainExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1237,7 +1312,8 @@ export function decode_ts(buffer, source) {
           expression: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTaggedTemplateExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1246,11 +1322,12 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "TaggedTemplateExpression", start, end,
           tag: node(_u32[(payload + 0) >> 2]),
-          typeArguments: optionalNode(_u32[(payload + 4) >> 2]),
-          quasi: node(_u32[(payload + 8) >> 2]),
+          typeArguments: decodeOptionalTsTypeParameterInstantiation(_u32[(payload + 4) >> 2]),
+          quasi: decodeTemplateLiteral(_u32[(payload + 8) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeNewExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1259,11 +1336,12 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "NewExpression", start, end,
           callee: node(_u32[(payload + 8) >> 2]),
-          typeArguments: optionalNode(_u32[(payload + 12) >> 2]),
-          arguments: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          typeArguments: decodeOptionalTsTypeParameterInstantiation(_u32[(payload + 12) >> 2]),
+          arguments: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeAwaitExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1274,7 +1352,8 @@ export function decode_ts(buffer, source) {
           argument: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeYieldExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1286,7 +1365,8 @@ export function decode_ts(buffer, source) {
           delegate: _dv.getUint8(payload + 4) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeMetaProperty(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1294,11 +1374,12 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "MetaProperty", start, end,
-          meta: node(_u32[(payload + 0) >> 2]),
-          property: node(_u32[(payload + 4) >> 2]),
+          meta: decodeIdentifierName(_u32[(payload + 0) >> 2]),
+          property: decodeIdentifierName(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeImportExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1309,10 +1390,11 @@ export function decode_ts(buffer, source) {
         result = { type: "ImportExpression", start, end,
           source: node(_dv.getUint32(payload + 1, true)),
           options: optionalNode(_dv.getUint32(payload + 5, true)),
-          phase: optionalEnum("ImportPhase", _dv.getUint8(extra + (extraId + 0) * 8)),
+          phase: optionalEnum(ENUMS.ImportPhase, _dv.getUint8(extra + (extraId + 0) * 8)),
         };
         return result;
-    },
+    }
+
     function decodeImportDeclaration(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1321,14 +1403,15 @@ export function decode_ts(buffer, source) {
         const extraId = _u32[(payload + 12) >> 2];
         let result;
         result = { type: "ImportDeclaration", start, end,
-          specifiers: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
-          source: node(_dv.getUint32(payload + 1, true)),
-          attributes: nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false),
-          phase: optionalEnum("ImportPhase", _dv.getUint8(extra + (extraId + 2) * 8)),
-          importKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 0)),
+          specifiers: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]),
+          source: decodeStringLiteral(_dv.getUint32(payload + 1, true)),
+          attributes: decodeImportAttributeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2]),
+          phase: optionalEnum(ENUMS.ImportPhase, _dv.getUint8(extra + (extraId + 2) * 8)),
+          importKind: enumValue(ENUMS.ImportOrExportKind, _dv.getUint8(payload + 0)),
         };
         return result;
-    },
+    }
+
     function decodeImportSpecifier(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1337,11 +1420,12 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "ImportSpecifier", start, end,
           imported: node(_u32[(payload + 0) >> 2]),
-          local: node(_u32[(payload + 4) >> 2]),
-          importKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 8)),
+          local: decodeBindingIdentifier(_u32[(payload + 4) >> 2]),
+          importKind: enumValue(ENUMS.ImportOrExportKind, _dv.getUint8(payload + 8)),
         };
         return result;
-    },
+    }
+
     function decodeImportDefaultSpecifier(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1349,10 +1433,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "ImportDefaultSpecifier", start, end,
-          local: node(_u32[(payload + 0) >> 2]),
+          local: decodeBindingIdentifier(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeImportNamespaceSpecifier(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1360,10 +1445,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "ImportNamespaceSpecifier", start, end,
-          local: node(_u32[(payload + 0) >> 2]),
+          local: decodeBindingIdentifier(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeImportAttribute(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1372,10 +1458,11 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "ImportAttribute", start, end,
           key: node(_u32[(payload + 0) >> 2]),
-          value: node(_u32[(payload + 4) >> 2]),
+          value: decodeStringLiteral(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeExportNamedDeclaration(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1385,13 +1472,14 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "ExportNamedDeclaration", start, end,
           declaration: optionalNode(_dv.getUint32(payload + 1, true)),
-          specifiers: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
-          source: optionalNode(_dv.getUint32(payload + 5, true)),
-          attributes: nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false),
-          exportKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 0)),
+          specifiers: decodeExportSpecifierArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]),
+          source: decodeOptionalStringLiteral(_dv.getUint32(payload + 5, true)),
+          attributes: decodeImportAttributeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2]),
+          exportKind: enumValue(ENUMS.ImportOrExportKind, _dv.getUint8(payload + 0)),
         };
         return result;
-    },
+    }
+
     function decodeExportDefaultDeclaration(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1403,7 +1491,8 @@ export function decode_ts(buffer, source) {
           exportKind: "value",
         };
         return result;
-    },
+    }
+
     function decodeExportAllDeclaration(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1413,12 +1502,13 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "ExportAllDeclaration", start, end,
           exported: optionalNode(_dv.getUint32(payload + 1, true)),
-          source: node(_dv.getUint32(payload + 5, true)),
-          attributes: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
-          exportKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 0)),
+          source: decodeStringLiteral(_dv.getUint32(payload + 5, true)),
+          attributes: decodeImportAttributeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]),
+          exportKind: enumValue(ENUMS.ImportOrExportKind, _dv.getUint8(payload + 0)),
         };
         return result;
-    },
+    }
+
     function decodeExportSpecifier(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1428,10 +1518,11 @@ export function decode_ts(buffer, source) {
         result = { type: "ExportSpecifier", start, end,
           local: node(_u32[(payload + 0) >> 2]),
           exported: node(_u32[(payload + 4) >> 2]),
-          exportKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 8)),
+          exportKind: enumValue(ENUMS.ImportOrExportKind, _dv.getUint8(payload + 8)),
         };
         return result;
-    },
+    }
+
     function decodeHashbang(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1442,7 +1533,8 @@ export function decode_ts(buffer, source) {
           value: str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsFunction(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1450,10 +1542,10 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         const extraId = _u32[(payload + 12) >> 2];
         let result;
-        const f_id = optionalNode(_dv.getUint32(payload + 3, true));
-        const f_typeParameters = optionalNode(_dv.getUint32(payload + 7, true));
-        const f_params = node(_u32[(extra + (extraId + 0) * 8) >> 2]);
-        const f_returnType = optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]);
+        const f_id = decodeOptionalBindingIdentifier(_dv.getUint32(payload + 3, true));
+        const f_typeParameters = decodeOptionalTsTypeParameterDeclaration(_dv.getUint32(payload + 7, true));
+        const f_params = decodeFormalParameters(_u32[(extra + (extraId + 0) * 8) >> 2]);
+        const f_returnType = decodeOptionalTsTypeAnnotation(_u32[(extra + (extraId + 1) * 8) >> 2]);
         const f_generator = _dv.getUint8(payload + 0) !== 0;
         const f_async = _dv.getUint8(payload + 1) !== 0;
         const f_declare = _dv.getUint8(payload + 2) !== 0;
@@ -1471,7 +1563,8 @@ export function decode_ts(buffer, source) {
           declare: f_declare,
         };
         return result;
-    },
+    }
+
     function decodeTsMethodDefinition(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1479,16 +1572,16 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         const extraId = _u32[(payload + 12) >> 2];
         let result;
-        const f_decorators = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
+        const f_decorators = decodeDecoratorArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]);
         const f_key = node(_dv.getUint32(payload + 7, true));
-        const f_value = node(_u32[(extra + (extraId + 1) * 8) >> 2]);
-        const f_kind = enumValue("MethodDefinitionKind", _dv.getUint8(payload + 0));
+        const f_value = decodeTsFunction(_u32[(extra + (extraId + 1) * 8) >> 2]);
+        const f_kind = enumValue(ENUMS.MethodDefinitionKind, _dv.getUint8(payload + 0));
         const f_computed = _dv.getUint8(payload + 1) !== 0;
         const f_static = _dv.getUint8(payload + 2) !== 0;
         const f_override = _dv.getUint8(payload + 3) !== 0;
         const f_optional = _dv.getUint8(payload + 4) !== 0;
         const f_abstract = _dv.getUint8(payload + 5) !== 0;
-        const f_accessibility = enumValue("Accessibility", _dv.getUint8(payload + 6));
+        const f_accessibility = enumValue(ENUMS.Accessibility, _dv.getUint8(payload + 6));
         f_value.type = "TSEmptyBodyFunctionExpression";
         result = {
           type: f_abstract ? "TSAbstractMethodDefinition" : "MethodDefinition",
@@ -1504,7 +1597,8 @@ export function decode_ts(buffer, source) {
           accessibility: f_accessibility,
         };
         return result;
-    },
+    }
+
     function decodeTsTypeAnnotation(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1515,7 +1609,8 @@ export function decode_ts(buffer, source) {
           typeAnnotation: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsAnyKeyword(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1524,7 +1619,8 @@ export function decode_ts(buffer, source) {
         result = { type: "TSAnyKeyword", start, end,
         };
         return result;
-    },
+    }
+
     function decodeTsUnknownKeyword(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1533,7 +1629,8 @@ export function decode_ts(buffer, source) {
         result = { type: "TSUnknownKeyword", start, end,
         };
         return result;
-    },
+    }
+
     function decodeTsNeverKeyword(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1542,7 +1639,8 @@ export function decode_ts(buffer, source) {
         result = { type: "TSNeverKeyword", start, end,
         };
         return result;
-    },
+    }
+
     function decodeTsVoidKeyword(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1551,7 +1649,8 @@ export function decode_ts(buffer, source) {
         result = { type: "TSVoidKeyword", start, end,
         };
         return result;
-    },
+    }
+
     function decodeTsNullKeyword(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1560,7 +1659,8 @@ export function decode_ts(buffer, source) {
         result = { type: "TSNullKeyword", start, end,
         };
         return result;
-    },
+    }
+
     function decodeTsUndefinedKeyword(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1569,7 +1669,8 @@ export function decode_ts(buffer, source) {
         result = { type: "TSUndefinedKeyword", start, end,
         };
         return result;
-    },
+    }
+
     function decodeTsStringKeyword(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1578,7 +1679,8 @@ export function decode_ts(buffer, source) {
         result = { type: "TSStringKeyword", start, end,
         };
         return result;
-    },
+    }
+
     function decodeTsNumberKeyword(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1587,7 +1689,8 @@ export function decode_ts(buffer, source) {
         result = { type: "TSNumberKeyword", start, end,
         };
         return result;
-    },
+    }
+
     function decodeTsBigIntKeyword(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1596,7 +1699,8 @@ export function decode_ts(buffer, source) {
         result = { type: "TSBigIntKeyword", start, end,
         };
         return result;
-    },
+    }
+
     function decodeTsBooleanKeyword(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1605,7 +1709,8 @@ export function decode_ts(buffer, source) {
         result = { type: "TSBooleanKeyword", start, end,
         };
         return result;
-    },
+    }
+
     function decodeTsSymbolKeyword(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1614,7 +1719,8 @@ export function decode_ts(buffer, source) {
         result = { type: "TSSymbolKeyword", start, end,
         };
         return result;
-    },
+    }
+
     function decodeTsObjectKeyword(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1623,7 +1729,8 @@ export function decode_ts(buffer, source) {
         result = { type: "TSObjectKeyword", start, end,
         };
         return result;
-    },
+    }
+
     function decodeTsIntrinsicKeyword(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1632,7 +1739,8 @@ export function decode_ts(buffer, source) {
         result = { type: "TSIntrinsicKeyword", start, end,
         };
         return result;
-    },
+    }
+
     function decodeTsThisType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1641,7 +1749,8 @@ export function decode_ts(buffer, source) {
         result = { type: "TSThisType", start, end,
         };
         return result;
-    },
+    }
+
     function decodeTsTypeReference(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1650,10 +1759,11 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "TSTypeReference", start, end,
           typeName: node(_u32[(payload + 0) >> 2]),
-          typeArguments: optionalNode(_u32[(payload + 4) >> 2]),
+          typeArguments: decodeOptionalTsTypeParameterInstantiation(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsQualifiedName(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1662,10 +1772,11 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "TSQualifiedName", start, end,
           left: node(_u32[(payload + 0) >> 2]),
-          right: node(_u32[(payload + 4) >> 2]),
+          right: decodeIdentifierName(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsTypeQuery(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1674,10 +1785,11 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "TSTypeQuery", start, end,
           exprName: node(_u32[(payload + 0) >> 2]),
-          typeArguments: optionalNode(_u32[(payload + 4) >> 2]),
+          typeArguments: decodeOptionalTsTypeParameterInstantiation(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsImportType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1685,13 +1797,14 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSImportType", start, end,
-          source: node(_u32[(payload + 0) >> 2]),
+          source: decodeStringLiteral(_u32[(payload + 0) >> 2]),
           options: optionalNode(_u32[(payload + 4) >> 2]),
           qualifier: optionalNode(_u32[(payload + 8) >> 2]),
-          typeArguments: optionalNode(_u32[(payload + 12) >> 2]),
+          typeArguments: decodeOptionalTsTypeParameterInstantiation(_u32[(payload + 12) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsTypeParameter(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1699,7 +1812,7 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSTypeParameter", start, end,
-          name: node(_u32[(payload + 0) >> 2]),
+          name: decodeBindingIdentifier(_u32[(payload + 0) >> 2]),
           constraint: optionalNode(_u32[(payload + 4) >> 2]),
           default: optionalNode(_u32[(payload + 8) >> 2]),
           in: _dv.getUint8(payload + 12) !== 0,
@@ -1707,7 +1820,8 @@ export function decode_ts(buffer, source) {
           const: _dv.getUint8(payload + 14) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeTsTypeParameterDeclaration(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1715,10 +1829,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSTypeParameterDeclaration", start, end,
-          params: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          params: decodeTsTypeParameterArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsTypeParameterInstantiation(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1726,10 +1841,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSTypeParameterInstantiation", start, end,
-          params: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          params: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsLiteralType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1740,7 +1856,8 @@ export function decode_ts(buffer, source) {
           literal: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsTemplateLiteralType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1748,11 +1865,12 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSTemplateLiteralType", start, end,
-          quasis: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
-          types: nodeArray(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2], false),
+          quasis: decodeTemplateElementArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
+          types: nodeArray(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsArrayType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1763,7 +1881,8 @@ export function decode_ts(buffer, source) {
           elementType: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsIndexedAccessType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1775,7 +1894,8 @@ export function decode_ts(buffer, source) {
           indexType: node(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsTupleType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1783,10 +1903,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSTupleType", start, end,
-          elementTypes: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          elementTypes: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsNamedTupleMember(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1794,12 +1915,13 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSNamedTupleMember", start, end,
-          label: node(_u32[(payload + 0) >> 2]),
+          label: decodeIdentifierName(_u32[(payload + 0) >> 2]),
           elementType: node(_u32[(payload + 4) >> 2]),
           optional: _dv.getUint8(payload + 8) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeTsOptionalType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1810,7 +1932,8 @@ export function decode_ts(buffer, source) {
           typeAnnotation: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsRestType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1821,7 +1944,8 @@ export function decode_ts(buffer, source) {
           typeAnnotation: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsJsDocNullableType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1833,7 +1957,8 @@ export function decode_ts(buffer, source) {
           postfix: _dv.getUint8(payload + 4) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeTsJsDocNonNullableType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1845,7 +1970,8 @@ export function decode_ts(buffer, source) {
           postfix: _dv.getUint8(payload + 4) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeTsJsDocUnknownType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1854,7 +1980,8 @@ export function decode_ts(buffer, source) {
         result = { type: "TSJSDocUnknownType", start, end,
         };
         return result;
-    },
+    }
+
     function decodeTsUnionType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1862,10 +1989,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSUnionType", start, end,
-          types: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          types: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsIntersectionType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1873,10 +2001,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSIntersectionType", start, end,
-          types: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          types: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsConditionalType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1890,7 +2019,8 @@ export function decode_ts(buffer, source) {
           falseType: node(_u32[(payload + 12) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsInferType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1898,10 +2028,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSInferType", start, end,
-          typeParameter: node(_u32[(payload + 0) >> 2]),
+          typeParameter: decodeTsTypeParameter(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsTypeOperator(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1909,11 +2040,12 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSTypeOperator", start, end,
-          operator: enumValue("TsTypeOperatorKind", _dv.getUint8(payload + 4)),
+          operator: enumValue(ENUMS.TsTypeOperatorKind, _dv.getUint8(payload + 4)),
           typeAnnotation: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsParenthesizedType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1924,16 +2056,17 @@ export function decode_ts(buffer, source) {
           typeAnnotation: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsFunctionType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
         const end = pos(_u32[(span >> 2) + 1]);
         const payload = payloads + index * 16;
         let result;
-        const f_typeParameters = optionalNode(_u32[(payload + 0) >> 2]);
-        const f_params = node(_u32[(payload + 4) >> 2]);
-        const f_returnType = node(_u32[(payload + 8) >> 2]);
+        const f_typeParameters = decodeOptionalTsTypeParameterDeclaration(_u32[(payload + 0) >> 2]);
+        const f_params = decodeFormalParameters(_u32[(payload + 4) >> 2]);
+        const f_returnType = decodeTsTypeAnnotation(_u32[(payload + 8) >> 2]);
         result = {
           type: "TSFunctionType", start, end,
           typeParameters: f_typeParameters,
@@ -1941,16 +2074,17 @@ export function decode_ts(buffer, source) {
           returnType: f_returnType,
         };
         return result;
-    },
+    }
+
     function decodeTsConstructorType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
         const end = pos(_u32[(span >> 2) + 1]);
         const payload = payloads + index * 16;
         let result;
-        const f_typeParameters = optionalNode(_u32[(payload + 0) >> 2]);
-        const f_params = node(_u32[(payload + 4) >> 2]);
-        const f_returnType = node(_u32[(payload + 8) >> 2]);
+        const f_typeParameters = decodeOptionalTsTypeParameterDeclaration(_u32[(payload + 0) >> 2]);
+        const f_params = decodeFormalParameters(_u32[(payload + 4) >> 2]);
+        const f_returnType = decodeTsTypeAnnotation(_u32[(payload + 8) >> 2]);
         const f_abstract = _dv.getUint8(payload + 12) !== 0;
         result = {
           type: "TSConstructorType", start, end,
@@ -1960,7 +2094,8 @@ export function decode_ts(buffer, source) {
           returnType: f_returnType,
         };
         return result;
-    },
+    }
+
     function decodeTsTypePredicate(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1969,11 +2104,12 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "TSTypePredicate", start, end,
           parameterName: node(_u32[(payload + 0) >> 2]),
-          typeAnnotation: optionalNode(_u32[(payload + 4) >> 2]),
+          typeAnnotation: decodeOptionalTsTypeAnnotation(_u32[(payload + 4) >> 2]),
           asserts: _dv.getUint8(payload + 8) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeTsTypeLiteral(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1981,10 +2117,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSTypeLiteral", start, end,
-          members: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          members: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsMappedType(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -1992,12 +2129,12 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         const extraId = _u32[(payload + 12) >> 2];
         let result;
-        const f_key = node(_dv.getUint32(payload + 2, true));
+        const f_key = decodeBindingIdentifier(_dv.getUint32(payload + 2, true));
         const f_constraint = node(_dv.getUint32(payload + 6, true));
         const f_nameType = optionalNode(_u32[(extra + (extraId + 0) * 8) >> 2]);
         const f_typeAnnotation = optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]);
-        const f_optional = enumValue("TsMappedTypeModifier", _dv.getUint8(payload + 0));
-        const f_readonly = enumValue("TsMappedTypeModifier", _dv.getUint8(payload + 1));
+        const f_optional = enumValue(ENUMS.TsMappedTypeModifier, _dv.getUint8(payload + 0));
+        const f_readonly = enumValue(ENUMS.TsMappedTypeModifier, _dv.getUint8(payload + 1));
         result = {
           type: "TSMappedType", start, end,
           key: f_key, constraint: f_constraint,
@@ -2006,7 +2143,8 @@ export function decode_ts(buffer, source) {
           readonly: f_readonly,
         };
         return result;
-    },
+    }
+
     function decodeTsPropertySignature(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2015,7 +2153,7 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "TSPropertySignature", start, end,
           key: node(_u32[(payload + 0) >> 2]),
-          typeAnnotation: optionalNode(_u32[(payload + 4) >> 2]),
+          typeAnnotation: decodeOptionalTsTypeAnnotation(_u32[(payload + 4) >> 2]),
           computed: _dv.getUint8(payload + 8) !== 0,
           optional: _dv.getUint8(payload + 9) !== 0,
           readonly: _dv.getUint8(payload + 10) !== 0,
@@ -2023,7 +2161,8 @@ export function decode_ts(buffer, source) {
           static: false,
         };
         return result;
-    },
+    }
+
     function decodeTsMethodSignature(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2032,10 +2171,10 @@ export function decode_ts(buffer, source) {
         const extraId = _u32[(payload + 12) >> 2];
         let result;
         const f_key = node(_dv.getUint32(payload + 3, true));
-        const f_typeParameters = optionalNode(_dv.getUint32(payload + 7, true));
-        const f_params = node(_u32[(extra + (extraId + 0) * 8) >> 2]);
-        const f_returnType = optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]);
-        const f_kind = enumValue("TsMethodSignatureKind", _dv.getUint8(payload + 0));
+        const f_typeParameters = decodeOptionalTsTypeParameterDeclaration(_dv.getUint32(payload + 7, true));
+        const f_params = decodeFormalParameters(_u32[(extra + (extraId + 0) * 8) >> 2]);
+        const f_returnType = decodeOptionalTsTypeAnnotation(_u32[(extra + (extraId + 1) * 8) >> 2]);
+        const f_kind = enumValue(ENUMS.TsMethodSignatureKind, _dv.getUint8(payload + 0));
         const f_computed = _dv.getUint8(payload + 1) !== 0;
         const f_optional = _dv.getUint8(payload + 2) !== 0;
         result = {
@@ -2052,16 +2191,17 @@ export function decode_ts(buffer, source) {
           static: false,
         };
         return result;
-    },
+    }
+
     function decodeTsCallSignatureDeclaration(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
         const end = pos(_u32[(span >> 2) + 1]);
         const payload = payloads + index * 16;
         let result;
-        const f_typeParameters = optionalNode(_u32[(payload + 0) >> 2]);
-        const f_params = node(_u32[(payload + 4) >> 2]);
-        const f_returnType = optionalNode(_u32[(payload + 8) >> 2]);
+        const f_typeParameters = decodeOptionalTsTypeParameterDeclaration(_u32[(payload + 0) >> 2]);
+        const f_params = decodeFormalParameters(_u32[(payload + 4) >> 2]);
+        const f_returnType = decodeOptionalTsTypeAnnotation(_u32[(payload + 8) >> 2]);
         result = {
           type: "TSCallSignatureDeclaration", start, end,
           typeParameters: f_typeParameters,
@@ -2069,16 +2209,17 @@ export function decode_ts(buffer, source) {
           returnType: f_returnType,
         };
         return result;
-    },
+    }
+
     function decodeTsConstructSignatureDeclaration(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
         const end = pos(_u32[(span >> 2) + 1]);
         const payload = payloads + index * 16;
         let result;
-        const f_typeParameters = optionalNode(_u32[(payload + 0) >> 2]);
-        const f_params = node(_u32[(payload + 4) >> 2]);
-        const f_returnType = optionalNode(_u32[(payload + 8) >> 2]);
+        const f_typeParameters = decodeOptionalTsTypeParameterDeclaration(_u32[(payload + 0) >> 2]);
+        const f_params = decodeFormalParameters(_u32[(payload + 4) >> 2]);
+        const f_returnType = decodeOptionalTsTypeAnnotation(_u32[(payload + 8) >> 2]);
         result = {
           type: "TSConstructSignatureDeclaration", start, end,
           typeParameters: f_typeParameters,
@@ -2086,7 +2227,8 @@ export function decode_ts(buffer, source) {
           returnType: f_returnType,
         };
         return result;
-    },
+    }
+
     function decodeTsIndexSignature(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2094,14 +2236,15 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSIndexSignature", start, end,
-          parameters: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
-          typeAnnotation: node(_u32[(payload + 8) >> 2]),
+          parameters: decodeBindingIdentifierArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
+          typeAnnotation: decodeTsTypeAnnotation(_u32[(payload + 8) >> 2]),
           readonly: _dv.getUint8(payload + 12) !== 0,
           static: _dv.getUint8(payload + 13) !== 0,
           accessibility: null,
         };
         return result;
-    },
+    }
+
     function decodeTsTypeAliasDeclaration(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2109,13 +2252,14 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSTypeAliasDeclaration", start, end,
-          id: node(_u32[(payload + 0) >> 2]),
-          typeParameters: optionalNode(_u32[(payload + 4) >> 2]),
+          id: decodeBindingIdentifier(_u32[(payload + 0) >> 2]),
+          typeParameters: decodeOptionalTsTypeParameterDeclaration(_u32[(payload + 4) >> 2]),
           typeAnnotation: node(_u32[(payload + 8) >> 2]),
           declare: _dv.getUint8(payload + 12) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeTsInterfaceDeclaration(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2124,14 +2268,15 @@ export function decode_ts(buffer, source) {
         const extraId = _u32[(payload + 12) >> 2];
         let result;
         result = { type: "TSInterfaceDeclaration", start, end,
-          id: node(_dv.getUint32(payload + 1, true)),
-          typeParameters: optionalNode(_dv.getUint32(payload + 5, true)),
-          extends: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
-          body: node(_u32[(extra + (extraId + 1) * 8) >> 2]),
+          id: decodeBindingIdentifier(_dv.getUint32(payload + 1, true)),
+          typeParameters: decodeOptionalTsTypeParameterDeclaration(_dv.getUint32(payload + 5, true)),
+          extends: decodeTsInterfaceHeritageArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]),
+          body: decodeTsInterfaceBody(_u32[(extra + (extraId + 1) * 8) >> 2]),
           declare: _dv.getUint8(payload + 0) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeTsInterfaceBody(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2139,10 +2284,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSInterfaceBody", start, end,
-          body: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          body: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsInterfaceHeritage(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2151,10 +2297,11 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "TSInterfaceHeritage", start, end,
           expression: node(_u32[(payload + 0) >> 2]),
-          typeArguments: optionalNode(_u32[(payload + 4) >> 2]),
+          typeArguments: decodeOptionalTsTypeParameterInstantiation(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsClassImplements(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2163,10 +2310,11 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "TSClassImplements", start, end,
           expression: node(_u32[(payload + 0) >> 2]),
-          typeArguments: optionalNode(_u32[(payload + 4) >> 2]),
+          typeArguments: decodeOptionalTsTypeParameterInstantiation(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsEnumDeclaration(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2174,13 +2322,14 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSEnumDeclaration", start, end,
-          id: node(_u32[(payload + 0) >> 2]),
-          body: node(_u32[(payload + 4) >> 2]),
+          id: decodeBindingIdentifier(_u32[(payload + 0) >> 2]),
+          body: decodeTsEnumBody(_u32[(payload + 4) >> 2]),
           const: _dv.getUint8(payload + 8) !== 0,
           declare: _dv.getUint8(payload + 9) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeTsEnumBody(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2188,10 +2337,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSEnumBody", start, end,
-          members: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          members: decodeTsEnumMemberArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsEnumMember(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2204,7 +2354,8 @@ export function decode_ts(buffer, source) {
           computed: _dv.getUint8(payload + 8) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeTsModuleDeclaration(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2213,7 +2364,7 @@ export function decode_ts(buffer, source) {
         let result;
         const f_id = node(_u32[(payload + 0) >> 2]);
         const f_body = optionalNode(_u32[(payload + 4) >> 2]);
-        const f_kind = enumValue("TsModuleDeclarationKind", _dv.getUint8(payload + 8));
+        const f_kind = enumValue(ENUMS.TsModuleDeclarationKind, _dv.getUint8(payload + 8));
         const f_declare = _dv.getUint8(payload + 9) !== 0;
         if (f_body === null) {
           result = {
@@ -2227,26 +2378,28 @@ export function decode_ts(buffer, source) {
           };
         }
         return result;
-    },
+    }
+
     function decodeTsModuleBlock(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
         const end = pos(_u32[(span >> 2) + 1]);
         const payload = payloads + index * 16;
         let result;
-        const f_directives = nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false);
-        const f_body = nodeArray(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2], false);
+        const f_directives = decodeDirectiveArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]);
+        const f_body = nodeArray(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2]);
         result = { type: "TSModuleBlock", start, end, body: [...f_directives, ...f_body] };
         return result;
-    },
+    }
+
     function decodeTsGlobalDeclaration(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
         const end = pos(_u32[(span >> 2) + 1]);
         const payload = payloads + index * 16;
         let result;
-        const f_id = node(_u32[(payload + 0) >> 2]);
-        const f_body = node(_u32[(payload + 4) >> 2]);
+        const f_id = decodeIdentifierName(_u32[(payload + 0) >> 2]);
+        const f_body = decodeTsModuleBlock(_u32[(payload + 4) >> 2]);
         const f_declare = _dv.getUint8(payload + 8) !== 0;
         result = {
           type: "TSModuleDeclaration", start, end,
@@ -2254,7 +2407,8 @@ export function decode_ts(buffer, source) {
           declare: f_declare, global: true,
         };
         return result;
-    },
+    }
+
     function decodeTsParameterProperty(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2262,29 +2416,31 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSParameterProperty", start, end,
-          decorators: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          decorators: decodeDecoratorArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
           parameter: node(_u32[(payload + 8) >> 2]),
           override: _dv.getUint8(payload + 12) !== 0,
           readonly: _dv.getUint8(payload + 13) !== 0,
-          accessibility: enumValue("Accessibility", _dv.getUint8(payload + 14)),
+          accessibility: enumValue(ENUMS.Accessibility, _dv.getUint8(payload + 14)),
           static: false,
         };
         return result;
-    },
+    }
+
     function decodeTsThisParameter(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
         const end = pos(_u32[(span >> 2) + 1]);
         const payload = payloads + index * 16;
         let result;
-        const f_typeAnnotation = optionalNode(_u32[(payload + 0) >> 2]);
+        const f_typeAnnotation = decodeOptionalTsTypeAnnotation(_u32[(payload + 0) >> 2]);
         result = {
           type: "Identifier", start, end,
           name: "this", decorators: [], optional: false,
           typeAnnotation: f_typeAnnotation,
         };
         return result;
-    },
+    }
+
     function decodeTsAsExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2296,7 +2452,8 @@ export function decode_ts(buffer, source) {
           typeAnnotation: node(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsSatisfiesExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2308,7 +2465,8 @@ export function decode_ts(buffer, source) {
           typeAnnotation: node(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsTypeAssertion(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2320,7 +2478,8 @@ export function decode_ts(buffer, source) {
           expression: node(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsNonNullExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2331,7 +2490,8 @@ export function decode_ts(buffer, source) {
           expression: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsInstantiationExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2340,10 +2500,11 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "TSInstantiationExpression", start, end,
           expression: node(_u32[(payload + 0) >> 2]),
-          typeArguments: node(_u32[(payload + 4) >> 2]),
+          typeArguments: decodeTsTypeParameterInstantiation(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsExportAssignment(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2354,7 +2515,8 @@ export function decode_ts(buffer, source) {
           expression: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsNamespaceExportDeclaration(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2362,10 +2524,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSNamespaceExportDeclaration", start, end,
-          id: node(_u32[(payload + 0) >> 2]),
+          id: decodeIdentifierName(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeTsImportEqualsDeclaration(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2373,12 +2536,13 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSImportEqualsDeclaration", start, end,
-          id: node(_u32[(payload + 0) >> 2]),
+          id: decodeBindingIdentifier(_u32[(payload + 0) >> 2]),
           moduleReference: node(_u32[(payload + 4) >> 2]),
-          importKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 8)),
+          importKind: enumValue(ENUMS.ImportOrExportKind, _dv.getUint8(payload + 8)),
         };
         return result;
-    },
+    }
+
     function decodeTsExternalModuleReference(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2386,10 +2550,11 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "TSExternalModuleReference", start, end,
-          expression: node(_u32[(payload + 0) >> 2]),
+          expression: decodeStringLiteral(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeJsxElement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2397,12 +2562,13 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "JSXElement", start, end,
-          openingElement: node(_u32[(payload + 8) >> 2]),
-          children: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
-          closingElement: optionalNode(_u32[(payload + 12) >> 2]),
+          openingElement: decodeJsxOpeningElement(_u32[(payload + 8) >> 2]),
+          children: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
+          closingElement: decodeOptionalJsxClosingElement(_u32[(payload + 12) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeJsxOpeningElement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2412,12 +2578,13 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "JSXOpeningElement", start, end,
           name: node(_dv.getUint32(payload + 1, true)),
-          typeArguments: optionalNode(_dv.getUint32(payload + 5, true)),
-          attributes: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+          typeArguments: decodeOptionalTsTypeParameterInstantiation(_dv.getUint32(payload + 5, true)),
+          attributes: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]),
           selfClosing: _dv.getUint8(payload + 0) !== 0,
         };
         return result;
-    },
+    }
+
     function decodeJsxClosingElement(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2428,7 +2595,8 @@ export function decode_ts(buffer, source) {
           name: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeJsxFragment(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2436,12 +2604,13 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "JSXFragment", start, end,
-          openingFragment: node(_u32[(payload + 8) >> 2]),
-          children: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
-          closingFragment: node(_u32[(payload + 12) >> 2]),
+          openingFragment: decodeJsxOpeningFragment(_u32[(payload + 8) >> 2]),
+          children: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
+          closingFragment: decodeJsxClosingFragment(_u32[(payload + 12) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeJsxOpeningFragment(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2450,7 +2619,8 @@ export function decode_ts(buffer, source) {
         result = { type: "JSXOpeningFragment", start, end,
         };
         return result;
-    },
+    }
+
     function decodeJsxClosingFragment(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2459,7 +2629,8 @@ export function decode_ts(buffer, source) {
         result = { type: "JSXClosingFragment", start, end,
         };
         return result;
-    },
+    }
+
     function decodeJsxIdentifier(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2470,7 +2641,8 @@ export function decode_ts(buffer, source) {
           name: str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeJsxNamespacedName(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2478,11 +2650,12 @@ export function decode_ts(buffer, source) {
         const payload = payloads + index * 16;
         let result;
         result = { type: "JSXNamespacedName", start, end,
-          namespace: node(_u32[(payload + 0) >> 2]),
-          name: node(_u32[(payload + 4) >> 2]),
+          namespace: decodeJsxIdentifier(_u32[(payload + 0) >> 2]),
+          name: decodeJsxIdentifier(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeJsxMemberExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2491,10 +2664,11 @@ export function decode_ts(buffer, source) {
         let result;
         result = { type: "JSXMemberExpression", start, end,
           object: node(_u32[(payload + 0) >> 2]),
-          property: node(_u32[(payload + 4) >> 2]),
+          property: decodeJsxIdentifier(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeJsxAttribute(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2506,7 +2680,8 @@ export function decode_ts(buffer, source) {
           value: optionalNode(_u32[(payload + 4) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeJsxSpreadAttribute(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2517,7 +2692,8 @@ export function decode_ts(buffer, source) {
           argument: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeJsxExpressionContainer(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2528,7 +2704,8 @@ export function decode_ts(buffer, source) {
           expression: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
+    }
+
     function decodeJsxEmptyExpression(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2537,7 +2714,8 @@ export function decode_ts(buffer, source) {
         result = { type: "JSXEmptyExpression", start, end,
         };
         return result;
-    },
+    }
+
     function decodeJsxText(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2547,7 +2725,8 @@ export function decode_ts(buffer, source) {
         const f_value = str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]);
         result = { type: "JSXText", start, end, value: f_value, raw: f_value };
         return result;
-    },
+    }
+
     function decodeJsxSpreadChild(index) {
         const span = spans + index * 8;
         const start = pos(_u32[span >> 2]);
@@ -2558,9 +2737,345 @@ export function decode_ts(buffer, source) {
           expression: node(_u32[(payload + 0) >> 2]),
         };
         return result;
-    },
-  ];
+    }
 
+  function decodeDirectiveArray(start, end) {
+    const result = new Array(end - start);
+    for (let i = start; i < end; i++) {
+      const index = _u32[(extra >> 2) + i * 2];
+      result[i - start] = decodeDirective(index);
+    }
+    return result;
+  }
+
+  function decodeOptionalHashbang(index) {
+    return index === NULL ? null : decodeHashbang(index);
+  }
+
+  function decodeTemplateElementArray(start, end) {
+    const result = new Array(end - start);
+    for (let i = start; i < end; i++) {
+      const index = _u32[(extra >> 2) + i * 2];
+      result[i - start] = decodeTemplateElement(index);
+    }
+    return result;
+  }
+
+  function decodeDecoratorArray(start, end) {
+    const result = new Array(end - start);
+    for (let i = start; i < end; i++) {
+      const index = _u32[(extra >> 2) + i * 2];
+      result[i - start] = decodeDecorator(index);
+    }
+    return result;
+  }
+
+  function decodeOptionalTsTypeAnnotation(index) {
+    return index === NULL ? null : decodeTsTypeAnnotation(index);
+  }
+
+  function decodeOptionalBindingRestElement(index) {
+    return index === NULL ? null : decodeBindingRestElement(index);
+  }
+
+  function decodeBindingPropertyArray(start, end) {
+    const result = new Array(end - start);
+    for (let i = start; i < end; i++) {
+      const index = _u32[(extra >> 2) + i * 2];
+      result[i - start] = decodeBindingProperty(index);
+    }
+    return result;
+  }
+
+  function decodeVariableDeclaratorArray(start, end) {
+    const result = new Array(end - start);
+    for (let i = start; i < end; i++) {
+      const index = _u32[(extra >> 2) + i * 2];
+      result[i - start] = decodeVariableDeclarator(index);
+    }
+    return result;
+  }
+
+  function decodeSwitchCaseArray(start, end) {
+    const result = new Array(end - start);
+    for (let i = start; i < end; i++) {
+      const index = _u32[(extra >> 2) + i * 2];
+      result[i - start] = decodeSwitchCase(index);
+    }
+    return result;
+  }
+
+  function decodeOptionalCatchClause(index) {
+    return index === NULL ? null : decodeCatchClause(index);
+  }
+
+  function decodeOptionalBlockStatement(index) {
+    return index === NULL ? null : decodeBlockStatement(index);
+  }
+
+  function decodeOptionalLabelIdentifier(index) {
+    return index === NULL ? null : decodeLabelIdentifier(index);
+  }
+
+  function decodeOptionalBindingIdentifier(index) {
+    return index === NULL ? null : decodeBindingIdentifier(index);
+  }
+
+  function decodeOptionalTsTypeParameterDeclaration(index) {
+    return index === NULL ? null : decodeTsTypeParameterDeclaration(index);
+  }
+
+  function decodeOptionalTsTypeParameterInstantiation(index) {
+    return index === NULL ? null : decodeTsTypeParameterInstantiation(index);
+  }
+
+  function decodeTsClassImplementsArray(start, end) {
+    const result = new Array(end - start);
+    for (let i = start; i < end; i++) {
+      const index = _u32[(extra >> 2) + i * 2];
+      result[i - start] = decodeTsClassImplements(index);
+    }
+    return result;
+  }
+
+  function decodeImportAttributeArray(start, end) {
+    const result = new Array(end - start);
+    for (let i = start; i < end; i++) {
+      const index = _u32[(extra >> 2) + i * 2];
+      result[i - start] = decodeImportAttribute(index);
+    }
+    return result;
+  }
+
+  function decodeExportSpecifierArray(start, end) {
+    const result = new Array(end - start);
+    for (let i = start; i < end; i++) {
+      const index = _u32[(extra >> 2) + i * 2];
+      result[i - start] = decodeExportSpecifier(index);
+    }
+    return result;
+  }
+
+  function decodeOptionalStringLiteral(index) {
+    return index === NULL ? null : decodeStringLiteral(index);
+  }
+
+  function decodeTsTypeParameterArray(start, end) {
+    const result = new Array(end - start);
+    for (let i = start; i < end; i++) {
+      const index = _u32[(extra >> 2) + i * 2];
+      result[i - start] = decodeTsTypeParameter(index);
+    }
+    return result;
+  }
+
+  function decodeBindingIdentifierArray(start, end) {
+    const result = new Array(end - start);
+    for (let i = start; i < end; i++) {
+      const index = _u32[(extra >> 2) + i * 2];
+      result[i - start] = decodeBindingIdentifier(index);
+    }
+    return result;
+  }
+
+  function decodeTsInterfaceHeritageArray(start, end) {
+    const result = new Array(end - start);
+    for (let i = start; i < end; i++) {
+      const index = _u32[(extra >> 2) + i * 2];
+      result[i - start] = decodeTsInterfaceHeritage(index);
+    }
+    return result;
+  }
+
+  function decodeTsEnumMemberArray(start, end) {
+    const result = new Array(end - start);
+    for (let i = start; i < end; i++) {
+      const index = _u32[(extra >> 2) + i * 2];
+      result[i - start] = decodeTsEnumMember(index);
+    }
+    return result;
+  }
+
+  function decodeOptionalJsxClosingElement(index) {
+    return index === NULL ? null : decodeJsxClosingElement(index);
+  }
+
+  const nodeDecoders = [
+    decodeProgram,
+    decodeSuper,
+    decodeThisExpression,
+    decodeStringLiteral,
+    decodeNumericLiteral,
+    decodeBigIntLiteral,
+    decodeBooleanLiteral,
+    decodeNullLiteral,
+    decodeRegExpLiteral,
+    decodeTemplateLiteral,
+    decodeTemplateElement,
+    decodeIdentifierReference,
+    decodePrivateIdentifier,
+    decodeBindingIdentifier,
+    decodeIdentifierName,
+    decodeLabelIdentifier,
+    decodeAssignmentPattern,
+    decodeBindingRestElement,
+    decodeArrayPattern,
+    decodeObjectPattern,
+    decodeBindingProperty,
+    decodeBinaryExpression,
+    decodeLogicalExpression,
+    decodeConditionalExpression,
+    decodeUnaryExpression,
+    decodeUpdateExpression,
+    decodeAssignmentExpression,
+    decodeVariableDeclaration,
+    decodeVariableDeclarator,
+    decodeIfStatement,
+    decodeSwitchStatement,
+    decodeSwitchCase,
+    decodeForStatement,
+    decodeForInStatement,
+    decodeForOfStatement,
+    decodeTryStatement,
+    decodeCatchClause,
+    decodeBreakStatement,
+    decodeContinueStatement,
+    decodeLabeledStatement,
+    decodeExpressionStatement,
+    decodeReturnStatement,
+    decodeThrowStatement,
+    decodeDebuggerStatement,
+    decodeEmptyStatement,
+    decodeDirective,
+    decodeDecorator,
+    decodeClass,
+    decodeClassBody,
+    decodeMethodDefinition,
+    decodePropertyDefinition,
+    decodeStaticBlock,
+    decodeFunction,
+    decodeFunctionBody,
+    decodeBlockStatement,
+    decodeWhileStatement,
+    decodeDoWhileStatement,
+    decodeWithStatement,
+    decodeFormalParameters,
+    decodeFormalParameter,
+    decodeArrayExpression,
+    decodeObjectExpression,
+    decodeSpreadElement,
+    decodeObjectProperty,
+    decodeParenthesizedExpression,
+    decodeArrowFunctionExpression,
+    decodeSequenceExpression,
+    decodeMemberExpression,
+    decodeCallExpression,
+    decodeChainExpression,
+    decodeTaggedTemplateExpression,
+    decodeNewExpression,
+    decodeAwaitExpression,
+    decodeYieldExpression,
+    decodeMetaProperty,
+    decodeImportExpression,
+    decodeImportDeclaration,
+    decodeImportSpecifier,
+    decodeImportDefaultSpecifier,
+    decodeImportNamespaceSpecifier,
+    decodeImportAttribute,
+    decodeExportNamedDeclaration,
+    decodeExportDefaultDeclaration,
+    decodeExportAllDeclaration,
+    decodeExportSpecifier,
+    decodeHashbang,
+    decodeTsFunction,
+    decodeTsMethodDefinition,
+    decodeTsTypeAnnotation,
+    decodeTsAnyKeyword,
+    decodeTsUnknownKeyword,
+    decodeTsNeverKeyword,
+    decodeTsVoidKeyword,
+    decodeTsNullKeyword,
+    decodeTsUndefinedKeyword,
+    decodeTsStringKeyword,
+    decodeTsNumberKeyword,
+    decodeTsBigIntKeyword,
+    decodeTsBooleanKeyword,
+    decodeTsSymbolKeyword,
+    decodeTsObjectKeyword,
+    decodeTsIntrinsicKeyword,
+    decodeTsThisType,
+    decodeTsTypeReference,
+    decodeTsQualifiedName,
+    decodeTsTypeQuery,
+    decodeTsImportType,
+    decodeTsTypeParameter,
+    decodeTsTypeParameterDeclaration,
+    decodeTsTypeParameterInstantiation,
+    decodeTsLiteralType,
+    decodeTsTemplateLiteralType,
+    decodeTsArrayType,
+    decodeTsIndexedAccessType,
+    decodeTsTupleType,
+    decodeTsNamedTupleMember,
+    decodeTsOptionalType,
+    decodeTsRestType,
+    decodeTsJsDocNullableType,
+    decodeTsJsDocNonNullableType,
+    decodeTsJsDocUnknownType,
+    decodeTsUnionType,
+    decodeTsIntersectionType,
+    decodeTsConditionalType,
+    decodeTsInferType,
+    decodeTsTypeOperator,
+    decodeTsParenthesizedType,
+    decodeTsFunctionType,
+    decodeTsConstructorType,
+    decodeTsTypePredicate,
+    decodeTsTypeLiteral,
+    decodeTsMappedType,
+    decodeTsPropertySignature,
+    decodeTsMethodSignature,
+    decodeTsCallSignatureDeclaration,
+    decodeTsConstructSignatureDeclaration,
+    decodeTsIndexSignature,
+    decodeTsTypeAliasDeclaration,
+    decodeTsInterfaceDeclaration,
+    decodeTsInterfaceBody,
+    decodeTsInterfaceHeritage,
+    decodeTsClassImplements,
+    decodeTsEnumDeclaration,
+    decodeTsEnumBody,
+    decodeTsEnumMember,
+    decodeTsModuleDeclaration,
+    decodeTsModuleBlock,
+    decodeTsGlobalDeclaration,
+    decodeTsParameterProperty,
+    decodeTsThisParameter,
+    decodeTsAsExpression,
+    decodeTsSatisfiesExpression,
+    decodeTsTypeAssertion,
+    decodeTsNonNullExpression,
+    decodeTsInstantiationExpression,
+    decodeTsExportAssignment,
+    decodeTsNamespaceExportDeclaration,
+    decodeTsImportEqualsDeclaration,
+    decodeTsExternalModuleReference,
+    decodeJsxElement,
+    decodeJsxOpeningElement,
+    decodeJsxClosingElement,
+    decodeJsxFragment,
+    decodeJsxOpeningFragment,
+    decodeJsxClosingFragment,
+    decodeJsxIdentifier,
+    decodeJsxNamespacedName,
+    decodeJsxMemberExpression,
+    decodeJsxAttribute,
+    decodeJsxSpreadAttribute,
+    decodeJsxExpressionContainer,
+    decodeJsxEmptyExpression,
+    decodeJsxText,
+    decodeJsxSpreadChild,
+  ];
   function node(index) {
     const kind = bytes[kinds + index];
     const decodeNode = nodeDecoders[kind];
