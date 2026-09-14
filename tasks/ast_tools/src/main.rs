@@ -9,6 +9,7 @@ use crate::{
 
 pub(crate) mod derive;
 pub(crate) mod generator;
+pub(crate) mod js_minifier;
 pub(crate) mod output;
 pub(crate) mod parse;
 pub(crate) mod schema;
