@@ -5,7 +5,7 @@ use swc_core::{
         codegen::{Config, Emitter, text_writer::JsWriter},
         minifier::{
             optimize,
-            option::{ExtraOptions, MinifyOptions},
+            option::{CompressOptions, ExtraOptions, MinifyOptions, TopLevelOptions},
         },
         parser::{EsSyntax, Parser, StringInput, Syntax, lexer::Lexer},
         transforms::base::{fixer::fixer, resolver},
@@ -44,7 +44,10 @@ pub(super) fn minify(source: &str, filename: &str) -> String {
             None,
             None,
             &MinifyOptions {
-                compress: Some(Default::default()),
+                compress: Some(CompressOptions {
+                    top_level: Some(TopLevelOptions { functions: true }),
+                    ..Default::default()
+                }),
                 mangle: Some(Default::default()),
                 ..Default::default()
             },

@@ -5,54 +5,59 @@ use convert_case::{Case, Casing};
 use crate::{
     output::RawOutput,
     schema::{AstStruct, AstType, Schema},
-    util::{InlineStorageMode, calculate_inline_layout},
+    util::calculate_inline_layout,
 };
 
 use crate::js_minifier::minify;
 
-const PRETTY_OUTPUT_PATH: &str = "packages/decoder/index.pretty.js";
-const MINIFIED_OUTPUT_PATH: &str = "packages/decoder/index.js";
-
-pub fn estree_decoder(schema: &Schema) -> (RawOutput, RawOutput) {
-    let mut output = String::new();
-    output.push_str(PREAMBLE);
-
-    for (kind, ty) in schema
-        .types
-        .iter()
-        .filter_map(|ty| match ty {
-            AstType::Struct(ast) => Some(ast),
-            _ => None,
-        })
-        .enumerate()
-    {
-        write_node_case(&mut output, kind, ty, schema);
+pub fn estree_decoder(schema: &Schema) -> Vec<RawOutput> {
+    let mut outputs = Vec::new();
+    for is_ts in [false, true] {
+        let mut output = String::from(PREAMBLE);
+        let name = if is_ts { "decode_ts" } else { "decode_js" };
+        writeln!(output, "\nexport function {name}(buffer, source) {{").unwrap();
+        output.push_str(DECODER_PREAMBLE);
+        for (kind, ty) in schema
+            .types
+            .iter()
+            .filter_map(|ty| match ty {
+                AstType::Struct(ast) => Some(ast),
+                _ => None,
+            })
+            .enumerate()
+        {
+            write_node_case(&mut output, kind, ty, schema, is_ts);
+        }
+        output.push_str(POSTAMBLE);
+        write_outputs(&mut outputs, name, &output);
     }
 
-    output.push_str(POSTAMBLE);
-    let minified = minify(&output, PRETTY_OUTPUT_PATH);
-    (
-        RawOutput {
-            path: PRETTY_OUTPUT_PATH.into(),
-            content: output.into_bytes(),
-        },
-        RawOutput {
-            path: MINIFIED_OUTPUT_PATH.into(),
-            content: minified.into_bytes(),
-        },
-    )
+    outputs
 }
 
-fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &Schema) {
+fn write_outputs(outputs: &mut Vec<RawOutput>, name: &str, source: &str) {
+    let pretty_path = format!("packages/decoder/{name}.pretty.js");
+    let minified = minify(source, &pretty_path);
+    outputs.push(RawOutput {
+        path: pretty_path,
+        content: source.as_bytes().to_vec(),
+    });
+    outputs.push(RawOutput {
+        path: format!("packages/decoder/{name}.js"),
+        content: minified.into_bytes(),
+    });
+}
+
+fn write_node_case(
+    output: &mut String,
+    kind: usize,
+    ast: &AstStruct,
+    schema: &Schema,
+    is_ts: bool,
+) {
     writeln!(output, "      case {kind}: {{").unwrap();
 
     let layout = calculate_inline_layout(ast, schema);
-    if layout
-        .as_ref()
-        .is_none_or(|layout| layout.mode == InlineStorageMode::Partial)
-    {
-        writeln!(output, "        const extraId = _u32[(payload + 12) >> 2];").unwrap();
-    }
     let mut fields = Vec::new();
 
     let mut extra_offset = 0usize;
@@ -72,21 +77,31 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
             extra_offset += 1;
             (location, true)
         };
-        if skip {
+        let field_name = estree_field_name(&ast.name, &field.name);
+        if skip
+            || (ast.name == "FormalParameters" && field_name == "kind")
+            || (!is_ts && is_ts_field(&ast.name, &field_name))
+        {
             continue;
         }
         let expression = read_expression(field_ty, schema, &location, aligned_u32);
-        let field_name = estree_field_name(&ast.name, &field.name);
         fields.push(DecodedField {
             name: field_name,
             expression,
         });
     }
 
+    if fields
+        .iter()
+        .any(|field| field.expression.contains("extraId"))
+    {
+        writeln!(output, "        const extraId = _u32[(payload + 12) >> 2];").unwrap();
+    }
+
     if is_special_node(&ast.name) {
-        write_special_node(output, &ast.name, &fields);
+        write_special_node(output, &ast.name, &fields, is_ts);
     } else {
-        write_generic_node(output, &ast.name, &fields);
+        write_generic_node(output, &ast.name, &fields, is_ts);
     }
     writeln!(output, "        break;").unwrap();
     writeln!(output, "      }}").unwrap();
@@ -190,27 +205,9 @@ fn read_u32(location: &str, aligned: bool) -> String {
     }
 }
 
-fn write_generic_node(output: &mut String, name: &str, fields: &[DecodedField]) {
-    let has_ts_shape = fields.iter().any(|field| is_ts_field(name, &field.name))
-        || !ts_extra_fields(name).is_empty();
-
-    if has_ts_shape {
-        writeln!(output, "        if (isTs) {{").unwrap();
-        write_object_literal(output, name, fields.iter(), ts_extra_fields(name), 10);
-        writeln!(output, "        }} else {{").unwrap();
-        write_object_literal(
-            output,
-            name,
-            fields
-                .iter()
-                .filter(|field| !is_ts_field(name, &field.name)),
-            &[],
-            10,
-        );
-        writeln!(output, "        }}").unwrap();
-    } else {
-        write_object_literal(output, name, fields.iter(), &[], 8);
-    }
+fn write_generic_node(output: &mut String, name: &str, fields: &[DecodedField], is_ts: bool) {
+    let extras = if is_ts { ts_extra_fields(name) } else { &[] };
+    write_object_literal(output, name, fields.iter(), extras, 8);
 }
 
 fn write_object_literal<'a>(
@@ -276,7 +273,7 @@ fn is_special_node(name: &str) -> bool {
     )
 }
 
-fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField]) {
+fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField], is_ts: bool) {
     for field in fields {
         writeln!(
             output,
@@ -287,16 +284,26 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField]) 
     }
 
     match name {
-        "Program" => output.push_str(
-            r#"        const body = [...f_directives, ...f_body];
+        "Program" => {
+            output.push_str("        const body = [...f_directives, ...f_body];\n");
+            if is_ts {
+                output.push_str(
+                    "        const programStart = body.length !== 0 ? body[0].start : end;\n",
+                );
+            } else {
+                output.push_str("        const programStart = start;\n");
+            }
+            output.push_str(
+                r#"
         result = {
-          type: "Program", start: isTs ? (body.length !== 0 ? body[0].start : end) : start, end,
+          type: "Program", start: programStart, end,
           sourceType,
           hashbang: f_hashbang,
           body,
         };
 "#,
-        ),
+            );
+        }
         "FunctionBody" | "TsModuleBlock" => {
             writeln!(
                 output,
@@ -313,8 +320,9 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField]) 
         "FormalParameters" => output.push_str(
             "        result = { params: f_rest === null ? f_items : [...f_items, f_rest] };\n",
         ),
-        "Function" => output.push_str(
-            r#"        result = {
+        "Function" => {
+            output.push_str(
+                r#"        result = {
           type: f_functionType, start, end,
           id: f_id,
           generator: f_generator,
@@ -323,13 +331,17 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField]) 
           body: f_body,
           expression: false,
         };
-        if (isTs) {
-          result.typeParameters = f_typeParameters;
-          result.returnType = f_returnType;
-          result.declare = false;
-        }
 "#,
-        ),
+            );
+            if is_ts {
+                output.push_str(
+                    r#"        result.typeParameters = f_typeParameters;
+        result.returnType = f_returnType;
+        result.declare = false;
+"#,
+                );
+            }
+        }
         "TsFunction" => output.push_str(
             r#"        result = {
           type: "TSDeclareFunction",
@@ -346,19 +358,24 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField]) 
         };
 "#,
         ),
-        "ArrowFunctionExpression" => output.push_str(
-            r#"        result = {
+        "ArrowFunctionExpression" => {
+            output.push_str(
+                r#"        result = {
           type: "ArrowFunctionExpression", start, end,
           id: null, generator: false, async: f_async,
           params: f_params.params,
           body: f_body, expression: f_expression,
         };
-        if (isTs) {
-          result.typeParameters = f_typeParameters;
-          result.returnType = f_returnType;
-        }
 "#,
-        ),
+            );
+            if is_ts {
+                output.push_str(
+                    r#"        result.typeParameters = f_typeParameters;
+        result.returnType = f_returnType;
+"#,
+                );
+            }
+        }
         "Directive" => output.push_str(
             r#"        result = {
           type: "ExpressionStatement", start, end,
@@ -403,38 +420,50 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField]) 
         };
 "#,
         ),
-        "TemplateElement" => output.push_str(
-            r#"        result = {
+        "TemplateElement" => {
+            if is_ts {
+                output.push_str("        const templateStart = start - 1;\n        const templateEnd = f_tail ? end + 1 : end + 2;\n");
+            } else {
+                output.push_str(
+                    "        const templateStart = start;\n        const templateEnd = end;\n",
+                );
+            }
+            output.push_str(
+                r#"        result = {
           type: "TemplateElement",
-          start: isTs ? start - 1 : start,
-          end: isTs ? (f_tail ? end + 1 : end + 2) : end,
+          start: templateStart,
+          end: templateEnd,
           value: { raw: f_raw, cooked: f_isCookedUndefined ? null : f_cooked },
           tail: f_tail,
         };
 "#,
-        ),
-        "Class" => output.push_str(
-            r#"        result = {
+            );
+        }
+        "Class" => {
+            output.push_str(
+                r#"        result = {
           type: f_classType, start, end,
           decorators: f_decorators,
           id: f_id,
           superClass: f_superClass,
           body: f_body,
         };
-        if (isTs) {
-          result.typeParameters = f_typeParameters;
-          result.superTypeArguments = f_superTypeArguments;
-          result.implements = f_implements;
-          result.abstract = f_abstract;
-          result.declare = f_declare;
-        }
 "#,
-        ),
+            );
+            if is_ts {
+                output.push_str(
+                    r#"        result.typeParameters = f_typeParameters;
+        result.superTypeArguments = f_superTypeArguments;
+        result.implements = f_implements;
+        result.abstract = f_abstract;
+        result.declare = f_declare;
+"#,
+                );
+            }
+        }
         "MethodDefinition" | "TsMethodDefinition" => {
             if name == "TsMethodDefinition" {
-                output.push_str(
-                    "        f_value.type = \"TSEmptyBodyFunctionExpression\";\n",
-                );
+                output.push_str("        f_value.type = \"TSEmptyBodyFunctionExpression\";\n");
             }
             writeln!(
                 output,
@@ -455,17 +484,21 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField]) 
           computed: f_computed,
           static: f_static,
         };
-        if (isTs) {
-          result.override = f_override;
-          result.optional = f_optional;
-          result.accessibility = f_accessibility;
-          if (f_abstract) result.type = "TSAbstractMethodDefinition";
-        }
 "#,
             );
+            if is_ts {
+                output.push_str(
+                    r#"        result.override = f_override;
+        result.optional = f_optional;
+        result.accessibility = f_accessibility;
+        if (f_abstract) result.type = "TSAbstractMethodDefinition";
+"#,
+                );
+            }
         }
-        "PropertyDefinition" => output.push_str(
-            r#"        const accessor = f_accessor;
+        "PropertyDefinition" => {
+            output.push_str(
+                r#"        const accessor = f_accessor;
         result = {
           type: accessor ? "AccessorProperty" : "PropertyDefinition",
           start, end,
@@ -475,22 +508,26 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField]) 
           computed: f_computed,
           static: f_static,
         };
-        if (isTs) {
-          result.typeAnnotation = f_typeAnnotation;
-          result.declare = f_declare;
-          result.override = f_override;
-          result.optional = f_optional;
-          result.definite = f_definite;
-          result.readonly = f_readonly;
-          result.accessibility = f_accessibility;
-          if (f_abstract) {
-            result.type = accessor
-              ? "TSAbstractAccessorProperty"
-              : "TSAbstractPropertyDefinition";
-          }
+"#,
+            );
+            if is_ts {
+                output.push_str(
+                    r#"        result.typeAnnotation = f_typeAnnotation;
+        result.declare = f_declare;
+        result.override = f_override;
+        result.optional = f_optional;
+        result.definite = f_definite;
+        result.readonly = f_readonly;
+        result.accessibility = f_accessibility;
+        if (f_abstract) {
+          result.type = accessor
+            ? "TSAbstractAccessorProperty"
+            : "TSAbstractPropertyDefinition";
         }
 "#,
-        ),
+                );
+            }
+        }
         "UnaryExpression" => output.push_str(
             r#"        result = {
           type: "UnaryExpression", start, end,
@@ -498,35 +535,52 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField]) 
         };
 "#,
         ),
-        "BindingProperty" => output.push_str(
-            r#"        result = {
+        "BindingProperty" => {
+            output.push_str(
+                r#"        result = {
           type: "Property", start, end, kind: "init",
           key: f_key, value: f_value,
           method: false, shorthand: f_shorthand, computed: f_computed,
         };
-        if (isTs) result.optional = false;
 "#,
-        ),
-        "ArrayPattern" => output.push_str(
-            r#"        const elements = f_rest === null ? f_elements : [...f_elements, f_rest];
+            );
+            if is_ts {
+                output.push_str(
+                    r#"        result.optional = false;
+"#,
+                );
+            }
+        }
+        "ArrayPattern" => {
+            output.push_str(
+                r#"        const elements = f_rest === null ? f_elements : [...f_elements, f_rest];
         result = { type: "ArrayPattern", start, end, elements };
-        if (isTs) {
-          result.decorators = f_decorators;
-          result.optional = f_optional;
-          result.typeAnnotation = f_typeAnnotation;
-        }
 "#,
-        ),
-        "ObjectPattern" => output.push_str(
-            r#"        const properties = f_rest === null ? f_properties : [...f_properties, f_rest];
+            );
+            if is_ts {
+                output.push_str(
+                    r#"        result.decorators = f_decorators;
+        result.optional = f_optional;
+        result.typeAnnotation = f_typeAnnotation;
+"#,
+                );
+            }
+        }
+        "ObjectPattern" => {
+            output.push_str(
+                r#"        const properties = f_rest === null ? f_properties : [...f_properties, f_rest];
         result = { type: "ObjectPattern", start, end, properties };
-        if (isTs) {
-          result.decorators = f_decorators;
-          result.optional = f_optional;
-          result.typeAnnotation = f_typeAnnotation;
-        }
 "#,
-        ),
+            );
+            if is_ts {
+                output.push_str(
+                    r#"        result.decorators = f_decorators;
+        result.optional = f_optional;
+        result.typeAnnotation = f_typeAnnotation;
+"#,
+                );
+            }
+        }
         "JsxText" => output.push_str(
             "        result = { type: \"JSXText\", start, end, value: f_value, raw: f_value };\n",
         ),
@@ -628,6 +682,33 @@ fn is_ts_field(node: &str, field: &str) -> bool {
     matches!(
         (node, field),
         ("VariableDeclaration", "declare")
+            | (
+                "Function" | "ArrowFunctionExpression",
+                "typeParameters" | "returnType"
+            )
+            | (
+                "Class",
+                "typeParameters" | "superTypeArguments" | "implements" | "abstract" | "declare"
+            )
+            | (
+                "MethodDefinition",
+                "override" | "optional" | "accessibility" | "abstract"
+            )
+            | (
+                "TsMethodDefinition",
+                "override" | "optional" | "accessibility"
+            )
+            | (
+                "PropertyDefinition",
+                "typeAnnotation"
+                    | "declare"
+                    | "override"
+                    | "optional"
+                    | "definite"
+                    | "readonly"
+                    | "accessibility"
+                    | "abstract"
+            )
             | ("VariableDeclarator", "definite")
             | ("CallExpression", "typeArguments")
             | ("NewExpression", "typeArguments")
@@ -836,8 +917,9 @@ function copyLittleEndianU32(view) {
   return u32;
 }
 
-export function decode(buffer, source) {
-  const arrayBuffer = buffer instanceof ArrayBuffer ? buffer : buffer.buffer;
+"#;
+
+const DECODER_PREAMBLE: &str = r#"  const arrayBuffer = buffer instanceof ArrayBuffer ? buffer : buffer.buffer;
   const byteOffset = buffer.byteOffset ?? 0;
   const byteLength = buffer.byteLength;
   const bytes = new Uint8Array(arrayBuffer, byteOffset, byteLength);
@@ -853,7 +935,6 @@ export function decode(buffer, source) {
   const diagnosticCount = _u32[6];
   const programIndex = _u32[7];
   const flags = _u32[8];
-  const isTs = (flags & 1) !== 0;
 
   const spans = HEADER_SIZE;
   const kinds = spans + nodeCount * 8;

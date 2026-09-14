@@ -1,8 +1,42 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { decode } from "@swc-next/decoder";
+import { decode_js, decode_ts, encodeOptions } from "@swc-next/decoder";
+import { parseSync as parseBuffer } from "../src-js/binding.js";
 import { CommentMode, Lang, parseSync, SourceType } from "../src-js/index.js";
+
+test("decoders use their specialized language independently of buffer flags", () => {
+  const source = "  let value;";
+  const buffer = parseBuffer(source, encodeOptions({ lang: Lang.Js }));
+  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+
+  const ts = decode_ts(buffer, source).program;
+  assert.equal(ts.start, 2);
+  assert.equal(ts.body[0].declare, false);
+  assert.equal(ts.body[0].declarations[0].id.typeAnnotation, null);
+
+  view.setUint32(32, view.getUint32(32, true) | 1, true);
+  const js = decode_js(buffer, source).program;
+  assert.equal(js.start, 0);
+  assert.equal(Object.hasOwn(js.body[0], "declare"), false);
+  assert.equal(Object.hasOwn(js.body[0].declarations[0].id, "typeAnnotation"), false);
+});
+
+test("parseSync selects the decoder for every language", () => {
+  for (const lang of [undefined, null, Lang.Js, Lang.Jsx]) {
+    const program = parseSync("  let value;", { lang }).program;
+    assert.equal(program.start, 0);
+    assert.equal(Object.hasOwn(program.body[0], "declare"), false);
+    assert.equal(Object.hasOwn(program.body[0].declarations[0].id, "typeAnnotation"), false);
+  }
+
+  for (const lang of [Lang.Ts, Lang.Tsx, Lang.Dts]) {
+    const program = parseSync("  let value;", { lang }).program;
+    assert.equal(program.start, 2);
+    assert.equal(program.body[0].declare, false);
+    assert.equal(program.body[0].declarations[0].id.typeAnnotation, null);
+  }
+});
 
 test("decoder reads little-endian words from unaligned buffers", () => {
   const backing = new ArrayBuffer(73);
@@ -12,7 +46,7 @@ test("decoder reads little-endian words from unaligned buffers", () => {
   view.setUint32(4, 1, true); // extra-data count
   view.setUint32(48, 0xffffffff, true); // no hashbang
 
-  const result = decode(buffer, "");
+  const result = decode_js(buffer, "");
   assert.deepEqual(result.program, {
     type: "Program",
     start: 0,
@@ -31,7 +65,7 @@ test("decoder rejects unknown diagnostic severities", () => {
   view.setUint32(24, 1, true); // diagnostic count
   buffer[64] = 0xff; // diagnostic severity
 
-  const result = decode(buffer, "");
+  const result = decode_js(buffer, "");
   assert.throws(
     () => result.diagnostics,
     new RangeError("Unknown diagnostic severity 255"),

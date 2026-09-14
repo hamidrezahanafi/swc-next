@@ -136,7 +136,8 @@ function copyLittleEndianU32(view) {
   return u32;
 }
 
-export function decode(buffer, source) {
+
+export function decode_ts(buffer, source) {
   const arrayBuffer = buffer instanceof ArrayBuffer ? buffer : buffer.buffer;
   const byteOffset = buffer.byteOffset ?? 0;
   const byteLength = buffer.byteLength;
@@ -153,7 +154,6 @@ export function decode(buffer, source) {
   const diagnosticCount = _u32[6];
   const programIndex = _u32[7];
   const flags = _u32[8];
-  const isTs = (flags & 1) !== 0;
 
   const spans = HEADER_SIZE;
   const kinds = spans + nodeCount * 8;
@@ -264,8 +264,10 @@ export function decode(buffer, source) {
         const f_body = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
         const f_hashbang = optionalNode(_u32[(payload + 0) >> 2]);
         const body = [...f_directives, ...f_body];
+        const programStart = body.length !== 0 ? body[0].start : end;
+
         result = {
-          type: "Program", start: isTs ? (body.length !== 0 ? body[0].start : end) : start, end,
+          type: "Program", start: programStart, end,
           sourceType,
           hashbang: f_hashbang,
           body,
@@ -342,28 +344,24 @@ export function decode(buffer, source) {
         const f_raw = str(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]);
         const f_tail = _dv.getUint8(payload + 0) !== 0;
         const f_isCookedUndefined = _dv.getUint8(payload + 1) !== 0;
+        const templateStart = start - 1;
+        const templateEnd = f_tail ? end + 1 : end + 2;
         result = {
           type: "TemplateElement",
-          start: isTs ? start - 1 : start,
-          end: isTs ? (f_tail ? end + 1 : end + 2) : end,
+          start: templateStart,
+          end: templateEnd,
           value: { raw: f_raw, cooked: f_isCookedUndefined ? null : f_cooked },
           tail: f_tail,
         };
         break;
       }
       case 11: {
-        if (isTs) {
-          result = { type: "Identifier", start, end,
-            name: str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
-            decorators: [],
-            optional: false,
-            typeAnnotation: null,
-          };
-        } else {
-          result = { type: "Identifier", start, end,
-            name: str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
-          };
-        }
+        result = { type: "Identifier", start, end,
+          name: str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
+          decorators: [],
+          optional: false,
+          typeAnnotation: null,
+        };
         break;
       }
       case 12: {
@@ -374,83 +372,52 @@ export function decode(buffer, source) {
       }
       case 13: {
         const extraId = _u32[(payload + 12) >> 2];
-        if (isTs) {
-          result = { type: "Identifier", start, end,
-            name: str(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]),
-            decorators: nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false),
-            typeAnnotation: optionalNode(_dv.getUint32(payload + 1, true)),
-            optional: _dv.getUint8(payload + 0) !== 0,
-          };
-        } else {
-          result = { type: "Identifier", start, end,
-            name: str(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]),
-          };
-        }
+        result = { type: "Identifier", start, end,
+          name: str(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]),
+          decorators: nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false),
+          typeAnnotation: optionalNode(_dv.getUint32(payload + 1, true)),
+          optional: _dv.getUint8(payload + 0) !== 0,
+        };
         break;
       }
       case 14: {
-        if (isTs) {
-          result = { type: "Identifier", start, end,
-            name: str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
-            decorators: [],
-            optional: false,
-            typeAnnotation: null,
-          };
-        } else {
-          result = { type: "Identifier", start, end,
-            name: str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
-          };
-        }
+        result = { type: "Identifier", start, end,
+          name: str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
+          decorators: [],
+          optional: false,
+          typeAnnotation: null,
+        };
         break;
       }
       case 15: {
-        if (isTs) {
-          result = { type: "Identifier", start, end,
-            name: str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
-            decorators: [],
-            optional: false,
-            typeAnnotation: null,
-          };
-        } else {
-          result = { type: "Identifier", start, end,
-            name: str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
-          };
-        }
+        result = { type: "Identifier", start, end,
+          name: str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
+          decorators: [],
+          optional: false,
+          typeAnnotation: null,
+        };
         break;
       }
       case 16: {
         const extraId = _u32[(payload + 12) >> 2];
-        if (isTs) {
-          result = { type: "AssignmentPattern", start, end,
-            decorators: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
-            left: node(_dv.getUint32(payload + 1, true)),
-            typeAnnotation: optionalNode(_dv.getUint32(payload + 5, true)),
-            right: node(_u32[(extra + (extraId + 1) * 8) >> 2]),
-            optional: _dv.getUint8(payload + 0) !== 0,
-          };
-        } else {
-          result = { type: "AssignmentPattern", start, end,
-            left: node(_dv.getUint32(payload + 1, true)),
-            right: node(_u32[(extra + (extraId + 1) * 8) >> 2]),
-          };
-        }
+        result = { type: "AssignmentPattern", start, end,
+          decorators: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+          left: node(_dv.getUint32(payload + 1, true)),
+          typeAnnotation: optionalNode(_dv.getUint32(payload + 5, true)),
+          right: node(_u32[(extra + (extraId + 1) * 8) >> 2]),
+          optional: _dv.getUint8(payload + 0) !== 0,
+        };
         break;
       }
       case 17: {
         const extraId = _u32[(payload + 12) >> 2];
-        if (isTs) {
-          result = { type: "RestElement", start, end,
-            decorators: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
-            argument: node(_dv.getUint32(payload + 1, true)),
-            typeAnnotation: optionalNode(_dv.getUint32(payload + 5, true)),
-            optional: _dv.getUint8(payload + 0) !== 0,
-            value: null,
-          };
-        } else {
-          result = { type: "RestElement", start, end,
-            argument: node(_dv.getUint32(payload + 1, true)),
-          };
-        }
+        result = { type: "RestElement", start, end,
+          decorators: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+          argument: node(_dv.getUint32(payload + 1, true)),
+          typeAnnotation: optionalNode(_dv.getUint32(payload + 5, true)),
+          optional: _dv.getUint8(payload + 0) !== 0,
+          value: null,
+        };
         break;
       }
       case 18: {
@@ -462,11 +429,9 @@ export function decode(buffer, source) {
         const f_optional = _dv.getUint8(payload + 0) !== 0;
         const elements = f_rest === null ? f_elements : [...f_elements, f_rest];
         result = { type: "ArrayPattern", start, end, elements };
-        if (isTs) {
-          result.decorators = f_decorators;
-          result.optional = f_optional;
-          result.typeAnnotation = f_typeAnnotation;
-        }
+        result.decorators = f_decorators;
+        result.optional = f_optional;
+        result.typeAnnotation = f_typeAnnotation;
         break;
       }
       case 19: {
@@ -478,11 +443,9 @@ export function decode(buffer, source) {
         const f_optional = _dv.getUint8(payload + 0) !== 0;
         const properties = f_rest === null ? f_properties : [...f_properties, f_rest];
         result = { type: "ObjectPattern", start, end, properties };
-        if (isTs) {
-          result.decorators = f_decorators;
-          result.optional = f_optional;
-          result.typeAnnotation = f_typeAnnotation;
-        }
+        result.decorators = f_decorators;
+        result.optional = f_optional;
+        result.typeAnnotation = f_typeAnnotation;
         break;
       }
       case 20: {
@@ -495,7 +458,7 @@ export function decode(buffer, source) {
           key: f_key, value: f_value,
           method: false, shorthand: f_shorthand, computed: f_computed,
         };
-        if (isTs) result.optional = false;
+        result.optional = false;
         break;
       }
       case 21: {
@@ -548,33 +511,19 @@ export function decode(buffer, source) {
         break;
       }
       case 27: {
-        if (isTs) {
-          result = { type: "VariableDeclaration", start, end,
-            kind: enumValue("VariableKind", _dv.getUint8(payload + 8)),
-            declarations: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
-            declare: _dv.getUint8(payload + 9) !== 0,
-          };
-        } else {
-          result = { type: "VariableDeclaration", start, end,
-            kind: enumValue("VariableKind", _dv.getUint8(payload + 8)),
-            declarations: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
-          };
-        }
+        result = { type: "VariableDeclaration", start, end,
+          kind: enumValue("VariableKind", _dv.getUint8(payload + 8)),
+          declarations: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          declare: _dv.getUint8(payload + 9) !== 0,
+        };
         break;
       }
       case 28: {
-        if (isTs) {
-          result = { type: "VariableDeclarator", start, end,
-            id: node(_u32[(payload + 0) >> 2]),
-            init: optionalNode(_u32[(payload + 4) >> 2]),
-            definite: _dv.getUint8(payload + 8) !== 0,
-          };
-        } else {
-          result = { type: "VariableDeclarator", start, end,
-            id: node(_u32[(payload + 0) >> 2]),
-            init: optionalNode(_u32[(payload + 4) >> 2]),
-          };
-        }
+        result = { type: "VariableDeclarator", start, end,
+          id: node(_u32[(payload + 0) >> 2]),
+          init: optionalNode(_u32[(payload + 4) >> 2]),
+          definite: _dv.getUint8(payload + 8) !== 0,
+        };
         break;
       }
       case 29: {
@@ -660,16 +609,10 @@ export function decode(buffer, source) {
         break;
       }
       case 40: {
-        if (isTs) {
-          result = { type: "ExpressionStatement", start, end,
-            expression: node(_u32[(payload + 0) >> 2]),
-            directive: null,
-          };
-        } else {
-          result = { type: "ExpressionStatement", start, end,
-            expression: node(_u32[(payload + 0) >> 2]),
-          };
-        }
+        result = { type: "ExpressionStatement", start, end,
+          expression: node(_u32[(payload + 0) >> 2]),
+          directive: null,
+        };
         break;
       }
       case 41: {
@@ -728,13 +671,11 @@ export function decode(buffer, source) {
           superClass: f_superClass,
           body: f_body,
         };
-        if (isTs) {
-          result.typeParameters = f_typeParameters;
-          result.superTypeArguments = f_superTypeArguments;
-          result.implements = f_implements;
-          result.abstract = f_abstract;
-          result.declare = f_declare;
-        }
+        result.typeParameters = f_typeParameters;
+        result.superTypeArguments = f_superTypeArguments;
+        result.implements = f_implements;
+        result.abstract = f_abstract;
+        result.declare = f_declare;
         break;
       }
       case 48: {
@@ -765,12 +706,10 @@ export function decode(buffer, source) {
           computed: f_computed,
           static: f_static,
         };
-        if (isTs) {
-          result.override = f_override;
-          result.optional = f_optional;
-          result.accessibility = f_accessibility;
-          if (f_abstract) result.type = "TSAbstractMethodDefinition";
-        }
+        result.override = f_override;
+        result.optional = f_optional;
+        result.accessibility = f_accessibility;
+        if (f_abstract) result.type = "TSAbstractMethodDefinition";
         break;
       }
       case 50: {
@@ -799,19 +738,17 @@ export function decode(buffer, source) {
           computed: f_computed,
           static: f_static,
         };
-        if (isTs) {
-          result.typeAnnotation = f_typeAnnotation;
-          result.declare = f_declare;
-          result.override = f_override;
-          result.optional = f_optional;
-          result.definite = f_definite;
-          result.readonly = f_readonly;
-          result.accessibility = f_accessibility;
-          if (f_abstract) {
-            result.type = accessor
-              ? "TSAbstractAccessorProperty"
-              : "TSAbstractPropertyDefinition";
-          }
+        result.typeAnnotation = f_typeAnnotation;
+        result.declare = f_declare;
+        result.override = f_override;
+        result.optional = f_optional;
+        result.definite = f_definite;
+        result.readonly = f_readonly;
+        result.accessibility = f_accessibility;
+        if (f_abstract) {
+          result.type = accessor
+            ? "TSAbstractAccessorProperty"
+            : "TSAbstractPropertyDefinition";
         }
         break;
       }
@@ -840,11 +777,9 @@ export function decode(buffer, source) {
           body: f_body,
           expression: false,
         };
-        if (isTs) {
-          result.typeParameters = f_typeParameters;
-          result.returnType = f_returnType;
-          result.declare = false;
-        }
+        result.typeParameters = f_typeParameters;
+        result.returnType = f_returnType;
+        result.declare = false;
         break;
       }
       case 53: {
@@ -883,7 +818,6 @@ export function decode(buffer, source) {
       case 58: {
         const f_items = nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false);
         const f_rest = optionalNode(_u32[(payload + 8) >> 2]);
-        const f_kind = enumValue("FormalParameterKind", _dv.getUint8(payload + 12));
         result = { params: f_rest === null ? f_items : [...f_items, f_rest] };
         break;
       }
@@ -911,26 +845,15 @@ export function decode(buffer, source) {
         break;
       }
       case 63: {
-        if (isTs) {
-          result = { type: "Property", start, end,
-            key: node(_u32[(payload + 0) >> 2]),
-            value: node(_u32[(payload + 4) >> 2]),
-            kind: enumValue("PropertyKind", _dv.getUint8(payload + 8)),
-            method: _dv.getUint8(payload + 9) !== 0,
-            shorthand: _dv.getUint8(payload + 10) !== 0,
-            computed: _dv.getUint8(payload + 11) !== 0,
-            optional: false,
-          };
-        } else {
-          result = { type: "Property", start, end,
-            key: node(_u32[(payload + 0) >> 2]),
-            value: node(_u32[(payload + 4) >> 2]),
-            kind: enumValue("PropertyKind", _dv.getUint8(payload + 8)),
-            method: _dv.getUint8(payload + 9) !== 0,
-            shorthand: _dv.getUint8(payload + 10) !== 0,
-            computed: _dv.getUint8(payload + 11) !== 0,
-          };
-        }
+        result = { type: "Property", start, end,
+          key: node(_u32[(payload + 0) >> 2]),
+          value: node(_u32[(payload + 4) >> 2]),
+          kind: enumValue("PropertyKind", _dv.getUint8(payload + 8)),
+          method: _dv.getUint8(payload + 9) !== 0,
+          shorthand: _dv.getUint8(payload + 10) !== 0,
+          computed: _dv.getUint8(payload + 11) !== 0,
+          optional: false,
+        };
         break;
       }
       case 64: {
@@ -953,10 +876,8 @@ export function decode(buffer, source) {
           params: f_params.params,
           body: f_body, expression: f_expression,
         };
-        if (isTs) {
-          result.typeParameters = f_typeParameters;
-          result.returnType = f_returnType;
-        }
+        result.typeParameters = f_typeParameters;
+        result.returnType = f_returnType;
         break;
       }
       case 66: {
@@ -976,20 +897,12 @@ export function decode(buffer, source) {
       }
       case 68: {
         const extraId = _u32[(payload + 12) >> 2];
-        if (isTs) {
-          result = { type: "CallExpression", start, end,
-            callee: node(_dv.getUint32(payload + 1, true)),
-            typeArguments: optionalNode(_dv.getUint32(payload + 5, true)),
-            arguments: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
-            optional: _dv.getUint8(payload + 0) !== 0,
-          };
-        } else {
-          result = { type: "CallExpression", start, end,
-            callee: node(_dv.getUint32(payload + 1, true)),
-            arguments: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
-            optional: _dv.getUint8(payload + 0) !== 0,
-          };
-        }
+        result = { type: "CallExpression", start, end,
+          callee: node(_dv.getUint32(payload + 1, true)),
+          typeArguments: optionalNode(_dv.getUint32(payload + 5, true)),
+          arguments: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+          optional: _dv.getUint8(payload + 0) !== 0,
+        };
         break;
       }
       case 69: {
@@ -999,33 +912,19 @@ export function decode(buffer, source) {
         break;
       }
       case 70: {
-        if (isTs) {
-          result = { type: "TaggedTemplateExpression", start, end,
-            tag: node(_u32[(payload + 0) >> 2]),
-            typeArguments: optionalNode(_u32[(payload + 4) >> 2]),
-            quasi: node(_u32[(payload + 8) >> 2]),
-          };
-        } else {
-          result = { type: "TaggedTemplateExpression", start, end,
-            tag: node(_u32[(payload + 0) >> 2]),
-            quasi: node(_u32[(payload + 8) >> 2]),
-          };
-        }
+        result = { type: "TaggedTemplateExpression", start, end,
+          tag: node(_u32[(payload + 0) >> 2]),
+          typeArguments: optionalNode(_u32[(payload + 4) >> 2]),
+          quasi: node(_u32[(payload + 8) >> 2]),
+        };
         break;
       }
       case 71: {
-        if (isTs) {
-          result = { type: "NewExpression", start, end,
-            callee: node(_u32[(payload + 8) >> 2]),
-            typeArguments: optionalNode(_u32[(payload + 12) >> 2]),
-            arguments: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
-          };
-        } else {
-          result = { type: "NewExpression", start, end,
-            callee: node(_u32[(payload + 8) >> 2]),
-            arguments: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
-          };
-        }
+        result = { type: "NewExpression", start, end,
+          callee: node(_u32[(payload + 8) >> 2]),
+          typeArguments: optionalNode(_u32[(payload + 12) >> 2]),
+          arguments: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+        };
         break;
       }
       case 72: {
@@ -1059,37 +958,21 @@ export function decode(buffer, source) {
       }
       case 76: {
         const extraId = _u32[(payload + 12) >> 2];
-        if (isTs) {
-          result = { type: "ImportDeclaration", start, end,
-            specifiers: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
-            source: node(_dv.getUint32(payload + 1, true)),
-            attributes: nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false),
-            phase: optionalEnum("ImportPhase", _dv.getUint8(extra + (extraId + 2) * 8)),
-            importKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 0)),
-          };
-        } else {
-          result = { type: "ImportDeclaration", start, end,
-            specifiers: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
-            source: node(_dv.getUint32(payload + 1, true)),
-            attributes: nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false),
-            phase: optionalEnum("ImportPhase", _dv.getUint8(extra + (extraId + 2) * 8)),
-          };
-        }
+        result = { type: "ImportDeclaration", start, end,
+          specifiers: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+          source: node(_dv.getUint32(payload + 1, true)),
+          attributes: nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false),
+          phase: optionalEnum("ImportPhase", _dv.getUint8(extra + (extraId + 2) * 8)),
+          importKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 0)),
+        };
         break;
       }
       case 77: {
-        if (isTs) {
-          result = { type: "ImportSpecifier", start, end,
-            imported: node(_u32[(payload + 0) >> 2]),
-            local: node(_u32[(payload + 4) >> 2]),
-            importKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 8)),
-          };
-        } else {
-          result = { type: "ImportSpecifier", start, end,
-            imported: node(_u32[(payload + 0) >> 2]),
-            local: node(_u32[(payload + 4) >> 2]),
-          };
-        }
+        result = { type: "ImportSpecifier", start, end,
+          imported: node(_u32[(payload + 0) >> 2]),
+          local: node(_u32[(payload + 4) >> 2]),
+          importKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 8)),
+        };
         break;
       }
       case 78: {
@@ -1113,68 +996,38 @@ export function decode(buffer, source) {
       }
       case 81: {
         const extraId = _u32[(payload + 12) >> 2];
-        if (isTs) {
-          result = { type: "ExportNamedDeclaration", start, end,
-            declaration: optionalNode(_dv.getUint32(payload + 1, true)),
-            specifiers: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
-            source: optionalNode(_dv.getUint32(payload + 5, true)),
-            attributes: nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false),
-            exportKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 0)),
-          };
-        } else {
-          result = { type: "ExportNamedDeclaration", start, end,
-            declaration: optionalNode(_dv.getUint32(payload + 1, true)),
-            specifiers: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
-            source: optionalNode(_dv.getUint32(payload + 5, true)),
-            attributes: nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false),
-          };
-        }
+        result = { type: "ExportNamedDeclaration", start, end,
+          declaration: optionalNode(_dv.getUint32(payload + 1, true)),
+          specifiers: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+          source: optionalNode(_dv.getUint32(payload + 5, true)),
+          attributes: nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false),
+          exportKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 0)),
+        };
         break;
       }
       case 82: {
-        if (isTs) {
-          result = { type: "ExportDefaultDeclaration", start, end,
-            declaration: node(_u32[(payload + 0) >> 2]),
-            exportKind: "value",
-          };
-        } else {
-          result = { type: "ExportDefaultDeclaration", start, end,
-            declaration: node(_u32[(payload + 0) >> 2]),
-          };
-        }
+        result = { type: "ExportDefaultDeclaration", start, end,
+          declaration: node(_u32[(payload + 0) >> 2]),
+          exportKind: "value",
+        };
         break;
       }
       case 83: {
         const extraId = _u32[(payload + 12) >> 2];
-        if (isTs) {
-          result = { type: "ExportAllDeclaration", start, end,
-            exported: optionalNode(_dv.getUint32(payload + 1, true)),
-            source: node(_dv.getUint32(payload + 5, true)),
-            attributes: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
-            exportKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 0)),
-          };
-        } else {
-          result = { type: "ExportAllDeclaration", start, end,
-            exported: optionalNode(_dv.getUint32(payload + 1, true)),
-            source: node(_dv.getUint32(payload + 5, true)),
-            attributes: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
-          };
-        }
+        result = { type: "ExportAllDeclaration", start, end,
+          exported: optionalNode(_dv.getUint32(payload + 1, true)),
+          source: node(_dv.getUint32(payload + 5, true)),
+          attributes: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+          exportKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 0)),
+        };
         break;
       }
       case 84: {
-        if (isTs) {
-          result = { type: "ExportSpecifier", start, end,
-            local: node(_u32[(payload + 0) >> 2]),
-            exported: node(_u32[(payload + 4) >> 2]),
-            exportKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 8)),
-          };
-        } else {
-          result = { type: "ExportSpecifier", start, end,
-            local: node(_u32[(payload + 0) >> 2]),
-            exported: node(_u32[(payload + 4) >> 2]),
-          };
-        }
+        result = { type: "ExportSpecifier", start, end,
+          local: node(_u32[(payload + 0) >> 2]),
+          exported: node(_u32[(payload + 4) >> 2]),
+          exportKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 8)),
+        };
         break;
       }
       case 85: {
@@ -1230,12 +1083,10 @@ export function decode(buffer, source) {
           computed: f_computed,
           static: f_static,
         };
-        if (isTs) {
-          result.override = f_override;
-          result.optional = f_optional;
-          result.accessibility = f_accessibility;
-          if (f_abstract) result.type = "TSAbstractMethodDefinition";
-        }
+        result.override = f_override;
+        result.optional = f_optional;
+        result.accessibility = f_accessibility;
+        if (f_abstract) result.type = "TSAbstractMethodDefinition";
         break;
       }
       case 88: {
@@ -1536,25 +1387,15 @@ export function decode(buffer, source) {
         break;
       }
       case 132: {
-        if (isTs) {
-          result = { type: "TSPropertySignature", start, end,
-            key: node(_u32[(payload + 0) >> 2]),
-            typeAnnotation: optionalNode(_u32[(payload + 4) >> 2]),
-            computed: _dv.getUint8(payload + 8) !== 0,
-            optional: _dv.getUint8(payload + 9) !== 0,
-            readonly: _dv.getUint8(payload + 10) !== 0,
-            accessibility: null,
-            static: false,
-          };
-        } else {
-          result = { type: "TSPropertySignature", start, end,
-            key: node(_u32[(payload + 0) >> 2]),
-            typeAnnotation: optionalNode(_u32[(payload + 4) >> 2]),
-            computed: _dv.getUint8(payload + 8) !== 0,
-            optional: _dv.getUint8(payload + 9) !== 0,
-            readonly: _dv.getUint8(payload + 10) !== 0,
-          };
-        }
+        result = { type: "TSPropertySignature", start, end,
+          key: node(_u32[(payload + 0) >> 2]),
+          typeAnnotation: optionalNode(_u32[(payload + 4) >> 2]),
+          computed: _dv.getUint8(payload + 8) !== 0,
+          optional: _dv.getUint8(payload + 9) !== 0,
+          readonly: _dv.getUint8(payload + 10) !== 0,
+          accessibility: null,
+          static: false,
+        };
         break;
       }
       case 133: {
@@ -1606,21 +1447,13 @@ export function decode(buffer, source) {
         break;
       }
       case 136: {
-        if (isTs) {
-          result = { type: "TSIndexSignature", start, end,
-            parameters: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
-            typeAnnotation: node(_u32[(payload + 8) >> 2]),
-            readonly: _dv.getUint8(payload + 12) !== 0,
-            static: _dv.getUint8(payload + 13) !== 0,
-            accessibility: null,
-          };
-        } else {
-          result = { type: "TSIndexSignature", start, end,
-            parameters: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
-            typeAnnotation: node(_u32[(payload + 8) >> 2]),
-            readonly: _dv.getUint8(payload + 12) !== 0,
-          };
-        }
+        result = { type: "TSIndexSignature", start, end,
+          parameters: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          typeAnnotation: node(_u32[(payload + 8) >> 2]),
+          readonly: _dv.getUint8(payload + 12) !== 0,
+          static: _dv.getUint8(payload + 13) !== 0,
+          accessibility: null,
+        };
         break;
       }
       case 137: {
@@ -1716,24 +1549,14 @@ export function decode(buffer, source) {
         break;
       }
       case 148: {
-        if (isTs) {
-          result = { type: "TSParameterProperty", start, end,
-            decorators: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
-            parameter: node(_u32[(payload + 8) >> 2]),
-            override: _dv.getUint8(payload + 12) !== 0,
-            readonly: _dv.getUint8(payload + 13) !== 0,
-            accessibility: enumValue("Accessibility", _dv.getUint8(payload + 14)),
-            static: false,
-          };
-        } else {
-          result = { type: "TSParameterProperty", start, end,
-            decorators: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
-            parameter: node(_u32[(payload + 8) >> 2]),
-            override: _dv.getUint8(payload + 12) !== 0,
-            readonly: _dv.getUint8(payload + 13) !== 0,
-            accessibility: enumValue("Accessibility", _dv.getUint8(payload + 14)),
-          };
-        }
+        result = { type: "TSParameterProperty", start, end,
+          decorators: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          parameter: node(_u32[(payload + 8) >> 2]),
+          override: _dv.getUint8(payload + 12) !== 0,
+          readonly: _dv.getUint8(payload + 13) !== 0,
+          accessibility: enumValue("Accessibility", _dv.getUint8(payload + 14)),
+          static: false,
+        };
         break;
       }
       case 149: {
@@ -1815,20 +1638,12 @@ export function decode(buffer, source) {
       }
       case 160: {
         const extraId = _u32[(payload + 12) >> 2];
-        if (isTs) {
-          result = { type: "JSXOpeningElement", start, end,
-            name: node(_dv.getUint32(payload + 1, true)),
-            typeArguments: optionalNode(_dv.getUint32(payload + 5, true)),
-            attributes: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
-            selfClosing: _dv.getUint8(payload + 0) !== 0,
-          };
-        } else {
-          result = { type: "JSXOpeningElement", start, end,
-            name: node(_dv.getUint32(payload + 1, true)),
-            attributes: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
-            selfClosing: _dv.getUint8(payload + 0) !== 0,
-          };
-        }
+        result = { type: "JSXOpeningElement", start, end,
+          name: node(_dv.getUint32(payload + 1, true)),
+          typeArguments: optionalNode(_dv.getUint32(payload + 5, true)),
+          attributes: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+          selfClosing: _dv.getUint8(payload + 0) !== 0,
+        };
         break;
       }
       case 161: {

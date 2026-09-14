@@ -1,9 +1,11 @@
 import {
+  Lang,
   parseSync as __parseSync,
   printSync as __printSync,
 } from "./swc-next-core.browser.mjs";
 import {
-  decode,
+  decode_js,
+  decode_ts,
   encodeOptions as encodeParserOptions,
 } from "@swc-next/decoder";
 import {
@@ -22,7 +24,10 @@ export {
 
 export function parseSync(source, options) {
   const buffer = __parseSync(source, encodeParserOptions(options));
-  return decode(buffer, source);
+  const lang = options?.lang;
+  return lang === Lang.Ts || lang === Lang.Tsx || lang === Lang.Dts
+    ? decode_ts(buffer, source)
+    : decode_js(buffer, source);
 }
 
 export function printSync(program, options) {

@@ -25,5 +25,8 @@ export interface DecodeResult {
   readonly diagnostics: Diagnostic[];
 }
 
-/** Decode a buffer produced by an SWC Next parser crate into ESTree. */
-export declare function decode(buffer: Uint8Array, source: string): DecodeResult;
+/** Decode a JavaScript or JSX parser buffer into ESTree. */
+export declare function decode_js(buffer: Uint8Array | ArrayBuffer, source: string): DecodeResult;
+
+/** Decode a TypeScript, TSX, or declaration-file parser buffer into ESTree. */
+export declare function decode_ts(buffer: Uint8Array | ArrayBuffer, source: string): DecodeResult;
