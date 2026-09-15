@@ -13,8 +13,8 @@ use syn::{
 
 use crate::schema::{
     AstAttrs, AstEnum, AstEnumVariant, AstFieldAttrs, AstOption, AstPrimitive, AstStruct,
-    AstStructField, AstSubRange, AstType, EstreeAddedField, EstreeAttrs, EstreeValue, Schema,
-    TypeId,
+    AstStructField, AstSubRange, AstType, EstreeAddedField, EstreeAttrs, EstreeConcat, EstreeValue,
+    Schema, TypeId,
 };
 
 struct Parser {
@@ -126,6 +126,7 @@ fn parse_sources(sources: impl IntoIterator<Item = String>) -> Schema {
     types.extend(parser.extra_types);
     let schema = Schema { types, repr_sizes };
     validate_invalidations(&schema);
+    validate_estree_shapes(&schema);
     schema
 }
 
@@ -269,12 +270,20 @@ fn parse_attrs(attrs: &[Attribute]) -> Option<AstAttrs> {
                             estree.added_fields.push(parse_added_field(meta)?);
                             return Ok(());
                         }
+                        if meta.path.is_ident("transparent") {
+                            if estree.transparent.is_some() {
+                                return Err(meta.error("Duplicate transparent field"));
+                            }
+                            estree.transparent = Some(meta.value()?.parse::<Ident>()?.to_string());
+                            return Ok(());
+                        }
                         let target = if meta.path.is_ident("rename") {
                             &mut estree.rename
                         } else if meta.path.is_ident("ty") {
                             &mut estree.ty
                         } else {
-                            return Err(meta.error("Expected `rename`, `ty`, or `add_field`"));
+                            return Err(meta
+                                .error("Expected `rename`, `ty`, `add_field`, or `transparent`"));
                         };
                         if target.is_some() {
                             return Err(meta.error("Duplicate ESTree attribute"));
@@ -363,7 +372,10 @@ impl Parser {
             .map(|field| self.parse_struct_field(field))
             .collect();
         let mut output_fields = HashSet::from(["type".into(), "start".into(), "end".into()]);
-        for field in fields.iter().filter(|field| !field.attrs.estree_skip) {
+        for field in fields
+            .iter()
+            .filter(|field| !field.attrs.estree_skip && field.attrs.estree_concat.is_none())
+        {
             output_fields.insert(crate::estree::estree_field_name(field));
         }
         for field in &attrs.estree.added_fields {
@@ -398,6 +410,10 @@ impl Parser {
 
     fn parse_enum(&mut self, type_id: TypeId, attrs: AstAttrs, item: ItemEnum) -> AstType {
         let name = item.ident.to_string();
+        assert!(
+            attrs.estree.transparent.is_none(),
+            "ESTree transparent output requires a struct: {name}"
+        );
         assert!(
             attrs.estree.added_fields.is_empty(),
             "ESTree added fields require a struct: {name}"
@@ -533,6 +549,21 @@ fn parse_field_attrs(attrs: &[Attribute]) -> AstFieldAttrs {
                 match arg {
                     Meta::Path(path) if path.is_ident("ts") => field_attrs.estree_ts = true,
                     arg if arg.path().is_ident("skip") => field_attrs.estree_skip = true,
+                    Meta::NameValue(value)
+                        if value.path.is_ident("prepend_to")
+                            || value.path.is_ident("append_to") =>
+                    {
+                        assert!(
+                            field_attrs.estree_concat.is_none(),
+                            "Duplicate ESTree list operation"
+                        );
+                        let target: Ident = syn::parse2(value.value.to_token_stream())
+                            .expect("ESTree list target must be a field identifier");
+                        field_attrs.estree_concat = Some(EstreeConcat {
+                            target: target.to_string(),
+                            prepend: value.path.is_ident("prepend_to"),
+                        });
+                    }
                     Meta::NameValue(value) if value.path.is_ident("rename") => {
                         assert!(
                             field_attrs.estree_rename.is_none(),
@@ -542,7 +573,9 @@ fn parse_field_attrs(attrs: &[Attribute]) -> AstFieldAttrs {
                             .expect("ESTree field rename must be a string literal");
                         field_attrs.estree_rename = Some(rename.value());
                     }
-                    _ => panic!("Expected ESTree field `skip`, `ts`, or `rename = \"...\"`"),
+                    _ => panic!(
+                        "Expected ESTree field `skip`, `ts`, `rename`, `prepend_to`, or `append_to`"
+                    ),
                 }
             }
             continue;
@@ -572,6 +605,159 @@ fn parse_field_attrs(attrs: &[Attribute]) -> AstFieldAttrs {
     }
 
     field_attrs
+}
+
+fn validate_estree_shapes(schema: &Schema) {
+    for ty in &schema.types {
+        let AstType::Struct(ast) = ty else { continue };
+        for field in &ast.fields {
+            let Some(concat) = &field.attrs.estree_concat else {
+                continue;
+            };
+            let target = ast
+                .fields
+                .iter()
+                .find(|field| field.name == concat.target)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Unknown ESTree list target `{}.{}`",
+                        ast.name, concat.target
+                    )
+                });
+            assert!(
+                !field.attrs.estree_skip && field.attrs.estree_rename.is_none(),
+                "ESTree list source `{}.{}` cannot be skipped or renamed",
+                ast.name,
+                field.name
+            );
+            assert!(
+                !target.attrs.estree_skip && target.attrs.estree_concat.is_none(),
+                "ESTree list target `{}.{}` cannot be skipped or itself a source",
+                ast.name,
+                target.name
+            );
+            assert_eq!(
+                field.attrs.estree_ts, target.attrs.estree_ts,
+                "ESTree list source and target must have the same TS visibility: {}.{}",
+                ast.name, field.name
+            );
+            assert!(
+                matches!(schema.types[target.type_id], AstType::SubRange(_)),
+                "ESTree list target `{}.{}` must be a SubRange",
+                ast.name,
+                target.name
+            );
+            let inner = match &schema.types[field.type_id] {
+                AstType::SubRange(range) => range.inner_type_id,
+                AstType::Option(option) => {
+                    assert!(
+                        matches!(
+                            schema.types[option.inner_type_id],
+                            AstType::Struct(_) | AstType::Enum(_)
+                        ),
+                        "ESTree optional list source must contain a node: {}.{}",
+                        ast.name,
+                        field.name
+                    );
+                    option.inner_type_id
+                }
+                _ => panic!(
+                    "ESTree list source `{}.{}` must be a SubRange or optional node",
+                    ast.name, field.name
+                ),
+            };
+            assert!(
+                matches!(
+                    schema.types[inner],
+                    AstType::Struct(_) | AstType::Enum(_) | AstType::Option(_)
+                ),
+                "ESTree list source must contain nodes: {}.{}",
+                ast.name,
+                field.name
+            );
+        }
+        if let Some(name) = &ast.attrs.estree.transparent {
+            let target = ast
+                .fields
+                .iter()
+                .find(|field| &field.name == name)
+                .unwrap_or_else(|| {
+                    panic!("Unknown transparent ESTree field `{}.{name}`", ast.name)
+                });
+            assert!(
+                ast.attrs.estree.ty.is_none()
+                    && ast.attrs.estree.rename.is_none()
+                    && ast.attrs.estree.added_fields.is_empty(),
+                "Transparent ESTree output cannot have a name, tag, or added fields: {}",
+                ast.name
+            );
+            assert!(
+                !target.attrs.estree_skip
+                    && !target.attrs.estree_ts
+                    && target.attrs.estree_concat.is_none(),
+                "Transparent ESTree field must always be emitted: {}.{name}",
+                ast.name
+            );
+            assert!(
+                matches!(
+                    schema.types[target.type_id],
+                    AstType::Struct(_) | AstType::Enum(_) | AstType::SubRange(_)
+                ),
+                "Transparent ESTree field must contain a node or list: {}.{name}",
+                ast.name
+            );
+            assert!(
+                ast.fields.iter().all(|field| field.name == *name
+                    || field.attrs.estree_skip
+                    || field.attrs.estree_concat.is_some()),
+                "Other fields of transparent ESTree output must be skipped or combined: {}",
+                ast.name
+            );
+        }
+    }
+
+    // Follow only output aliases, not ordinary node fields (which may recurse).
+    fn visit(
+        type_id: TypeId,
+        schema: &Schema,
+        active: &mut HashSet<TypeId>,
+        done: &mut HashSet<TypeId>,
+    ) {
+        if done.contains(&type_id) {
+            return;
+        }
+        assert!(
+            active.insert(type_id),
+            "Cyclic ESTree output alias: {}",
+            schema.types[type_id].name()
+        );
+        match &schema.types[type_id] {
+            AstType::Struct(ast) => {
+                if let Some(field) = ast.estree_transparent_field() {
+                    visit(field.type_id, schema, active, done);
+                    for source in ast.estree_concat_sources(field) {
+                        visit(source.type_id, schema, active, done);
+                    }
+                }
+            }
+            AstType::Enum(ast) => {
+                for variant in &ast.variants {
+                    if let Some(type_id) = variant.type_id {
+                        visit(type_id, schema, active, done);
+                    }
+                }
+            }
+            AstType::SubRange(range) => visit(range.inner_type_id, schema, active, done),
+            AstType::Option(option) => visit(option.inner_type_id, schema, active, done),
+            AstType::Primitive(_) => {}
+        }
+        active.remove(&type_id);
+        done.insert(type_id);
+    }
+    let mut done = HashSet::new();
+    for (type_id, _) in schema.types.iter_enumerated() {
+        visit(type_id, schema, &mut HashSet::new(), &mut done);
+    }
 }
 
 fn validate_invalidations(schema: &Schema) {

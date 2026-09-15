@@ -128,6 +128,7 @@ pub struct EstreeAttrs {
     pub rename: Option<String>,
     /// Override the node tag without changing its public name.
     pub ty: Option<String>,
+    pub transparent: Option<String>,
     pub added_fields: Vec<EstreeAddedField>,
 }
 
@@ -151,5 +152,12 @@ pub struct AstFieldAttrs {
     pub estree_skip: bool,
     pub estree_rename: Option<String>,
     pub estree_ts: bool,
+    pub estree_concat: Option<EstreeConcat>,
     pub invalidates: Vec<String>,
+}
+
+#[derive(Debug)]
+pub struct EstreeConcat {
+    pub target: String,
+    pub prepend: bool,
 }

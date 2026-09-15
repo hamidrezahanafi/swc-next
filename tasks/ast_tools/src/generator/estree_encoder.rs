@@ -62,6 +62,7 @@ fn write_struct_encoder(
         output.push_str("    isTs = true;\n");
     }
     write_special_prelude(output, name);
+    write_list_splits(output, ast, schema);
 
     let layout = calculate_inline_layout(ast, schema);
     let mut extra_offset = 0usize;
@@ -69,7 +70,7 @@ fn write_struct_encoder(
 
     for (field_index, field) in ast.fields.iter().enumerate() {
         let ty = &schema.types[field.type_id];
-        let source = field_source(name, field);
+        let source = field_source(ast, field);
         let source = if field.attrs.estree_skip {
             "0".into()
         } else {
@@ -97,7 +98,17 @@ fn write_struct_encoder(
     if extra_offset != 0 {
         writeln!(output, "    const extraId = allocExtra({extra_offset});").unwrap();
     }
-    let (start, end) = span_expression(name);
+    let (start, end) = if ast
+        .estree_transparent_field()
+        .is_some_and(|field| matches!(schema.types[field.type_id], AstType::SubRange(_)))
+    {
+        (
+            "n?.length ? asStart(n[0]) : 0",
+            "n?.length ? asEnd(n[n.length - 1]) : 0",
+        )
+    } else {
+        ("asStart(n)", "asEnd(n)")
+    };
     writeln!(
         output,
         "    const index = allocNode({kind}, {start}, {end});"
@@ -350,20 +361,17 @@ fn child_expression(node: &str, field: &str, encoder: &str, source: &str) -> Str
     }
 }
 
-fn field_source(node: &str, field: &AstStructField) -> String {
+fn field_source(ast: &AstStruct, field: &AstStructField) -> String {
+    if field.attrs.estree_concat.is_some() || ast.estree_concat_sources(field).next().is_some() {
+        return format!("s_{}", estree_field_name(field));
+    }
+    if ast.attrs.estree.transparent.as_ref() == Some(&field.name) {
+        return "n".into();
+    }
+    let node = ast.name.as_str();
     let raw = field.name.strip_prefix("r#").unwrap_or(&field.name);
 
     match (node, raw) {
-        ("Program" | "FunctionBody" | "TsModuleBlock", "directives") => "_directives".into(),
-        ("Program" | "FunctionBody" | "TsModuleBlock", "body") => "_body".into(),
-        ("FormalParameter", "pattern") => "n".into(),
-        ("FormalParameters", "items") => "_items".into(),
-        ("FormalParameters", "rest") => "_rest".into(),
-        ("FormalParameters", "kind") => "0".into(),
-        ("ArrayPattern", "elements") => "_elements".into(),
-        ("ArrayPattern", "rest") => "_rest".into(),
-        ("ObjectPattern", "properties") => "_properties".into(),
-        ("ObjectPattern", "rest") => "_rest".into(),
         ("Function", "function_type") => {
             "n.type === \"FunctionExpression\" ? \"FunctionExpression\" : \"FunctionDeclaration\""
                 .into()
@@ -393,31 +401,145 @@ fn field_source(node: &str, field: &AstStructField) -> String {
     }
 }
 
-fn span_expression(node: &str) -> (&'static str, &'static str) {
-    if node == "FormalParameters" {
-        ("_start", "_end")
-    } else {
-        ("asStart(n)", "asEnd(n)")
+/// Recover stored lists from their public destination. List sources consume a
+/// matching prefix/suffix; optional sources use the node discriminant.
+fn write_list_splits(output: &mut String, ast: &AstStruct, schema: &Schema) {
+    for target in &ast.fields {
+        let sources: Vec<_> = ast.estree_concat_sources(target).collect();
+        if sources.is_empty() {
+            continue;
+        }
+        let name = estree_field_name(target);
+        let input = if ast.attrs.estree.transparent.as_ref() == Some(&target.name) {
+            "n".into()
+        } else {
+            format!("n.{name}")
+        };
+        writeln!(output, "    let s_{name} = {input} ?? [];").unwrap();
+        // Undo prepends from the front and appends from the back, preserving
+        // declaration order within each group.
+        let ordered = sources
+            .iter()
+            .filter(|source| source.attrs.estree_concat.as_ref().unwrap().prepend)
+            .chain(
+                sources
+                    .iter()
+                    .rev()
+                    .filter(|source| !source.attrs.estree_concat.as_ref().unwrap().prepend),
+            );
+        for source in ordered {
+            let source_name = estree_field_name(source);
+            let prepend = source.attrs.estree_concat.as_ref().unwrap().prepend;
+            match &schema.types[source.type_id] {
+                AstType::Option(option) => {
+                    let condition = list_source_condition(option.inner_type_id, schema);
+                    writeln!(
+                        output,
+                        "    let s_{source_name} = null;
+    const remaining_{source_name} = [];
+    for (const item of s_{name}) {{
+      if ({condition}) s_{source_name} = item;
+      else remaining_{source_name}.push(item);
+    }}
+    s_{name} = remaining_{source_name};"
+                    )
+                    .unwrap();
+                }
+                AstType::SubRange(range) => {
+                    let condition = list_source_condition(range.inner_type_id, schema);
+                    writeln!(
+                        output,
+                        "    let split_{source_name} = {};",
+                        if prepend {
+                            "0".into()
+                        } else {
+                            format!("s_{name}.length")
+                        }
+                    )
+                    .unwrap();
+                    let (bound, item, advance) = if prepend {
+                        (
+                            format!("split_{source_name} < s_{name}.length"),
+                            format!("s_{name}[split_{source_name}]"),
+                            "++",
+                        )
+                    } else {
+                        (
+                            format!("split_{source_name} > 0"),
+                            format!("s_{name}[split_{source_name} - 1]"),
+                            "--",
+                        )
+                    };
+                    writeln!(
+                        output,
+                        "    while ({bound}) {{
+      const item = {item};
+      if (!({condition})) break;
+      split_{source_name}{advance};
+    }}"
+                    )
+                    .unwrap();
+                    let (source_range, target_range) = if prepend {
+                        (
+                            format!("0, split_{source_name}"),
+                            format!("split_{source_name}"),
+                        )
+                    } else {
+                        (
+                            format!("split_{source_name}"),
+                            format!("0, split_{source_name}"),
+                        )
+                    };
+                    writeln!(
+                        output,
+                        "    const s_{source_name} = s_{name}.slice({source_range});
+    s_{name} = s_{name}.slice({target_range});"
+                    )
+                    .unwrap();
+                }
+                _ => unreachable!("validated list source"),
+            }
+        }
+    }
+}
+
+fn list_source_condition(type_id: TypeId, schema: &Schema) -> String {
+    match &schema.types[type_id] {
+        // Directives share ExpressionStatement's tag. Their marker distinguishes
+        // the directive prologue when encoding the combined body.
+        AstType::Struct(ast) if ast.name == "Directive" => format!(
+            "item?.type === {:?} && item.directive != null",
+            ast.attrs.estree.tag(&ast.name)
+        ),
+        AstType::Option(option) => format!(
+            "item == null || ({})",
+            list_source_condition(option.inner_type_id, schema)
+        ),
+        AstType::Enum(ast) => ast
+            .variants
+            .iter()
+            .map(|variant| {
+                format!(
+                    "({})",
+                    list_source_condition(
+                        variant.type_id.expect("AST unions contain nodes"),
+                        schema
+                    )
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" || "),
+        AstType::Struct(ast) => accepted_estree_types(&ast.name, schema)
+            .iter()
+            .map(|tag| format!("item?.type === {tag:?}"))
+            .collect::<Vec<_>>()
+            .join(" || "),
+        _ => unreachable!("list sources contain nodes"),
     }
 }
 
 fn write_special_prelude(output: &mut String, name: &str) {
     match name {
-        "Program" | "FunctionBody" | "TsModuleBlock" => output.push_str(
-            r#"    const _directives = [];
-    const _body = [];
-    let inDirectivePrologue = true;
-    for (const statement of n.body ?? []) {
-      if (inDirectivePrologue &&
-          statement?.type === "ExpressionStatement" && statement.directive != null) {
-        _directives.push(statement);
-      } else {
-        inDirectivePrologue = false;
-        _body.push(statement);
-      }
-    }
-"#,
-        ),
         "Directive" => output.push_str(
             r#"    const _directiveRaw = n.expression?.raw;
     const _directiveQuote = _directiveRaw?.[0];
@@ -442,35 +564,6 @@ fn write_special_prelude(output: &mut String, name: &str) {
         operator: "-",
         argument: { ...n, value: absolute, bigint: String(absolute), raw: null },
       });
-    }
-"#,
-        ),
-        "FormalParameters" => output.push_str(
-            r#"    const _items = [];
-    let _rest = null;
-    for (const parameter of n ?? []) {
-      if (parameter?.type === "RestElement") _rest = parameter;
-      else _items.push(parameter);
-    }
-    const _start = n?.length ? asStart(n[0]) : 0;
-    const _end = n?.length ? asEnd(n[n.length - 1]) : 0;
-"#,
-        ),
-        "ArrayPattern" => output.push_str(
-            r#"    const _elements = [];
-    let _rest = null;
-    for (const element of n.elements ?? []) {
-      if (element?.type === "RestElement") _rest = element;
-      else _elements.push(element);
-    }
-"#,
-        ),
-        "ObjectPattern" => output.push_str(
-            r#"    const _properties = [];
-    let _rest = null;
-    for (const property of n.properties ?? []) {
-      if (property?.type === "RestElement") _rest = property;
-      else _properties.push(property);
     }
 "#,
         ),
@@ -731,25 +824,20 @@ fn accepted_estree_types(name: &str, schema: &Schema) -> Vec<String> {
             _ => None,
         })
         .expect("ESTree dispatch contains AST structs");
-    match name {
-        "FormalParameter" => {
-            let mut concrete = Vec::new();
-            collect_concrete(
-                ast.fields[0].type_id,
-                schema,
-                &mut HashSet::new(),
-                &mut concrete,
-            );
-            let mut result = Vec::new();
-            for concrete in concrete {
-                for ty in accepted_estree_types(&concrete, schema) {
-                    if !result.contains(&ty) {
-                        result.push(ty);
-                    }
+    if let Some(field) = ast.estree_transparent_field() {
+        let mut concrete = Vec::new();
+        collect_concrete(field.type_id, schema, &mut HashSet::new(), &mut concrete);
+        let mut result = Vec::new();
+        for concrete in concrete {
+            for ty in accepted_estree_types(&concrete, schema) {
+                if !result.contains(&ty) {
+                    result.push(ty);
                 }
             }
-            result
         }
+        return result;
+    }
+    match name {
         "Function" => vec!["FunctionDeclaration".into(), "FunctionExpression".into()],
         "TsFunction" => vec![
             ast.attrs.estree.tag(name),

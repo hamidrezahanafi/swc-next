@@ -349,7 +349,7 @@ export interface ArrowFunctionExpression extends BaseNode {
   expression: boolean;
   generator: false;
   id: null;
-  params: Array<FormalParameterItem | RestElement>;
+  params: Array<FormalParameterItem>;
   returnType?: TSTypeAnnotation | null;
   typeParameters?: TSTypeParameterDeclaration | null;
 }
@@ -553,7 +553,7 @@ export interface FunctionDeclaration extends BaseNode {
   expression: false;
   generator: boolean;
   id: Identifier | null;
-  params: Array<FormalParameterItem | RestElement>;
+  params: Array<FormalParameterItem>;
   returnType?: TSTypeAnnotation | null;
   typeParameters?: TSTypeParameterDeclaration | null;
 }
@@ -566,7 +566,7 @@ export interface FunctionExpression extends BaseNode {
   expression: false;
   generator: boolean;
   id: Identifier | null;
-  params: Array<FormalParameterItem | RestElement>;
+  params: Array<FormalParameterItem>;
   returnType?: TSTypeAnnotation | null;
   typeParameters?: TSTypeParameterDeclaration | null;
 }
@@ -957,7 +957,7 @@ export interface TSBooleanKeyword extends BaseNode {
 
 export interface TSCallSignatureDeclaration extends BaseNode {
   type: "TSCallSignatureDeclaration";
-  params: Array<FormalParameterItem | RestElement>;
+  params: Array<FormalParameterItem>;
   returnType: TSTypeAnnotation | null;
   typeParameters: TSTypeParameterDeclaration | null;
 }
@@ -978,7 +978,7 @@ export interface TSConditionalType extends BaseNode {
 
 export interface TSConstructSignatureDeclaration extends BaseNode {
   type: "TSConstructSignatureDeclaration";
-  params: Array<FormalParameterItem | RestElement>;
+  params: Array<FormalParameterItem>;
   returnType: TSTypeAnnotation | null;
   typeParameters: TSTypeParameterDeclaration | null;
 }
@@ -986,7 +986,7 @@ export interface TSConstructSignatureDeclaration extends BaseNode {
 export interface TSConstructorType extends BaseNode {
   type: "TSConstructorType";
   abstract: boolean;
-  params: Array<FormalParameterItem | RestElement>;
+  params: Array<FormalParameterItem>;
   returnType: TSTypeAnnotation;
   typeParameters: TSTypeParameterDeclaration | null;
 }
@@ -999,7 +999,7 @@ export interface TSDeclareFunction extends BaseNode {
   expression: false;
   generator: boolean;
   id: Identifier | null;
-  params: Array<FormalParameterItem | RestElement>;
+  params: Array<FormalParameterItem>;
   returnType: TSTypeAnnotation | null;
   typeParameters: TSTypeParameterDeclaration | null;
 }
@@ -1012,7 +1012,7 @@ export interface TSEmptyBodyFunctionExpression extends BaseNode {
   expression: false;
   generator: boolean;
   id: Identifier | null;
-  params: Array<FormalParameterItem | RestElement>;
+  params: Array<FormalParameterItem>;
   returnType: TSTypeAnnotation | null;
   typeParameters: TSTypeParameterDeclaration | null;
 }
@@ -1049,7 +1049,7 @@ export interface TSExternalModuleReference extends BaseNode {
 
 export interface TSFunctionType extends BaseNode {
   type: "TSFunctionType";
-  params: Array<FormalParameterItem | RestElement>;
+  params: Array<FormalParameterItem>;
   returnType: TSTypeAnnotation;
   typeParameters: TSTypeParameterDeclaration | null;
 }
@@ -1162,7 +1162,7 @@ export interface TSMethodSignature extends BaseNode {
   key: PropertyKey;
   kind: TSMethodSignatureKind;
   optional: boolean;
-  params: Array<FormalParameterItem | RestElement>;
+  params: Array<FormalParameterItem>;
   readonly: false;
   returnType: TSTypeAnnotation | null;
   static: false;

@@ -348,6 +348,7 @@ impl ExtraDataValue for Option<ImportPhase> {
 /// prologue (`"use strict";`), while `body` contains imports and statements.
 #[ast]
 pub struct Program {
+    #[estree(prepend_to = body)]
     directives: SubRange<Directive>,
     /// Import and export declarations are classified as statements.
     body: SubRange<Stmt>,
@@ -884,6 +885,7 @@ pub struct ArrayPattern {
     /// any binding pattern. Entries are `None` for holes.
     elements: SubRange<Option<BindingPattern>>,
     /// `binding_rest_element`. `None` when no rest element is present.
+    #[estree(append_to = elements)]
     rest: Option<BindingRestElement>,
     /// `ts_type_annotation`. `None` when absent.
     #[estree(ts)]
@@ -911,6 +913,7 @@ pub struct ObjectPattern {
     /// `binding_property[]`
     properties: SubRange<BindingProperty>,
     /// `binding_rest_element`. `None` when no rest element is present.
+    #[estree(append_to = properties)]
     rest: Option<BindingRestElement>,
     /// `ts_type_annotation`. `None` when absent.
     #[estree(ts)]
@@ -1580,6 +1583,7 @@ pub struct Function {
 #[ast]
 #[estree(rename = "BlockStatement")]
 pub struct FunctionBody {
+    #[estree(prepend_to = body)]
     directives: SubRange<Directive>,
     body: SubRange<Stmt>,
 }
@@ -1652,12 +1656,15 @@ pub struct WithStatement {
 /// //                   ^^^^^^^ rest
 /// ```
 #[ast]
+#[estree(transparent = items)]
 pub struct FormalParameters {
     /// `formal_parameter[]`. May also include `ts_parameter_property` entries
     /// (constructors only) and a leading `ts_this_parameter` (TypeScript).
     items: SubRange<FormalParameterItem>,
     /// `binding_rest_element`. `None` when no rest element is present.
+    #[estree(append_to = items)]
     rest: Option<BindingRestElement>,
+    #[estree(skip)]
     kind: FormalParameterKind,
 }
 
@@ -1666,6 +1673,7 @@ pub struct FormalParameters {
 /// TypeScript metadata (decorators, type annotation, optional) lives on
 /// the inner pattern.
 #[ast]
+#[estree(transparent = pattern)]
 pub struct FormalParameter {
     /// any binding pattern or `ts_this_parameter`.
     pattern: FormalParameterPattern,

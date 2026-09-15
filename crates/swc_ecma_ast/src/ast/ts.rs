@@ -1493,6 +1493,7 @@ pub struct TsModuleDeclaration {
 /// ```
 #[ast]
 pub struct TsModuleBlock {
+    #[estree(prepend_to = body)]
     directives: SubRange<Directive>,
     body: SubRange<Stmt>,
 }

@@ -297,20 +297,17 @@ function encode(program) {
   }
 
   function encProgram(n) {
-    const _directives = [];
-    const _body = [];
-    let inDirectivePrologue = true;
-    for (const statement of n.body ?? []) {
-      if (inDirectivePrologue &&
-          statement?.type === "ExpressionStatement" && statement.directive != null) {
-        _directives.push(statement);
-      } else {
-        inDirectivePrologue = false;
-        _body.push(statement);
-      }
+    let s_body = n.body ?? [];
+    let split_directives = 0;
+    while (split_directives < s_body.length) {
+      const item = s_body[split_directives];
+      if (!(item?.type === "ExpressionStatement" && item.directive != null)) break;
+      split_directives++;
     }
-    const v_0 = encArray(_directives, encDirective, false);
-    const v_1 = encArray(_body, encNode, false);
+    const s_directives = s_body.slice(0, split_directives);
+    s_body = s_body.slice(split_directives);
+    const v_0 = encArray(s_directives, encDirective, false);
+    const v_1 = encArray(s_body, encNode, false);
     const v_2 = n.hashbang == null ? NULL : encHashbang(n.hashbang);
     const extraId = allocExtra(1);
     const index = allocNode(0, asStart(n), asEnd(n));
@@ -509,15 +506,17 @@ function encode(program) {
   }
 
   function encArrayPattern(n) {
-    const _elements = [];
-    let _rest = null;
-    for (const element of n.elements ?? []) {
-      if (element?.type === "RestElement") _rest = element;
-      else _elements.push(element);
+    let s_elements = n.elements ?? [];
+    let s_rest = null;
+    const remaining_rest = [];
+    for (const item of s_elements) {
+      if (item?.type === "RestElement") s_rest = item;
+      else remaining_rest.push(item);
     }
+    s_elements = remaining_rest;
     const v_0 = encArray(n.decorators, encDecorator, false);
-    const v_1 = encArray(_elements, encBindingPattern, true);
-    const v_2 = _rest == null ? NULL : encBindingRestElement(_rest);
+    const v_1 = encArray(s_elements, encBindingPattern, true);
+    const v_2 = s_rest == null ? NULL : encBindingRestElement(s_rest);
     const v_3 = n.typeAnnotation == null ? NULL : encTsTypeAnnotation(n.typeAnnotation);
     const v_4 = n.optional ? 1 : 0;
     const extraId = allocExtra(2);
@@ -534,15 +533,17 @@ function encode(program) {
   }
 
   function encObjectPattern(n) {
-    const _properties = [];
-    let _rest = null;
-    for (const property of n.properties ?? []) {
-      if (property?.type === "RestElement") _rest = property;
-      else _properties.push(property);
+    let s_properties = n.properties ?? [];
+    let s_rest = null;
+    const remaining_rest = [];
+    for (const item of s_properties) {
+      if (item?.type === "RestElement") s_rest = item;
+      else remaining_rest.push(item);
     }
+    s_properties = remaining_rest;
     const v_0 = encArray(n.decorators, encDecorator, false);
-    const v_1 = encArray(_properties, encBindingProperty, false);
-    const v_2 = _rest == null ? NULL : encBindingRestElement(_rest);
+    const v_1 = encArray(s_properties, encBindingProperty, false);
+    const v_2 = s_rest == null ? NULL : encBindingRestElement(s_rest);
     const v_3 = n.typeAnnotation == null ? NULL : encTsTypeAnnotation(n.typeAnnotation);
     const v_4 = n.optional ? 1 : 0;
     const extraId = allocExtra(2);
@@ -960,20 +961,17 @@ function encode(program) {
   }
 
   function encFunctionBody(n) {
-    const _directives = [];
-    const _body = [];
-    let inDirectivePrologue = true;
-    for (const statement of n.body ?? []) {
-      if (inDirectivePrologue &&
-          statement?.type === "ExpressionStatement" && statement.directive != null) {
-        _directives.push(statement);
-      } else {
-        inDirectivePrologue = false;
-        _body.push(statement);
-      }
+    let s_body = n.body ?? [];
+    let split_directives = 0;
+    while (split_directives < s_body.length) {
+      const item = s_body[split_directives];
+      if (!(item?.type === "ExpressionStatement" && item.directive != null)) break;
+      split_directives++;
     }
-    const v_0 = encArray(_directives, encDirective, false);
-    const v_1 = encArray(_body, encNode, false);
+    const s_directives = s_body.slice(0, split_directives);
+    s_body = s_body.slice(split_directives);
+    const v_0 = encArray(s_directives, encDirective, false);
+    const v_1 = encArray(s_body, encNode, false);
     const index = allocNode(53, asStart(n), asEnd(n));
     setPayloadU32(index, 0, v_0.start);
     setPayloadU32(index, 4, v_0.end);
@@ -1018,18 +1016,18 @@ function encode(program) {
   }
 
   function encFormalParameters(n) {
-    const _items = [];
-    let _rest = null;
-    for (const parameter of n ?? []) {
-      if (parameter?.type === "RestElement") _rest = parameter;
-      else _items.push(parameter);
+    let s_items = n ?? [];
+    let s_rest = null;
+    const remaining_rest = [];
+    for (const item of s_items) {
+      if (item?.type === "RestElement") s_rest = item;
+      else remaining_rest.push(item);
     }
-    const _start = n?.length ? asStart(n[0]) : 0;
-    const _end = n?.length ? asEnd(n[n.length - 1]) : 0;
-    const v_0 = encArray(_items, encFormalParameterItem, false);
-    const v_1 = _rest == null ? NULL : encBindingRestElement(_rest);
+    s_items = remaining_rest;
+    const v_0 = encArray(s_items, encFormalParameterItem, false);
+    const v_1 = s_rest == null ? NULL : encBindingRestElement(s_rest);
     const v_2 = enumValue("FormalParameterKind", 0);
-    const index = allocNode(58, _start, _end);
+    const index = allocNode(58, n?.length ? asStart(n[0]) : 0, n?.length ? asEnd(n[n.length - 1]) : 0);
     setPayloadU32(index, 0, v_0.start);
     setPayloadU32(index, 4, v_0.end);
     setPayloadU32(index, 8, v_1);
@@ -1970,20 +1968,17 @@ function encode(program) {
 
   function encTsModuleBlock(n) {
     isTs = true;
-    const _directives = [];
-    const _body = [];
-    let inDirectivePrologue = true;
-    for (const statement of n.body ?? []) {
-      if (inDirectivePrologue &&
-          statement?.type === "ExpressionStatement" && statement.directive != null) {
-        _directives.push(statement);
-      } else {
-        inDirectivePrologue = false;
-        _body.push(statement);
-      }
+    let s_body = n.body ?? [];
+    let split_directives = 0;
+    while (split_directives < s_body.length) {
+      const item = s_body[split_directives];
+      if (!(item?.type === "ExpressionStatement" && item.directive != null)) break;
+      split_directives++;
     }
-    const v_0 = encArray(_directives, encDirective, false);
-    const v_1 = encArray(_body, encNode, false);
+    const s_directives = s_body.slice(0, split_directives);
+    s_body = s_body.slice(split_directives);
+    const v_0 = encArray(s_directives, encDirective, false);
+    const v_1 = encArray(s_body, encNode, false);
     const index = allocNode(146, asStart(n), asEnd(n));
     setPayloadU32(index, 0, v_0.start);
     setPayloadU32(index, 4, v_0.end);

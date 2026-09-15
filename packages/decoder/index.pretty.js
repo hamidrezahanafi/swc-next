@@ -260,10 +260,12 @@ export function decode(buffer, source) {
     switch (bytes[kinds + index]) {
       case 0: {
         const extraId = _u32[(payload + 12) >> 2];
-        const f_directives = nodeArray(_u32[(payload + 4) >> 2], _u32[(payload + 4 + 4) >> 2], false);
-        const f_body = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
-        const f_hashbang = optionalNode(_u32[(payload + 0) >> 2]);
-        const body = [...f_directives, ...f_body];
+        const c_directives = nodeArray(_u32[(payload + 4) >> 2], _u32[(payload + 4 + 4) >> 2], false);
+        const c_body = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
+        const c_hashbang = optionalNode(_u32[(payload + 0) >> 2]);
+        const f_body = [...c_directives, ...c_body];
+        const f_hashbang = c_hashbang;
+        const body = f_body;
         result = {
           type: "Program", start: isTs ? (body.length !== 0 ? body[0].start : end) : start, end,
           sourceType,
@@ -459,33 +461,43 @@ export function decode(buffer, source) {
       }
       case 18: {
         const extraId = _u32[(payload + 12) >> 2];
-        const f_decorators = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
-        const f_elements = nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], true);
-        const f_rest = optionalNode(_dv.getUint32(payload + 1, true));
-        const f_typeAnnotation = optionalNode(_dv.getUint32(payload + 5, true));
-        const f_optional = _dv.getUint8(payload + 0) !== 0;
-        const elements = f_rest === null ? f_elements : [...f_elements, f_rest];
-        result = { type: "ArrayPattern", start, end, elements };
+        const c_decorators = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
+        const c_elements = nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], true);
+        const c_rest = optionalNode(_dv.getUint32(payload + 1, true));
+        const c_typeAnnotation = optionalNode(_dv.getUint32(payload + 5, true));
+        const c_optional = _dv.getUint8(payload + 0) !== 0;
         if (isTs) {
-          result.decorators = f_decorators;
-          result.typeAnnotation = f_typeAnnotation;
-          result.optional = f_optional;
+          result = { type: "ArrayPattern", start, end,
+            decorators: c_decorators,
+            elements: c_rest === null ? c_elements : [...c_elements, c_rest],
+            typeAnnotation: c_typeAnnotation,
+            optional: c_optional,
+          };
+        } else {
+          result = { type: "ArrayPattern", start, end,
+            elements: c_rest === null ? c_elements : [...c_elements, c_rest],
+          };
         }
         break;
       }
       case 19: {
         const extraId = _u32[(payload + 12) >> 2];
-        const f_decorators = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
-        const f_properties = nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false);
-        const f_rest = optionalNode(_dv.getUint32(payload + 1, true));
-        const f_typeAnnotation = optionalNode(_dv.getUint32(payload + 5, true));
-        const f_optional = _dv.getUint8(payload + 0) !== 0;
-        const properties = f_rest === null ? f_properties : [...f_properties, f_rest];
-        result = { type: "ObjectPattern", start, end, properties };
+        const c_decorators = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
+        const c_properties = nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false);
+        const c_rest = optionalNode(_dv.getUint32(payload + 1, true));
+        const c_typeAnnotation = optionalNode(_dv.getUint32(payload + 5, true));
+        const c_optional = _dv.getUint8(payload + 0) !== 0;
         if (isTs) {
-          result.decorators = f_decorators;
-          result.typeAnnotation = f_typeAnnotation;
-          result.optional = f_optional;
+          result = { type: "ObjectPattern", start, end,
+            decorators: c_decorators,
+            properties: c_rest === null ? c_properties : [...c_properties, c_rest],
+            typeAnnotation: c_typeAnnotation,
+            optional: c_optional,
+          };
+        } else {
+          result = { type: "ObjectPattern", start, end,
+            properties: c_rest === null ? c_properties : [...c_properties, c_rest],
+          };
         }
         break;
       }
@@ -847,7 +859,7 @@ export function decode(buffer, source) {
           id: f_id,
           generator: f_generator,
           async: f_async,
-          params: f_params.params,
+          params: f_params,
           body: f_body,
         };
         result.expression = false;
@@ -859,9 +871,11 @@ export function decode(buffer, source) {
         break;
       }
       case 53: {
-        const f_directives = nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false);
-        const f_body = nodeArray(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2], false);
-        result = { type: "BlockStatement", start, end, body: [...f_directives, ...f_body] };
+        const c_directives = nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false);
+        const c_body = nodeArray(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2], false);
+        result = { type: "BlockStatement", start, end,
+          body: [...c_directives, ...c_body],
+        };
         break;
       }
       case 54: {
@@ -892,15 +906,13 @@ export function decode(buffer, source) {
         break;
       }
       case 58: {
-        const f_items = nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false);
-        const f_rest = optionalNode(_u32[(payload + 8) >> 2]);
-        const f_kind = enumValue("FormalParameterKind", _dv.getUint8(payload + 12));
-        result = { params: f_rest === null ? f_items : [...f_items, f_rest] };
+        const c_items = nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false);
+        const c_rest = optionalNode(_u32[(payload + 8) >> 2]);
+        result = c_rest === null ? c_items : [...c_items, c_rest];
         break;
       }
       case 59: {
-        const f_pattern = node(_u32[(payload + 0) >> 2]);
-        result = f_pattern;
+        result = node(_u32[(payload + 0) >> 2]);
         break;
       }
       case 60: {
@@ -952,23 +964,26 @@ export function decode(buffer, source) {
       }
       case 65: {
         const extraId = _u32[(payload + 12) >> 2];
-        const f_expression = _dv.getUint8(payload + 0) !== 0;
-        const f_async = _dv.getUint8(payload + 1) !== 0;
-        const f_typeParameters = optionalNode(_dv.getUint32(payload + 2, true));
-        const f_params = node(_dv.getUint32(payload + 6, true));
-        const f_returnType = optionalNode(_u32[(extra + (extraId + 0) * 8) >> 2]);
-        const f_body = node(_u32[(extra + (extraId + 1) * 8) >> 2]);
-        result = {
-          type: "ArrowFunctionExpression", start, end,
-          async: f_async,
-          params: f_params.params,
-          body: f_body, expression: f_expression,
-        };
-        result.id = null;
-        result.generator = false;
         if (isTs) {
-          result.typeParameters = f_typeParameters;
-          result.returnType = f_returnType;
+          result = { type: "ArrowFunctionExpression", start, end,
+            expression: _dv.getUint8(payload + 0) !== 0,
+            async: _dv.getUint8(payload + 1) !== 0,
+            typeParameters: optionalNode(_dv.getUint32(payload + 2, true)),
+            params: node(_dv.getUint32(payload + 6, true)),
+            returnType: optionalNode(_u32[(extra + (extraId + 0) * 8) >> 2]),
+            body: node(_u32[(extra + (extraId + 1) * 8) >> 2]),
+            id: null,
+            generator: false,
+          };
+        } else {
+          result = { type: "ArrowFunctionExpression", start, end,
+            expression: _dv.getUint8(payload + 0) !== 0,
+            async: _dv.getUint8(payload + 1) !== 0,
+            params: node(_dv.getUint32(payload + 6, true)),
+            body: node(_u32[(extra + (extraId + 1) * 8) >> 2]),
+            id: null,
+            generator: false,
+          };
         }
         break;
       }
@@ -1198,26 +1213,17 @@ export function decode(buffer, source) {
       }
       case 86: {
         const extraId = _u32[(payload + 12) >> 2];
-        const f_id = optionalNode(_dv.getUint32(payload + 3, true));
-        const f_typeParameters = optionalNode(_dv.getUint32(payload + 7, true));
-        const f_params = node(_u32[(extra + (extraId + 0) * 8) >> 2]);
-        const f_returnType = optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]);
-        const f_generator = _dv.getUint8(payload + 0) !== 0;
-        const f_async = _dv.getUint8(payload + 1) !== 0;
-        const f_declare = _dv.getUint8(payload + 2) !== 0;
-        result = {
-          type: "TSDeclareFunction",
-          start, end,
-          id: f_id,
-          generator: f_generator,
-          async: f_async,
-          params: f_params.params,
-          typeParameters: f_typeParameters,
-          returnType: f_returnType,
-          declare: f_declare,
+        result = { type: "TSDeclareFunction", start, end,
+          id: optionalNode(_dv.getUint32(payload + 3, true)),
+          typeParameters: optionalNode(_dv.getUint32(payload + 7, true)),
+          params: node(_u32[(extra + (extraId + 0) * 8) >> 2]),
+          returnType: optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]),
+          generator: _dv.getUint8(payload + 0) !== 0,
+          async: _dv.getUint8(payload + 1) !== 0,
+          declare: _dv.getUint8(payload + 2) !== 0,
+          body: null,
+          expression: false,
         };
-        result.body = null;
-        result.expression = false;
         break;
       }
       case 87: {
@@ -1492,28 +1498,19 @@ export function decode(buffer, source) {
         break;
       }
       case 127: {
-        const f_typeParameters = optionalNode(_u32[(payload + 0) >> 2]);
-        const f_params = node(_u32[(payload + 4) >> 2]);
-        const f_returnType = node(_u32[(payload + 8) >> 2]);
-        result = {
-          type: "TSFunctionType", start, end,
-          typeParameters: f_typeParameters,
-          params: f_params.params,
-          returnType: f_returnType,
+        result = { type: "TSFunctionType", start, end,
+          typeParameters: optionalNode(_u32[(payload + 0) >> 2]),
+          params: node(_u32[(payload + 4) >> 2]),
+          returnType: node(_u32[(payload + 8) >> 2]),
         };
         break;
       }
       case 128: {
-        const f_typeParameters = optionalNode(_u32[(payload + 0) >> 2]);
-        const f_params = node(_u32[(payload + 4) >> 2]);
-        const f_returnType = node(_u32[(payload + 8) >> 2]);
-        const f_abstract = _dv.getUint8(payload + 12) !== 0;
-        result = {
-          type: "TSConstructorType", start, end,
-          abstract: f_abstract,
-          typeParameters: f_typeParameters,
-          params: f_params.params,
-          returnType: f_returnType,
+        result = { type: "TSConstructorType", start, end,
+          typeParameters: optionalNode(_u32[(payload + 0) >> 2]),
+          params: node(_u32[(payload + 4) >> 2]),
+          returnType: node(_u32[(payload + 8) >> 2]),
+          abstract: _dv.getUint8(payload + 12) !== 0,
         };
         break;
       }
@@ -1562,49 +1559,33 @@ export function decode(buffer, source) {
       }
       case 133: {
         const extraId = _u32[(payload + 12) >> 2];
-        const f_key = node(_dv.getUint32(payload + 3, true));
-        const f_typeParameters = optionalNode(_dv.getUint32(payload + 7, true));
-        const f_params = node(_u32[(extra + (extraId + 0) * 8) >> 2]);
-        const f_returnType = optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]);
-        const f_kind = enumValue("TsMethodSignatureKind", _dv.getUint8(payload + 0));
-        const f_computed = _dv.getUint8(payload + 1) !== 0;
-        const f_optional = _dv.getUint8(payload + 2) !== 0;
-        result = {
-          type: "TSMethodSignature", start, end,
-          key: f_key,
-          computed: f_computed,
-          optional: f_optional,
-          kind: f_kind,
-          typeParameters: f_typeParameters,
-          params: f_params.params,
-          returnType: f_returnType,
+        result = { type: "TSMethodSignature", start, end,
+          key: node(_dv.getUint32(payload + 3, true)),
+          typeParameters: optionalNode(_dv.getUint32(payload + 7, true)),
+          params: node(_u32[(extra + (extraId + 0) * 8) >> 2]),
+          returnType: optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]),
+          kind: enumValue("TsMethodSignatureKind", _dv.getUint8(payload + 0)),
+          computed: _dv.getUint8(payload + 1) !== 0,
+          optional: _dv.getUint8(payload + 2) !== 0,
+          accessibility: null,
+          readonly: false,
+          static: false,
         };
-        result.accessibility = null;
-        result.readonly = false;
-        result.static = false;
         break;
       }
       case 134: {
-        const f_typeParameters = optionalNode(_u32[(payload + 0) >> 2]);
-        const f_params = node(_u32[(payload + 4) >> 2]);
-        const f_returnType = optionalNode(_u32[(payload + 8) >> 2]);
-        result = {
-          type: "TSCallSignatureDeclaration", start, end,
-          typeParameters: f_typeParameters,
-          params: f_params.params,
-          returnType: f_returnType,
+        result = { type: "TSCallSignatureDeclaration", start, end,
+          typeParameters: optionalNode(_u32[(payload + 0) >> 2]),
+          params: node(_u32[(payload + 4) >> 2]),
+          returnType: optionalNode(_u32[(payload + 8) >> 2]),
         };
         break;
       }
       case 135: {
-        const f_typeParameters = optionalNode(_u32[(payload + 0) >> 2]);
-        const f_params = node(_u32[(payload + 4) >> 2]);
-        const f_returnType = optionalNode(_u32[(payload + 8) >> 2]);
-        result = {
-          type: "TSConstructSignatureDeclaration", start, end,
-          typeParameters: f_typeParameters,
-          params: f_params.params,
-          returnType: f_returnType,
+        result = { type: "TSConstructSignatureDeclaration", start, end,
+          typeParameters: optionalNode(_u32[(payload + 0) >> 2]),
+          params: node(_u32[(payload + 4) >> 2]),
+          returnType: optionalNode(_u32[(payload + 8) >> 2]),
         };
         break;
       }
@@ -1704,9 +1685,11 @@ export function decode(buffer, source) {
         break;
       }
       case 146: {
-        const f_directives = nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false);
-        const f_body = nodeArray(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2], false);
-        result = { type: "TSModuleBlock", start, end, body: [...f_directives, ...f_body] };
+        const c_directives = nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false);
+        const c_body = nodeArray(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2], false);
+        result = { type: "TSModuleBlock", start, end,
+          body: [...c_directives, ...c_body],
+        };
         break;
       }
       case 147: {

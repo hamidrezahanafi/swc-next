@@ -186,6 +186,33 @@ The declaration generator infers references from the transparent output and
 does not emit interfaces for the wrappers. These cases require list operations
 and transparent output; they do not yet require general object flattening.
 
+### Implemented Rules
+
+Targets use Rust field identifiers, including when a target has an ESTree
+rename. Multiple sources retain declaration order within the prepended and
+appended groups. A source must be a `SubRange` or an optional node; the target
+must be an emitted `SubRange`. Sources and targets must have the same TS
+visibility. Chained list operations, skipped targets, and renamed sources are
+rejected.
+
+`#[estree(transparent = items)]` and `#[estree(transparent = pattern)]` select
+the final field value after list operations. Other fields must be skipped or
+combined into that field. Transparent nodes cannot declare names, tags, or
+added fields, and output alias cycles are rejected. `FormalParameters.kind`
+uses `#[estree(skip)]`, retaining its existing encoder default.
+
+Type inference checks aliases before adding union members. Consequently,
+`params` is `Array<FormalParameterItem>`: that alias already includes
+`RestElement` through `FormalParameterPattern` and `Pattern`. This is equivalent
+to the previous explicit union.
+
+The encoder also uses these attributes to accept transparent input and split
+combined lists. Node tags identify optional rest elements; list sources consume
+a matching prefix or suffix. Directives still require the existing `directive`
+marker check because they share the ExpressionStatement tag. List combination
+alone does not specify an inverse discriminator for arbitrary overlapping
+node shapes.
+
 ## 5. Function and Class: Derive the Node Tag
 
 After parameter unwrapping, conditional fields, and constant additions,

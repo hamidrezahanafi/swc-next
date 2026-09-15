@@ -4,7 +4,31 @@ use std::fmt::Write;
 
 use convert_case::{Case, Casing};
 
-use crate::schema::{AstStructField, EstreeAttrs, EstreeValue};
+use crate::schema::{AstStruct, AstStructField, EstreeAttrs, EstreeValue};
+
+impl AstStruct {
+    pub fn estree_transparent_field(&self) -> Option<&AstStructField> {
+        self.attrs.estree.transparent.as_ref().map(|name| {
+            self.fields
+                .iter()
+                .find(|field| &field.name == name)
+                .expect("validated transparent field")
+        })
+    }
+
+    pub fn estree_concat_sources<'a>(
+        &'a self,
+        target: &'a AstStructField,
+    ) -> impl Iterator<Item = &'a AstStructField> {
+        self.fields.iter().filter(move |field| {
+            field
+                .attrs
+                .estree_concat
+                .as_ref()
+                .is_some_and(|concat| concat.target == target.name)
+        })
+    }
+}
 
 impl EstreeAttrs {
     pub fn name(&self, name: &str) -> String {

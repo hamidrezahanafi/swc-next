@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     output::RawOutput,
-    schema::{AstStruct, AstType, Schema},
+    schema::{AstStruct, AstStructField, AstType, Schema, TypeId},
 };
 
 use crate::estree::{ENUMS, default_name, estree_field_name};
@@ -29,8 +29,7 @@ pub fn estree_dts(schema: &Schema) -> RawOutput {
     let mut nodes = BTreeMap::<String, Node>::new();
     for ty in &schema.types {
         let AstType::Struct(ast) = ty else { continue };
-        // These storage wrappers disappear when decoding a parameter list.
-        if matches!(ast.name.as_str(), "FormalParameter" | "FormalParameters") {
+        if ast.attrs.estree.transparent.is_some() {
             continue;
         }
         let mut fields = fields(ast, schema);
@@ -222,9 +221,10 @@ fn type_ref(ty: &AstType, schema: &Schema) -> String {
             name if ENUMS.iter().any(|(key, _)| *key == name) => default_name(name),
             name => panic!("unsupported ESTree primitive: {name}"),
         },
+        AstType::Struct(ast) if ast.estree_transparent_field().is_some() => {
+            field_type(ast, ast.estree_transparent_field().unwrap(), schema)
+        }
         AstType::Struct(ast) => match ast.name.as_str() {
-            "FormalParameter" => "FormalParameterPattern".into(),
-            "FormalParameters" => "Array<FormalParameterItem | RestElement>".into(),
             "MethodDefinition" | "TsMethodDefinition" => "MethodDefinition | TSAbstractMethodDefinition".into(),
             "PropertyDefinition" => "PropertyDefinition | AccessorProperty | TSAbstractPropertyDefinition | TSAbstractAccessorProperty".into(),
             _ => ast.attrs.estree.name(&ast.name),
@@ -236,19 +236,75 @@ fn type_ref(ty: &AstType, schema: &Schema) -> String {
 fn fields(ast: &AstStruct, schema: &Schema) -> Fields {
     ast.fields
         .iter()
-        .filter(|field| !field.attrs.estree_skip)
+        .filter(|field| !field.attrs.estree_skip && field.attrs.estree_concat.is_none())
         .map(|field| {
             let name = estree_field_name(field);
             let optional = field.attrs.estree_ts;
             (
                 name,
                 Field {
-                    ty: type_ref(&schema.types[field.type_id], schema),
+                    ty: field_type(ast, field, schema),
                     optional,
                 },
             )
         })
         .collect()
+}
+
+/// Expand aliases only for containment checks; keep their names in the public type.
+fn type_members(type_id: TypeId, schema: &Schema, members: &mut BTreeSet<String>) {
+    match &schema.types[type_id] {
+        AstType::Enum(ast) => {
+            for variant in &ast.variants {
+                type_members(
+                    variant.type_id.expect("AST unions contain nodes"),
+                    schema,
+                    members,
+                );
+            }
+        }
+        AstType::Option(option) => {
+            members.insert("null".into());
+            type_members(option.inner_type_id, schema, members);
+        }
+        AstType::Struct(ast) if ast.estree_transparent_field().is_some() => {
+            type_members(
+                ast.estree_transparent_field().unwrap().type_id,
+                schema,
+                members,
+            );
+        }
+        ty => {
+            members.insert(type_ref(ty, schema));
+        }
+    }
+}
+
+fn field_type(ast: &AstStruct, field: &AstStructField, schema: &Schema) -> String {
+    let sources: Vec<_> = ast.estree_concat_sources(field).collect();
+    if sources.is_empty() {
+        return type_ref(&schema.types[field.type_id], schema);
+    }
+    let AstType::SubRange(range) = &schema.types[field.type_id] else {
+        unreachable!("validated list target");
+    };
+    let mut element_type = type_ref(&schema.types[range.inner_type_id], schema);
+    let mut members = BTreeSet::new();
+    type_members(range.inner_type_id, schema, &mut members);
+    for source in sources {
+        let inner = match &schema.types[source.type_id] {
+            AstType::SubRange(range) => range.inner_type_id,
+            AstType::Option(option) => option.inner_type_id,
+            _ => unreachable!("validated list source"),
+        };
+        let mut additional = BTreeSet::new();
+        type_members(inner, schema, &mut additional);
+        if !additional.is_subset(&members) {
+            element_type = union(&element_type, &type_ref(&schema.types[inner], schema));
+            members.extend(additional);
+        }
+    }
+    format!("Array<{element_type}>")
 }
 
 fn set(fields: &mut Fields, name: &str, ty: &str) {
@@ -277,12 +333,7 @@ fn optional(fields: &mut Fields, names: &[&str]) {
 /// skipped fields, TS-only fields, and scalar enums are generated from schema.
 fn reshape(name: &str, fields: &mut Fields) {
     match name {
-        "Program" | "FunctionBody" | "TsModuleBlock" => {
-            remove(fields, &["directives"]);
-            if name == "Program" {
-                set(fields, "sourceType", "SourceType");
-            }
-        }
+        "Program" => set(fields, "sourceType", "SourceType"),
         "Function" => remove(fields, &["functionType"]),
         "NumericLiteral" => set(fields, "raw", "string"),
         "BigIntLiteral" => {
@@ -314,11 +365,6 @@ fn reshape(name: &str, fields: &mut Fields) {
             );
         }
         "PropertyDefinition" => remove(fields, &["abstract", "accessor"]),
-        "ArrayPattern" => remove(fields, &["rest"]),
-        "ObjectPattern" => {
-            remove(fields, &["rest"]);
-            set(fields, "properties", "Array<Property | RestElement>");
-        }
         "JsxText" => set(fields, "raw", "string"),
         "TsMappedType" => set(fields, "optional", "boolean | \"+\" | \"-\""),
         "TsModuleDeclaration" => {

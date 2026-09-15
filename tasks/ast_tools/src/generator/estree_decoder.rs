@@ -91,7 +91,75 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
         });
     }
 
-    if is_special_node(&ast.name) {
+    // Materialize splice inputs once, before reusing them in list expressions.
+    if ast
+        .fields
+        .iter()
+        .any(|field| field.attrs.estree_concat.is_some())
+    {
+        for field in &mut fields {
+            writeln!(
+                output,
+                "        const c_{} = {};",
+                field.name, field.expression
+            )
+            .unwrap();
+            field.expression = format!("c_{}", field.name);
+        }
+        for target in &ast.fields {
+            let sources: Vec<_> = ast.estree_concat_sources(target).collect();
+            let single_optional = match sources.as_slice() {
+                [source] if matches!(schema.types[source.type_id], AstType::Option(_)) => {
+                    Some(estree_field_name(source))
+                }
+                _ => None,
+            };
+            let mut before = Vec::new();
+            let mut after = Vec::new();
+            for source in sources {
+                let name = estree_field_name(source);
+                let contribution = match &schema.types[source.type_id] {
+                    AstType::SubRange(_) => format!("...c_{name}"),
+                    AstType::Option(_) if single_optional.is_some() => format!("c_{name}"),
+                    AstType::Option(_) => format!("...(c_{name} === null ? [] : [c_{name}])"),
+                    _ => unreachable!("validated list source"),
+                };
+                if source.attrs.estree_concat.as_ref().unwrap().prepend {
+                    before.push(contribution);
+                } else {
+                    after.push(contribution);
+                }
+            }
+            if before.is_empty() && after.is_empty() {
+                continue;
+            }
+            let name = estree_field_name(target);
+            before.push(format!("...c_{name}"));
+            before.extend(after);
+            let combined = format!("[{}]", before.join(", "));
+            fields
+                .iter_mut()
+                .find(|field| field.name == name)
+                .unwrap()
+                .expression = if let Some(source) = single_optional {
+                // Keep the decoded destination array when an optional source is absent.
+                format!("c_{source} === null ? c_{name} : {combined}")
+            } else {
+                combined
+            };
+        }
+        fields.retain(|field| {
+            !ast.fields.iter().any(|source| {
+                source.attrs.estree_concat.is_some() && estree_field_name(source) == field.name
+            })
+        });
+    }
+
+    if let Some(target) = ast.estree_transparent_field() {
+        let name = estree_field_name(target);
+        let field = fields.iter().find(|field| field.name == name).unwrap();
+        writeln!(output, "        result = {};", field.expression).unwrap();
+    } else if is_special_node(&ast.name) {
         write_special_node(output, ast, &fields);
         let additional_fields: Vec<_> = fields
             .iter()
@@ -281,13 +349,7 @@ fn is_special_node(name: &str) -> bool {
     matches!(
         name,
         "Program"
-            | "FunctionBody"
-            | "TsModuleBlock"
-            | "FormalParameter"
-            | "FormalParameters"
             | "Function"
-            | "TsFunction"
-            | "ArrowFunctionExpression"
             | "NumericLiteral"
             | "BigIntLiteral"
             | "BooleanLiteral"
@@ -297,14 +359,7 @@ fn is_special_node(name: &str) -> bool {
             | "MethodDefinition"
             | "TsMethodDefinition"
             | "PropertyDefinition"
-            | "ArrayPattern"
-            | "ObjectPattern"
             | "JsxText"
-            | "TsFunctionType"
-            | "TsConstructorType"
-            | "TsMethodSignature"
-            | "TsCallSignatureDeclaration"
-            | "TsConstructSignatureDeclaration"
             | "TsMappedType"
             | "TsModuleDeclaration"
     )
@@ -325,7 +380,7 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
     match name {
         "Program" => write!(
             output,
-            r#"        const body = [...f_directives, ...f_body];
+            r#"        const body = f_body;
         result = {{
           type: "{tag}", start: isTs ? (body.length !== 0 ? body[0].start : end) : start, end,
           sourceType,
@@ -335,56 +390,17 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
 "#,
         )
         .unwrap(),
-        "FunctionBody" | "TsModuleBlock" => {
-            writeln!(
-                output,
-                "        result = {{ type: \"{}\", start, end, body: [...f_directives, ...f_body] }};",
-                tag
-            )
-            .unwrap();
-        }
-        "FormalParameter" => output.push_str("        result = f_pattern;\n"),
-        "FormalParameters" => output.push_str(
-            "        result = { params: f_rest === null ? f_items : [...f_items, f_rest] };\n",
-        ),
         "Function" => output.push_str(
             r#"        result = {
           type: f_functionType, start, end,
           id: f_id,
           generator: f_generator,
           async: f_async,
-          params: f_params.params,
+          params: f_params,
           body: f_body,
         };
 "#,
         ),
-        "TsFunction" => write!(
-            output,
-            r#"        result = {{
-          type: "{tag}",
-          start, end,
-          id: f_id,
-          generator: f_generator,
-          async: f_async,
-          params: f_params.params,
-          typeParameters: f_typeParameters,
-          returnType: f_returnType,
-          declare: f_declare,
-        }};
-"#,
-        )
-        .unwrap(),
-        "ArrowFunctionExpression" => write!(
-            output,
-            r#"        result = {{
-          type: "{tag}", start, end,
-          async: f_async,
-          params: f_params.params,
-          body: f_body, expression: f_expression,
-        }};
-"#,
-        )
-        .unwrap(),
         "NumericLiteral" => write!(
             output,
             r#"        const value = f_value;
@@ -448,9 +464,7 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
         ),
         "MethodDefinition" | "TsMethodDefinition" => {
             if name == "TsMethodDefinition" {
-                output.push_str(
-                    "        f_value.type = \"TSEmptyBodyFunctionExpression\";\n",
-                );
+                output.push_str("        f_value.type = \"TSEmptyBodyFunctionExpression\";\n");
             }
             writeln!(
                 output,
@@ -493,56 +507,11 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
         }
 "#,
         ),
-        "ArrayPattern" => write!(
-            output,
-            r#"        const elements = f_rest === null ? f_elements : [...f_elements, f_rest];
-        result = {{ type: "{tag}", start, end, elements }};
-"#,
-        )
-        .unwrap(),
-        "ObjectPattern" => write!(
-            output,
-            r#"        const properties = f_rest === null ? f_properties : [...f_properties, f_rest];
-        result = {{ type: "{tag}", start, end, properties }};
-"#,
-        )
-        .unwrap(),
         "JsxText" => writeln!(
             output,
             "        result = {{ type: \"{tag}\", start, end, value: f_value, raw: f_value }};"
         )
         .unwrap(),
-        "TsFunctionType"
-        | "TsConstructorType"
-        | "TsMethodSignature"
-        | "TsCallSignatureDeclaration"
-        | "TsConstructSignatureDeclaration" => {
-            writeln!(
-                output,
-                "        result = {{\n          type: \"{}\", start, end,",
-                tag
-            )
-            .unwrap();
-            if name == "TsConstructorType" {
-                output.push_str("          abstract: f_abstract,\n");
-            }
-            if name == "TsMethodSignature" {
-                output.push_str(
-                    r#"          key: f_key,
-          computed: f_computed,
-          optional: f_optional,
-          kind: f_kind,
-"#,
-                );
-            }
-            output.push_str(
-                r#"          typeParameters: f_typeParameters,
-          params: f_params.params,
-          returnType: f_returnType,
-        };
-"#,
-            );
-        }
         "TsMappedType" => write!(
             output,
             r#"        result = {{
