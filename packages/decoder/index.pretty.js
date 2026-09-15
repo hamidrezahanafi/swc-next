@@ -734,29 +734,26 @@ export function decode(buffer, source) {
       }
       case 47: {
         const extraId = _u32[(payload + 12) >> 2];
-        const f_classType = enumValue("ClassType", _dv.getUint8(payload + 0));
-        const f_decorators = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
-        const f_id = optionalNode(_dv.getUint32(payload + 3, true));
-        const f_typeParameters = optionalNode(_dv.getUint32(payload + 7, true));
-        const f_superClass = optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]);
-        const f_superTypeArguments = optionalNode(_u32[(extra + (extraId + 2) * 8) >> 2]);
-        const f_implements = nodeArray(_u32[(extra + (extraId + 3) * 8) >> 2], _u32[(extra + (extraId + 3) * 8 + 4) >> 2], false);
-        const f_body = node(_u32[(extra + (extraId + 4) * 8) >> 2]);
-        const f_abstract = _dv.getUint8(payload + 1) !== 0;
-        const f_declare = _dv.getUint8(payload + 2) !== 0;
-        result = {
-          type: f_classType, start, end,
-          decorators: f_decorators,
-          id: f_id,
-          superClass: f_superClass,
-          body: f_body,
-        };
+        const tag_classType = enumValue("ClassType", _dv.getUint8(payload + 0));
         if (isTs) {
-          result.typeParameters = f_typeParameters;
-          result.superTypeArguments = f_superTypeArguments;
-          result.implements = f_implements;
-          result.abstract = f_abstract;
-          result.declare = f_declare;
+          result = { type: tag_classType, start, end,
+            decorators: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+            id: optionalNode(_dv.getUint32(payload + 3, true)),
+            typeParameters: optionalNode(_dv.getUint32(payload + 7, true)),
+            superClass: optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]),
+            superTypeArguments: optionalNode(_u32[(extra + (extraId + 2) * 8) >> 2]),
+            implements: nodeArray(_u32[(extra + (extraId + 3) * 8) >> 2], _u32[(extra + (extraId + 3) * 8 + 4) >> 2], false),
+            body: node(_u32[(extra + (extraId + 4) * 8) >> 2]),
+            abstract: _dv.getUint8(payload + 1) !== 0,
+            declare: _dv.getUint8(payload + 2) !== 0,
+          };
+        } else {
+          result = { type: tag_classType, start, end,
+            decorators: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+            id: optionalNode(_dv.getUint32(payload + 3, true)),
+            superClass: optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]),
+            body: node(_u32[(extra + (extraId + 4) * 8) >> 2]),
+          };
         }
         break;
       }
@@ -768,73 +765,58 @@ export function decode(buffer, source) {
       }
       case 49: {
         const extraId = _u32[(payload + 12) >> 2];
-        const f_decorators = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
-        const f_key = node(_dv.getUint32(payload + 7, true));
-        const f_value = node(_u32[(extra + (extraId + 1) * 8) >> 2]);
-        const f_kind = enumValue("MethodDefinitionKind", _dv.getUint8(payload + 0));
-        const f_computed = _dv.getUint8(payload + 1) !== 0;
-        const f_static = _dv.getUint8(payload + 2) !== 0;
-        const f_override = _dv.getUint8(payload + 3) !== 0;
-        const f_optional = _dv.getUint8(payload + 4) !== 0;
-        const f_abstract = _dv.getUint8(payload + 5) !== 0;
-        const f_accessibility = enumValue("Accessibility", _dv.getUint8(payload + 6));
-        result = {
-          type: "MethodDefinition",
-          start, end,
-          decorators: f_decorators,
-          key: f_key,
-          value: f_value,
-          kind: f_kind,
-          computed: f_computed,
-          static: f_static,
-        };
-        if (isTs && f_abstract) result.type = "TSAbstractMethodDefinition";
+        const tag_abstract = _dv.getUint8(payload + 5) !== 0;
         if (isTs) {
-          result.override = f_override;
-          result.optional = f_optional;
-          result.accessibility = f_accessibility;
+          result = { type: ((isTs && tag_abstract) ? "TSAbstractMethodDefinition" : "MethodDefinition"), start, end,
+            decorators: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+            key: node(_dv.getUint32(payload + 7, true)),
+            value: node(_u32[(extra + (extraId + 1) * 8) >> 2]),
+            kind: enumValue("MethodDefinitionKind", _dv.getUint8(payload + 0)),
+            computed: _dv.getUint8(payload + 1) !== 0,
+            static: _dv.getUint8(payload + 2) !== 0,
+            override: _dv.getUint8(payload + 3) !== 0,
+            optional: _dv.getUint8(payload + 4) !== 0,
+            accessibility: enumValue("Accessibility", _dv.getUint8(payload + 6)),
+          };
+        } else {
+          result = { type: ((isTs && tag_abstract) ? "TSAbstractMethodDefinition" : "MethodDefinition"), start, end,
+            decorators: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+            key: node(_dv.getUint32(payload + 7, true)),
+            value: node(_u32[(extra + (extraId + 1) * 8) >> 2]),
+            kind: enumValue("MethodDefinitionKind", _dv.getUint8(payload + 0)),
+            computed: _dv.getUint8(payload + 1) !== 0,
+            static: _dv.getUint8(payload + 2) !== 0,
+          };
         }
         break;
       }
       case 50: {
         const extraId = _u32[(payload + 12) >> 2];
-        const f_decorators = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
-        const f_key = node(_u32[(extra + (extraId + 1) * 8) >> 2]);
-        const f_typeAnnotation = optionalNode(_u32[(extra + (extraId + 2) * 8) >> 2]);
-        const f_value = optionalNode(_u32[(extra + (extraId + 3) * 8) >> 2]);
-        const f_computed = _dv.getUint8(payload + 0) !== 0;
-        const f_static = _dv.getUint8(payload + 1) !== 0;
-        const f_accessor = _dv.getUint8(payload + 2) !== 0;
-        const f_declare = _dv.getUint8(payload + 3) !== 0;
-        const f_override = _dv.getUint8(payload + 4) !== 0;
-        const f_optional = _dv.getUint8(payload + 5) !== 0;
-        const f_definite = _dv.getUint8(payload + 6) !== 0;
-        const f_readonly = _dv.getUint8(payload + 7) !== 0;
-        const f_abstract = _dv.getUint8(payload + 8) !== 0;
-        const f_accessibility = enumValue("Accessibility", _dv.getUint8(payload + 9));
-        const accessor = f_accessor;
-        result = {
-          type: accessor ? "AccessorProperty" : "PropertyDefinition",
-          start, end,
-          decorators: f_decorators,
-          key: f_key,
-          value: f_value,
-          computed: f_computed,
-          static: f_static,
-        };
-        if (isTs && f_abstract) {
-          result.type = accessor
-            ? "TSAbstractAccessorProperty"
-            : "TSAbstractPropertyDefinition";
-        }
+        const tag_accessor = _dv.getUint8(payload + 2) !== 0;
+        const tag_abstract = _dv.getUint8(payload + 8) !== 0;
         if (isTs) {
-          result.typeAnnotation = f_typeAnnotation;
-          result.declare = f_declare;
-          result.override = f_override;
-          result.optional = f_optional;
-          result.definite = f_definite;
-          result.readonly = f_readonly;
-          result.accessibility = f_accessibility;
+          result = { type: ((isTs && tag_abstract) ? (tag_accessor ? "TSAbstractAccessorProperty" : "TSAbstractPropertyDefinition") : (tag_accessor ? "AccessorProperty" : "PropertyDefinition")), start, end,
+            decorators: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+            key: node(_u32[(extra + (extraId + 1) * 8) >> 2]),
+            typeAnnotation: optionalNode(_u32[(extra + (extraId + 2) * 8) >> 2]),
+            value: optionalNode(_u32[(extra + (extraId + 3) * 8) >> 2]),
+            computed: _dv.getUint8(payload + 0) !== 0,
+            static: _dv.getUint8(payload + 1) !== 0,
+            declare: _dv.getUint8(payload + 3) !== 0,
+            override: _dv.getUint8(payload + 4) !== 0,
+            optional: _dv.getUint8(payload + 5) !== 0,
+            definite: _dv.getUint8(payload + 6) !== 0,
+            readonly: _dv.getUint8(payload + 7) !== 0,
+            accessibility: enumValue("Accessibility", _dv.getUint8(payload + 9)),
+          };
+        } else {
+          result = { type: ((isTs && tag_abstract) ? (tag_accessor ? "TSAbstractAccessorProperty" : "TSAbstractPropertyDefinition") : (tag_accessor ? "AccessorProperty" : "PropertyDefinition")), start, end,
+            decorators: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+            key: node(_u32[(extra + (extraId + 1) * 8) >> 2]),
+            value: optionalNode(_u32[(extra + (extraId + 3) * 8) >> 2]),
+            computed: _dv.getUint8(payload + 0) !== 0,
+            static: _dv.getUint8(payload + 1) !== 0,
+          };
         }
         break;
       }
@@ -846,27 +828,28 @@ export function decode(buffer, source) {
       }
       case 52: {
         const extraId = _u32[(payload + 12) >> 2];
-        const f_functionType = enumValue("FunctionType", _dv.getUint8(payload + 0));
-        const f_id = optionalNode(_dv.getUint32(payload + 3, true));
-        const f_typeParameters = optionalNode(_dv.getUint32(payload + 7, true));
-        const f_params = node(_u32[(extra + (extraId + 0) * 8) >> 2]);
-        const f_returnType = optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]);
-        const f_body = node(_u32[(extra + (extraId + 2) * 8) >> 2]);
-        const f_generator = _dv.getUint8(payload + 1) !== 0;
-        const f_async = _dv.getUint8(payload + 2) !== 0;
-        result = {
-          type: f_functionType, start, end,
-          id: f_id,
-          generator: f_generator,
-          async: f_async,
-          params: f_params,
-          body: f_body,
-        };
-        result.expression = false;
+        const tag_functionType = enumValue("FunctionType", _dv.getUint8(payload + 0));
         if (isTs) {
-          result.typeParameters = f_typeParameters;
-          result.returnType = f_returnType;
-          result.declare = false;
+          result = { type: tag_functionType, start, end,
+            id: optionalNode(_dv.getUint32(payload + 3, true)),
+            typeParameters: optionalNode(_dv.getUint32(payload + 7, true)),
+            params: node(_u32[(extra + (extraId + 0) * 8) >> 2]),
+            returnType: optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]),
+            body: node(_u32[(extra + (extraId + 2) * 8) >> 2]),
+            generator: _dv.getUint8(payload + 1) !== 0,
+            async: _dv.getUint8(payload + 2) !== 0,
+            expression: false,
+            declare: false,
+          };
+        } else {
+          result = { type: tag_functionType, start, end,
+            id: optionalNode(_dv.getUint32(payload + 3, true)),
+            params: node(_u32[(extra + (extraId + 0) * 8) >> 2]),
+            body: node(_u32[(extra + (extraId + 2) * 8) >> 2]),
+            generator: _dv.getUint8(payload + 1) !== 0,
+            async: _dv.getUint8(payload + 2) !== 0,
+            expression: false,
+          };
         }
         break;
       }
@@ -1228,32 +1211,30 @@ export function decode(buffer, source) {
       }
       case 87: {
         const extraId = _u32[(payload + 12) >> 2];
-        const f_decorators = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
-        const f_key = node(_dv.getUint32(payload + 7, true));
-        const f_value = node(_u32[(extra + (extraId + 1) * 8) >> 2]);
-        const f_kind = enumValue("MethodDefinitionKind", _dv.getUint8(payload + 0));
-        const f_computed = _dv.getUint8(payload + 1) !== 0;
-        const f_static = _dv.getUint8(payload + 2) !== 0;
-        const f_override = _dv.getUint8(payload + 3) !== 0;
-        const f_optional = _dv.getUint8(payload + 4) !== 0;
-        const f_abstract = _dv.getUint8(payload + 5) !== 0;
-        const f_accessibility = enumValue("Accessibility", _dv.getUint8(payload + 6));
-        f_value.type = "TSEmptyBodyFunctionExpression";
-        result = {
-          type: f_abstract ? "TSAbstractMethodDefinition" : "MethodDefinition",
-          start, end,
-          decorators: f_decorators,
-          key: f_key,
-          value: f_value,
-          kind: f_kind,
-          computed: f_computed,
-          static: f_static,
-        };
-        if (isTs && f_abstract) result.type = "TSAbstractMethodDefinition";
+        const child_value = node(_u32[(extra + (extraId + 1) * 8) >> 2]);
+        child_value.type = "TSEmptyBodyFunctionExpression";
+        const tag_abstract = _dv.getUint8(payload + 5) !== 0;
         if (isTs) {
-          result.override = f_override;
-          result.optional = f_optional;
-          result.accessibility = f_accessibility;
+          result = { type: (tag_abstract ? "TSAbstractMethodDefinition" : "MethodDefinition"), start, end,
+            decorators: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+            key: node(_dv.getUint32(payload + 7, true)),
+            value: child_value,
+            kind: enumValue("MethodDefinitionKind", _dv.getUint8(payload + 0)),
+            computed: _dv.getUint8(payload + 1) !== 0,
+            static: _dv.getUint8(payload + 2) !== 0,
+            override: _dv.getUint8(payload + 3) !== 0,
+            optional: _dv.getUint8(payload + 4) !== 0,
+            accessibility: enumValue("Accessibility", _dv.getUint8(payload + 6)),
+          };
+        } else {
+          result = { type: (tag_abstract ? "TSAbstractMethodDefinition" : "MethodDefinition"), start, end,
+            decorators: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
+            key: node(_dv.getUint32(payload + 7, true)),
+            value: child_value,
+            kind: enumValue("MethodDefinitionKind", _dv.getUint8(payload + 0)),
+            computed: _dv.getUint8(payload + 1) !== 0,
+            static: _dv.getUint8(payload + 2) !== 0,
+          };
         }
         break;
       }

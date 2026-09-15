@@ -7,7 +7,7 @@ use crate::{
 };
 
 use crate::{
-    estree::{ENUMS, estree_field_name},
+    estree::{ENUMS, estree_field_name, tag_literal},
     js_minifier::minify,
 };
 
@@ -61,6 +61,7 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
         writeln!(output, "        const extraId = _u32[(payload + 12) >> 2];").unwrap();
     }
     let mut fields = Vec::new();
+    let tag_fields = ast.estree_tag_fields();
 
     let mut extra_offset = 0usize;
     for (field_index, field) in ast.fields.iter().enumerate() {
@@ -79,11 +80,28 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
             extra_offset += 1;
             (location, true)
         };
-        if skip {
+        if skip && !tag_fields.contains(field.name.as_str()) {
             continue;
         }
-        let expression = read_expression(field_ty, schema, &location, aligned_u32);
+        let mut expression = read_expression(field_ty, schema, &location, aligned_u32);
         let field_name = estree_field_name(field);
+        if let Some(tag) = &field.attrs.estree_type_override {
+            writeln!(output, "        const child_{field_name} = {expression};").unwrap();
+            writeln!(
+                output,
+                "        child_{field_name}.type = {};",
+                tag_literal(tag)
+            )
+            .unwrap();
+            expression = format!("child_{field_name}");
+        }
+        if tag_fields.contains(field.name.as_str()) {
+            writeln!(output, "        const tag_{field_name} = {expression};").unwrap();
+            expression = format!("tag_{field_name}");
+        }
+        if skip || ast.attrs.estree.type_from.as_ref() == Some(&field.name) {
+            continue;
+        }
         fields.push(DecodedField {
             name: field_name,
             expression,
@@ -312,8 +330,8 @@ fn write_object_literal<'a>(
     let padding = " ".repeat(indent);
     writeln!(
         output,
-        "{padding}result = {{ type: \"{}\", start, end,",
-        ast.attrs.estree.tag(&ast.name)
+        "{padding}result = {{ type: {}, start, end,",
+        ast.estree_tag_expression()
     )
     .unwrap();
     for field in fields {
@@ -349,16 +367,11 @@ fn is_special_node(name: &str) -> bool {
     matches!(
         name,
         "Program"
-            | "Function"
             | "NumericLiteral"
             | "BigIntLiteral"
             | "BooleanLiteral"
             | "RegExpLiteral"
             | "TemplateElement"
-            | "Class"
-            | "MethodDefinition"
-            | "TsMethodDefinition"
-            | "PropertyDefinition"
             | "JsxText"
             | "TsMappedType"
             | "TsModuleDeclaration"
@@ -390,17 +403,6 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
 "#,
         )
         .unwrap(),
-        "Function" => output.push_str(
-            r#"        result = {
-          type: f_functionType, start, end,
-          id: f_id,
-          generator: f_generator,
-          async: f_async,
-          params: f_params,
-          body: f_body,
-        };
-"#,
-        ),
         "NumericLiteral" => write!(
             output,
             r#"        const value = f_value;
@@ -452,61 +454,6 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
 "#,
         )
         .unwrap(),
-        "Class" => output.push_str(
-            r#"        result = {
-          type: f_classType, start, end,
-          decorators: f_decorators,
-          id: f_id,
-          superClass: f_superClass,
-          body: f_body,
-        };
-"#,
-        ),
-        "MethodDefinition" | "TsMethodDefinition" => {
-            if name == "TsMethodDefinition" {
-                output.push_str("        f_value.type = \"TSEmptyBodyFunctionExpression\";\n");
-            }
-            writeln!(
-                output,
-                "        result = {{\n          type: {},",
-                if name == "TsMethodDefinition" {
-                    "f_abstract ? \"TSAbstractMethodDefinition\" : \"MethodDefinition\""
-                } else {
-                    "\"MethodDefinition\""
-                }
-            )
-            .unwrap();
-            output.push_str(
-                r#"          start, end,
-          decorators: f_decorators,
-          key: f_key,
-          value: f_value,
-          kind: f_kind,
-          computed: f_computed,
-          static: f_static,
-        };
-        if (isTs && f_abstract) result.type = "TSAbstractMethodDefinition";
-"#,
-            );
-        }
-        "PropertyDefinition" => output.push_str(
-            r#"        const accessor = f_accessor;
-        result = {
-          type: accessor ? "AccessorProperty" : "PropertyDefinition",
-          start, end,
-          decorators: f_decorators,
-          key: f_key,
-          value: f_value,
-          computed: f_computed,
-          static: f_static,
-        };
-        if (isTs && f_abstract) {
-          result.type = accessor
-            ? "TSAbstractAccessorProperty"
-            : "TSAbstractPropertyDefinition";
-        }
-"#,
-        ),
         "JsxText" => writeln!(
             output,
             "        result = {{ type: \"{tag}\", start, end, value: f_value, raw: f_value }};"

@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    estree::estree_field_name,
+    estree::{estree_field_name, overridden_tags, tag_literal},
     output::RawOutput,
     schema::{AstStruct, AstStructField, AstType, Schema, TypeId},
     util::{InlineStorageMode, calculate_inline_layout},
@@ -70,12 +70,13 @@ fn write_struct_encoder(
 
     for (field_index, field) in ast.fields.iter().enumerate() {
         let ty = &schema.types[field.type_id];
-        let source = field_source(ast, field);
-        let source = if field.attrs.estree_skip {
-            "0".into()
-        } else {
-            source
-        };
+        let source = field_source(ast, field, schema);
+        let source =
+            if field.attrs.estree_skip && !ast.estree_tag_fields().contains(field.name.as_str()) {
+                "0".into()
+            } else {
+                source
+            };
         let value = encode_expression(name, &field.name, ty, schema, dispatch, &source);
         let local = format!("v_{field_index}");
         writeln!(output, "    const {local} = {value};").unwrap();
@@ -361,7 +362,39 @@ fn child_expression(node: &str, field: &str, encoder: &str, source: &str) -> Str
     }
 }
 
-fn field_source(ast: &AstStruct, field: &AstStructField) -> String {
+fn field_source(ast: &AstStruct, field: &AstStructField, schema: &Schema) -> String {
+    if ast.attrs.estree.type_from.as_ref() == Some(&field.name) {
+        let tags = ast.estree_tags(schema);
+        let default = tag_literal(&tags[0]);
+        let others = tags[1..]
+            .iter()
+            .map(|tag| format!("n.type === {}", tag_literal(tag)))
+            .collect::<Vec<_>>()
+            .join(" || ");
+        return if others.is_empty() {
+            default
+        } else {
+            format!("({others}) ? n.type : {default}")
+        };
+    }
+    if let Some(selector) = &ast.attrs.estree.type_via
+        && ast.estree_tag_fields().contains(field.name.as_str())
+    {
+        let mut tags: Vec<_> = selector
+            .inverse()
+            .into_iter()
+            .filter_map(|(tag, fields)| fields.contains(field.name.as_str()).then_some(tag))
+            .collect();
+        tags.sort_unstable();
+        return if tags.is_empty() {
+            "false".into()
+        } else {
+            tags.iter()
+                .map(|tag| format!("n.type === {}", tag_literal(tag)))
+                .collect::<Vec<_>>()
+                .join(" || ")
+        };
+    }
     if field.attrs.estree_concat.is_some() || ast.estree_concat_sources(field).next().is_some() {
         return format!("s_{}", estree_field_name(field));
     }
@@ -372,13 +405,6 @@ fn field_source(ast: &AstStruct, field: &AstStructField) -> String {
     let raw = field.name.strip_prefix("r#").unwrap_or(&field.name);
 
     match (node, raw) {
-        ("Function", "function_type") => {
-            "n.type === \"FunctionExpression\" ? \"FunctionExpression\" : \"FunctionDeclaration\""
-                .into()
-        }
-        ("Class", "class_type") => {
-            "n.type === \"ClassExpression\" ? \"ClassExpression\" : \"ClassDeclaration\"".into()
-        }
         ("Directive", "expression") => "_directiveExpression".into(),
         ("NumericLiteral", "kind") => "numericKind(_numericRaw)".into(),
         ("NumericLiteral", "raw") => "_numericRaw".into(),
@@ -388,12 +414,6 @@ fn field_source(ast: &AstStruct, field: &AstStructField) -> String {
         ("TemplateElement", "cooked") => "n.value?.cooked ?? \"\"".into(),
         ("TemplateElement", "raw") => "n.value?.raw ?? \"\"".into(),
         ("TemplateElement", "is_cooked_undefined") => "n.value?.cooked == null".into(),
-        ("PropertyDefinition", "accessor") => {
-            "n.type === \"AccessorProperty\" || n.type === \"TSAbstractAccessorProperty\"".into()
-        }
-        ("PropertyDefinition" | "MethodDefinition" | "TsMethodDefinition", "abstract") => {
-            "n.type.startsWith(\"TSAbstract\")".into()
-        }
         ("BindingProperty", "shorthand") => "n.shorthand".into(),
         ("JsxText", "value") => "n.value ?? n.raw ?? \"\"".into(),
         ("TsMappedType", "optional") => "n.optional === false ? null : n.optional".into(),
@@ -837,25 +857,13 @@ fn accepted_estree_types(name: &str, schema: &Schema) -> Vec<String> {
         }
         return result;
     }
-    match name {
-        "Function" => vec!["FunctionDeclaration".into(), "FunctionExpression".into()],
-        "TsFunction" => vec![
-            ast.attrs.estree.tag(name),
-            "TSEmptyBodyFunctionExpression".into(),
-        ],
-        "Class" => vec!["ClassDeclaration".into(), "ClassExpression".into()],
-        "TsMethodDefinition" => vec![
-            "MethodDefinition".into(),
-            "TSAbstractMethodDefinition".into(),
-        ],
-        "PropertyDefinition" => vec![
-            "PropertyDefinition".into(),
-            "AccessorProperty".into(),
-            "TSAbstractPropertyDefinition".into(),
-            "TSAbstractAccessorProperty".into(),
-        ],
-        _ => vec![ast.attrs.estree.tag(name)],
+    let mut tags = ast.estree_tags(schema);
+    for tag in overridden_tags(ast.type_id, schema) {
+        if !tags.contains(&tag) {
+            tags.push(tag);
+        }
     }
+    tags
 }
 
 const PREAMBLE: &str = r#"// generated by tasks/ast_tools, do not edit

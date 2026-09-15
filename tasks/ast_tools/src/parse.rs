@@ -13,8 +13,8 @@ use syn::{
 
 use crate::schema::{
     AstAttrs, AstEnum, AstEnumVariant, AstFieldAttrs, AstOption, AstPrimitive, AstStruct,
-    AstStructField, AstSubRange, AstType, EstreeAddedField, EstreeAttrs, EstreeConcat, EstreeValue,
-    Schema, TypeId,
+    AstStructField, AstSubRange, AstType, EstreeAddedField, EstreeAttrs, EstreeConcat,
+    EstreeTagCondition, EstreeTagSelector, EstreeValue, Schema, TypeId,
 };
 
 struct Parser {
@@ -127,6 +127,7 @@ fn parse_sources(sources: impl IntoIterator<Item = String>) -> Schema {
     let schema = Schema { types, repr_sizes };
     validate_invalidations(&schema);
     validate_estree_shapes(&schema);
+    crate::estree::validate_tags(&schema);
     schema
 }
 
@@ -270,6 +271,16 @@ fn parse_attrs(attrs: &[Attribute]) -> Option<AstAttrs> {
                             estree.added_fields.push(parse_added_field(meta)?);
                             return Ok(());
                         }
+                        if meta.path.is_ident("type_from") {
+                            if estree.type_from.is_some() { return Err(meta.error("Duplicate type_from")); }
+                            estree.type_from = Some(meta.value()?.parse::<Ident>()?.to_string());
+                            return Ok(());
+                        }
+                        if meta.path.is_ident("type_via") {
+                            if estree.type_via.is_some() { return Err(meta.error("Duplicate type_via")); }
+                            estree.type_via = Some(parse_tag_selector(meta.value()?.parse()?)?);
+                            return Ok(());
+                        }
                         if meta.path.is_ident("transparent") {
                             if estree.transparent.is_some() {
                                 return Err(meta.error("Duplicate transparent field"));
@@ -283,7 +294,7 @@ fn parse_attrs(attrs: &[Attribute]) -> Option<AstAttrs> {
                             &mut estree.ty
                         } else {
                             return Err(meta
-                                .error("Expected `rename`, `ty`, `add_field`, or `transparent`"));
+                                .error("Expected `rename`, `ty`, `type_from`, `type_via`, `add_field`, or `transparent`"));
                         };
                         if target.is_some() {
                             return Err(meta.error("Duplicate ESTree attribute"));
@@ -308,6 +319,71 @@ fn parse_attrs(attrs: &[Attribute]) -> Option<AstAttrs> {
         generate_derives,
         estree,
     })
+}
+
+fn parse_tag_selector(expr: syn::Expr) -> syn::Result<EstreeTagSelector> {
+    match expr {
+        syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(tag),
+            ..
+        }) => Ok(EstreeTagSelector::Tag(tag.value())),
+        syn::Expr::If(expr) => {
+            let (_, alternate) = expr.else_branch.ok_or_else(|| {
+                syn::Error::new_spanned(&expr.then_branch, "Tag selector requires else")
+            })?;
+            Ok(EstreeTagSelector::If {
+                condition: parse_tag_condition(*expr.cond)?,
+                consequent: Box::new(parse_tag_selector(tag_block(expr.then_branch)?)?),
+                alternate: Box::new(parse_tag_selector(*alternate)?),
+            })
+        }
+        syn::Expr::Block(expr) => parse_tag_selector(tag_block(expr.block)?),
+        expr => Err(syn::Error::new_spanned(
+            expr,
+            "Expected a tag string or if expression",
+        )),
+    }
+}
+
+fn tag_block(block: syn::Block) -> syn::Result<syn::Expr> {
+    let mut statements = block.stmts.into_iter();
+    match (statements.next(), statements.next()) {
+        (Some(syn::Stmt::Expr(expr, None)), None) => Ok(expr),
+        _ => Err(syn::Error::new(
+            block.brace_token.span.join(),
+            "Tag block must contain one expression",
+        )),
+    }
+}
+
+fn parse_tag_condition(expr: syn::Expr) -> syn::Result<EstreeTagCondition> {
+    match expr {
+        syn::Expr::Path(expr) if expr.qself.is_none() && expr.path.get_ident().is_some() => {
+            let name = expr.path.get_ident().unwrap().to_string();
+            Ok(if name == "is_ts" {
+                EstreeTagCondition::IsTs
+            } else {
+                EstreeTagCondition::Field(name)
+            })
+        }
+        syn::Expr::Paren(expr) => parse_tag_condition(*expr.expr),
+        syn::Expr::Unary(expr) if matches!(expr.op, syn::UnOp::Not(_)) => Ok(
+            EstreeTagCondition::Not(Box::new(parse_tag_condition(*expr.expr)?)),
+        ),
+        syn::Expr::Binary(expr) if matches!(expr.op, syn::BinOp::And(_) | syn::BinOp::Or(_)) => {
+            let left = Box::new(parse_tag_condition(*expr.left)?);
+            let right = Box::new(parse_tag_condition(*expr.right)?);
+            Ok(if matches!(expr.op, syn::BinOp::And(_)) {
+                EstreeTagCondition::And(left, right)
+            } else {
+                EstreeTagCondition::Or(left, right)
+            })
+        }
+        expr => Err(syn::Error::new_spanned(
+            expr,
+            "Expected boolean fields, is_ts, !, &&, or ||",
+        )),
+    }
 }
 
 fn parse_added_field(meta: syn::meta::ParseNestedMeta<'_>) -> syn::Result<EstreeAddedField> {
@@ -372,10 +448,11 @@ impl Parser {
             .map(|field| self.parse_struct_field(field))
             .collect();
         let mut output_fields = HashSet::from(["type".into(), "start".into(), "end".into()]);
-        for field in fields
-            .iter()
-            .filter(|field| !field.attrs.estree_skip && field.attrs.estree_concat.is_none())
-        {
+        for field in fields.iter().filter(|field| {
+            !field.attrs.estree_skip
+                && field.attrs.estree_concat.is_none()
+                && attrs.estree.type_from.as_ref() != Some(&field.name)
+        }) {
             output_fields.insert(crate::estree::estree_field_name(field));
         }
         for field in &attrs.estree.added_fields {
@@ -411,8 +488,10 @@ impl Parser {
     fn parse_enum(&mut self, type_id: TypeId, attrs: AstAttrs, item: ItemEnum) -> AstType {
         let name = item.ident.to_string();
         assert!(
-            attrs.estree.transparent.is_none(),
-            "ESTree transparent output requires a struct: {name}"
+            attrs.estree.transparent.is_none()
+                && attrs.estree.type_from.is_none()
+                && attrs.estree.type_via.is_none(),
+            "ESTree output selectors require a struct: {name}"
         );
         assert!(
             attrs.estree.added_fields.is_empty(),
@@ -454,7 +533,28 @@ impl Parser {
             Some(type_id)
         };
 
-        AstEnumVariant { type_id, name }
+        let mut estree_ts_type = None;
+        for attr in &variant.attrs {
+            if !attr.path().is_ident("estree") {
+                continue;
+            }
+            attr.parse_nested_meta(|meta| {
+                if !meta.path.is_ident("ts_type") {
+                    return Err(meta.error("Expected variant ts_type"));
+                }
+                if estree_ts_type.is_some() {
+                    return Err(meta.error("Duplicate ts_type"));
+                }
+                estree_ts_type = Some(meta.value()?.parse::<syn::LitStr>()?.value());
+                Ok(())
+            })
+            .expect("Unable to parse variant ESTree attributes");
+        }
+        AstEnumVariant {
+            type_id,
+            name,
+            estree_ts_type,
+        }
     }
 
     fn parse_type_name(&mut self, ty: &Type) -> Option<TypeId> {
@@ -564,6 +664,22 @@ fn parse_field_attrs(attrs: &[Attribute]) -> AstFieldAttrs {
                             prepend: value.path.is_ident("prepend_to"),
                         });
                     }
+                    Meta::NameValue(value)
+                        if value.path.is_ident("type_override")
+                            || value.path.is_ident("ts_type") =>
+                    {
+                        let target = if value.path.is_ident("type_override") {
+                            &mut field_attrs.estree_type_override
+                        } else {
+                            &mut field_attrs.estree_ts_type
+                        };
+                        assert!(target.is_none(), "Duplicate ESTree field type attribute");
+                        *target = Some(
+                            syn::parse2::<syn::LitStr>(value.value.to_token_stream())
+                                .expect("ESTree type must be a string literal")
+                                .value(),
+                        );
+                    }
                     Meta::NameValue(value) if value.path.is_ident("rename") => {
                         assert!(
                             field_attrs.estree_rename.is_none(),
@@ -574,7 +690,7 @@ fn parse_field_attrs(attrs: &[Attribute]) -> AstFieldAttrs {
                         field_attrs.estree_rename = Some(rename.value());
                     }
                     _ => panic!(
-                        "Expected ESTree field `skip`, `ts`, `rename`, `prepend_to`, or `append_to`"
+                        "Expected ESTree field `skip`, `ts`, `rename`, `prepend_to`, `append_to`, `type_override`, or `ts_type`"
                     ),
                 }
             }

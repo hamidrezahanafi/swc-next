@@ -6,6 +6,9 @@ use convert_case::{Case, Casing};
 
 use crate::schema::{AstStruct, AstStructField, EstreeAttrs, EstreeValue};
 
+mod tags;
+pub use tags::{overridden_tags, tag_literal, validate_tags};
+
 impl AstStruct {
     pub fn estree_transparent_field(&self) -> Option<&AstStructField> {
         self.attrs.estree.transparent.as_ref().map(|name| {

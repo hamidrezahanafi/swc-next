@@ -254,6 +254,11 @@ pub struct TsFunction {
 /// //                                              ^^^^^ return_type
 /// ```
 #[ast]
+#[estree(type_via = if r#abstract {
+    "TSAbstractMethodDefinition"
+} else {
+    "MethodDefinition"
+})]
 pub struct TsMethodDefinition {
     /// `decorator[]`
     decorators: SubRange<Decorator>,
@@ -261,6 +266,7 @@ pub struct TsMethodDefinition {
     /// `private_identifier` (class members only), or any expression when `computed = true`
     key: PropertyKey,
     /// `id` is always `None`; `declare` is always `false`.
+    #[estree(type_override = "TSEmptyBodyFunctionExpression")]
     value: TsFunction,
     kind: MethodDefinitionKind,
     /// true when the key is written inside `[...]`.
@@ -271,6 +277,7 @@ pub struct TsMethodDefinition {
     /// true for an optional method (`foo?()`).
     #[estree(ts)]
     optional: bool,
+    #[estree(skip)]
     r#abstract: bool,
     /// `None` when no accessibility modifier was written.
     #[estree(ts)]

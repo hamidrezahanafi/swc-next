@@ -281,6 +281,47 @@ A variant-level `ts_type` can express these existing declaration constraints.
 It does not rewrite runtime tags. Keep this separate from a field-level
 `type_override`.
 
+### Implemented Syntax and Validation
+
+`#[estree(type_from = function_type)]` and `#[estree(type_from = class_type)]`
+derive tags and public interfaces from the referenced scalar enum mapping.
+The source field is consumed by the tag and omitted from the output object.
+The generator also derives the Function and Class aliases from these mappings.
+
+The provisional named `type_via` selector is implemented as a restricted Rust
+expression directly in the attribute, keeping the calculation on the AST:
+
+```rust
+#[estree(type_via = if is_ts && r#abstract {
+    "TSAbstractMethodDefinition"
+} else {
+    "MethodDefinition"
+})]
+```
+
+Tag expressions allow string literals and `if`/`else`; conditions allow boolean
+field identifiers, `is_ts`, parentheses, `!`, `&&`, and `||`. Nested selectors
+cover PropertyDefinition's four tags. The generator derives both the finite
+tag set and JavaScript expression from this syntax. TsMethodDefinition omits
+the `is_ts` guard to preserve its existing behavior.
+
+Tag inputs marked `#[estree(skip)]` are still read for tag selection. The encoder
+recovers their values from the same selector, with TS distinctions enabled;
+JS output may intentionally discard those distinctions. Selectors support up
+to eight boolean fields and must have an unambiguous inverse in TS mode.
+
+`#[estree(type_override = "TSEmptyBodyFunctionExpression")]` on
+TsMethodDefinition.value changes the direct child's tag and generates its
+additional interface from the child's fields. `#[estree(ts_type =
+"FunctionExpression")]` on MethodDefinition.value only narrows the declaration,
+preserving its existing runtime behavior. The same `ts_type` syntax on union
+variants expresses the Expr, Decl, and ExportDefaultDeclarationKind constraints.
+
+Validation rejects conflicting tag selectors, unknown or wrongly typed inputs,
+overrides on non-node or transparent children, and unknown narrowed types.
+`ts_type` and `type_override` cannot be combined on one field. The generated
+public declarations retain the previous types; only alias ordering changes.
+
 ## 6. Remaining Literals: Compute Output Values
 
 After the earlier steps, the remaining value transformations are:

@@ -307,9 +307,9 @@ export type JSXExpression = Expression | JSXEmptyExpression;
 
 export type JSXChild = JSXElement | JSXExpressionContainer | JSXFragment | JSXSpreadChild | JSXText;
 
-export type Function = FunctionDeclaration | FunctionExpression;
-
 export type Class = ClassDeclaration | ClassExpression;
+
+export type Function = FunctionDeclaration | FunctionExpression;
 
 export type Literal = StringLiteral | NumericLiteral | BigIntLiteral | BooleanLiteral | NullLiteral | RegExpLiteral;
 

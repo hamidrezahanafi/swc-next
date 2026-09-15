@@ -829,7 +829,7 @@ function encode(program) {
   }
 
   function encClass(n) {
-    const v_0 = enumValue("ClassType", n.type === "ClassExpression" ? "ClassExpression" : "ClassDeclaration");
+    const v_0 = enumValue("ClassType", (n.type === "ClassExpression") ? n.type : "ClassDeclaration");
     const v_1 = encArray(n.decorators, encDecorator, false);
     const v_2 = n.id == null ? NULL : encBindingIdentifier(n.id);
     const v_3 = n.typeParameters == null ? NULL : encTsTypeParameterDeclaration(n.typeParameters);
@@ -874,7 +874,7 @@ function encode(program) {
     const v_5 = n.static ? 1 : 0;
     const v_6 = n.override ? 1 : 0;
     const v_7 = n.optional ? 1 : 0;
-    const v_8 = n.type.startsWith("TSAbstract") ? 1 : 0;
+    const v_8 = n.type === "TSAbstractMethodDefinition" ? 1 : 0;
     const v_9 = enumValue("Accessibility", n.accessibility);
     const extraId = allocExtra(2);
     const index = allocNode(49, asStart(n), asEnd(n));
@@ -906,7 +906,7 @@ function encode(program) {
     const v_9 = n.optional ? 1 : 0;
     const v_10 = n.definite ? 1 : 0;
     const v_11 = n.readonly ? 1 : 0;
-    const v_12 = n.type.startsWith("TSAbstract") ? 1 : 0;
+    const v_12 = n.type === "TSAbstractAccessorProperty" || n.type === "TSAbstractPropertyDefinition" ? 1 : 0;
     const v_13 = enumValue("Accessibility", n.accessibility);
     const extraId = allocExtra(4);
     const index = allocNode(50, asStart(n), asEnd(n));
@@ -938,7 +938,7 @@ function encode(program) {
   }
 
   function encFunction(n) {
-    const v_0 = enumValue("FunctionType", n.type === "FunctionExpression" ? "FunctionExpression" : "FunctionDeclaration");
+    const v_0 = enumValue("FunctionType", (n.type === "FunctionExpression") ? n.type : "FunctionDeclaration");
     const v_1 = n.id == null ? NULL : encBindingIdentifier(n.id);
     const v_2 = n.typeParameters == null ? NULL : encTsTypeParameterDeclaration(n.typeParameters);
     const v_3 = encFormalParameters(n.params);
@@ -1361,7 +1361,7 @@ function encode(program) {
     const v_5 = n.static ? 1 : 0;
     const v_6 = n.override ? 1 : 0;
     const v_7 = n.optional ? 1 : 0;
-    const v_8 = n.type.startsWith("TSAbstract") ? 1 : 0;
+    const v_8 = n.type === "TSAbstractMethodDefinition" ? 1 : 0;
     const v_9 = enumValue("Accessibility", n.accessibility);
     const extraId = allocExtra(2);
     const index = allocNode(87, asStart(n), asEnd(n));
@@ -2397,6 +2397,9 @@ function encode(program) {
       case "MethodDefinition":
         if (n.type === "TSAbstractMethodDefinition" || n.value?.type === "TSEmptyBodyFunctionExpression") return encTsMethodDefinition(n);
         return encMethodDefinition(n);
+      case "TSAbstractMethodDefinition":
+        if (n.type === "TSAbstractMethodDefinition" || n.value?.type === "TSEmptyBodyFunctionExpression") return encTsMethodDefinition(n);
+        return encMethodDefinition(n);
       case "PropertyDefinition":
         return encPropertyDefinition(n);
       case "AccessorProperty":
@@ -2407,9 +2410,6 @@ function encode(program) {
         return encPropertyDefinition(n);
       case "StaticBlock":
         return encStaticBlock(n);
-      case "TSAbstractMethodDefinition":
-        if (n.type === "TSAbstractMethodDefinition" || n.value?.type === "TSEmptyBodyFunctionExpression") return encTsMethodDefinition(n);
-        return encTsMethodDefinition(n);
       case "TSIndexSignature":
         return encTsIndexSignature(n);
       case "ImportSpecifier":

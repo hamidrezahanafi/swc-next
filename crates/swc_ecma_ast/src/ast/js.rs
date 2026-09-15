@@ -390,7 +390,9 @@ pub enum Stmt {
 #[estree(rename = "Declaration")]
 pub enum Decl {
     VariableDeclaration(VariableDeclaration),
+    #[estree(ts_type = "FunctionDeclaration")]
     Function(Function),
+    #[estree(ts_type = "ClassDeclaration")]
     Class(Class),
     TsFunction(TsFunction),
     TsTypeAliasDeclaration(TsTypeAliasDeclaration),
@@ -431,7 +433,9 @@ pub enum Expr {
     ArrayExpression(ArrayExpression),
     ObjectExpression(ObjectExpression),
     ParenthesizedExpression(ParenthesizedExpression),
+    #[estree(ts_type = "FunctionExpression")]
     Function(Function),
+    #[estree(ts_type = "ClassExpression")]
     Class(Class),
     ImportExpression(ImportExpression),
     AwaitExpression(AwaitExpression),
@@ -551,7 +555,9 @@ pub enum ImportDeclarationSpecifier {
 #[ast(repr, nested)]
 pub enum ExportDefaultDeclarationKind {
     Expr(Expr),
+    #[estree(ts_type = "FunctionDeclaration")]
     Function(Function),
+    #[estree(ts_type = "ClassDeclaration")]
     Class(Class),
     TsFunction(TsFunction),
     TsInterfaceDeclaration(TsInterfaceDeclaration),
@@ -1397,6 +1403,7 @@ pub struct Decorator {
 /// `@dec class` populates `decorators`. `abstract class` sets `abstract`.
 /// `declare class` sets `declare`.
 #[ast]
+#[estree(type_from = class_type)]
 pub struct Class {
     class_type: ClassType,
     /// `decorator[]`
@@ -1454,6 +1461,11 @@ pub struct ClassBody {
 /// //                            ^^^^^^^^^^^ value
 /// ```
 #[ast]
+#[estree(type_via = if is_ts && r#abstract {
+    "TSAbstractMethodDefinition"
+} else {
+    "MethodDefinition"
+})]
 pub struct MethodDefinition {
     /// `decorator[]`
     decorators: SubRange<Decorator>,
@@ -1461,6 +1473,7 @@ pub struct MethodDefinition {
     /// `private_identifier` (class members only), or any expression when `computed = true`
     key: PropertyKey,
     /// `function`
+    #[estree(ts_type = "FunctionExpression")]
     value: Function,
     kind: MethodDefinitionKind,
     /// true when the key is written inside `[...]`.
@@ -1471,6 +1484,7 @@ pub struct MethodDefinition {
     /// true for an optional method (`foo?()`).
     #[estree(ts)]
     optional: bool,
+    #[estree(skip)]
     r#abstract: bool,
     /// `None` when no accessibility modifier was written.
     #[estree(ts)]
@@ -1490,6 +1504,11 @@ pub struct MethodDefinition {
 /// //                                       ^ value
 /// ```
 #[ast]
+#[estree(type_via = if is_ts && r#abstract {
+    if accessor { "TSAbstractAccessorProperty" } else { "TSAbstractPropertyDefinition" }
+} else {
+    if accessor { "AccessorProperty" } else { "PropertyDefinition" }
+})]
 pub struct PropertyDefinition {
     /// `decorator[]`
     decorators: SubRange<Decorator>,
@@ -1505,6 +1524,7 @@ pub struct PropertyDefinition {
     computed: bool,
     r#static: bool,
     /// true for `accessor x;` auto-accessor fields.
+    #[estree(skip)]
     accessor: bool,
     /// true for the `declare` modifier.
     #[estree(ts)]
@@ -1520,6 +1540,7 @@ pub struct PropertyDefinition {
     /// true for the `readonly` modifier.
     #[estree(ts)]
     readonly: bool,
+    #[estree(skip)]
     r#abstract: bool,
     /// `None` when no accessibility modifier was written.
     #[estree(ts)]
@@ -1559,6 +1580,7 @@ pub struct StaticBlock {
 #[ast]
 #[estree(add_field(name = "expression", value = false))]
 #[estree(add_field(name = "declare", value = false, ts))]
+#[estree(type_from = function_type)]
 pub struct Function {
     function_type: FunctionType,
     /// `binding_identifier`. `None` for anonymous functions.

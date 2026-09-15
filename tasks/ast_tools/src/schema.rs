@@ -85,6 +85,7 @@ pub struct AstEnum {
 pub struct AstEnumVariant {
     pub type_id: Option<TypeId>,
     pub name: String,
+    pub estree_ts_type: Option<String>,
 }
 
 #[derive(Debug)]
@@ -128,6 +129,8 @@ pub struct EstreeAttrs {
     pub rename: Option<String>,
     /// Override the node tag without changing its public name.
     pub ty: Option<String>,
+    pub type_from: Option<String>,
+    pub type_via: Option<EstreeTagSelector>,
     pub transparent: Option<String>,
     pub added_fields: Vec<EstreeAddedField>,
 }
@@ -153,6 +156,8 @@ pub struct AstFieldAttrs {
     pub estree_rename: Option<String>,
     pub estree_ts: bool,
     pub estree_concat: Option<EstreeConcat>,
+    pub estree_type_override: Option<String>,
+    pub estree_ts_type: Option<String>,
     pub invalidates: Vec<String>,
 }
 
@@ -160,4 +165,23 @@ pub struct AstFieldAttrs {
 pub struct EstreeConcat {
     pub target: String,
     pub prepend: bool,
+}
+
+#[derive(Debug)]
+pub enum EstreeTagSelector {
+    Tag(String),
+    If {
+        condition: EstreeTagCondition,
+        consequent: Box<Self>,
+        alternate: Box<Self>,
+    },
+}
+
+#[derive(Debug)]
+pub enum EstreeTagCondition {
+    Field(String),
+    IsTs,
+    Not(Box<Self>),
+    And(Box<Self>, Box<Self>),
+    Or(Box<Self>, Box<Self>),
 }

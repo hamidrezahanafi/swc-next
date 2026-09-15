@@ -10,7 +10,7 @@ use crate::{
     schema::{AstStruct, AstStructField, AstType, Schema, TypeId},
 };
 
-use crate::estree::{ENUMS, default_name, estree_field_name};
+use crate::estree::{ENUMS, default_name, estree_field_name, overridden_tags};
 
 #[derive(Clone)]
 struct Field {
@@ -43,9 +43,8 @@ pub fn estree_dts(schema: &Schema) -> RawOutput {
                 },
             );
         }
-        for name in node_names(ast) {
+        for (name, tag) in node_shapes(ast, schema) {
             let fields = fields.clone();
-            let tag = ast.attrs.estree.ty.clone().unwrap_or_else(|| name.clone());
             if let Some(existing) = nodes.get_mut(&name) {
                 // Several storage nodes decode to the same public node. Fields
                 // absent from one shape must stay optional in the merged type.
@@ -72,8 +71,20 @@ pub fn estree_dts(schema: &Schema) -> RawOutput {
     }
 
     let mut output = String::from(PREAMBLE);
+    let tag_enums: BTreeSet<_> = schema
+        .types
+        .iter()
+        .filter_map(|ty| {
+            let AstType::Struct(ast) = ty else {
+                return None;
+            };
+            let name = ast.attrs.estree.type_from.as_ref()?;
+            let field = ast.fields.iter().find(|field| &field.name == name).unwrap();
+            Some(schema.types[field.type_id].name())
+        })
+        .collect();
     for (name, values) in ENUMS {
-        if matches!(*name, "ClassType" | "FunctionType" | "FormalParameterKind") {
+        if tag_enums.contains(name) || *name == "FormalParameterKind" {
             continue;
         }
         write_alias(&mut output, &default_name(name), values.iter().copied());
@@ -85,17 +96,10 @@ pub fn estree_dts(schema: &Schema) -> RawOutput {
             .iter()
             .map(|variant| {
                 let ty = &schema.types[variant.type_id.expect("AST unions contain nodes")];
-                // The storage Function/Class structs represent both declarations and
-                // expressions; ESTree exposes a separate discriminant for each.
-                match (ast.name.as_str(), ty.name()) {
-                    ("Decl" | "ExportDefaultDeclarationKind", "Function") => {
-                        "FunctionDeclaration".into()
-                    }
-                    ("Decl" | "ExportDefaultDeclarationKind", "Class") => "ClassDeclaration".into(),
-                    ("Expr", "Function") => "FunctionExpression".into(),
-                    ("Expr", "Class") => "ClassExpression".into(),
-                    _ => type_ref(ty, schema),
-                }
+                variant
+                    .estree_ts_type
+                    .clone()
+                    .unwrap_or_else(|| type_ref(ty, schema))
             })
             .collect();
         write_alias(
@@ -104,7 +108,19 @@ pub fn estree_dts(schema: &Schema) -> RawOutput {
             variants.iter().map(String::as_str),
         );
     }
-    output.push_str("export type Function = FunctionDeclaration | FunctionExpression;\n\nexport type Class = ClassDeclaration | ClassExpression;\n\nexport type Literal = StringLiteral | NumericLiteral | BigIntLiteral | BooleanLiteral | NullLiteral | RegExpLiteral;\n\n");
+    for ty in &schema.types {
+        if let AstType::Struct(ast) = ty
+            && ast.attrs.estree.type_from.is_some()
+        {
+            let tags = ast.estree_tags(schema);
+            write_alias(
+                &mut output,
+                &ast.attrs.estree.name(&ast.name),
+                tags.iter().map(String::as_str),
+            );
+        }
+    }
+    output.push_str("export type Literal = StringLiteral | NumericLiteral | BigIntLiteral | BooleanLiteral | NullLiteral | RegExpLiteral;\n\n");
     for (name, node) in &nodes {
         writeln!(
             output,
@@ -186,32 +202,37 @@ fn union(left: &str, right: &str) -> String {
     members.into_iter().collect::<Vec<_>>().join(" | ")
 }
 
-fn node_names(ast: &AstStruct) -> Vec<String> {
-    match ast.name.as_str() {
-        "Function" => vec!["FunctionDeclaration".into(), "FunctionExpression".into()],
-        "Class" => vec!["ClassDeclaration".into(), "ClassExpression".into()],
-        "MethodDefinition" | "TsMethodDefinition" => vec![
-            "MethodDefinition".into(),
-            "TSAbstractMethodDefinition".into(),
-        ],
-        "PropertyDefinition" => vec![
-            "PropertyDefinition".into(),
-            "AccessorProperty".into(),
-            "TSAbstractPropertyDefinition".into(),
-            "TSAbstractAccessorProperty".into(),
-        ],
-        "TsFunction" => vec![
+fn node_shapes(ast: &AstStruct, schema: &Schema) -> BTreeMap<String, String> {
+    let mut shapes = if ast.attrs.estree.type_from.is_some() || ast.attrs.estree.type_via.is_some()
+    {
+        ast.estree_tags(schema)
+            .into_iter()
+            .map(|tag| (tag.clone(), tag))
+            .collect()
+    } else {
+        BTreeMap::from([(
             ast.attrs.estree.name(&ast.name),
-            "TSEmptyBodyFunctionExpression".into(),
-        ],
-        _ => vec![ast.attrs.estree.name(&ast.name)],
-    }
+            ast.attrs.estree.tag(&ast.name),
+        )])
+    };
+    shapes.extend(
+        overridden_tags(ast.type_id, schema)
+            .into_iter()
+            .map(|tag| (tag.clone(), tag)),
+    );
+    shapes
 }
 
 fn type_ref(ty: &AstType, schema: &Schema) -> String {
     match ty {
-        AstType::SubRange(range) => format!("Array<{}>", type_ref(&schema.types[range.inner_type_id], schema)),
-        AstType::Option(option) => format!("{} | null", type_ref(&schema.types[option.inner_type_id], schema)),
+        AstType::SubRange(range) => format!(
+            "Array<{}>",
+            type_ref(&schema.types[range.inner_type_id], schema)
+        ),
+        AstType::Option(option) => format!(
+            "{} | null",
+            type_ref(&schema.types[option.inner_type_id], schema)
+        ),
         AstType::Primitive(primitive) => match primitive.name {
             "AstUtf8" | "AstWtf8" => "string".into(),
             "bool" => "boolean".into(),
@@ -224,11 +245,10 @@ fn type_ref(ty: &AstType, schema: &Schema) -> String {
         AstType::Struct(ast) if ast.estree_transparent_field().is_some() => {
             field_type(ast, ast.estree_transparent_field().unwrap(), schema)
         }
-        AstType::Struct(ast) => match ast.name.as_str() {
-            "MethodDefinition" | "TsMethodDefinition" => "MethodDefinition | TSAbstractMethodDefinition".into(),
-            "PropertyDefinition" => "PropertyDefinition | AccessorProperty | TSAbstractPropertyDefinition | TSAbstractAccessorProperty".into(),
-            _ => ast.attrs.estree.name(&ast.name),
-        },
+        AstType::Struct(ast) if ast.attrs.estree.type_via.is_some() => {
+            ast.estree_tags(schema).join(" | ")
+        }
+        AstType::Struct(ast) => ast.attrs.estree.name(&ast.name),
         AstType::Enum(ast) => ast.attrs.estree.name(&ast.name),
     }
 }
@@ -236,7 +256,7 @@ fn type_ref(ty: &AstType, schema: &Schema) -> String {
 fn fields(ast: &AstStruct, schema: &Schema) -> Fields {
     ast.fields
         .iter()
-        .filter(|field| !field.attrs.estree_skip && field.attrs.estree_concat.is_none())
+        .filter(|field| ast.estree_emits_field(field))
         .map(|field| {
             let name = estree_field_name(field);
             let optional = field.attrs.estree_ts;
@@ -281,6 +301,14 @@ fn type_members(type_id: TypeId, schema: &Schema, members: &mut BTreeSet<String>
 }
 
 fn field_type(ast: &AstStruct, field: &AstStructField, schema: &Schema) -> String {
+    if let Some(name) = field
+        .attrs
+        .estree_type_override
+        .as_ref()
+        .or(field.attrs.estree_ts_type.as_ref())
+    {
+        return name.clone();
+    }
     let sources: Vec<_> = ast.estree_concat_sources(field).collect();
     if sources.is_empty() {
         return type_ref(&schema.types[field.type_id], schema);
@@ -334,7 +362,6 @@ fn optional(fields: &mut Fields, names: &[&str]) {
 fn reshape(name: &str, fields: &mut Fields) {
     match name {
         "Program" => set(fields, "sourceType", "SourceType"),
-        "Function" => remove(fields, &["functionType"]),
         "NumericLiteral" => set(fields, "raw", "string"),
         "BigIntLiteral" => {
             set(fields, "value", "bigint");
@@ -351,20 +378,6 @@ fn reshape(name: &str, fields: &mut Fields) {
             remove(fields, &["raw", "cooked", "isCookedUndefined"]);
             set(fields, "value", "{ raw: string; cooked: string | null }");
         }
-        "Class" => remove(fields, &["classType"]),
-        "MethodDefinition" | "TsMethodDefinition" => {
-            remove(fields, &["abstract"]);
-            set(
-                fields,
-                "value",
-                if name == "MethodDefinition" {
-                    "FunctionExpression"
-                } else {
-                    "TSEmptyBodyFunctionExpression"
-                },
-            );
-        }
-        "PropertyDefinition" => remove(fields, &["abstract", "accessor"]),
         "JsxText" => set(fields, "raw", "string"),
         "TsMappedType" => set(fields, "optional", "boolean | \"+\" | \"-\""),
         "TsModuleDeclaration" => {
