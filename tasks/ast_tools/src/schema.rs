@@ -133,5 +133,6 @@ pub struct EstreeAttrs {
 #[derive(Debug, Default)]
 pub struct AstFieldAttrs {
     pub estree_skip: bool,
+    pub estree_rename: Option<String>,
     pub invalidates: Vec<String>,
 }

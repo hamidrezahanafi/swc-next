@@ -1400,6 +1400,7 @@ pub struct TsEnumDeclaration {
     /// `ts_enum_body`
     body: TsEnumBody,
     /// true when preceded by the `const` modifier.
+    #[estree(rename = "const")]
     is_const: bool,
     /// true when preceded by the `declare` modifier.
     declare: bool,

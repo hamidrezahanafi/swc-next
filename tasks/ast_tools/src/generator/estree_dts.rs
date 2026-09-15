@@ -233,7 +233,7 @@ fn fields(ast: &AstStruct, schema: &Schema) -> Fields {
         .iter()
         .filter(|field| !field.attrs.estree_skip)
         .map(|field| {
-            let name = estree_field_name(&ast.name, &field.name);
+            let name = estree_field_name(field);
             let optional = is_ts_field(&ast.name, &name);
             (
                 name,
@@ -310,10 +310,6 @@ fn reshape(name: &str, fields: &mut Fields) {
                     set(fields, "generator", "false");
                 }
             }
-        }
-        "Directive" => {
-            remove(fields, &["value"]);
-            set(fields, "directive", "string");
         }
         "NumericLiteral" => set(fields, "raw", "string"),
         "BigIntLiteral" => {

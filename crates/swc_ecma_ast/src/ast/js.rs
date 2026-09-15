@@ -1035,6 +1035,7 @@ pub struct AssignmentExpression {
 pub struct VariableDeclaration {
     kind: VariableKind,
     /// `variable_declarator[]`
+    #[estree(rename = "declarations")]
     declarators: SubRange<VariableDeclarator>,
     /// true for `declare var x: T`.
     declare: bool,
@@ -1322,6 +1323,7 @@ pub struct Directive {
     /// `string_literal`
     expression: StringLiteral,
     /// the directive text without surrounding quotes
+    #[estree(rename = "directive")]
     value: AstUtf8,
 }
 

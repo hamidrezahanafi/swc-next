@@ -455,11 +455,21 @@ fn parse_field_attrs(attrs: &[Attribute]) -> AstFieldAttrs {
             let args = meta_list
                 .parse_args_with(Punctuated::<Meta, Comma>::parse_terminated)
                 .expect("Unable to parse `#[estree]`");
-            field_attrs.estree_skip = args.into_iter().any(|arg| match arg {
-                Meta::Path(path) => path.is_ident("skip"),
-                Meta::List(list) => list.path.is_ident("skip"),
-                Meta::NameValue(name_value) => name_value.path.is_ident("skip"),
-            });
+            for arg in args {
+                match arg {
+                    arg if arg.path().is_ident("skip") => field_attrs.estree_skip = true,
+                    Meta::NameValue(value) if value.path.is_ident("rename") => {
+                        assert!(
+                            field_attrs.estree_rename.is_none(),
+                            "Duplicate ESTree field rename"
+                        );
+                        let rename: syn::LitStr = syn::parse2(value.value.to_token_stream())
+                            .expect("ESTree field rename must be a string literal");
+                        field_attrs.estree_rename = Some(rename.value());
+                    }
+                    _ => panic!("Expected ESTree field `skip` or `rename = \"...\"`"),
+                }
+            }
             continue;
         }
         if meta_list.path.is_ident("ast") {

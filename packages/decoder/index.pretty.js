@@ -696,11 +696,9 @@ export function decode(buffer, source) {
         break;
       }
       case 45: {
-        const f_expression = node(_u32[(payload + 8) >> 2]);
-        const f_value = str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]);
-        result = {
-          type: "ExpressionStatement", start, end,
-          expression: f_expression, directive: f_value,
+        result = { type: "ExpressionStatement", start, end,
+          expression: node(_u32[(payload + 8) >> 2]),
+          directive: str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]),
         };
         break;
       }

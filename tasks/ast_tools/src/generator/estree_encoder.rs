@@ -3,11 +3,10 @@ use std::{
     fmt::Write,
 };
 
-use convert_case::{Case, Casing};
-
 use crate::{
+    estree::estree_field_name,
     output::RawOutput,
-    schema::{AstStruct, AstType, Schema, TypeId},
+    schema::{AstStruct, AstStructField, AstType, Schema, TypeId},
     util::{InlineStorageMode, calculate_inline_layout},
 };
 
@@ -70,7 +69,7 @@ fn write_struct_encoder(
 
     for (field_index, field) in ast.fields.iter().enumerate() {
         let ty = &schema.types[field.type_id];
-        let source = field_source(name, &field.name);
+        let source = field_source(name, field);
         let source = if field.attrs.estree_skip {
             "0".into()
         } else {
@@ -351,15 +350,8 @@ fn child_expression(node: &str, field: &str, encoder: &str, source: &str) -> Str
     }
 }
 
-fn field_source(node: &str, field: &str) -> String {
-    let raw = field.strip_prefix("r#").unwrap_or(field);
-    let js = if node == "VariableDeclaration" && raw == "declarators" {
-        "declarations".into()
-    } else if node == "TsEnumDeclaration" && raw == "is_const" {
-        "const".into()
-    } else {
-        raw.to_case(Case::Camel)
-    };
+fn field_source(node: &str, field: &AstStructField) -> String {
+    let raw = field.name.strip_prefix("r#").unwrap_or(&field.name);
 
     match (node, raw) {
         ("Program" | "FunctionBody" | "TsModuleBlock", "directives") => "_directives".into(),
@@ -380,7 +372,6 @@ fn field_source(node: &str, field: &str) -> String {
             "n.type === \"ClassExpression\" ? \"ClassExpression\" : \"ClassDeclaration\"".into()
         }
         ("Directive", "expression") => "_directiveExpression".into(),
-        ("Directive", "value") => "n.directive".into(),
         ("NumericLiteral", "kind") => "numericKind(_numericRaw)".into(),
         ("NumericLiteral", "raw") => "_numericRaw".into(),
         ("BigIntLiteral", "raw") => "bigIntRaw(n)".into(),
@@ -398,7 +389,7 @@ fn field_source(node: &str, field: &str) -> String {
         ("BindingProperty", "shorthand") => "n.shorthand".into(),
         ("JsxText", "value") => "n.value ?? n.raw ?? \"\"".into(),
         ("TsMappedType", "optional") => "n.optional === false ? null : n.optional".into(),
-        _ => format!("n.{js}"),
+        _ => format!("n.{}", estree_field_name(field)),
     }
 }
 

@@ -83,7 +83,7 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
             continue;
         }
         let expression = read_expression(field_ty, schema, &location, aligned_u32);
-        let field_name = estree_field_name(&ast.name, &field.name);
+        let field_name = estree_field_name(field);
         fields.push(DecodedField {
             name: field_name,
             expression,
@@ -255,7 +255,6 @@ fn is_special_node(name: &str) -> bool {
             | "Function"
             | "TsFunction"
             | "ArrowFunctionExpression"
-            | "Directive"
             | "NumericLiteral"
             | "BigIntLiteral"
             | "BooleanLiteral"
@@ -367,15 +366,6 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
           result.typeParameters = f_typeParameters;
           result.returnType = f_returnType;
         }}
-"#,
-        )
-        .unwrap(),
-        "Directive" => write!(
-            output,
-            r#"        result = {{
-          type: "{tag}", start, end,
-          expression: f_expression, directive: f_value,
-        }};
 "#,
         )
         .unwrap(),

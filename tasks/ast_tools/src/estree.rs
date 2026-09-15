@@ -2,7 +2,7 @@
 
 use convert_case::{Case, Casing};
 
-use crate::schema::EstreeAttrs;
+use crate::schema::{AstStructField, EstreeAttrs};
 
 impl EstreeAttrs {
     pub fn name(&self, name: &str) -> String {
@@ -85,15 +85,14 @@ pub(super) fn ts_extra_fields(name: &str) -> &'static [(&'static str, &'static s
     }
 }
 
-pub(super) fn estree_field_name(node: &str, field: &str) -> String {
-    let field = field.strip_prefix("r#").unwrap_or(field);
-    if node == "VariableDeclaration" && field == "declarators" {
-        return "declarations".into();
-    }
-    if node == "TsEnumDeclaration" && field == "is_const" {
-        return "const".into();
-    }
-    field.to_case(Case::Camel)
+pub(super) fn estree_field_name(field: &AstStructField) -> String {
+    field.attrs.estree_rename.clone().unwrap_or_else(|| {
+        field
+            .name
+            .strip_prefix("r#")
+            .unwrap_or(&field.name)
+            .to_case(Case::Camel)
+    })
 }
 
 /// Values are JavaScript/TypeScript literal source, in wire discriminant order.
