@@ -1,6 +1,6 @@
 use std::mem;
 
-use swc_next_ast_macros::ast;
+use swc_next_ast_macros::{ast, estree_enum};
 
 use crate::{
     ExtraData,
@@ -37,12 +37,17 @@ macro_rules! impl_extra_data_value {
 ///   set prop(v) {}     // set
 /// }
 /// ```
+#[estree_enum]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum MethodDefinitionKind {
+    #[estree(value = "constructor")]
     Constructor,
+    #[estree(value = "method")]
     Method,
+    #[estree(value = "get")]
     Get,
+    #[estree(value = "set")]
     Set,
 }
 
@@ -50,12 +55,17 @@ pub enum MethodDefinitionKind {
 ///
 /// `None` means no modifier was written. This is distinct from `Public`,
 /// which is written explicitly.
+#[estree_enum]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum Accessibility {
+    #[estree(value = null)]
     None,
+    #[estree(value = "public")]
     Public,
+    #[estree(value = "private")]
     Private,
+    #[estree(value = "protected")]
     Protected,
 }
 
@@ -63,10 +73,13 @@ pub enum Accessibility {
 ///
 /// `ClassDeclaration` for `class Foo {}`. `ClassExpression` for
 /// `const x = class {}`.
+#[estree_enum(no_ts_def)]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum ClassType {
+    #[estree(value = "ClassDeclaration")]
     ClassDeclaration,
+    #[estree(value = "ClassExpression")]
     ClassExpression,
 }
 
@@ -78,30 +91,53 @@ pub enum ClassType {
 /// a === b
 /// a instanceof B
 /// ```
+#[estree_enum]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum BinaryOperator {
+    #[estree(value = "==")]
     Equal,
+    #[estree(value = "!=")]
     NotEqual,
+    #[estree(value = "===")]
     StrictEqual,
+    #[estree(value = "!==")]
     StrictNotEqual,
+    #[estree(value = "<")]
     LessThan,
+    #[estree(value = "<=")]
     LessThanOrEqual,
+    #[estree(value = ">")]
     GreaterThan,
+    #[estree(value = ">=")]
     GreaterThanOrEqual,
+    #[estree(value = "+")]
     Add,
+    #[estree(value = "-")]
     Subtract,
+    #[estree(value = "*")]
     Multiply,
+    #[estree(value = "/")]
     Divide,
+    #[estree(value = "%")]
     Modulo,
+    #[estree(value = "**")]
     Exponent,
+    #[estree(value = "|")]
     BitwiseOr,
+    #[estree(value = "^")]
     BitwiseXor,
+    #[estree(value = "&")]
     BitwiseAnd,
+    #[estree(value = "<<")]
     LeftShift,
+    #[estree(value = ">>")]
     RightShift,
+    #[estree(value = ">>>")]
     UnsignedRightShift,
+    #[estree(value = "in")]
     In,
+    #[estree(value = "instanceof")]
     Instanceof,
 }
 
@@ -113,11 +149,15 @@ pub enum BinaryOperator {
 /// a || b
 /// a ?? b
 /// ```
+#[estree_enum]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum LogicalOperator {
+    #[estree(value = "&&")]
     And,
+    #[estree(value = "||")]
     Or,
+    #[estree(value = "??")]
     NullishCoalescing,
 }
 
@@ -131,15 +171,23 @@ pub enum LogicalOperator {
 /// void 0
 /// delete obj.prop
 /// ```
+#[estree_enum]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum UnaryOperator {
+    #[estree(value = "-")]
     Negate,
+    #[estree(value = "+")]
     Positive,
+    #[estree(value = "!")]
     LogicalNot,
+    #[estree(value = "~")]
     BitwiseNot,
+    #[estree(value = "typeof")]
     Typeof,
+    #[estree(value = "void")]
     Void,
+    #[estree(value = "delete")]
     Delete,
 }
 
@@ -150,10 +198,13 @@ pub enum UnaryOperator {
 /// ++x
 /// x--
 /// ```
+#[estree_enum]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum UpdateOperator {
+    #[estree(value = "++")]
     Increment,
+    #[estree(value = "--")]
     Decrement,
 }
 
@@ -166,24 +217,41 @@ pub enum UpdateOperator {
 /// x &&= y
 /// x ??= 0
 /// ```
+#[estree_enum]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum AssignmentOperator {
+    #[estree(value = "=")]
     Assign,
+    #[estree(value = "+=")]
     AddAssign,
+    #[estree(value = "-=")]
     SubtractAssign,
+    #[estree(value = "*=")]
     MultiplyAssign,
+    #[estree(value = "/=")]
     DivideAssign,
+    #[estree(value = "%=")]
     ModuloAssign,
+    #[estree(value = "**=")]
     ExponentAssign,
+    #[estree(value = "<<=")]
     LeftShiftAssign,
+    #[estree(value = ">>=")]
     RightShiftAssign,
+    #[estree(value = ">>>=")]
     UnsignedRightShiftAssign,
+    #[estree(value = "|=")]
     BitwiseOrAssign,
+    #[estree(value = "^=")]
     BitwiseXorAssign,
+    #[estree(value = "&=")]
     BitwiseAndAssign,
+    #[estree(value = "||=")]
     LogicalOrAssign,
+    #[estree(value = "&&=")]
     LogicalAndAssign,
+    #[estree(value = "??=")]
     NullishAssign,
 }
 
@@ -197,13 +265,19 @@ pub enum AssignmentOperator {
 /// using r = resource();
 /// await using ar = asyncResource();
 /// ```
+#[estree_enum]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum VariableKind {
+    #[estree(value = "var")]
     Var,
+    #[estree(value = "let")]
     Let,
+    #[estree(value = "const")]
     Const,
+    #[estree(value = "using")]
     Using,
+    #[estree(value = "await using")]
     AwaitUsing,
 }
 
@@ -223,10 +297,13 @@ impl VariableKind {
 ///
 /// `FunctionDeclaration` for `function foo() {}`.
 /// `FunctionExpression` for `const x = function () {}`.
+#[estree_enum(no_ts_def)]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum FunctionType {
+    #[estree(value = "FunctionDeclaration")]
     FunctionDeclaration,
+    #[estree(value = "FunctionExpression")]
     FunctionExpression,
 }
 
@@ -240,12 +317,17 @@ pub enum FunctionType {
 /// arrow, method, or setter. `ArrowFormalParameters` covers an arrow
 /// function parameter list. `Signature` covers parameters of a TypeScript
 /// type signature.
+#[estree_enum(no_ts_def)]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum FormalParameterKind {
+    #[estree(value = "formal")]
     FormalParameters,
+    #[estree(value = "unique")]
     UniqueFormalParameters,
+    #[estree(value = "arrow")]
     ArrowFormalParameters,
+    #[estree(value = "signature")]
     Signature,
 }
 
@@ -257,11 +339,15 @@ pub enum FormalParameterKind {
 ///   get b() {},    // get
 ///   set b(v) {} }  // set
 /// ```
+#[estree_enum]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum PropertyKind {
+    #[estree(value = "init")]
     Init,
+    #[estree(value = "get")]
     Get,
+    #[estree(value = "set")]
     Set,
 }
 
@@ -275,10 +361,13 @@ pub enum PropertyKind {
 /// //       ^^^^ specifier kind = type
 /// //               ^ specifier kind = value
 /// ```
+#[estree_enum]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum ImportOrExportKind {
+    #[estree(value = "value")]
     Value,
+    #[estree(value = "type")]
     Type,
 }
 
@@ -289,10 +378,13 @@ pub enum ImportOrExportKind {
 /// import source x from "m";  // phase = Source
 /// import defer * as x from "m";  // phase = Defer
 /// ```
+#[estree_enum(optional_none = 0xff)]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum ImportPhase {
+    #[estree(value = "source")]
     Source,
+    #[estree(value = "defer")]
     Defer,
 }
 

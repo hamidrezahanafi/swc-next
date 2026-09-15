@@ -8,9 +8,8 @@ use crate::{
 
 use crate::{
     estree::{
-        ENUMS,
         converters::{ConversionPlan, ConversionStep, Input},
-        estree_field_name, tag_literal,
+        estree_field_name, scalar_input_table, tag_literal, write_scalar_enums,
     },
     js_minifier::minify,
 };
@@ -21,11 +20,13 @@ const MINIFIED_OUTPUT_PATH: &str = "packages/decoder/index.js";
 pub fn estree_decoder(schema: &Schema) -> (RawOutput, RawOutput) {
     let mut output = String::new();
     output.push_str(PREAMBLE);
-    output.push_str("const ENUMS = Object.freeze({\n");
-    for (name, values) in ENUMS {
-        writeln!(output, "  {name}: [{}],", values.join(", ")).unwrap();
-    }
-    output.push_str("});\n\n");
+    write_scalar_enums(&mut output, schema, false);
+    writeln!(
+        output,
+        "const OPTION_SOURCE_TYPES = {};",
+        scalar_input_table(&schema.scalar_enums["SourceType"])
+    )
+    .unwrap();
     output.push_str(DECODER);
 
     for (kind, ty) in schema
@@ -121,6 +122,7 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
             name: field_name,
             expression,
             ts: field.attrs.estree_ts,
+            omit_if_none: field.attrs.estree_omit_if_none,
         });
     }
 
@@ -242,27 +244,6 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
         let name = estree_field_name(target);
         let field = fields.iter().find(|field| field.name == name).unwrap();
         writeln!(output, "        result = {};", field.expression).unwrap();
-    } else if is_special_node(&ast.name) {
-        write_special_node(output, ast, &fields);
-        let additional_fields: Vec<_> = fields
-            .iter()
-            .filter(|field| {
-                field.ts
-                    || ast
-                        .attrs
-                        .estree
-                        .added_fields
-                        .iter()
-                        .chain(&ast.attrs.estree.overridden_fields)
-                        .any(|added| added.name == field.name)
-            })
-            .map(|field| DecodedField {
-                name: field.name.clone(),
-                expression: format!("f_{}", field.name),
-                ts: field.ts,
-            })
-            .collect();
-        write_field_assignments(output, &additional_fields);
     } else {
         write_generic_node(output, ast, &fields);
     }
@@ -274,6 +255,7 @@ struct DecodedField {
     name: String,
     expression: String,
     ts: bool,
+    omit_if_none: bool,
 }
 
 fn read_expression(ty: &AstType, schema: &Schema, location: &str, aligned_u32: bool) -> String {
@@ -292,10 +274,20 @@ fn read_expression(ty: &AstType, schema: &Schema, location: &str, aligned_u32: b
             AstType::Struct(_) | AstType::Enum(_) => {
                 format!("optionalNode({})", read_u32(location, aligned_u32))
             }
-            AstType::Primitive(primitive) if primitive.name == "ImportPhase" => {
-                format!("optionalEnum(\"ImportPhase\", _dv.getUint8({location}))")
+            AstType::Primitive(primitive) if schema.scalar_enums.contains_key(&primitive.name) => {
+                let name = &primitive.name;
+                let scalar = &schema.scalar_enums[name];
+                let none = scalar
+                    .optional_none
+                    .expect("Optional scalar enum requires optional_none storage metadata");
+                format!(
+                    "optionalEnum(\"{name}\", {}, {none})",
+                    read_scalar(scalar.size, location)
+                )
             }
-            AstType::Primitive(primitive) if matches!(primitive.name, "ScopeId" | "SymbolId") => {
+            AstType::Primitive(primitive)
+                if matches!(primitive.name.as_str(), "ScopeId" | "SymbolId") =>
+            {
                 "undefined".into()
             }
             AstType::Primitive(primitive) if primitive.name == "Span" => {
@@ -310,7 +302,7 @@ fn read_expression(ty: &AstType, schema: &Schema, location: &str, aligned_u32: b
             }
             inner => panic!("unsupported optional decoder type: {}", inner.name()),
         },
-        AstType::Primitive(primitive) => match primitive.name {
+        AstType::Primitive(primitive) => match primitive.name.as_str() {
             "AstUtf8" | "AstWtf8" => {
                 let start = read_u32(location, aligned_u32);
                 let end = read_u32(&format!("{location} + 4"), aligned_u32);
@@ -330,34 +322,22 @@ fn read_expression(ty: &AstType, schema: &Schema, location: &str, aligned_u32: b
                 format!("{{ start: pos({start}), end: pos({end}) }}")
             }
             "ScopeId" | "SymbolId" => "undefined".into(),
-            name if schema.repr_sizes.contains_key(name)
-                || matches!(
-                    name,
-                    "SourceType"
-                        | "ImportPhase"
-                        | "MethodDefinitionKind"
-                        | "Accessibility"
-                        | "ClassType"
-                        | "BinaryOperator"
-                        | "LogicalOperator"
-                        | "UnaryOperator"
-                        | "UpdateOperator"
-                        | "AssignmentOperator"
-                        | "VariableKind"
-                        | "FunctionType"
-                        | "FormalParameterKind"
-                        | "PropertyKind"
-                        | "ImportOrExportKind"
-                        | "TsTypeOperatorKind"
-                        | "TsMethodSignatureKind"
-                        | "TsModuleDeclarationKind"
-                        | "TsMappedTypeModifier"
-                ) =>
-            {
-                format!("enumValue(\"{name}\", _dv.getUint8({location}))")
+            name if schema.scalar_enums.contains_key(name) => {
+                format!(
+                    "enumValue(\"{name}\", {})",
+                    read_scalar(schema.scalar_enums[name].size, location)
+                )
             }
             name => panic!("unsupported primitive decoder type: {name}"),
         },
+    }
+}
+
+fn read_scalar(size: usize, location: &str) -> String {
+    match size {
+        1 => format!("_dv.getUint8({location})"),
+        2 | 4 => format!("_dv.getUint{}({location}, true)", size * 8),
+        _ => unreachable!("validated scalar enum representation"),
     }
 }
 
@@ -386,6 +366,7 @@ fn added_fields(ast: &AstStruct) -> impl Iterator<Item = DecodedField> + '_ {
                 EstreeFieldValue::Via(name) => format!("converted_{name}"),
             },
             ts: field.ts,
+            omit_if_none: false,
         })
 }
 
@@ -409,6 +390,14 @@ fn write_object_literal<'a>(
 ) {
     let padding = " ".repeat(indent);
     let fields: Vec<_> = fields.collect();
+    for field in fields.iter().filter(|field| field.omit_if_none) {
+        writeln!(
+            output,
+            "{padding}const optional_{} = {};",
+            field.name, field.expression
+        )
+        .unwrap();
+    }
     let positions = ["start", "end"].map(|name| {
         fields.iter().find(|field| field.name == name).map_or_else(
             || name.into(),
@@ -424,65 +413,19 @@ fn write_object_literal<'a>(
     )
     .unwrap();
     for field in fields
-        .into_iter()
-        .filter(|field| !matches!(field.name.as_str(), "start" | "end"))
+        .iter()
+        .filter(|field| !field.omit_if_none && !matches!(field.name.as_str(), "start" | "end"))
     {
         writeln!(output, "{padding}  {}: {},", field.name, field.expression).unwrap();
     }
     writeln!(output, "{padding}}};").unwrap();
-}
-
-fn write_field_assignments(output: &mut String, fields: &[DecodedField]) {
-    for field in fields.iter().filter(|field| !field.ts) {
+    for field in fields.iter().filter(|field| field.omit_if_none) {
+        let name = &field.name;
         writeln!(
             output,
-            "        result.{} = {};",
-            field.name, field.expression
+            "{padding}if (optional_{name} !== null) result.{name} = optional_{name};"
         )
         .unwrap();
-    }
-    if fields.iter().any(|field| field.ts) {
-        writeln!(output, "        if (isTs) {{").unwrap();
-        for field in fields.iter().filter(|field| field.ts) {
-            writeln!(
-                output,
-                "          result.{} = {};",
-                field.name, field.expression
-            )
-            .unwrap();
-        }
-        writeln!(output, "        }}").unwrap();
-    }
-}
-
-fn is_special_node(name: &str) -> bool {
-    matches!(name, "TsModuleDeclaration")
-}
-
-fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedField]) {
-    let name = ast.name.as_str();
-    let tag = ast.attrs.estree.tag(name);
-    for field in fields {
-        writeln!(
-            output,
-            "        const f_{} = {};",
-            field.name, field.expression
-        )
-        .unwrap();
-    }
-
-    match name {
-        "TsModuleDeclaration" => write!(
-            output,
-            r#"        result = {{
-          type: "{tag}", start, end,
-          id: f_id, kind: f_kind, declare: f_declare,
-        }};
-        if (f_body !== null) result.body = f_body;
-"#,
-        )
-        .unwrap(),
-        _ => unreachable!("missing special ESTree decoder for {name}"),
     }
 }
 
@@ -496,9 +439,8 @@ const textDecoder = new TextDecoder("utf-8", { ignoreBOM: true });
 
 "#;
 
-const DECODER: &str = r#"const OPTION_SOURCE_TYPES = ["module", "script", "commonjs", "unambiguous"];
-const OPTION_LANGS = ["js", "ts", "jsx", "tsx", "dts"];
-const OPTION_COMMENT_MODES = ["none", "flat"];
+const DECODER: &str = r#"const OPTION_LANGS = new Map(["js", "ts", "jsx", "tsx", "dts"].map((value, index) => [value, index]));
+const OPTION_COMMENT_MODES = new Map(["none", "flat"].map((value, index) => [value, index]));
 
 export function encodeOptions(options) {
   if (options === undefined || options === null) return 0;
@@ -516,9 +458,9 @@ export function encodeOptions(options) {
 
 function encodeOptionEnum(value, name, values) {
   if (value === undefined || value === null) return 0;
-  const index = values.indexOf(value);
-  if (index === -1) {
-    throw new TypeError(`${name} must be one of: ${values.join(", ")}`);
+  const index = values.get(value);
+  if (index === undefined) {
+    throw new TypeError(`${name} must be one of: ${Array.from(values.keys()).join(", ")}`);
   }
   return index + 1;
 }
@@ -644,11 +586,11 @@ export function decode(buffer, source) {
   };
   const enumValue = (name, value) => {
     const values = ENUMS[name];
-    return values !== undefined && value < values.length ? values[value] : value;
+    return values?.[value] === undefined ? value : values[value];
   };
   const sourceType = enumValue("SourceType", (flags >> 1) & 3);
-  const optionalEnum = (name, value) =>
-    value === 0xff ? null : enumValue(name, value);
+  const optionalEnum = (name, value, none) =>
+    value === none ? null : enumValue(name, value);
   const optionalNode = index => index === NULL ? null : node(index);
   const nodeArray = (start, end, holes) => {
     const result = new Array(end - start);

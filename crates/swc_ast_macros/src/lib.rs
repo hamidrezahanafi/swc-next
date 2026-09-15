@@ -14,3 +14,13 @@ pub fn ast(args: TokenStream, input: TokenStream) -> TokenStream {
     );
     TokenStream::from(expanded)
 }
+
+/// Attach generator metadata without changing a scalar enum's Rust representation.
+#[proc_macro_attribute]
+pub fn estree_enum(_args: TokenStream, input: TokenStream) -> TokenStream {
+    let mut input = parse_macro_input!(input as syn::ItemEnum);
+    for variant in &mut input.variants {
+        variant.attrs.retain(|attr| !attr.path().is_ident("estree"));
+    }
+    quote::quote!(#input).into()
+}

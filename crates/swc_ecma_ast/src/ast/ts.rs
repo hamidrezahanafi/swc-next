@@ -1,6 +1,6 @@
 use std::mem;
 
-use swc_next_ast_macros::ast;
+use swc_next_ast_macros::{ast, estree_enum};
 
 use crate::{
     ExtraData,
@@ -31,29 +31,40 @@ macro_rules! impl_extra_data_value {
 /// `keyof` produces the union of property keys of the operand. `unique`
 /// marks a unique symbol type (only meaningful before `symbol`). `readonly`
 /// applies to tuple and array types to make their elements immutable.
+#[estree_enum]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum TsTypeOperatorKind {
+    #[estree(value = "keyof")]
     Keyof,
+    #[estree(value = "unique")]
     Unique,
+    #[estree(value = "readonly")]
     Readonly,
 }
 
 /// The kind of a method signature. Accessors use `get` or `set`. All
 /// other method signatures use `method`.
+#[estree_enum]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum TsMethodSignatureKind {
+    #[estree(value = "method")]
     Method,
+    #[estree(value = "get")]
     Get,
+    #[estree(value = "set")]
     Set,
 }
 
 /// The keyword used to introduce a `ts_module_declaration`.
+#[estree_enum]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum TsModuleDeclarationKind {
+    #[estree(value = "namespace")]
     Namespace,
+    #[estree(value = "module")]
     Module,
 }
 
@@ -63,12 +74,17 @@ pub enum TsModuleDeclarationKind {
 /// `None` means the modifier keyword is absent. `True` means it is present
 /// without a sign. `Plus` and `Minus` explicitly add (`+?`, `+readonly`)
 /// or remove (`-?`, `-readonly`) the modifier from the mapped property.
+#[estree_enum]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum TsMappedTypeModifier {
+    #[estree(value = null)]
     None,
+    #[estree(value = true)]
     True,
+    #[estree(value = "+")]
     Plus,
+    #[estree(value = "-")]
     Minus,
 }
 
@@ -1484,6 +1500,7 @@ pub struct TsModuleDeclaration {
     id: TsModuleName,
     /// `ts_module_block`. `None` for body-less forward declarations like
     /// `declare module "foo";`.
+    #[estree(omit_if_none)]
     body: Option<TsModuleBody>,
     kind: TsModuleDeclarationKind,
     /// true when preceded by the `declare` modifier.

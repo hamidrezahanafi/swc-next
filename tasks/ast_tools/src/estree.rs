@@ -4,7 +4,7 @@ use std::fmt::Write;
 
 use convert_case::{Case, Casing};
 
-use crate::schema::{AstStruct, AstStructField, EstreeAttrs, EstreeValue};
+use crate::schema::{AstStruct, AstStructField, EstreeAttrs, EstreeValue, ScalarEnum};
 
 mod tags;
 pub use tags::{overridden_tags, tag_literal, validate_tags};
@@ -63,101 +63,34 @@ pub(super) fn estree_field_name(field: &AstStructField) -> String {
     })
 }
 
-/// Values are JavaScript/TypeScript literal source, in wire discriminant order.
-pub(super) const ENUMS: &[(&str, &[&str])] = &[
-    ("SourceType", &["\"module\"", "\"script\"", "\"commonjs\""]),
-    (
-        "MethodDefinitionKind",
-        &["\"constructor\"", "\"method\"", "\"get\"", "\"set\""],
-    ),
-    (
-        "Accessibility",
-        &["null", "\"public\"", "\"private\"", "\"protected\""],
-    ),
-    (
-        "ClassType",
-        &["\"ClassDeclaration\"", "\"ClassExpression\""],
-    ),
-    (
-        "BinaryOperator",
-        &[
-            "\"==\"",
-            "\"!=\"",
-            "\"===\"",
-            "\"!==\"",
-            "\"<\"",
-            "\"<=\"",
-            "\">\"",
-            "\">=\"",
-            "\"+\"",
-            "\"-\"",
-            "\"*\"",
-            "\"/\"",
-            "\"%\"",
-            "\"**\"",
-            "\"|\"",
-            "\"^\"",
-            "\"&\"",
-            "\"<<\"",
-            "\">>\"",
-            "\">>>\"",
-            "\"in\"",
-            "\"instanceof\"",
-        ],
-    ),
-    ("LogicalOperator", &["\"&&\"", "\"||\"", "\"??\""]),
-    (
-        "UnaryOperator",
-        &[
-            "\"-\"",
-            "\"+\"",
-            "\"!\"",
-            "\"~\"",
-            "\"typeof\"",
-            "\"void\"",
-            "\"delete\"",
-        ],
-    ),
-    ("UpdateOperator", &["\"++\"", "\"--\""]),
-    (
-        "AssignmentOperator",
-        &[
-            "\"=\"", "\"+=\"", "\"-=\"", "\"*=\"", "\"/=\"", "\"%=\"", "\"**=\"", "\"<<=\"",
-            "\">>=\"", "\">>>=\"", "\"|=\"", "\"^=\"", "\"&=\"", "\"||=\"", "\"&&=\"", "\"??=\"",
-        ],
-    ),
-    (
-        "VariableKind",
-        &[
-            "\"var\"",
-            "\"let\"",
-            "\"const\"",
-            "\"using\"",
-            "\"await using\"",
-        ],
-    ),
-    (
-        "FunctionType",
-        &["\"FunctionDeclaration\"", "\"FunctionExpression\""],
-    ),
-    (
-        "FormalParameterKind",
-        &["\"formal\"", "\"unique\"", "\"arrow\"", "\"signature\""],
-    ),
-    ("PropertyKind", &["\"init\"", "\"get\"", "\"set\""]),
-    ("ImportOrExportKind", &["\"value\"", "\"type\""]),
-    ("ImportPhase", &["\"source\"", "\"defer\""]),
-    (
-        "TsTypeOperatorKind",
-        &["\"keyof\"", "\"unique\"", "\"readonly\""],
-    ),
-    (
-        "TsMethodSignatureKind",
-        &["\"method\"", "\"get\"", "\"set\""],
-    ),
-    ("TsModuleDeclarationKind", &["\"namespace\"", "\"module\""]),
-    ("TsMappedTypeModifier", &["null", "true", "\"+\"", "\"-\""]),
-];
+/// Use numeric keys rather than positions so excluded variants and gaps keep
+/// their Rust discriminants. Reverse tables also include input-only variants.
+pub fn write_scalar_enums(output: &mut String, schema: &crate::schema::Schema, encode: bool) {
+    output.push_str("const ENUMS = Object.freeze({\n");
+    for (name, scalar) in &schema.scalar_enums {
+        if encode {
+            writeln!(output, "  {name}: {},", scalar_input_table(scalar)).unwrap();
+        } else {
+            let entries: Vec<_> = scalar
+                .variants
+                .iter()
+                .filter(|variant| !variant.skip)
+                .map(|variant| format!("{}: {}", variant.discriminant, variant.value.js()))
+                .collect();
+            writeln!(output, "  {name}: {{ {} }},", entries.join(", ")).unwrap();
+        }
+    }
+    output.push_str("});\n\n");
+}
+
+pub fn scalar_input_table(scalar: &ScalarEnum) -> String {
+    let entries: Vec<_> = scalar
+        .variants
+        .iter()
+        .map(|variant| format!("[{}, {}]", variant.value.js(), variant.discriminant))
+        .collect();
+    format!("new Map([{}])", entries.join(", "))
+}
 
 impl EstreeValue {
     pub fn js(&self) -> String {

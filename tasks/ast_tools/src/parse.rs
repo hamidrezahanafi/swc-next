@@ -1,9 +1,11 @@
+mod scalar;
+
 use std::{
     collections::{HashMap, HashSet},
     fs,
 };
 
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use oxc_index::IndexVec;
 use quote::ToTokens;
 use syn::{
@@ -20,6 +22,7 @@ use crate::schema::{
 struct Parser {
     /// Mapping all type names to their type ids
     type_names: IndexSet<String>,
+    scalar_names: HashSet<String>,
     /// Types exclude top level structs and enums
     extra_types: IndexVec<TypeId, AstType>,
 }
@@ -52,6 +55,7 @@ fn parse_sources(sources: impl IntoIterator<Item = String>) -> Schema {
     let mut type_names = IndexSet::new();
     let mut prototypes = Vec::new();
     let mut repr_sizes = HashMap::new();
+    let mut scalar_enums = IndexMap::new();
 
     for content in sources {
         let file = syn::parse_file(&content).unwrap();
@@ -78,6 +82,17 @@ fn parse_sources(sources: impl IntoIterator<Item = String>) -> Schema {
                         repr_sizes.insert(item.ident.to_string(), size);
                     }
 
+                    if let Some(scalar) = scalar::parse(&item) {
+                        assert!(
+                            scalar_enums
+                                .insert(item.ident.to_string(), scalar)
+                                .is_none(),
+                            "Duplicate scalar enum {}",
+                            item.ident
+                        );
+                        continue;
+                    }
+
                     // Filter enums with #[ast]
                     let Some(attrs) = parse_attrs(&item.attrs) else {
                         continue;
@@ -98,6 +113,7 @@ fn parse_sources(sources: impl IntoIterator<Item = String>) -> Schema {
     }
 
     let mut parser = Parser {
+        scalar_names: scalar_enums.keys().cloned().collect(),
         type_names,
         extra_types: IndexVec::default(),
     };
@@ -124,7 +140,11 @@ fn parse_sources(sources: impl IntoIterator<Item = String>) -> Schema {
     }
 
     types.extend(parser.extra_types);
-    let schema = Schema { types, repr_sizes };
+    let schema = Schema {
+        types,
+        repr_sizes,
+        scalar_enums,
+    };
     validate_invalidations(&schema);
     validate_estree_shapes(&schema);
     crate::estree::validate_tags(&schema);
@@ -160,10 +180,10 @@ impl Parser {
             return TypeId::from_usize(type_id);
         }
 
-        let primitive = |name| {
+        let primitive = |name: &str| {
             AstType::Primitive(AstPrimitive {
                 type_id: TypeId::DUMMY,
-                name,
+                name: name.into(),
             })
         };
 
@@ -190,26 +210,7 @@ impl Parser {
             "SymbolId" => primitive("SymbolId"),
             "AstUtf8" => primitive("AstUtf8"),
             "AstWtf8" => primitive("AstWtf8"),
-            "ImportPhase" => primitive("ImportPhase"),
-            "SourceType" => primitive("SourceType"),
-            "MethodDefinitionKind" => primitive("MethodDefinitionKind"),
-            "Accessibility" => primitive("Accessibility"),
-            "ClassType" => primitive("ClassType"),
-            "BinaryOperator" => primitive("BinaryOperator"),
-            "LogicalOperator" => primitive("LogicalOperator"),
-            "UnaryOperator" => primitive("UnaryOperator"),
-            "UpdateOperator" => primitive("UpdateOperator"),
-            "AssignmentOperator" => primitive("AssignmentOperator"),
-            "VariableKind" => primitive("VariableKind"),
-            "FunctionType" => primitive("FunctionType"),
-            "FormalParameterKind" => primitive("FormalParameterKind"),
-            "PropertyKind" => primitive("PropertyKind"),
-            "NumericLiteralKind" => primitive("NumericLiteralKind"),
-            "ImportOrExportKind" => primitive("ImportOrExportKind"),
-            "TsTypeOperatorKind" => primitive("TsTypeOperatorKind"),
-            "TsMethodSignatureKind" => primitive("TsMethodSignatureKind"),
-            "TsModuleDeclarationKind" => primitive("TsModuleDeclarationKind"),
-            "TsMappedTypeModifier" => primitive("TsMappedTypeModifier"),
+            name if self.scalar_names.contains(name) => primitive(name),
             _ => panic!("Unknown primitive {name}"),
         };
         self.create_new_type(type_def)
@@ -686,6 +687,10 @@ fn parse_field_attrs(attrs: &[Attribute]) -> AstFieldAttrs {
             for arg in args {
                 match arg {
                     Meta::Path(path) if path.is_ident("ts") => field_attrs.estree_ts = true,
+                    Meta::Path(path) if path.is_ident("omit_if_none") => {
+                        assert!(!field_attrs.estree_omit_if_none, "Duplicate omit_if_none");
+                        field_attrs.estree_omit_if_none = true;
+                    }
                     Meta::NameValue(value) if value.path.is_ident("via") => {
                         assert!(
                             field_attrs.estree_via.is_none(),
@@ -774,8 +779,50 @@ fn parse_field_attrs(attrs: &[Attribute]) -> AstFieldAttrs {
 
 fn validate_estree_shapes(schema: &Schema) {
     for ty in &schema.types {
+        if let AstType::Option(option) = ty
+            && let Some(scalar) = schema
+                .scalar_enums
+                .get(schema.types[option.inner_type_id].name())
+        {
+            assert!(
+                scalar.optional_none.is_some(),
+                "Optional scalar enum requires optional_none storage metadata: {}",
+                option.name
+            );
+        }
         let AstType::Struct(ast) = ty else { continue };
         for field in &ast.fields {
+            if field.attrs.estree_omit_if_none {
+                let AstType::Option(option) = &schema.types[field.type_id] else {
+                    panic!("omit_if_none requires Option: {}.{}", ast.name, field.name);
+                };
+                let inner = &schema.types[option.inner_type_id];
+                assert!(
+                    matches!(inner, AstType::Struct(_) | AstType::Enum(_))
+                        || inner.name() == "AstUtf8"
+                        || schema.scalar_enums.contains_key(inner.name()),
+                    "omit_if_none requires a nullable decoder representation: {}.{}",
+                    ast.name,
+                    field.name
+                );
+                assert!(
+                    ast.estree_emits_field(field)
+                        && field.attrs.estree_concat.is_none()
+                        && field.attrs.estree_via.is_none()
+                        && field.attrs.estree_type_override.is_none()
+                        && field.attrs.estree_ts_type.is_none()
+                        && ast.attrs.estree.transparent.as_ref() != Some(&field.name)
+                        && !ast
+                            .attrs
+                            .estree
+                            .overridden_fields
+                            .iter()
+                            .any(|output| output.name == crate::estree::estree_field_name(field)),
+                    "omit_if_none requires an untransformed output field: {}.{}",
+                    ast.name,
+                    field.name
+                );
+            }
             let Some(concat) = &field.attrs.estree_concat else {
                 continue;
             };

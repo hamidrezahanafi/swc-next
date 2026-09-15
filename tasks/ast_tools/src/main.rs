@@ -18,6 +18,7 @@ pub(crate) mod schema;
 pub(crate) mod util;
 
 const SOURCE_PATHS: &[&str] = &[
+    "crates/swc_ecma_ast/src/ast/mod.rs",
     "crates/swc_ecma_ast/src/ast/js.rs",
     "crates/swc_ecma_ast/src/ast/ts.rs",
     "crates/swc_ecma_ast/src/ast/jsx.rs",

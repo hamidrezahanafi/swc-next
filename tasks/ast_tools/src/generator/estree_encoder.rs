@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    estree::{estree_field_name, overridden_tags, tag_literal},
+    estree::{estree_field_name, overridden_tags, tag_literal, write_scalar_enums},
     output::RawOutput,
     schema::{AstStruct, AstStructField, AstType, Schema, TypeId},
     util::{InlineStorageMode, calculate_inline_layout},
@@ -19,6 +19,8 @@ const MINIFIED_OUTPUT_PATH: &str = "packages/encoder/index.js";
 pub fn estree_encoder(schema: &Schema) -> (RawOutput, RawOutput) {
     let mut output = String::new();
     output.push_str(PREAMBLE);
+    write_scalar_enums(&mut output, schema, true);
+    output.push_str(ENCODER);
     let dispatch = EncoderDispatch::new(schema);
 
     for (kind, ty) in schema
@@ -173,7 +175,9 @@ fn write_value(
             AstType::Struct(_) | AstType::Enum(_) => {
                 writeln!(output, "    {}", setter("U32", 0, value)).unwrap();
             }
-            AstType::Primitive(primitive) if matches!(primitive.name, "AstUtf8" | "AstWtf8") => {
+            AstType::Primitive(primitive)
+                if matches!(primitive.name.as_str(), "AstUtf8" | "AstWtf8") =>
+            {
                 writeln!(
                     output,
                     "    {}",
@@ -187,12 +191,12 @@ fn write_value(
                 writeln!(output, "    {}", setter("U32", 4, &format!("{value}[1]"))).unwrap();
             }
             AstType::Primitive(primitive) => {
-                let kind = primitive_setter(primitive.name, schema);
+                let kind = primitive_setter(&primitive.name, schema);
                 writeln!(output, "    {}", setter(kind, 0, value)).unwrap();
             }
             inner => panic!("unsupported optional encoder type: {}", inner.name()),
         },
-        AstType::Primitive(primitive) => match primitive.name {
+        AstType::Primitive(primitive) => match primitive.name.as_str() {
             "AstUtf8" | "AstWtf8" | "Span" => {
                 let (start, end) = if primitive.name == "Span" {
                     (format!("{value}[0]"), format!("{value}[1]"))
@@ -219,33 +223,12 @@ fn primitive_setter<'a>(name: &str, schema: &'a Schema) -> &'a str {
         "u32" | "ScopeId" | "SymbolId" => "U32",
         "i32" => "I32",
         "f64" => "F64",
-        name if schema.repr_sizes.contains_key(name)
-            || matches!(
-                name,
-                "SourceType"
-                    | "ImportPhase"
-                    | "MethodDefinitionKind"
-                    | "Accessibility"
-                    | "ClassType"
-                    | "BinaryOperator"
-                    | "LogicalOperator"
-                    | "UnaryOperator"
-                    | "UpdateOperator"
-                    | "AssignmentOperator"
-                    | "VariableKind"
-                    | "FunctionType"
-                    | "FormalParameterKind"
-                    | "PropertyKind"
-                    | "NumericLiteralKind"
-                    | "ImportOrExportKind"
-                    | "TsTypeOperatorKind"
-                    | "TsMethodSignatureKind"
-                    | "TsModuleDeclarationKind"
-                    | "TsMappedTypeModifier"
-            ) =>
-        {
-            "U8"
-        }
+        name if schema.scalar_enums.contains_key(name) => match schema.scalar_enums[name].size {
+            1 => "U8",
+            2 => "U16",
+            4 => "U32",
+            _ => unreachable!("validated scalar enum representation"),
+        },
         _ => panic!("unsupported primitive encoder type: {name}"),
     }
 }
@@ -281,13 +264,21 @@ fn encode_expression(
                 "{source} == null ? NULL : {}",
                 child_expression(node, field, &dispatch.encoder_name(&ast.name), source,)
             ),
-            AstType::Primitive(primitive) if primitive.name == "ImportPhase" => {
-                format!("{source} == null ? 0xff : enumValue(\"ImportPhase\", {source})")
+            AstType::Primitive(primitive) if schema.scalar_enums.contains_key(&primitive.name) => {
+                let name = &primitive.name;
+                let none = schema.scalar_enums[name]
+                    .optional_none
+                    .expect("Optional scalar enum requires optional_none storage metadata");
+                format!("{source} == null ? {none} : enumValue(\"{name}\", {source})")
             }
-            AstType::Primitive(primitive) if matches!(primitive.name, "ScopeId" | "SymbolId") => {
+            AstType::Primitive(primitive)
+                if matches!(primitive.name.as_str(), "ScopeId" | "SymbolId") =>
+            {
                 "0".into()
             }
-            AstType::Primitive(primitive) if matches!(primitive.name, "AstUtf8" | "AstWtf8") => {
+            AstType::Primitive(primitive)
+                if matches!(primitive.name.as_str(), "AstUtf8" | "AstWtf8") =>
+            {
                 let encoder = if primitive.name == "AstUtf8" {
                     "encUtf8"
                 } else {
@@ -300,37 +291,13 @@ fn encode_expression(
             }
             inner => panic!("unsupported optional encoder type: {}", inner.name()),
         },
-        AstType::Primitive(primitive) => match primitive.name {
+        AstType::Primitive(primitive) => match primitive.name.as_str() {
             "AstUtf8" => format!("encUtf8({source})"),
             "AstWtf8" => format!("encStr({source})"),
             "bool" => format!("{source} ? 1 : 0"),
             "Span" => format!("[asStart({source}), asEnd({source})]"),
             "ScopeId" | "SymbolId" => "0".into(),
-            name if schema.repr_sizes.contains_key(name)
-                || matches!(
-                    name,
-                    "SourceType"
-                        | "ImportPhase"
-                        | "MethodDefinitionKind"
-                        | "Accessibility"
-                        | "ClassType"
-                        | "BinaryOperator"
-                        | "LogicalOperator"
-                        | "UnaryOperator"
-                        | "UpdateOperator"
-                        | "AssignmentOperator"
-                        | "VariableKind"
-                        | "FunctionType"
-                        | "FormalParameterKind"
-                        | "PropertyKind"
-                        | "NumericLiteralKind"
-                        | "ImportOrExportKind"
-                        | "TsTypeOperatorKind"
-                        | "TsMethodSignatureKind"
-                        | "TsModuleDeclarationKind"
-                        | "TsMappedTypeModifier"
-                ) =>
-            {
+            name if schema.scalar_enums.contains_key(name) => {
                 format!("enumValue(\"{name}\", {source})")
             }
             _ => format!("{source} ?? 0"),
@@ -410,7 +377,6 @@ fn field_source(ast: &AstStruct, field: &AstStructField, schema: &Schema) -> Str
 
     match (node, raw) {
         ("Directive", "expression") => "_directiveExpression".into(),
-        ("NumericLiteral", "kind") => "numericKind(_numericRaw)".into(),
         ("NumericLiteral", "raw") => "_numericRaw".into(),
         ("BigIntLiteral", "raw") => "bigIntRaw(n)".into(),
         ("RegExpLiteral", "pattern") => "n.regex?.pattern ?? n.value?.source ?? \"\"".into(),
@@ -877,30 +843,9 @@ const HEADER_SIZE = 36;
 const NATIVE_LITTLE_ENDIAN =
   new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
 
-const ENUMS = Object.freeze({
-  SourceType: ["module", "script", "commonjs", "unambiguous"],
-  MethodDefinitionKind: ["constructor", "method", "get", "set"],
-  Accessibility: [null, "public", "private", "protected"],
-  ClassType: ["ClassDeclaration", "ClassExpression"],
-  BinaryOperator: ["==", "!=", "===", "!==", "<", "<=", ">", ">=", "+", "-", "*", "/", "%", "**", "|", "^", "&", "<<", ">>", ">>>", "in", "instanceof"],
-  LogicalOperator: ["&&", "||", "??"],
-  UnaryOperator: ["-", "+", "!", "~", "typeof", "void", "delete"],
-  UpdateOperator: ["++", "--"],
-  AssignmentOperator: ["=", "+=", "-=", "*=", "/=", "%=", "**=", "<<=", ">>=", ">>>=", "|=", "^=", "&=", "||=", "&&=", "??="],
-  VariableKind: ["var", "let", "const", "using", "await using"],
-  FunctionType: ["FunctionDeclaration", "FunctionExpression"],
-  FormalParameterKind: ["formal", "unique", "arrow", "signature"],
-  PropertyKind: ["init", "get", "set"],
-  NumericLiteralKind: ["decimal", "hex", "octal", "binary"],
-  ImportOrExportKind: ["value", "type"],
-  ImportPhase: ["source", "defer"],
-  TsTypeOperatorKind: ["keyof", "unique", "readonly"],
-  TsMethodSignatureKind: ["method", "get", "set"],
-  TsModuleDeclarationKind: ["namespace", "module"],
-  TsMappedTypeModifier: [null, true, "+", "-"],
-});
+"#;
 
-export function encodeOptions(options) {
+const ENCODER: &str = r#"export function encodeOptions(options) {
   if (options === undefined || options === null) return 0;
   if (typeof options !== "object" || Array.isArray(options)) {
     throw new TypeError("options must be an object");
@@ -941,8 +886,7 @@ function encode(program) {
   let isTs = false;
 
   const enumValue = (name, value) => {
-    const index = ENUMS[name]?.indexOf(value);
-    return index == null || index < 0 ? 0 : index;
+    return ENUMS[name]?.get(value) ?? 0;
   };
   const asStart = n => n && typeof n.start === "number" ? n.start >>> 0 : 0;
   const asEnd = n => n && typeof n.end === "number" ? n.end >>> 0 : 0;

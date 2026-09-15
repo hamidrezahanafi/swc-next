@@ -311,7 +311,13 @@ export type Class = ClassDeclaration | ClassExpression;
 
 export type Function = FunctionDeclaration | FunctionExpression;
 
-export type Literal = StringLiteral | NumericLiteral | BigIntLiteral | BooleanLiteral | NullLiteral | RegExpLiteral;
+export type Literal =
+  | BigIntLiteral
+  | BooleanLiteral
+  | NullLiteral
+  | NumericLiteral
+  | RegExpLiteral
+  | StringLiteral;
 
 export interface AccessorProperty extends BaseNode {
   type: "AccessorProperty";

@@ -1,6 +1,6 @@
 //! Public output types shared by declarations and converter validation.
 
-use super::{ENUMS, converters::converter, default_name, estree_field_name};
+use super::{converters::converter, default_name, estree_field_name};
 use crate::schema::{AstStruct, AstStructField, AstType, EstreeFieldValue, Schema, TypeId};
 use std::collections::BTreeSet;
 
@@ -47,13 +47,13 @@ pub fn type_ref(ty: &AstType, schema: &Schema) -> String {
             "{} | null",
             type_ref(&schema.types[option.inner_type_id], schema)
         ),
-        AstType::Primitive(primitive) => match primitive.name {
+        AstType::Primitive(primitive) => match primitive.name.as_str() {
             "AstUtf8" | "AstWtf8" => "string".into(),
             "bool" => "boolean".into(),
             "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "f64" => "number".into(),
             "Span" => "{ start: number; end: number }".into(),
             "ScopeId" | "SymbolId" => "undefined".into(),
-            name if ENUMS.iter().any(|(key, _)| *key == name) => default_name(name),
+            name if schema.scalar_enums.contains_key(name) => default_name(name),
             name => panic!("unsupported ESTree primitive: {name}"),
         },
         AstType::Struct(ast) if ast.estree_transparent_field().is_some() => {
@@ -97,6 +97,12 @@ fn type_members(type_id: TypeId, schema: &Schema, members: &mut BTreeSet<String>
 }
 
 pub fn field_type(ast: &AstStruct, field: &AstStructField, schema: &Schema) -> String {
+    if field.attrs.estree_omit_if_none {
+        let AstType::Option(option) = &schema.types[field.type_id] else {
+            unreachable!("validated omit_if_none")
+        };
+        return type_ref(&schema.types[option.inner_type_id], schema);
+    }
     if let Some(name) = &field.attrs.estree_via {
         return converter(name).output_type.into();
     }
@@ -174,7 +180,7 @@ pub fn output_type(ast: &AstStruct, name: &str, schema: &Schema) -> String {
         .find(|field| ast.estree_emits_field(field) && estree_field_name(field) == name)
         .unwrap_or_else(|| panic!("Unknown ESTree output {}.{name}", ast.name));
     assert!(
-        !field.attrs.estree_ts,
+        !field.attrs.estree_ts && !field.attrs.estree_omit_if_none,
         "Converters require unconditional output inputs: {}.{name}",
         ast.name
     );

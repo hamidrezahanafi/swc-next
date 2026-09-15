@@ -7,30 +7,30 @@ const NATIVE_LITTLE_ENDIAN =
 const textDecoder = new TextDecoder("utf-8", { ignoreBOM: true });
 
 const ENUMS = Object.freeze({
-  SourceType: ["module", "script", "commonjs"],
-  MethodDefinitionKind: ["constructor", "method", "get", "set"],
-  Accessibility: [null, "public", "private", "protected"],
-  ClassType: ["ClassDeclaration", "ClassExpression"],
-  BinaryOperator: ["==", "!=", "===", "!==", "<", "<=", ">", ">=", "+", "-", "*", "/", "%", "**", "|", "^", "&", "<<", ">>", ">>>", "in", "instanceof"],
-  LogicalOperator: ["&&", "||", "??"],
-  UnaryOperator: ["-", "+", "!", "~", "typeof", "void", "delete"],
-  UpdateOperator: ["++", "--"],
-  AssignmentOperator: ["=", "+=", "-=", "*=", "/=", "%=", "**=", "<<=", ">>=", ">>>=", "|=", "^=", "&=", "||=", "&&=", "??="],
-  VariableKind: ["var", "let", "const", "using", "await using"],
-  FunctionType: ["FunctionDeclaration", "FunctionExpression"],
-  FormalParameterKind: ["formal", "unique", "arrow", "signature"],
-  PropertyKind: ["init", "get", "set"],
-  ImportOrExportKind: ["value", "type"],
-  ImportPhase: ["source", "defer"],
-  TsTypeOperatorKind: ["keyof", "unique", "readonly"],
-  TsMethodSignatureKind: ["method", "get", "set"],
-  TsModuleDeclarationKind: ["namespace", "module"],
-  TsMappedTypeModifier: [null, true, "+", "-"],
+  SourceType: { 0: "module", 1: "script", 2: "commonjs" },
+  MethodDefinitionKind: { 0: "constructor", 1: "method", 2: "get", 3: "set" },
+  Accessibility: { 0: null, 1: "public", 2: "private", 3: "protected" },
+  ClassType: { 0: "ClassDeclaration", 1: "ClassExpression" },
+  BinaryOperator: { 0: "==", 1: "!=", 2: "===", 3: "!==", 4: "<", 5: "<=", 6: ">", 7: ">=", 8: "+", 9: "-", 10: "*", 11: "/", 12: "%", 13: "**", 14: "|", 15: "^", 16: "&", 17: "<<", 18: ">>", 19: ">>>", 20: "in", 21: "instanceof" },
+  LogicalOperator: { 0: "&&", 1: "||", 2: "??" },
+  UnaryOperator: { 0: "-", 1: "+", 2: "!", 3: "~", 4: "typeof", 5: "void", 6: "delete" },
+  UpdateOperator: { 0: "++", 1: "--" },
+  AssignmentOperator: { 0: "=", 1: "+=", 2: "-=", 3: "*=", 4: "/=", 5: "%=", 6: "**=", 7: "<<=", 8: ">>=", 9: ">>>=", 10: "|=", 11: "^=", 12: "&=", 13: "||=", 14: "&&=", 15: "??=" },
+  VariableKind: { 0: "var", 1: "let", 2: "const", 3: "using", 4: "await using" },
+  FunctionType: { 0: "FunctionDeclaration", 1: "FunctionExpression" },
+  FormalParameterKind: { 0: "formal", 1: "unique", 2: "arrow", 3: "signature" },
+  PropertyKind: { 0: "init", 1: "get", 2: "set" },
+  ImportOrExportKind: { 0: "value", 1: "type" },
+  ImportPhase: { 0: "source", 1: "defer" },
+  TsTypeOperatorKind: { 0: "keyof", 1: "unique", 2: "readonly" },
+  TsMethodSignatureKind: { 0: "method", 1: "get", 2: "set" },
+  TsModuleDeclarationKind: { 0: "namespace", 1: "module" },
+  TsMappedTypeModifier: { 0: null, 1: true, 2: "+", 3: "-" },
 });
 
-const OPTION_SOURCE_TYPES = ["module", "script", "commonjs", "unambiguous"];
-const OPTION_LANGS = ["js", "ts", "jsx", "tsx", "dts"];
-const OPTION_COMMENT_MODES = ["none", "flat"];
+const OPTION_SOURCE_TYPES = new Map([["module", 0], ["script", 1], ["commonjs", 2], ["unambiguous", 3]]);
+const OPTION_LANGS = new Map(["js", "ts", "jsx", "tsx", "dts"].map((value, index) => [value, index]));
+const OPTION_COMMENT_MODES = new Map(["none", "flat"].map((value, index) => [value, index]));
 
 export function encodeOptions(options) {
   if (options === undefined || options === null) return 0;
@@ -48,9 +48,9 @@ export function encodeOptions(options) {
 
 function encodeOptionEnum(value, name, values) {
   if (value === undefined || value === null) return 0;
-  const index = values.indexOf(value);
-  if (index === -1) {
-    throw new TypeError(`${name} must be one of: ${values.join(", ")}`);
+  const index = values.get(value);
+  if (index === undefined) {
+    throw new TypeError(`${name} must be one of: ${Array.from(values.keys()).join(", ")}`);
   }
   return index + 1;
 }
@@ -176,11 +176,11 @@ export function decode(buffer, source) {
   };
   const enumValue = (name, value) => {
     const values = ENUMS[name];
-    return values !== undefined && value < values.length ? values[value] : value;
+    return values?.[value] === undefined ? value : values[value];
   };
   const sourceType = enumValue("SourceType", (flags >> 1) & 3);
-  const optionalEnum = (name, value) =>
-    value === 0xff ? null : enumValue(name, value);
+  const optionalEnum = (name, value, none) =>
+    value === none ? null : enumValue(name, value);
   const optionalNode = index => index === NULL ? null : node(index);
   const nodeArray = (start, end, holes) => {
     const result = new Array(end - start);
@@ -1073,7 +1073,7 @@ export function decode(buffer, source) {
         result = { type: "ImportExpression", start, end,
           source: node(_dv.getUint32(payload + 1, true)),
           options: optionalNode(_dv.getUint32(payload + 5, true)),
-          phase: optionalEnum("ImportPhase", _dv.getUint8(extra + (extraId + 0) * 8)),
+          phase: optionalEnum("ImportPhase", _dv.getUint8(extra + (extraId + 0) * 8), 255),
         };
         break;
       }
@@ -1084,7 +1084,7 @@ export function decode(buffer, source) {
             specifiers: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
             source: node(_dv.getUint32(payload + 1, true)),
             attributes: nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false),
-            phase: optionalEnum("ImportPhase", _dv.getUint8(extra + (extraId + 2) * 8)),
+            phase: optionalEnum("ImportPhase", _dv.getUint8(extra + (extraId + 2) * 8), 255),
             importKind: enumValue("ImportOrExportKind", _dv.getUint8(payload + 0)),
           };
         } else {
@@ -1092,7 +1092,7 @@ export function decode(buffer, source) {
             specifiers: nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false),
             source: node(_dv.getUint32(payload + 1, true)),
             attributes: nodeArray(_u32[(extra + (extraId + 1) * 8) >> 2], _u32[(extra + (extraId + 1) * 8 + 4) >> 2], false),
-            phase: optionalEnum("ImportPhase", _dv.getUint8(extra + (extraId + 2) * 8)),
+            phase: optionalEnum("ImportPhase", _dv.getUint8(extra + (extraId + 2) * 8), 255),
           };
         }
         break;
@@ -1659,17 +1659,14 @@ export function decode(buffer, source) {
         break;
       }
       case 145: {
-        const f_id = node(_u32[(payload + 0) >> 2]);
-        const f_body = optionalNode(_u32[(payload + 4) >> 2]);
-        const f_kind = enumValue("TsModuleDeclarationKind", _dv.getUint8(payload + 8));
-        const f_declare = _dv.getUint8(payload + 9) !== 0;
-        const f_global = false;
-        result = {
-          type: "TSModuleDeclaration", start, end,
-          id: f_id, kind: f_kind, declare: f_declare,
+        const optional_body = optionalNode(_u32[(payload + 4) >> 2]);
+        result = { type: "TSModuleDeclaration", start, end,
+          id: node(_u32[(payload + 0) >> 2]),
+          kind: enumValue("TsModuleDeclarationKind", _dv.getUint8(payload + 8)),
+          declare: _dv.getUint8(payload + 9) !== 0,
+          global: false,
         };
-        if (f_body !== null) result.body = f_body;
-        result.global = f_global;
+        if (optional_body !== null) result.body = optional_body;
         break;
       }
       case 146: {

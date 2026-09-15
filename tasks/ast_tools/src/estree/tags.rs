@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use super::{ENUMS, estree_field_name};
+use super::estree_field_name;
 use crate::schema::{
     AstStruct, AstStructField, AstType, EstreeTagCondition, EstreeTagSelector, EstreeValue, Schema,
     TypeId,
@@ -38,16 +38,19 @@ impl AstStruct {
                 .find(|field| &field.name == name)
                 .expect("unknown type_from field");
             let name = schema.types[field.type_id].name();
-            let (_, values) = ENUMS
-                .iter()
-                .find(|(key, _)| *key == name)
+            let scalar = schema
+                .scalar_enums
+                .get(name)
                 .expect("type_from requires a scalar enum mapping");
-            return values
+            return scalar
+                .variants
                 .iter()
-                .map(|value| {
-                    syn::parse_str::<syn::LitStr>(value)
-                        .expect("node tags must be strings")
-                        .value()
+                .filter(|variant| !variant.skip)
+                .map(|variant| {
+                    let crate::schema::EstreeValue::String(value) = &variant.value else {
+                        panic!("node tags must be strings");
+                    };
+                    value.clone()
                 })
                 .collect();
         }

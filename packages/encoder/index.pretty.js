@@ -6,26 +6,25 @@ const NATIVE_LITTLE_ENDIAN =
   new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
 
 const ENUMS = Object.freeze({
-  SourceType: ["module", "script", "commonjs", "unambiguous"],
-  MethodDefinitionKind: ["constructor", "method", "get", "set"],
-  Accessibility: [null, "public", "private", "protected"],
-  ClassType: ["ClassDeclaration", "ClassExpression"],
-  BinaryOperator: ["==", "!=", "===", "!==", "<", "<=", ">", ">=", "+", "-", "*", "/", "%", "**", "|", "^", "&", "<<", ">>", ">>>", "in", "instanceof"],
-  LogicalOperator: ["&&", "||", "??"],
-  UnaryOperator: ["-", "+", "!", "~", "typeof", "void", "delete"],
-  UpdateOperator: ["++", "--"],
-  AssignmentOperator: ["=", "+=", "-=", "*=", "/=", "%=", "**=", "<<=", ">>=", ">>>=", "|=", "^=", "&=", "||=", "&&=", "??="],
-  VariableKind: ["var", "let", "const", "using", "await using"],
-  FunctionType: ["FunctionDeclaration", "FunctionExpression"],
-  FormalParameterKind: ["formal", "unique", "arrow", "signature"],
-  PropertyKind: ["init", "get", "set"],
-  NumericLiteralKind: ["decimal", "hex", "octal", "binary"],
-  ImportOrExportKind: ["value", "type"],
-  ImportPhase: ["source", "defer"],
-  TsTypeOperatorKind: ["keyof", "unique", "readonly"],
-  TsMethodSignatureKind: ["method", "get", "set"],
-  TsModuleDeclarationKind: ["namespace", "module"],
-  TsMappedTypeModifier: [null, true, "+", "-"],
+  SourceType: new Map([["module", 0], ["script", 1], ["commonjs", 2], ["unambiguous", 3]]),
+  MethodDefinitionKind: new Map([["constructor", 0], ["method", 1], ["get", 2], ["set", 3]]),
+  Accessibility: new Map([[null, 0], ["public", 1], ["private", 2], ["protected", 3]]),
+  ClassType: new Map([["ClassDeclaration", 0], ["ClassExpression", 1]]),
+  BinaryOperator: new Map([["==", 0], ["!=", 1], ["===", 2], ["!==", 3], ["<", 4], ["<=", 5], [">", 6], [">=", 7], ["+", 8], ["-", 9], ["*", 10], ["/", 11], ["%", 12], ["**", 13], ["|", 14], ["^", 15], ["&", 16], ["<<", 17], [">>", 18], [">>>", 19], ["in", 20], ["instanceof", 21]]),
+  LogicalOperator: new Map([["&&", 0], ["||", 1], ["??", 2]]),
+  UnaryOperator: new Map([["-", 0], ["+", 1], ["!", 2], ["~", 3], ["typeof", 4], ["void", 5], ["delete", 6]]),
+  UpdateOperator: new Map([["++", 0], ["--", 1]]),
+  AssignmentOperator: new Map([["=", 0], ["+=", 1], ["-=", 2], ["*=", 3], ["/=", 4], ["%=", 5], ["**=", 6], ["<<=", 7], [">>=", 8], [">>>=", 9], ["|=", 10], ["^=", 11], ["&=", 12], ["||=", 13], ["&&=", 14], ["??=", 15]]),
+  VariableKind: new Map([["var", 0], ["let", 1], ["const", 2], ["using", 3], ["await using", 4]]),
+  FunctionType: new Map([["FunctionDeclaration", 0], ["FunctionExpression", 1]]),
+  FormalParameterKind: new Map([["formal", 0], ["unique", 1], ["arrow", 2], ["signature", 3]]),
+  PropertyKind: new Map([["init", 0], ["get", 1], ["set", 2]]),
+  ImportOrExportKind: new Map([["value", 0], ["type", 1]]),
+  ImportPhase: new Map([["source", 0], ["defer", 1]]),
+  TsTypeOperatorKind: new Map([["keyof", 0], ["unique", 1], ["readonly", 2]]),
+  TsMethodSignatureKind: new Map([["method", 0], ["get", 1], ["set", 2]]),
+  TsModuleDeclarationKind: new Map([["namespace", 0], ["module", 1]]),
+  TsMappedTypeModifier: new Map([[null, 0], [true, 1], ["+", 2], ["-", 3]]),
 });
 
 export function encodeOptions(options) {
@@ -69,8 +68,7 @@ function encode(program) {
   let isTs = false;
 
   const enumValue = (name, value) => {
-    const index = ENUMS[name]?.indexOf(value);
-    return index == null || index < 0 ? 0 : index;
+    return ENUMS[name]?.get(value) ?? 0;
   };
   const asStart = n => n && typeof n.start === "number" ? n.start >>> 0 : 0;
   const asEnd = n => n && typeof n.end === "number" ? n.end >>> 0 : 0;
@@ -1203,7 +1201,7 @@ function encode(program) {
   function encImportExpression(n) {
     const v_0 = encNode(n.source);
     const v_1 = n.options == null ? NULL : encNode(n.options);
-    const v_2 = n.phase == null ? 0xff : enumValue("ImportPhase", n.phase);
+    const v_2 = n.phase == null ? 255 : enumValue("ImportPhase", n.phase);
     const v_3 = 0 ? 1 : 0;
     const extraId = allocExtra(1);
     const index = allocNode(75, asStart(n), asEnd(n));
@@ -1219,7 +1217,7 @@ function encode(program) {
     const v_0 = encArray(n.specifiers, encNode, false);
     const v_1 = encStringLiteral(n.source);
     const v_2 = encArray(n.attributes, encImportAttribute, false);
-    const v_3 = n.phase == null ? 0xff : enumValue("ImportPhase", n.phase);
+    const v_3 = n.phase == null ? 255 : enumValue("ImportPhase", n.phase);
     const v_4 = enumValue("ImportOrExportKind", n.importKind);
     const extraId = allocExtra(3);
     const index = allocNode(76, asStart(n), asEnd(n));

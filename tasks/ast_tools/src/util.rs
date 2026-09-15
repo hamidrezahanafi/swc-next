@@ -42,7 +42,7 @@ pub fn field_byte_size(ty: &AstType, schema: &Schema) -> Option<usize> {
                 AstType::Primitive(primitive) if primitive.name == "Span" => Some(8),
                 AstType::Primitive(primitive) if primitive.name == "AstUtf8" => Some(8),
                 AstType::Primitive(primitive)
-                    if matches!(primitive.name, "ScopeId" | "SymbolId") =>
+                    if matches!(primitive.name.as_str(), "ScopeId" | "SymbolId") =>
                 {
                     Some(4)
                 }
@@ -52,7 +52,7 @@ pub fn field_byte_size(ty: &AstType, schema: &Schema) -> Option<usize> {
         }
         AstType::Primitive(prim) => {
             // Check built-in Rust primitives first
-            match prim.name {
+            match prim.name.as_str() {
                 "bool" => Some(1),
                 "u8" | "i8" => Some(1),
                 "u16" | "i16" => Some(2),
@@ -182,12 +182,14 @@ pub fn generate_field_to_u32(
             AstType::Struct(_) | AstType::Enum(_) => {
                 quote!(#field_name.map_or(u32::MAX, |node| node.node_id().index() as u32))
             }
-            AstType::Primitive(primitive) if matches!(primitive.name, "ScopeId" | "SymbolId") => {
+            AstType::Primitive(primitive)
+                if matches!(primitive.name.as_str(), "ScopeId" | "SymbolId") =>
+            {
                 quote!(#field_name.map_or(0, |id| id.index() as u32 + 1))
             }
             _ => unreachable!("Unexpected option in u32 conversion"),
         },
-        AstType::Primitive(prim) => match prim.name {
+        AstType::Primitive(prim) => match prim.name.as_str() {
             "u32" => quote!(#field_name),
             "i32" => quote!(#field_name as u32),
             "u16" | "i16" => quote!(#field_name as u32),
@@ -242,7 +244,7 @@ pub fn generate_u32_to_field(field_ty: &AstType, schema: &Schema) -> TokenStream
                     })
                 },
                 AstType::Primitive(primitive)
-                    if matches!(primitive.name, "ScopeId" | "SymbolId") =>
+                    if matches!(primitive.name.as_str(), "ScopeId" | "SymbolId") =>
                 {
                     quote! {
                         (raw != 0).then(|| unsafe {
@@ -255,7 +257,7 @@ pub fn generate_u32_to_field(field_ty: &AstType, schema: &Schema) -> TokenStream
                 _ => unreachable!("Unexpected option in u32 conversion"),
             }
         }
-        AstType::Primitive(prim) => match prim.name {
+        AstType::Primitive(prim) => match prim.name.as_str() {
             "bool" => quote! { raw != 0 },
             "u8" => quote! { raw as u8 },
             "i8" => quote! { raw as i8 },

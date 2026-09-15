@@ -503,6 +503,72 @@ The ImportPhase-specific optional-enum branch can become a generic scalar-enum
 operation once the schema records scalar enums and their optional storage
 representation.
 
+### Implemented Syntax
+
+Scalar enums use `#[estree_enum]` before `repr` and `derive`. This macro keeps
+Rust's original enum, attributes, methods, and discriminants. The generator
+reads the unexpanded source; the macro strips variant metadata before the
+Rust compiler processes the enum.
+
+```rust
+#[estree_enum]
+#[repr(u8)]
+#[derive(Clone, Copy)]
+pub enum Accessibility {
+    #[estree(value = null)]
+    None,
+    #[estree(value = "public")]
+    Public,
+    #[estree(value = "private")]
+    Private,
+    #[estree(value = "protected")]
+    Protected,
+}
+```
+
+- `#[estree(value = ...)]` is required on every variant. Values can be strings,
+  booleans, or `null`.
+- `#[estree(value = "unambiguous", skip)]` excludes a variant from decoding and
+  public declarations while retaining its encoder input mapping. Unmapped wire
+  values retain the decoder's numeric fallback.
+- `#[estree_enum(no_ts_def)]` suppresses the standalone TypeScript alias while
+  retaining runtime mappings. ClassType, FunctionType, and FormalParameterKind
+  use this flag.
+- `#[estree_enum(optional_none = 0xff)]` describes the existing storage sentinel
+  for `Option<ImportPhase>`. It does not change Rust's memory layout or generate
+  an `ExtraDataValue` implementation. Optional scalar fields keep their existing
+  extra-data slots, and both codecs use this sentinel.
+
+The generator discovers scalar enums separately from node types, including
+SourceType in `ast/mod.rs`. It supports unsigned `repr(u8)`, `repr(u16)`, and
+`repr(u32)` representations. Explicit discriminants must be integer literals;
+implicit values increment the previous discriminant. Lookup keys use these
+actual values, preserving gaps and exclusions without allocating a dense table.
+
+Validation rejects missing or duplicate mappings, unsupported discriminant
+expressions, values outside the representation, and sentinel collisions.
+An optional scalar enum reserves ESTree `null` for `None` and therefore cannot
+also map a variant to `null`.
+
+```rust
+#[estree(omit_if_none)]
+body: Option<TsModuleBody>,
+```
+
+`omit_if_none` requires an ordinary, untransformed `Option` output field whose
+node, UTF-8 string, or scalar enum decoder represents `None` as `null`. It can
+combine with `rename` and `ts`; it cannot combine with skipping, converters,
+list splicing, transparency, or output/type overrides. The decoder reads the
+value once and adds the property only when present. The declaration is
+`body?: TSModuleBody`, preserving the existing public contract. Converters
+cannot depend on an output property whose presence is conditional.
+
+All scalar lookup tables, including SourceType parser options, now come from
+AST metadata. The decoder's final
+TsModuleDeclaration special case and the declaration generator's final reshape
+are removed. The Literal alias now uses the same interface tag grouping as
+NodeMap. Generated Rust storage code is unchanged.
+
 ## Migration and Completion Criteria
 
 Follow the numbered steps, starting with names, field renames, and constant or

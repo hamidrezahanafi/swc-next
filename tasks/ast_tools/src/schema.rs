@@ -14,6 +14,7 @@ impl TypeId {
 
 pub struct Schema {
     pub types: IndexVec<TypeId, AstType>,
+    pub scalar_enums: indexmap::IndexMap<String, ScalarEnum>,
     /// Mapping of enum names to their #[repr(uN)] sizes in bytes
     /// e.g., "UnaryOperator" -> 1 for #[repr(u8)]
     pub repr_sizes: HashMap<String, usize>,
@@ -35,7 +36,7 @@ impl AstType {
             AstType::Enum(ast) => &ast.name,
             AstType::SubRange(ast) => &ast.name,
             AstType::Option(ast) => &ast.name,
-            AstType::Primitive(ast) => ast.name,
+            AstType::Primitive(ast) => &ast.name,
         }
     }
 
@@ -112,7 +113,7 @@ pub struct AstNode {
 #[derive(Debug)]
 pub struct AstPrimitive {
     pub type_id: TypeId,
-    pub name: &'static str,
+    pub name: String,
 }
 
 #[derive(Debug)]
@@ -163,6 +164,7 @@ pub struct AstFieldAttrs {
     pub estree_skip: bool,
     pub estree_rename: Option<String>,
     pub estree_ts: bool,
+    pub estree_omit_if_none: bool,
     pub estree_concat: Option<EstreeConcat>,
     pub estree_type_override: Option<String>,
     pub estree_ts_type: Option<String>,
@@ -193,4 +195,19 @@ pub enum EstreeTagCondition {
     Not(Box<Self>),
     And(Box<Self>, Box<Self>),
     Or(Box<Self>, Box<Self>),
+}
+
+/// Scalar values are separate from node types so discovery cannot renumber nodes.
+pub struct ScalarEnum {
+    pub size: usize,
+    pub no_ts_def: bool,
+    pub optional_none: Option<u32>,
+    pub variants: Vec<ScalarEnumVariant>,
+}
+
+pub struct ScalarEnumVariant {
+    pub discriminant: u32,
+    pub value: EstreeValue,
+    /// Exclude from decoded output and declarations, but retain encoder input.
+    pub skip: bool,
 }

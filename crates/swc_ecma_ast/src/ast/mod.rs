@@ -3,6 +3,8 @@
 //! This module is a Rust port of the AST design from
 //! [yuku-toolchain/yuku](https://github.com/yuku-toolchain/yuku).
 
+use swc_next_ast_macros::estree_enum;
+
 mod js;
 mod jsx;
 mod ts;
@@ -15,16 +17,21 @@ pub use ts::*;
 ///
 /// Determines whether the file is parsed as an ES module, a CommonJS module,
 /// or a classic script.
+#[estree_enum]
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash)]
 pub enum SourceType {
     #[default]
+    #[estree(value = "module")]
     Module = 0,
+    #[estree(value = "script")]
     Script = 1,
+    #[estree(value = "commonjs")]
     CommonJs = 2,
     /// Resolve to a module when module syntax is present, a CommonJS module when
     /// syntax depends on a CommonJS wrapper (such as wrapper-level `return` or
     /// `new.target`), otherwise a script.
+    #[estree(value = "unambiguous", skip)]
     Unambiguous = 3,
 }
 
