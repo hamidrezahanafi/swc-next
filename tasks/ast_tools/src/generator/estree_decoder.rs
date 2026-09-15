@@ -9,7 +9,7 @@ use crate::{
 use crate::{
     estree::{
         ENUMS,
-        converters::{ConversionPlan, Input},
+        converters::{ConversionPlan, ConversionStep, Input},
         estree_field_name, tag_literal,
     },
     js_minifier::minify,
@@ -124,31 +124,6 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
         });
     }
 
-    for converter in &conversions.converters {
-        let mut body = converter
-            .body
-            .replace("{{result}}", &format!("converted_{}", converter.name));
-        for (binding, input) in converter.inputs {
-            let expression = match input {
-                Input::Field { name, .. } => {
-                    let field = ast.fields.iter().find(|field| field.name == *name).unwrap();
-                    format!("storage_{}", estree_field_name(field))
-                }
-                Input::Context(context) => context.expression().into(),
-                Input::Converter(name) => format!("converted_{name}"),
-            };
-            body = body.replace(&format!("{{{{{binding}}}}}"), &expression);
-        }
-        assert!(
-            !body.contains("{{"),
-            "Unresolved converter input in {}",
-            converter.name
-        );
-        for line in body.lines() {
-            writeln!(output, "        {line}").unwrap();
-        }
-    }
-
     // Materialize splice inputs once, before reusing them in list expressions.
     if ast
         .fields
@@ -156,6 +131,15 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
         .any(|field| field.attrs.estree_concat.is_some())
     {
         for field in &mut fields {
+            let storage = ast
+                .fields
+                .iter()
+                .find(|storage| estree_field_name(storage) == field.name)
+                .unwrap();
+            // Converted fields are scheduled below with their output dependencies.
+            if storage.attrs.estree_via.is_some() {
+                continue;
+            }
             writeln!(
                 output,
                 "        const c_{} = {};",
@@ -213,6 +197,47 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
         });
     }
 
+    fields.extend(added_fields(ast));
+    for step in &conversions.steps {
+        let converter = match step {
+            ConversionStep::Converter(converter) => converter,
+            ConversionStep::Output(name) => {
+                let expression = fields
+                    .iter()
+                    .find(|field| &field.name == name)
+                    .map_or_else(|| name.clone(), |field| field.expression.clone());
+                writeln!(output, "        const output_{name} = {expression};").unwrap();
+                if let Some(field) = fields.iter_mut().find(|field| &field.name == name) {
+                    field.expression = format!("output_{name}");
+                }
+                continue;
+            }
+        };
+        let mut body = converter
+            .body
+            .replace("{{result}}", &format!("converted_{}", converter.name));
+        for (binding, input) in converter.inputs {
+            let expression = match input {
+                Input::Field { name, .. } => {
+                    let field = ast.fields.iter().find(|field| field.name == *name).unwrap();
+                    format!("storage_{}", estree_field_name(field))
+                }
+                Input::Output { name, .. } => format!("output_{name}"),
+                Input::Context(context) => context.expression().into(),
+                Input::Converter(name) => format!("converted_{name}"),
+            };
+            body = body.replace(&format!("{{{{{binding}}}}}"), &expression);
+        }
+        assert!(
+            !body.contains("{{"),
+            "Unresolved converter input in {}",
+            converter.name
+        );
+        for line in body.lines() {
+            writeln!(output, "        {line}").unwrap();
+        }
+    }
+
     if let Some(target) = ast.estree_transparent_field() {
         let name = estree_field_name(target);
         let field = fields.iter().find(|field| field.name == name).unwrap();
@@ -221,17 +246,24 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
         write_special_node(output, ast, &fields);
         let additional_fields: Vec<_> = fields
             .iter()
-            .filter(|field| field.ts)
+            .filter(|field| {
+                field.ts
+                    || ast
+                        .attrs
+                        .estree
+                        .added_fields
+                        .iter()
+                        .chain(&ast.attrs.estree.overridden_fields)
+                        .any(|added| added.name == field.name)
+            })
             .map(|field| DecodedField {
                 name: field.name.clone(),
                 expression: format!("f_{}", field.name),
-                ts: true,
+                ts: field.ts,
             })
-            .chain(added_fields(ast))
             .collect();
         write_field_assignments(output, &additional_fields);
     } else {
-        fields.extend(added_fields(ast));
         write_generic_node(output, ast, &fields);
     }
     writeln!(output, "        break;").unwrap();
@@ -342,6 +374,7 @@ fn added_fields(ast: &AstStruct) -> impl Iterator<Item = DecodedField> + '_ {
         .estree
         .added_fields
         .iter()
+        .chain(&ast.attrs.estree.overridden_fields)
         .map(|field| DecodedField {
             name: field.name.clone(),
             expression: match &field.value {
@@ -375,13 +408,25 @@ fn write_object_literal<'a>(
     indent: usize,
 ) {
     let padding = " ".repeat(indent);
+    let fields: Vec<_> = fields.collect();
+    let positions = ["start", "end"].map(|name| {
+        fields.iter().find(|field| field.name == name).map_or_else(
+            || name.into(),
+            |field| format!("{name}: {}", field.expression),
+        )
+    });
     writeln!(
         output,
-        "{padding}result = {{ type: {}, start, end,",
-        ast.estree_tag_expression()
+        "{padding}result = {{ type: {}, {}, {},",
+        ast.estree_tag_expression(),
+        positions[0],
+        positions[1]
     )
     .unwrap();
-    for field in fields {
+    for field in fields
+        .into_iter()
+        .filter(|field| !matches!(field.name.as_str(), "start" | "end"))
+    {
         writeln!(output, "{padding}  {}: {},", field.name, field.expression).unwrap();
     }
     writeln!(output, "{padding}}};").unwrap();
@@ -411,7 +456,7 @@ fn write_field_assignments(output: &mut String, fields: &[DecodedField]) {
 }
 
 fn is_special_node(name: &str) -> bool {
-    matches!(name, "Program" | "TemplateElement" | "TsModuleDeclaration")
+    matches!(name, "TsModuleDeclaration")
 }
 
 fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedField]) {
@@ -427,29 +472,6 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
     }
 
     match name {
-        "Program" => write!(
-            output,
-            r#"        const body = f_body;
-        result = {{
-          type: "{tag}", start: isTs ? (body.length !== 0 ? body[0].start : end) : start, end,
-          sourceType,
-          hashbang: f_hashbang,
-          body,
-        }};
-"#,
-        )
-        .unwrap(),
-        "TemplateElement" => write!(
-            output,
-            r#"        result = {{
-          type: "{tag}",
-          start: isTs ? start - 1 : start,
-          end: isTs ? (f_tail ? end + 1 : end + 2) : end,
-          tail: f_tail,
-        }};
-"#,
-        )
-        .unwrap(),
         "TsModuleDeclaration" => write!(
             output,
             r#"        result = {{

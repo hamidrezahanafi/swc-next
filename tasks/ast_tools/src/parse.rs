@@ -272,6 +272,10 @@ fn parse_attrs(attrs: &[Attribute]) -> Option<AstAttrs> {
                 }
                 if meta_list.path.is_ident("estree") {
                     attr.parse_nested_meta(|meta| {
+                        if meta.path.is_ident("override_field") {
+                            estree.overridden_fields.push(parse_added_field(meta)?);
+                            return Ok(());
+                        }
                         if meta.path.is_ident("add_field") {
                             estree.added_fields.push(parse_added_field(meta)?);
                             return Ok(());
@@ -299,7 +303,7 @@ fn parse_attrs(attrs: &[Attribute]) -> Option<AstAttrs> {
                             &mut estree.ty
                         } else {
                             return Err(meta
-                                .error("Expected `rename`, `ty`, `type_from`, `type_via`, `add_field`, or `transparent`"));
+                                .error("Expected `rename`, `ty`, `type_from`, `type_via`, `add_field`, `override_field`, or `transparent`"));
                         };
                         if target.is_some() {
                             return Err(meta.error("Duplicate ESTree attribute"));
@@ -528,7 +532,7 @@ impl Parser {
             "ESTree output selectors require a struct: {name}"
         );
         assert!(
-            attrs.estree.added_fields.is_empty(),
+            attrs.estree.added_fields.is_empty() && attrs.estree.overridden_fields.is_empty(),
             "ESTree added fields require a struct: {name}"
         );
         assert!(
@@ -848,7 +852,8 @@ fn validate_estree_shapes(schema: &Schema) {
             assert!(
                 ast.attrs.estree.ty.is_none()
                     && ast.attrs.estree.rename.is_none()
-                    && ast.attrs.estree.added_fields.is_empty(),
+                    && ast.attrs.estree.added_fields.is_empty()
+                    && ast.attrs.estree.overridden_fields.is_empty(),
                 "Transparent ESTree output cannot have a name, tag, or added fields: {}",
                 ast.name
             );

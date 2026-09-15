@@ -263,14 +263,13 @@ export function decode(buffer, source) {
         const c_directives = nodeArray(_u32[(payload + 4) >> 2], _u32[(payload + 4 + 4) >> 2], false);
         const c_body = nodeArray(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2], false);
         const c_hashbang = optionalNode(_u32[(payload + 0) >> 2]);
-        const f_body = [...c_directives, ...c_body];
-        const f_hashbang = c_hashbang;
-        const body = f_body;
-        result = {
-          type: "Program", start: isTs ? (body.length !== 0 ? body[0].start : end) : start, end,
-          sourceType,
-          hashbang: f_hashbang,
-          body,
+        const converted_ProgramSourceType = sourceType;
+        const output_body = [...c_directives, ...c_body];
+        const converted_ProgramStart = isTs ? (output_body.length !== 0 ? output_body[0].start : end) : start;
+        result = { type: "Program", start: converted_ProgramStart, end,
+          body: output_body,
+          hashbang: c_hashbang,
+          sourceType: converted_ProgramSourceType,
         };
         break;
       }
@@ -356,16 +355,15 @@ export function decode(buffer, source) {
         const extraId = _u32[(payload + 12) >> 2];
         const storage_cooked = str(_dv.getUint32(payload + 2, true), _dv.getUint32(payload + 2 + 4, true));
         const storage_raw = str(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]);
+        const storage_tail = _dv.getUint8(payload + 0) !== 0;
         const storage_isCookedUndefined = _dv.getUint8(payload + 1) !== 0;
         const converted_TemplateElementValue = { raw: storage_raw, cooked: storage_isCookedUndefined ? null : storage_cooked };
-        const f_tail = _dv.getUint8(payload + 0) !== 0;
-        result = {
-          type: "TemplateElement",
-          start: isTs ? start - 1 : start,
-          end: isTs ? (f_tail ? end + 1 : end + 2) : end,
-          tail: f_tail,
+        const converted_TemplateElementStart = isTs ? start - 1 : start;
+        const converted_TemplateElementEnd = isTs ? (storage_tail ? end + 1 : end + 2) : end;
+        result = { type: "TemplateElement", start: converted_TemplateElementStart, end: converted_TemplateElementEnd,
+          tail: storage_tail,
+          value: converted_TemplateElementValue,
         };
-        result.value = converted_TemplateElementValue;
         break;
       }
       case 11: {
@@ -1665,12 +1663,13 @@ export function decode(buffer, source) {
         const f_body = optionalNode(_u32[(payload + 4) >> 2]);
         const f_kind = enumValue("TsModuleDeclarationKind", _dv.getUint8(payload + 8));
         const f_declare = _dv.getUint8(payload + 9) !== 0;
+        const f_global = false;
         result = {
           type: "TSModuleDeclaration", start, end,
           id: f_id, kind: f_kind, declare: f_declare,
         };
         if (f_body !== null) result.body = f_body;
-        result.global = false;
+        result.global = f_global;
         break;
       }
       case 146: {

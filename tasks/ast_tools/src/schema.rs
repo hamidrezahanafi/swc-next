@@ -133,6 +133,7 @@ pub struct EstreeAttrs {
     pub type_via: Option<EstreeTagSelector>,
     pub transparent: Option<String>,
     pub added_fields: Vec<EstreeAddedField>,
+    pub overridden_fields: Vec<EstreeAddedField>,
 }
 
 #[derive(Debug)]

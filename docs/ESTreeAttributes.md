@@ -424,6 +424,43 @@ accidentally refer to itself.
 Retain each existing raw-value policy. NumericLiteral's missing raw uses number
 formatting; it must not silently switch to a source slice during migration.
 
+### Implemented Context and Position Overrides
+
+Program declares its context field and position rule on the AST:
+
+```rust
+#[estree(add_field(name = "sourceType", via = ProgramSourceType))]
+#[estree(override_field(name = "start", via = ProgramStart))]
+```
+
+TemplateElement uses the same `override_field` syntax with TemplateElementStart
+and TemplateElementEnd. Overrides currently target `start` or `end`, must be
+unconditional, and must produce `number`. They reuse the existing `value`,
+`from`, and `via` source description. Ordinary `add_field` still rejects names
+that conflict with common node fields. The public positions remain inherited
+from BaseNode, so the declarations do not gain duplicate properties.
+
+Converters can read Source, SourceType, IsTs, OriginalStart, and OriginalEnd
+context inputs. Original positions are the decoded UTF-16 positions before
+output overrides; an override never mutates those locals. SourceRaw therefore
+continues slicing with the original positions.
+
+`Input::Output` references an unconditional final field by its ESTree name and
+declares the expected output type. This differs from `Input::Field`, which
+references a Rust storage field before conversions and list operations.
+ProgramStart depends on the final `body`, including prepended directives. The
+generator materializes that array once and shares it with the returned object.
+An empty TS body still starts at the original end position.
+
+Output fields and converters share dependency ordering and cycle detection.
+Validation rejects unknown, conditional, or wrongly typed output inputs,
+including a converter that depends on the output it is computing. Shared type
+inference supplies both declaration types and dependency validation.
+
+Program and TemplateElement now use generic object construction. Their former
+decoder branches and Program's declaration override are removed. Generated
+public declarations, encoder code, and Rust storage layout remain unchanged.
+
 ## 8. Scalar Enums and Absent Values
 
 ### Generate Scalar Enum Mappings from Variants

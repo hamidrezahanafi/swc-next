@@ -347,6 +347,8 @@ impl ExtraDataValue for Option<ImportPhase> {
 /// `hashbang` is the `#!` line if present. `directives` contains the directive
 /// prologue (`"use strict";`), while `body` contains imports and statements.
 #[ast]
+#[estree(add_field(name = "sourceType", via = ProgramSourceType))]
+#[estree(override_field(name = "start", via = ProgramStart))]
 pub struct Program {
     #[estree(prepend_to = body)]
     directives: SubRange<Directive>,
@@ -718,6 +720,8 @@ pub struct TemplateLiteral {
 /// (`tail = true`).
 #[ast]
 #[estree(add_field(name = "value", via = TemplateElementValue))]
+#[estree(override_field(name = "start", via = TemplateElementStart))]
+#[estree(override_field(name = "end", via = TemplateElementEnd))]
 pub struct TemplateElement {
     /// escape-decoded content, empty when `is_cooked_undefined`
     #[estree(skip)]
