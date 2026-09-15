@@ -1,3 +1,5 @@
+import type { Program } from "@swc-next/ast";
+
 export interface CodegenOptions {
   asciiOnly?: boolean;
   minify?: boolean;
@@ -8,6 +10,6 @@ export interface CodegenOutput {
 }
 
 export declare function printSync(
-  program: any,
+  program: Program,
   options?: CodegenOptions | undefined | null,
 ): CodegenOutput;

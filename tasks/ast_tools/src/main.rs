@@ -2,13 +2,16 @@ use crate::{
     derive::ast_clone_in::ast_clone_in,
     generator::{
         ast_builder::ast_builder, ast_node::ast_node, ast_property::ast_property,
-        ast_visitor::ast_visitor, estree_decoder::estree_decoder, estree_encoder::estree_encoder,
+        ast_visitor::ast_visitor, estree_decoder::estree_decoder, estree_dts::estree_dts,
+        estree_encoder::estree_encoder,
     },
     parse::parse_files,
 };
 
 pub(crate) mod derive;
+pub(crate) mod estree;
 pub(crate) mod generator;
+pub(crate) mod js_minifier;
 pub(crate) mod output;
 pub(crate) mod parse;
 pub(crate) mod schema;
@@ -39,6 +42,9 @@ fn main() {
 
     let ast_visitor = ast_visitor(&schema);
     ast_visitor.write_to_file().unwrap();
+
+    let estree_dts = estree_dts(&schema);
+    estree_dts.write_to_file().unwrap();
 
     let (estree_decoder_pretty, estree_decoder_minified) = estree_decoder(&schema);
     estree_decoder_pretty.write_to_file().unwrap();

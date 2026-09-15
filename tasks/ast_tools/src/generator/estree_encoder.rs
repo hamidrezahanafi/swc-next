@@ -11,7 +11,7 @@ use crate::{
     util::{InlineStorageMode, calculate_inline_layout},
 };
 
-use super::js_minifier::minify;
+use crate::js_minifier::minify;
 
 const PRETTY_OUTPUT_PATH: &str = "packages/encoder/index.pretty.js";
 const MINIFIED_OUTPUT_PATH: &str = "packages/encoder/index.js";

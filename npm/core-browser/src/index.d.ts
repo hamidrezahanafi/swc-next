@@ -1,3 +1,5 @@
+import type { Comment, Program } from "@swc-next/ast";
+
 import type {
   CodegenOptions,
   CodegenOutput,
@@ -7,12 +9,7 @@ import type {
 export { CommentMode, Lang, SourceType } from "./binding.js";
 export type { CodegenOptions, CodegenOutput, ParserOptions } from "./binding.js";
 
-export interface Comment {
-  type: "Line" | "Block";
-  value: string;
-  start: number;
-  end: number;
-}
+export type { Comment } from "@swc-next/ast";
 
 export interface DiagnosticLabel {
   message: string;
@@ -29,7 +26,7 @@ export interface Diagnostic extends DiagnosticLabel {
 }
 
 export interface ParseResult {
-  readonly program: any;
+  readonly program: Program;
   readonly comments: Comment[];
   /** Parser diagnostics, decoded lazily. Empty when parsing succeeds without diagnostics. */
   readonly diagnostics: Diagnostic[];
@@ -47,7 +44,7 @@ export declare function parseSync(
 ): ParseResult;
 
 export declare function printSync(
-  program: any,
+  program: Program,
   options?: CodegenOptions | undefined | null,
 ): CodegenOutput;
 

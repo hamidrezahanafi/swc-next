@@ -33,5 +33,8 @@
     "swc",
     "typescript"
   ],
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@swc-next/ast": "workspace:*"
+  }
 }

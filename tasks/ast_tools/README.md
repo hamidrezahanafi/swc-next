@@ -28,7 +28,7 @@ not translate collection types.
 
 ## Generated outputs
 
-All output is written under
+Rust output is written under
 [`crates/swc_ecma_ast/src/generated`](../../crates/swc_ecma_ast/src/generated):
 
 | File                   | Generated API                                                                              |

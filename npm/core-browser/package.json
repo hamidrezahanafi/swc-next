@@ -35,6 +35,7 @@
     "test:browser": "rstest run --include smoke.test.js --browser --browser.headless"
   },
   "dependencies": {
+    "@swc-next/ast": "workspace:*",
     "@swc-next/decoder": "workspace:*",
     "@swc-next/encoder": "workspace:*"
   },

@@ -58,6 +58,7 @@
     ]
   },
   "dependencies": {
+    "@swc-next/ast": "workspace:*",
     "@swc-next/decoder": "workspace:*"
   },
   "wasm": {

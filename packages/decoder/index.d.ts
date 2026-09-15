@@ -1,9 +1,4 @@
-export interface Comment {
-  type: "Line" | "Block";
-  value: string;
-  start: number;
-  end: number;
-}
+import type { Comment, Program } from "@swc-next/ast";
 
 export interface DiagnosticLabel {
   message: string;
@@ -20,10 +15,14 @@ export interface Diagnostic extends DiagnosticLabel {
 }
 
 export interface DecodeResult {
-  readonly program: any;
+  readonly program: Program;
   readonly comments: Comment[];
+  /** Parser diagnostics, decoded lazily. Empty when parsing succeeds without diagnostics. */
   readonly diagnostics: Diagnostic[];
 }
 
 /** Decode a buffer produced by an SWC Next parser crate into ESTree. */
-export declare function decode(buffer: Uint8Array, source: string): DecodeResult;
+export declare function decode(
+  buffer: Uint8Array,
+  source: string,
+): DecodeResult;
