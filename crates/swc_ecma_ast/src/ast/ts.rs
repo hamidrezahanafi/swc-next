@@ -1127,6 +1127,7 @@ pub struct TsMappedType {
     /// is accepted by the grammar).
     type_annotation: Option<TsType>,
     /// the `?` modifier
+    #[estree(via = MappedTypeOptional)]
     optional: TsMappedTypeModifier,
     /// the `readonly` modifier
     readonly: TsMappedTypeModifier,

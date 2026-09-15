@@ -237,6 +237,7 @@ pub struct JsxEmptyExpression {}
 /// //   ^^^^^^^^^^^ value
 /// ```
 #[ast]
+#[estree(add_field(name = "raw", from = value))]
 pub struct JsxText {
     value: AstUtf8,
 }

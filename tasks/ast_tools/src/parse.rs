@@ -14,7 +14,7 @@ use syn::{
 use crate::schema::{
     AstAttrs, AstEnum, AstEnumVariant, AstFieldAttrs, AstOption, AstPrimitive, AstStruct,
     AstStructField, AstSubRange, AstType, EstreeAddedField, EstreeAttrs, EstreeConcat,
-    EstreeTagCondition, EstreeTagSelector, EstreeValue, Schema, TypeId,
+    EstreeFieldValue, EstreeTagCondition, EstreeTagSelector, EstreeValue, Schema, TypeId,
 };
 
 struct Parser {
@@ -128,6 +128,11 @@ fn parse_sources(sources: impl IntoIterator<Item = String>) -> Schema {
     validate_invalidations(&schema);
     validate_estree_shapes(&schema);
     crate::estree::validate_tags(&schema);
+    for ty in &schema.types {
+        if let AstType::Struct(ast) = ty {
+            crate::estree::converters::ConversionPlan::new(ast, &schema);
+        }
+    }
     schema
 }
 
@@ -389,26 +394,37 @@ fn parse_tag_condition(expr: syn::Expr) -> syn::Result<EstreeTagCondition> {
 fn parse_added_field(meta: syn::meta::ParseNestedMeta<'_>) -> syn::Result<EstreeAddedField> {
     let mut name = None;
     let mut value = None;
+    let mut source = None;
     let mut element_type = None;
     let mut ts = false;
     meta.parse_nested_meta(|part| {
         if part.path.is_ident("ts") {
             if ts {
-                return Err(part.error("Duplicate `ts`"));
+                return Err(part.error("Duplicate ts"));
             }
             ts = true;
         } else if part.path.is_ident("value") {
             if value.is_some() {
-                return Err(part.error("Duplicate `value`"));
+                return Err(part.error("Duplicate value"));
             }
             value = Some(part.value()?.parse::<syn::Expr>()?);
+        } else if part.path.is_ident("from") || part.path.is_ident("via") {
+            if source.is_some() {
+                return Err(part.error("Added field requires exactly one source"));
+            }
+            let name = part.value()?.parse::<Ident>()?.to_string();
+            source = Some(if part.path.is_ident("from") {
+                EstreeFieldValue::From(name)
+            } else {
+                EstreeFieldValue::Via(name)
+            });
         } else {
             let target = if part.path.is_ident("name") {
                 &mut name
             } else if part.path.is_ident("element_type") {
                 &mut element_type
             } else {
-                return Err(part.error("Expected `name`, `value`, `element_type`, or `ts`"));
+                return Err(part.error("Expected name, value, from, via, element_type, or ts"));
             };
             if target.is_some() {
                 return Err(part.error("Duplicate added field attribute"));
@@ -418,7 +434,21 @@ fn parse_added_field(meta: syn::meta::ParseNestedMeta<'_>) -> syn::Result<Estree
         Ok(())
     })?;
     let name = name.ok_or_else(|| meta.error("Added field requires a name"))?;
-    let value = value.ok_or_else(|| meta.error("Added field requires a value"))?;
+    if let Some(source) = source {
+        if value.is_some() {
+            return Err(meta.error("Added field requires exactly one of value, from, or via"));
+        }
+        if element_type.is_some() {
+            return Err(meta.error("element_type is only valid for an empty array"));
+        }
+        // A computed/copied value derives its type from its source.
+        return Ok(EstreeAddedField {
+            name,
+            value: source,
+            ts,
+        });
+    }
+    let value = value.ok_or_else(|| meta.error("Added field requires value, from, or via"))?;
     let value = match value {
         syn::Expr::Path(path) if path.path.is_ident("null") => EstreeValue::Null,
         syn::Expr::Lit(lit) => match lit.lit {
@@ -429,14 +459,18 @@ fn parse_added_field(meta: syn::meta::ParseNestedMeta<'_>) -> syn::Result<Estree
         syn::Expr::Array(array) if array.elems.is_empty() => EstreeValue::EmptyArray {
             element_type: element_type
                 .take()
-                .ok_or_else(|| meta.error("An empty array requires `element_type`"))?,
+                .ok_or_else(|| meta.error("An empty array requires element_type"))?,
         },
         _ => return Err(meta.error("Expected null, a boolean, a string, or []")),
     };
     if element_type.is_some() {
-        return Err(meta.error("`element_type` is only valid for an empty array"));
+        return Err(meta.error("element_type is only valid for an empty array"));
     }
-    Ok(EstreeAddedField { name, value, ts })
+    Ok(EstreeAddedField {
+        name,
+        value: EstreeFieldValue::Constant(value),
+        ts,
+    })
 }
 
 impl Parser {
@@ -648,6 +682,17 @@ fn parse_field_attrs(attrs: &[Attribute]) -> AstFieldAttrs {
             for arg in args {
                 match arg {
                     Meta::Path(path) if path.is_ident("ts") => field_attrs.estree_ts = true,
+                    Meta::NameValue(value) if value.path.is_ident("via") => {
+                        assert!(
+                            field_attrs.estree_via.is_none(),
+                            "Duplicate ESTree converter"
+                        );
+                        field_attrs.estree_via = Some(
+                            syn::parse2::<Ident>(value.value.to_token_stream())
+                                .expect("ESTree converter must be an identifier")
+                                .to_string(),
+                        );
+                    }
                     arg if arg.path().is_ident("skip") => field_attrs.estree_skip = true,
                     Meta::NameValue(value)
                         if value.path.is_ident("prepend_to")
@@ -690,7 +735,7 @@ fn parse_field_attrs(attrs: &[Attribute]) -> AstFieldAttrs {
                         field_attrs.estree_rename = Some(rename.value());
                     }
                     _ => panic!(
-                        "Expected ESTree field `skip`, `ts`, `rename`, `prepend_to`, `append_to`, `type_override`, or `ts_type`"
+                        "Expected ESTree field `skip`, `ts`, `rename`, `prepend_to`, `append_to`, `type_override`, `ts_type`, or `via`"
                     ),
                 }
             }

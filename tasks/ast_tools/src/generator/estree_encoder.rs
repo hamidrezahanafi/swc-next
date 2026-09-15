@@ -10,6 +10,7 @@ use crate::{
     util::{InlineStorageMode, calculate_inline_layout},
 };
 
+use crate::estree::converters::ConversionPlan;
 use crate::js_minifier::minify;
 
 const PRETTY_OUTPUT_PATH: &str = "packages/encoder/index.pretty.js";
@@ -63,6 +64,7 @@ fn write_struct_encoder(
     }
     write_special_prelude(output, name);
     write_list_splits(output, ast, schema);
+    let conversions = ConversionPlan::new(ast, schema);
 
     let layout = calculate_inline_layout(ast, schema);
     let mut extra_offset = 0usize;
@@ -71,12 +73,14 @@ fn write_struct_encoder(
     for (field_index, field) in ast.fields.iter().enumerate() {
         let ty = &schema.types[field.type_id];
         let source = field_source(ast, field, schema);
-        let source =
-            if field.attrs.estree_skip && !ast.estree_tag_fields().contains(field.name.as_str()) {
-                "0".into()
-            } else {
-                source
-            };
+        let source = if field.attrs.estree_skip
+            && !ast.estree_tag_fields().contains(field.name.as_str())
+            && !conversions.fields.contains(&field.name)
+        {
+            "0".into()
+        } else {
+            source
+        };
         let value = encode_expression(name, &field.name, ty, schema, dispatch, &source);
         let local = format!("v_{field_index}");
         writeln!(output, "    const {local} = {value};").unwrap();

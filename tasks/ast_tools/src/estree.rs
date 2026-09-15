@@ -8,6 +8,7 @@ use crate::schema::{AstStruct, AstStructField, EstreeAttrs, EstreeValue};
 
 mod tags;
 pub use tags::{overridden_tags, tag_literal, validate_tags};
+pub mod converters;
 
 impl AstStruct {
     pub fn estree_transparent_field(&self) -> Option<&AstStructField> {

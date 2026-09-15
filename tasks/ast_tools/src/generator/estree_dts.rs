@@ -7,9 +7,10 @@ use std::{
 
 use crate::{
     output::RawOutput,
-    schema::{AstStruct, AstStructField, AstType, Schema, TypeId},
+    schema::{AstStruct, AstStructField, AstType, EstreeFieldValue, Schema, TypeId},
 };
 
+use crate::estree::converters::converter;
 use crate::estree::{ENUMS, default_name, estree_field_name, overridden_tags};
 
 #[derive(Clone)]
@@ -38,7 +39,15 @@ pub fn estree_dts(schema: &Schema) -> RawOutput {
             fields.insert(
                 field.name.clone(),
                 Field {
-                    ty: field.value.ts_type(),
+                    ty: match &field.value {
+                        EstreeFieldValue::Constant(value) => value.ts_type(),
+                        EstreeFieldValue::From(name) => {
+                            let source =
+                                ast.fields.iter().find(|field| &field.name == name).unwrap();
+                            type_ref(&schema.types[source.type_id], schema)
+                        }
+                        EstreeFieldValue::Via(name) => converter(name).output_type.into(),
+                    },
                     optional: field.ts,
                 },
             );
@@ -301,6 +310,9 @@ fn type_members(type_id: TypeId, schema: &Schema, members: &mut BTreeSet<String>
 }
 
 fn field_type(ast: &AstStruct, field: &AstStructField, schema: &Schema) -> String {
+    if let Some(name) = &field.attrs.estree_via {
+        return converter(name).output_type.into();
+    }
     if let Some(name) = field
         .attrs
         .estree_type_override
@@ -345,12 +357,6 @@ fn set(fields: &mut Fields, name: &str, ty: &str) {
     );
 }
 
-fn remove(fields: &mut Fields, names: &[&str]) {
-    for name in names {
-        fields.remove(*name);
-    }
-}
-
 fn optional(fields: &mut Fields, names: &[&str]) {
     for name in names {
         fields.get_mut(*name).unwrap().optional = true;
@@ -362,24 +368,6 @@ fn optional(fields: &mut Fields, names: &[&str]) {
 fn reshape(name: &str, fields: &mut Fields) {
     match name {
         "Program" => set(fields, "sourceType", "SourceType"),
-        "NumericLiteral" => set(fields, "raw", "string"),
-        "BigIntLiteral" => {
-            set(fields, "value", "bigint");
-            set(fields, "bigint", "string");
-        }
-        "BooleanLiteral" => set(fields, "raw", "\"true\" | \"false\""),
-        "RegExpLiteral" => {
-            fields.clear();
-            set(fields, "value", "RegExp | null");
-            set(fields, "raw", "string");
-            set(fields, "regex", "{ pattern: string; flags: string }");
-        }
-        "TemplateElement" => {
-            remove(fields, &["raw", "cooked", "isCookedUndefined"]);
-            set(fields, "value", "{ raw: string; cooked: string | null }");
-        }
-        "JsxText" => set(fields, "raw", "string"),
-        "TsMappedType" => set(fields, "optional", "boolean | \"+\" | \"-\""),
         "TsModuleDeclaration" => {
             set(fields, "body", "TSModuleBody");
             optional(fields, &["body"]);

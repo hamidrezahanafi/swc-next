@@ -138,8 +138,15 @@ pub struct EstreeAttrs {
 #[derive(Debug)]
 pub struct EstreeAddedField {
     pub name: String,
-    pub value: EstreeValue,
+    pub value: EstreeFieldValue,
     pub ts: bool,
+}
+
+#[derive(Debug)]
+pub enum EstreeFieldValue {
+    Constant(EstreeValue),
+    From(String),
+    Via(String),
 }
 
 #[derive(Debug)]
@@ -158,6 +165,7 @@ pub struct AstFieldAttrs {
     pub estree_concat: Option<EstreeConcat>,
     pub estree_type_override: Option<String>,
     pub estree_ts_type: Option<String>,
+    pub estree_via: Option<String>,
     pub invalidates: Vec<String>,
 }
 

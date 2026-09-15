@@ -2,12 +2,16 @@ use std::fmt::Write;
 
 use crate::{
     output::RawOutput,
-    schema::{AstStruct, AstType, Schema},
+    schema::{AstStruct, AstType, EstreeFieldValue, Schema},
     util::{InlineStorageMode, calculate_inline_layout},
 };
 
 use crate::{
-    estree::{ENUMS, estree_field_name, tag_literal},
+    estree::{
+        ENUMS,
+        converters::{ConversionPlan, Input},
+        estree_field_name, tag_literal,
+    },
     js_minifier::minify,
 };
 
@@ -62,6 +66,7 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
     }
     let mut fields = Vec::new();
     let tag_fields = ast.estree_tag_fields();
+    let conversions = ConversionPlan::new(ast, schema);
 
     let mut extra_offset = 0usize;
     for (field_index, field) in ast.fields.iter().enumerate() {
@@ -80,11 +85,18 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
             extra_offset += 1;
             (location, true)
         };
-        if skip && !tag_fields.contains(field.name.as_str()) {
+        if skip
+            && !tag_fields.contains(field.name.as_str())
+            && !conversions.fields.contains(&field.name)
+        {
             continue;
         }
         let mut expression = read_expression(field_ty, schema, &location, aligned_u32);
         let field_name = estree_field_name(field);
+        if conversions.fields.contains(&field.name) {
+            writeln!(output, "        const storage_{field_name} = {expression};").unwrap();
+            expression = format!("storage_{field_name}");
+        }
         if let Some(tag) = &field.attrs.estree_type_override {
             writeln!(output, "        const child_{field_name} = {expression};").unwrap();
             writeln!(
@@ -102,11 +114,39 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
         if skip || ast.attrs.estree.type_from.as_ref() == Some(&field.name) {
             continue;
         }
+        if let Some(converter) = &field.attrs.estree_via {
+            expression = format!("converted_{converter}");
+        }
         fields.push(DecodedField {
             name: field_name,
             expression,
             ts: field.attrs.estree_ts,
         });
+    }
+
+    for converter in &conversions.converters {
+        let mut body = converter
+            .body
+            .replace("{{result}}", &format!("converted_{}", converter.name));
+        for (binding, input) in converter.inputs {
+            let expression = match input {
+                Input::Field { name, .. } => {
+                    let field = ast.fields.iter().find(|field| field.name == *name).unwrap();
+                    format!("storage_{}", estree_field_name(field))
+                }
+                Input::Context(context) => context.expression().into(),
+                Input::Converter(name) => format!("converted_{name}"),
+            };
+            body = body.replace(&format!("{{{{{binding}}}}}"), &expression);
+        }
+        assert!(
+            !body.contains("{{"),
+            "Unresolved converter input in {}",
+            converter.name
+        );
+        for line in body.lines() {
+            writeln!(output, "        {line}").unwrap();
+        }
     }
 
     // Materialize splice inputs once, before reusing them in list expressions.
@@ -304,7 +344,14 @@ fn added_fields(ast: &AstStruct) -> impl Iterator<Item = DecodedField> + '_ {
         .iter()
         .map(|field| DecodedField {
             name: field.name.clone(),
-            expression: field.value.js(),
+            expression: match &field.value {
+                EstreeFieldValue::Constant(value) => value.js(),
+                EstreeFieldValue::From(name) => {
+                    let source = ast.fields.iter().find(|field| &field.name == name).unwrap();
+                    format!("storage_{}", estree_field_name(source))
+                }
+                EstreeFieldValue::Via(name) => format!("converted_{name}"),
+            },
             ts: field.ts,
         })
 }
@@ -364,18 +411,7 @@ fn write_field_assignments(output: &mut String, fields: &[DecodedField]) {
 }
 
 fn is_special_node(name: &str) -> bool {
-    matches!(
-        name,
-        "Program"
-            | "NumericLiteral"
-            | "BigIntLiteral"
-            | "BooleanLiteral"
-            | "RegExpLiteral"
-            | "TemplateElement"
-            | "JsxText"
-            | "TsMappedType"
-            | "TsModuleDeclaration"
-    )
+    matches!(name, "Program" | "TemplateElement" | "TsModuleDeclaration")
 }
 
 fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedField]) {
@@ -403,70 +439,13 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
 "#,
         )
         .unwrap(),
-        "NumericLiteral" => write!(
-            output,
-            r#"        const value = f_value;
-        const raw = f_raw ?? String(value);
-        result = {{ type: "{tag}", start, end, value, raw }};
-"#,
-        )
-        .unwrap(),
-        "BigIntLiteral" => write!(
-            output,
-            r#"        const raw = source.slice(start, end);
-        const value = BigInt(f_raw.replaceAll("_", ""));
-        result = {{ type: "{tag}", start, end, value, raw, bigint: value.toString() }};
-"#,
-        )
-        .unwrap(),
-        "BooleanLiteral" => write!(
-            output,
-            r#"        result = {{
-          type: "{tag}", start, end,
-          value: f_value, raw: f_value ? "true" : "false",
-        }};
-"#,
-        )
-        .unwrap(),
-        "RegExpLiteral" => write!(
-            output,
-            r#"        let value = null;
-        try {{
-          value = new RegExp(f_pattern, f_flags);
-        }} catch {{}}
-        result = {{
-          type: "{tag}", start, end, value,
-          raw: `/${{f_pattern}}/${{f_flags}}`,
-          regex: {{ pattern: f_pattern, flags: [...f_flags].sort().join("") }},
-        }};
-"#,
-        )
-        .unwrap(),
         "TemplateElement" => write!(
             output,
             r#"        result = {{
           type: "{tag}",
           start: isTs ? start - 1 : start,
           end: isTs ? (f_tail ? end + 1 : end + 2) : end,
-          value: {{ raw: f_raw, cooked: f_isCookedUndefined ? null : f_cooked }},
           tail: f_tail,
-        }};
-"#,
-        )
-        .unwrap(),
-        "JsxText" => writeln!(
-            output,
-            "        result = {{ type: \"{tag}\", start, end, value: f_value, raw: f_value }};"
-        )
-        .unwrap(),
-        "TsMappedType" => write!(
-            output,
-            r#"        result = {{
-          type: "{tag}", start, end,
-          key: f_key, constraint: f_constraint,
-          nameType: f_nameType, typeAnnotation: f_typeAnnotation,
-          optional: f_optional === null ? false : f_optional,
-          readonly: f_readonly,
         }};
 "#,
         )

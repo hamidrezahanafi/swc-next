@@ -361,6 +361,46 @@ a handwritten decoder for the entire node.
 Keep storage offsets and binary reads in the generator. Converters identify
 their inputs by field and context, not by payload offsets.
 
+### Implemented Sources and Converters
+
+An added field requires exactly one of `value`, `from`, or `via`:
+
+```rust
+#[estree(add_field(name = "raw", from = value))]
+#[estree(add_field(name = "value", via = BigIntValue))]
+#[estree(add_field(name = "bigint", via = BigIntDecimal))]
+```
+
+Existing storage fields use `#[estree(via = NumericLiteralRaw)]` or
+`#[estree(via = SourceRaw)]` to replace only their output value. `from` names a
+Rust storage field and derives its declaration type from that storage type.
+`via` names a converter with an explicit output type. Only constant empty
+arrays accept `element_type`; copied and computed fields infer their types.
+
+Converter definitions live in `tasks/ast_tools/src/estree/converters.rs`.
+Each declares typed storage inputs, decoding context inputs, and dependencies
+on other converters. The generator validates these dependencies and emits each
+converter once per node, after its dependencies. `BigIntDecimal` depends on
+`BigIntValue`, so the decimal string and public value share one BigInt parse.
+
+Storage inputs use separate locals from converted output values. BigIntValue
+reads the stored digits while SourceRaw slices the original source positions.
+NumericLiteralRaw retains its `String(value)` fallback. RegExpValue catches
+construction failures; RegExpRaw retains stored flag order while RegExpRegex
+sorts flags. TemplateElementValue maps undefined cooked content to null.
+MappedTypeOptional converts only the optional modifier, leaving readonly alone.
+
+Skipped fields remain readable when a converter or `from` references them.
+The encoder also retains these inputs when recovering storage values; its
+existing inverse conversions remain necessary because output converters are
+not generally reversible. Generated encoder code and public declarations are
+unchanged by this migration.
+
+Validation rejects unknown converters and storage sources, missing or wrongly
+typed converter inputs, dependency cycles, and conflicting field operations.
+TemplateElement's position adjustment remains in step 7; this step moves its
+value construction into TemplateElementValue.
+
 ## 7. Program and TemplateElement: Context and Positions
 
 After list combination, Program still needs:

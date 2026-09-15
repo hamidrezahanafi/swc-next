@@ -618,6 +618,7 @@ pub struct NumericLiteral {
     /// The source lexeme, including prefix (`0x`, `0b`, `0o`) and separators.
     ///
     /// `None` when no source spelling should be preserved.
+    #[estree(via = NumericLiteralRaw)]
     raw: Option<AstUtf8>,
 }
 
@@ -635,14 +636,18 @@ pub struct NumericLiteral {
 /// ```
 #[ast]
 #[estree(ty = "Literal")]
+#[estree(add_field(name = "value", via = BigIntValue))]
+#[estree(add_field(name = "bigint", via = BigIntDecimal))]
 pub struct BigIntLiteral {
     /// digits without the trailing `n`
+    #[estree(via = SourceRaw)]
     raw: AstUtf8,
 }
 
 /// A `true` or `false` literal.
 #[ast]
 #[estree(ty = "Literal")]
+#[estree(add_field(name = "raw", via = BooleanLiteralRaw))]
 pub struct BooleanLiteral {
     value: bool,
 }
@@ -672,8 +677,13 @@ pub struct NullLiteral {}
 /// ```
 #[ast]
 #[estree(ty = "Literal")]
+#[estree(add_field(name = "value", via = RegExpValue))]
+#[estree(add_field(name = "raw", via = RegExpRaw))]
+#[estree(add_field(name = "regex", via = RegExpRegex))]
 pub struct RegExpLiteral {
+    #[estree(skip)]
     pattern: AstUtf8,
+    #[estree(skip)]
     flags: AstUtf8,
 }
 
@@ -707,16 +717,20 @@ pub struct TemplateLiteral {
 /// The two quasi elements are `"a "` (`tail = false`) and `" b"`
 /// (`tail = true`).
 #[ast]
+#[estree(add_field(name = "value", via = TemplateElementValue))]
 pub struct TemplateElement {
     /// escape-decoded content, empty when `is_cooked_undefined`
+    #[estree(skip)]
     cooked: AstWtf8,
     /// verbatim source text, line endings normalized to `\n`. empty for
     /// synthetic nodes
+    #[estree(skip)]
     raw: AstUtf8,
     /// true for the final element (after the last interpolation)
     tail: bool,
     /// true when the cooked value is undefined per ECMAScript TV semantics
     /// (an invalid escape inside a tagged template)
+    #[estree(skip)]
     is_cooked_undefined: bool,
 }
 

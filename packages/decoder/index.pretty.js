@@ -292,25 +292,33 @@ export function decode(buffer, source) {
         break;
       }
       case 4: {
-        const f_value = _dv.getFloat64(payload + 0, true);
-        const f_raw = _u32[(payload + 8) >> 2] === NULL && _u32[(payload + 8 + 4) >> 2] === 0 ? null : str(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2]);
-        const value = f_value;
-        const raw = f_raw ?? String(value);
-        result = { type: "Literal", start, end, value, raw };
+        const storage_value = _dv.getFloat64(payload + 0, true);
+        const storage_raw = _u32[(payload + 8) >> 2] === NULL && _u32[(payload + 8 + 4) >> 2] === 0 ? null : str(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2]);
+        const converted_NumericLiteralRaw = storage_raw ?? String(storage_value);
+        result = { type: "Literal", start, end,
+          value: storage_value,
+          raw: converted_NumericLiteralRaw,
+        };
         break;
       }
       case 5: {
-        const f_raw = str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]);
-        const raw = source.slice(start, end);
-        const value = BigInt(f_raw.replaceAll("_", ""));
-        result = { type: "Literal", start, end, value, raw, bigint: value.toString() };
+        const storage_raw = str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]);
+        const converted_SourceRaw = source.slice(start, end);
+        const converted_BigIntValue = BigInt(storage_raw.replaceAll("_", ""));
+        const converted_BigIntDecimal = converted_BigIntValue.toString();
+        result = { type: "Literal", start, end,
+          raw: converted_SourceRaw,
+          value: converted_BigIntValue,
+          bigint: converted_BigIntDecimal,
+        };
         break;
       }
       case 6: {
-        const f_value = _dv.getUint8(payload + 0) !== 0;
-        result = {
-          type: "Literal", start, end,
-          value: f_value, raw: f_value ? "true" : "false",
+        const storage_value = _dv.getUint8(payload + 0) !== 0;
+        const converted_BooleanLiteralRaw = storage_value ? "true" : "false";
+        result = { type: "Literal", start, end,
+          value: storage_value,
+          raw: converted_BooleanLiteralRaw,
         };
         break;
       }
@@ -322,16 +330,18 @@ export function decode(buffer, source) {
         break;
       }
       case 8: {
-        const f_pattern = str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]);
-        const f_flags = str(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2]);
-        let value = null;
+        const storage_pattern = str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]);
+        const storage_flags = str(_u32[(payload + 8) >> 2], _u32[(payload + 8 + 4) >> 2]);
+        let converted_RegExpValue = null;
         try {
-          value = new RegExp(f_pattern, f_flags);
+          converted_RegExpValue = new RegExp(storage_pattern, storage_flags);
         } catch {}
-        result = {
-          type: "Literal", start, end, value,
-          raw: `/${f_pattern}/${f_flags}`,
-          regex: { pattern: f_pattern, flags: [...f_flags].sort().join("") },
+        const converted_RegExpRaw = "/" + storage_pattern + "/" + storage_flags;
+        const converted_RegExpRegex = { pattern: storage_pattern, flags: [...storage_flags].sort().join("") };
+        result = { type: "Literal", start, end,
+          value: converted_RegExpValue,
+          raw: converted_RegExpRaw,
+          regex: converted_RegExpRegex,
         };
         break;
       }
@@ -344,17 +354,18 @@ export function decode(buffer, source) {
       }
       case 10: {
         const extraId = _u32[(payload + 12) >> 2];
-        const f_cooked = str(_dv.getUint32(payload + 2, true), _dv.getUint32(payload + 2 + 4, true));
-        const f_raw = str(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]);
+        const storage_cooked = str(_dv.getUint32(payload + 2, true), _dv.getUint32(payload + 2 + 4, true));
+        const storage_raw = str(_u32[(extra + (extraId + 0) * 8) >> 2], _u32[(extra + (extraId + 0) * 8 + 4) >> 2]);
+        const storage_isCookedUndefined = _dv.getUint8(payload + 1) !== 0;
+        const converted_TemplateElementValue = { raw: storage_raw, cooked: storage_isCookedUndefined ? null : storage_cooked };
         const f_tail = _dv.getUint8(payload + 0) !== 0;
-        const f_isCookedUndefined = _dv.getUint8(payload + 1) !== 0;
         result = {
           type: "TemplateElement",
           start: isTs ? start - 1 : start,
           end: isTs ? (f_tail ? end + 1 : end + 2) : end,
-          value: { raw: f_raw, cooked: f_isCookedUndefined ? null : f_cooked },
           tail: f_tail,
         };
+        result.value = converted_TemplateElementValue;
         break;
       }
       case 11: {
@@ -1511,18 +1522,15 @@ export function decode(buffer, source) {
       }
       case 131: {
         const extraId = _u32[(payload + 12) >> 2];
-        const f_key = node(_dv.getUint32(payload + 2, true));
-        const f_constraint = node(_dv.getUint32(payload + 6, true));
-        const f_nameType = optionalNode(_u32[(extra + (extraId + 0) * 8) >> 2]);
-        const f_typeAnnotation = optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]);
-        const f_optional = enumValue("TsMappedTypeModifier", _dv.getUint8(payload + 0));
-        const f_readonly = enumValue("TsMappedTypeModifier", _dv.getUint8(payload + 1));
-        result = {
-          type: "TSMappedType", start, end,
-          key: f_key, constraint: f_constraint,
-          nameType: f_nameType, typeAnnotation: f_typeAnnotation,
-          optional: f_optional === null ? false : f_optional,
-          readonly: f_readonly,
+        const storage_optional = enumValue("TsMappedTypeModifier", _dv.getUint8(payload + 0));
+        const converted_MappedTypeOptional = storage_optional === null ? false : storage_optional;
+        result = { type: "TSMappedType", start, end,
+          key: node(_dv.getUint32(payload + 2, true)),
+          constraint: node(_dv.getUint32(payload + 6, true)),
+          nameType: optionalNode(_u32[(extra + (extraId + 0) * 8) >> 2]),
+          typeAnnotation: optionalNode(_u32[(extra + (extraId + 1) * 8) >> 2]),
+          optional: converted_MappedTypeOptional,
+          readonly: enumValue("TsMappedTypeModifier", _dv.getUint8(payload + 1)),
         };
         break;
       }
@@ -1858,8 +1866,11 @@ export function decode(buffer, source) {
         break;
       }
       case 172: {
-        const f_value = str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]);
-        result = { type: "JSXText", start, end, value: f_value, raw: f_value };
+        const storage_value = str(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2]);
+        result = { type: "JSXText", start, end,
+          value: storage_value,
+          raw: storage_value,
+        };
         break;
       }
       case 173: {
