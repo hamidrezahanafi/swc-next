@@ -219,6 +219,7 @@ pub enum TsModuleReference {
 /// //                           ^^^ return_type
 /// ```
 #[ast]
+#[estree(rename = "TSDeclareFunction")]
 pub struct TsFunction {
     /// `binding_identifier`. `None` for anonymous default exports and method
     /// definitions.
@@ -387,6 +388,7 @@ pub struct TsNumberKeyword {}
 /// //     ^^^^^^ TSBigIntKeyword
 /// ```
 #[ast]
+#[estree(rename = "TSBigIntKeyword")]
 pub struct TsBigIntKeyword {}
 
 /// The `boolean` primitive type.
@@ -815,6 +817,7 @@ pub struct TsRestType {
 /// //     ^^^^^^^ TSJSDocNullableType (postfix = true)
 /// ```
 #[ast]
+#[estree(rename = "TSJSDocNullableType")]
 pub struct TsJsDocNullableType {
     /// any ts type
     type_annotation: TsType,
@@ -833,6 +836,7 @@ pub struct TsJsDocNullableType {
 /// //     ^^^^^^^ TSJSDocNonNullableType (postfix = true)
 /// ```
 #[ast]
+#[estree(rename = "TSJSDocNonNullableType")]
 pub struct TsJsDocNonNullableType {
     /// any ts type
     type_annotation: TsType,
@@ -849,6 +853,7 @@ pub struct TsJsDocNonNullableType {
 /// //            ^ TSJSDocUnknownType
 /// ```
 #[ast]
+#[estree(rename = "TSJSDocUnknownType")]
 pub struct TsJsDocUnknownType {}
 
 /// A union type. Combines two or more types with `|`, representing a value
@@ -1487,6 +1492,7 @@ pub struct TsModuleBlock {
 /// //             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ body
 /// ```
 #[ast]
+#[estree(rename = "TSModuleDeclaration")]
 pub struct TsGlobalDeclaration {
     /// `identifier_name` capturing the span of the `global` keyword.
     id: IdentifierName,
@@ -1548,6 +1554,7 @@ pub struct TsParameterProperty {
 /// //              ^^^^^^^^^^ TSThisParameter (type_annotation = TSThisType)
 /// ```
 #[ast]
+#[estree(rename = "Identifier")]
 pub struct TsThisParameter {
     /// `ts_type_annotation` wrapping the declared type of `this`. `None`
     /// when the parameter is written as bare `this` with no annotation.

@@ -732,17 +732,16 @@ fn collect_concrete(
 }
 
 fn accepted_estree_types(name: &str, schema: &Schema) -> Vec<String> {
+    let ast = schema
+        .types
+        .iter()
+        .find_map(|ty| match ty {
+            AstType::Struct(ast) if ast.name == name => Some(ast),
+            _ => None,
+        })
+        .expect("ESTree dispatch contains AST structs");
     match name {
-        "FunctionBody" => vec!["BlockStatement".into()],
-        "TsModuleBlock" => vec!["TSModuleBlock".into()],
         "FormalParameter" => {
-            let ast = schema.types.iter().find_map(|ty| match ty {
-                AstType::Struct(ast) if ast.name == name => Some(ast),
-                _ => None,
-            });
-            let Some(ast) = ast else {
-                return Vec::new();
-            };
             let mut concrete = Vec::new();
             collect_concrete(
                 ast.fields[0].type_id,
@@ -760,13 +759,9 @@ fn accepted_estree_types(name: &str, schema: &Schema) -> Vec<String> {
             }
             result
         }
-        "Directive" => vec!["ExpressionStatement".into()],
-        "StringLiteral" | "NumericLiteral" | "BigIntLiteral" | "BooleanLiteral" | "NullLiteral"
-        | "RegExpLiteral" => vec!["Literal".into()],
-        "BindingProperty" | "ObjectProperty" => vec!["Property".into()],
         "Function" => vec!["FunctionDeclaration".into(), "FunctionExpression".into()],
         "TsFunction" => vec![
-            "TSDeclareFunction".into(),
+            ast.attrs.estree.tag(name),
             "TSEmptyBodyFunctionExpression".into(),
         ],
         "Class" => vec!["ClassDeclaration".into(), "ClassExpression".into()],
@@ -780,26 +775,7 @@ fn accepted_estree_types(name: &str, schema: &Schema) -> Vec<String> {
             "TSAbstractPropertyDefinition".into(),
             "TSAbstractAccessorProperty".into(),
         ],
-        "TsGlobalDeclaration" => vec!["TSModuleDeclaration".into()],
-        "TsThisParameter" => vec!["Identifier".into()],
-        _ => vec![estree_type(name)],
-    }
-}
-
-fn estree_type(name: &str) -> String {
-    match name {
-        "BindingRestElement" => "RestElement".into(),
-        "ObjectProperty" => "Property".into(),
-        "IdentifierReference" | "BindingIdentifier" | "IdentifierName" | "LabelIdentifier" => {
-            "Identifier".into()
-        }
-        "TsBigIntKeyword" => "TSBigIntKeyword".into(),
-        "TsJsDocNullableType" => "TSJSDocNullableType".into(),
-        "TsJsDocNonNullableType" => "TSJSDocNonNullableType".into(),
-        "TsJsDocUnknownType" => "TSJSDocUnknownType".into(),
-        _ if name.starts_with("Jsx") => format!("JSX{}", &name[3..]),
-        _ if name.starts_with("Ts") => format!("TS{}", &name[2..]),
-        _ => name.into(),
+        _ => vec![ast.attrs.estree.tag(name)],
     }
 }
 

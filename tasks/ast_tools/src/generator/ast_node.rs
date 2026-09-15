@@ -110,13 +110,13 @@ pub fn ast_node(schema: &Schema) -> RawOutput {
 
 fn generate_enum_data(ast: &AstEnum, schema: &Schema) -> TokenStream {
     assert!(
-        ast._attrs.ast_attrs.contains("repr"),
+        ast.attrs.ast_attrs.contains("repr"),
         "AST enum `{}` must use `#[ast(repr)]`",
         ast.name
     );
 
     let data_name = format_ident!("{}Data", ast.name);
-    let nested = ast._attrs.ast_attrs.contains("nested");
+    let nested = ast.attrs.ast_attrs.contains("nested");
     let repr = if nested {
         format_ident!("u32")
     } else {
@@ -179,7 +179,7 @@ fn generate_data_accessor(ast: &AstEnum, schema: &Schema) -> TokenStream {
             .type_id
             .is_some_and(|type_id| matches!(schema.types[type_id], AstType::Enum(_)))
     });
-    let marked_nested = ast._attrs.ast_attrs.contains("nested");
+    let marked_nested = ast.attrs.ast_attrs.contains("nested");
     assert_eq!(
         marked_nested, has_nested_enum,
         "AST enum `{}` must use `#[ast(repr, nested)]` exactly when it directly contains another AST enum",

@@ -2,17 +2,20 @@
 
 use convert_case::{Case, Casing};
 
-pub(super) fn estree_type(name: &str) -> String {
+use crate::schema::EstreeAttrs;
+
+impl EstreeAttrs {
+    pub fn name(&self, name: &str) -> String {
+        self.rename.clone().unwrap_or_else(|| default_name(name))
+    }
+
+    pub fn tag(&self, name: &str) -> String {
+        self.ty.clone().unwrap_or_else(|| self.name(name))
+    }
+}
+
+pub(super) fn default_name(name: &str) -> String {
     match name {
-        "BindingRestElement" => "RestElement".into(),
-        "ObjectProperty" => "Property".into(),
-        "IdentifierReference" | "BindingIdentifier" | "IdentifierName" | "LabelIdentifier" => {
-            "Identifier".into()
-        }
-        "TsBigIntKeyword" => "TSBigIntKeyword".into(),
-        "TsJsDocNullableType" => "TSJSDocNullableType".into(),
-        "TsJsDocNonNullableType" => "TSJSDocNonNullableType".into(),
-        "TsJsDocUnknownType" => "TSJSDocUnknownType".into(),
         _ if name.starts_with("Jsx") => format!("JSX{}", &name[3..]),
         _ if name.starts_with("Ts") => format!("TS{}", &name[2..]),
         _ => name.into(),

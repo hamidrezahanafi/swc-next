@@ -356,6 +356,7 @@ pub struct Program {
 }
 
 #[ast(repr, nested)]
+#[estree(rename = "Statement")]
 pub enum Stmt {
     BlockStatement(BlockStatement),
     BreakStatement(BreakStatement),
@@ -385,6 +386,7 @@ pub enum Stmt {
 }
 
 #[ast(repr)]
+#[estree(rename = "Declaration")]
 pub enum Decl {
     VariableDeclaration(VariableDeclaration),
     Function(Function),
@@ -399,6 +401,7 @@ pub enum Decl {
 }
 
 #[ast(repr)]
+#[estree(rename = "Expression")]
 pub enum Expr {
     IdentifierReference(IdentifierReference),
     ThisExpression(ThisExpression),
@@ -443,6 +446,7 @@ pub enum Expr {
 }
 
 #[ast(repr, nested)]
+#[estree(rename = "Pattern")]
 pub enum BindingPattern {
     BindingIdentifier(BindingIdentifier),
     SimpleAssignmentTarget(SimpleAssignmentTarget),
@@ -580,6 +584,7 @@ pub struct ThisExpression {}
 /// //    ^^ escape sequences are decoded into `value`
 /// ```
 #[ast]
+#[estree(ty = "Literal")]
 pub struct StringLiteral {
     /// decoded content with escape sequences resolved and quotes stripped
     value: AstWtf8,
@@ -598,6 +603,7 @@ pub struct StringLiteral {
 /// 1_000_000   // separators are stripped when computing `value`
 /// ```
 #[ast]
+#[estree(ty = "Literal")]
 pub struct NumericLiteral {
     /// The authoritative ECMAScript Number value.
     #[ast(invalidates(raw))]
@@ -621,6 +627,7 @@ pub struct NumericLiteral {
 /// // raw = "0xff"
 /// ```
 #[ast]
+#[estree(ty = "Literal")]
 pub struct BigIntLiteral {
     /// digits without the trailing `n`
     raw: AstUtf8,
@@ -628,6 +635,7 @@ pub struct BigIntLiteral {
 
 /// A `true` or `false` literal.
 #[ast]
+#[estree(ty = "Literal")]
 pub struct BooleanLiteral {
     value: bool,
 }
@@ -640,6 +648,7 @@ pub struct BooleanLiteral {
 /// //        ^^^^ NullLiteral
 /// ```
 #[ast]
+#[estree(ty = "Literal")]
 pub struct NullLiteral {}
 
 /// A regular expression literal.
@@ -653,6 +662,7 @@ pub struct NullLiteral {}
 /// //     ^^ flags
 /// ```
 #[ast]
+#[estree(ty = "Literal")]
 pub struct RegExpLiteral {
     pattern: AstUtf8,
     flags: AstUtf8,
@@ -714,6 +724,7 @@ pub struct TemplateElement {
 /// `identifier_name` because it appears in property-access position, not
 /// as a value reference.
 #[ast]
+#[estree(rename = "Identifier")]
 pub struct IdentifierReference {
     name: AstUtf8,
 }
@@ -744,6 +755,7 @@ pub struct PrivateIdentifier {
 /// //           ^ optional, with type_annotation
 /// ```
 #[ast]
+#[estree(rename = "Identifier")]
 pub struct BindingIdentifier {
     name: AstUtf8,
     /// `decorator[]`. Decorators on a parameter binding (legacy
@@ -765,6 +777,7 @@ pub struct BindingIdentifier {
 /// //^^^ IdentifierName
 /// ```
 #[ast]
+#[estree(rename = "Identifier")]
 pub struct IdentifierName {
     name: AstUtf8,
 }
@@ -779,6 +792,7 @@ pub struct IdentifierName {
 /// //                    ^^^^^ break target
 /// ```
 #[ast]
+#[estree(rename = "Identifier")]
 pub struct LabelIdentifier {
     name: AstUtf8,
 }
@@ -816,6 +830,7 @@ pub struct AssignmentPattern {
 /// //            ^^^^ argument
 /// ```
 #[ast]
+#[estree(rename = "RestElement")]
 pub struct BindingRestElement {
     /// `decorator[]`. Decorators on a parameter rest element (legacy
     /// `experimentalDecorators`).
@@ -888,6 +903,7 @@ pub struct ObjectPattern {
 /// //               ^^^^^^ computed key
 /// ```
 #[ast]
+#[estree(rename = "Property")]
 pub struct BindingProperty {
     /// `identifier_name`, `string_literal`, `numeric_literal`,
     /// `private_identifier` (class members only), or any expression when `computed = true`
@@ -1301,6 +1317,7 @@ pub struct EmptyStatement {}
 /// `expression` is the underlying `string_literal` (`"use strict"`).
 /// `value` is the text between the quotes (`use strict`).
 #[ast]
+#[estree(rename = "ExpressionStatement")]
 pub struct Directive {
     /// `string_literal`
     expression: StringLiteral,
@@ -1506,6 +1523,7 @@ pub struct Function {
 ///
 /// See: <https://tc39.es/ecma262/#prod-FunctionBody>
 #[ast]
+#[estree(rename = "BlockStatement")]
 pub struct FunctionBody {
     directives: SubRange<Directive>,
     body: SubRange<Stmt>,
@@ -1658,6 +1676,7 @@ pub struct SpreadElement {
 /// })
 /// ```
 #[ast]
+#[estree(rename = "Property")]
 pub struct ObjectProperty {
     /// `identifier_name`, `string_literal`, `numeric_literal`,
     /// `private_identifier` (class members only), or any expression when `computed = true`

@@ -7,7 +7,7 @@ use crate::{
 };
 
 use crate::{
-    estree::{ENUMS, estree_field_name, estree_type, is_ts_field, ts_extra_fields},
+    estree::{ENUMS, estree_field_name, is_ts_field, ts_extra_fields},
     js_minifier::minify,
 };
 
@@ -91,9 +91,9 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
     }
 
     if is_special_node(&ast.name) {
-        write_special_node(output, &ast.name, &fields);
+        write_special_node(output, ast, &fields);
     } else {
-        write_generic_node(output, &ast.name, &fields);
+        write_generic_node(output, ast, &fields);
     }
     writeln!(output, "        break;").unwrap();
     writeln!(output, "      }}").unwrap();
@@ -197,17 +197,18 @@ fn read_u32(location: &str, aligned: bool) -> String {
     }
 }
 
-fn write_generic_node(output: &mut String, name: &str, fields: &[DecodedField]) {
+fn write_generic_node(output: &mut String, ast: &AstStruct, fields: &[DecodedField]) {
+    let name = ast.name.as_str();
     let has_ts_shape = fields.iter().any(|field| is_ts_field(name, &field.name))
         || !ts_extra_fields(name).is_empty();
 
     if has_ts_shape {
         writeln!(output, "        if (isTs) {{").unwrap();
-        write_object_literal(output, name, fields.iter(), ts_extra_fields(name), 10);
+        write_object_literal(output, ast, fields.iter(), ts_extra_fields(name), 10);
         writeln!(output, "        }} else {{").unwrap();
         write_object_literal(
             output,
-            name,
+            ast,
             fields
                 .iter()
                 .filter(|field| !is_ts_field(name, &field.name)),
@@ -216,13 +217,13 @@ fn write_generic_node(output: &mut String, name: &str, fields: &[DecodedField]) 
         );
         writeln!(output, "        }}").unwrap();
     } else {
-        write_object_literal(output, name, fields.iter(), &[], 8);
+        write_object_literal(output, ast, fields.iter(), &[], 8);
     }
 }
 
 fn write_object_literal<'a>(
     output: &mut String,
-    name: &str,
+    ast: &AstStruct,
     fields: impl Iterator<Item = &'a DecodedField>,
     extras: &[(&str, &str)],
     indent: usize,
@@ -231,7 +232,7 @@ fn write_object_literal<'a>(
     writeln!(
         output,
         "{padding}result = {{ type: \"{}\", start, end,",
-        estree_type(name)
+        ast.attrs.estree.tag(&ast.name)
     )
     .unwrap();
     for field in fields {
@@ -255,7 +256,6 @@ fn is_special_node(name: &str) -> bool {
             | "TsFunction"
             | "ArrowFunctionExpression"
             | "Directive"
-            | "StringLiteral"
             | "NumericLiteral"
             | "BigIntLiteral"
             | "BooleanLiteral"
@@ -283,7 +283,9 @@ fn is_special_node(name: &str) -> bool {
     )
 }
 
-fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField]) {
+fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedField]) {
+    let name = ast.name.as_str();
+    let tag = ast.attrs.estree.tag(name);
     for field in fields {
         writeln!(
             output,
@@ -294,25 +296,23 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField]) 
     }
 
     match name {
-        "Program" => output.push_str(
+        "Program" => write!(
+            output,
             r#"        const body = [...f_directives, ...f_body];
-        result = {
-          type: "Program", start: isTs ? (body.length !== 0 ? body[0].start : end) : start, end,
+        result = {{
+          type: "{tag}", start: isTs ? (body.length !== 0 ? body[0].start : end) : start, end,
           sourceType,
           hashbang: f_hashbang,
           body,
-        };
+        }};
 "#,
-        ),
+        )
+        .unwrap(),
         "FunctionBody" | "TsModuleBlock" => {
             writeln!(
                 output,
                 "        result = {{ type: \"{}\", start, end, body: [...f_directives, ...f_body] }};",
-                if name == "TsModuleBlock" {
-                    "TSModuleBlock"
-                } else {
-                    "BlockStatement"
-                }
+                tag
             )
             .unwrap();
         }
@@ -337,9 +337,10 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField]) 
         }
 "#,
         ),
-        "TsFunction" => output.push_str(
-            r#"        result = {
-          type: "TSDeclareFunction",
+        "TsFunction" => write!(
+            output,
+            r#"        result = {{
+          type: "{tag}",
           start, end,
           id: f_id,
           generator: f_generator,
@@ -350,76 +351,90 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField]) 
           typeParameters: f_typeParameters,
           returnType: f_returnType,
           declare: f_declare,
-        };
+        }};
 "#,
-        ),
-        "ArrowFunctionExpression" => output.push_str(
-            r#"        result = {
-          type: "ArrowFunctionExpression", start, end,
+        )
+        .unwrap(),
+        "ArrowFunctionExpression" => write!(
+            output,
+            r#"        result = {{
+          type: "{tag}", start, end,
           id: null, generator: false, async: f_async,
           params: f_params.params,
           body: f_body, expression: f_expression,
-        };
-        if (isTs) {
+        }};
+        if (isTs) {{
           result.typeParameters = f_typeParameters;
           result.returnType = f_returnType;
-        }
+        }}
 "#,
-        ),
-        "Directive" => output.push_str(
-            r#"        result = {
-          type: "ExpressionStatement", start, end,
+        )
+        .unwrap(),
+        "Directive" => write!(
+            output,
+            r#"        result = {{
+          type: "{tag}", start, end,
           expression: f_expression, directive: f_value,
-        };
+        }};
 "#,
-        ),
-        "StringLiteral" => output.push_str(
-            "        result = { type: \"Literal\", start, end, value: f_value, raw: f_raw };\n",
-        ),
-        "NumericLiteral" => output.push_str(
+        )
+        .unwrap(),
+        "NumericLiteral" => write!(
+            output,
             r#"        const value = f_value;
         const raw = f_raw ?? String(value);
-        result = { type: "Literal", start, end, value, raw };
+        result = {{ type: "{tag}", start, end, value, raw }};
 "#,
-        ),
-        "BigIntLiteral" => output.push_str(
+        )
+        .unwrap(),
+        "BigIntLiteral" => write!(
+            output,
             r#"        const raw = source.slice(start, end);
         const value = BigInt(f_raw.replaceAll("_", ""));
-        result = { type: "Literal", start, end, value, raw, bigint: value.toString() };
+        result = {{ type: "{tag}", start, end, value, raw, bigint: value.toString() }};
 "#,
-        ),
-        "BooleanLiteral" => output.push_str(
-            r#"        result = {
-          type: "Literal", start, end,
+        )
+        .unwrap(),
+        "BooleanLiteral" => write!(
+            output,
+            r#"        result = {{
+          type: "{tag}", start, end,
           value: f_value, raw: f_value ? "true" : "false",
-        };
+        }};
 "#,
-        ),
-        "NullLiteral" => output.push_str(
-            "        result = { type: \"Literal\", start, end, value: null, raw: \"null\" };\n",
-        ),
-        "RegExpLiteral" => output.push_str(
+        )
+        .unwrap(),
+        "NullLiteral" => writeln!(
+            output,
+            "        result = {{ type: \"{tag}\", start, end, value: null, raw: \"null\" }};"
+        )
+        .unwrap(),
+        "RegExpLiteral" => write!(
+            output,
             r#"        let value = null;
-        try {
+        try {{
           value = new RegExp(f_pattern, f_flags);
-        } catch {}
-        result = {
-          type: "Literal", start, end, value,
-          raw: `/${f_pattern}/${f_flags}`,
-          regex: { pattern: f_pattern, flags: [...f_flags].sort().join("") },
-        };
+        }} catch {{}}
+        result = {{
+          type: "{tag}", start, end, value,
+          raw: `/${{f_pattern}}/${{f_flags}}`,
+          regex: {{ pattern: f_pattern, flags: [...f_flags].sort().join("") }},
+        }};
 "#,
-        ),
-        "TemplateElement" => output.push_str(
-            r#"        result = {
-          type: "TemplateElement",
+        )
+        .unwrap(),
+        "TemplateElement" => write!(
+            output,
+            r#"        result = {{
+          type: "{tag}",
           start: isTs ? start - 1 : start,
           end: isTs ? (f_tail ? end + 1 : end + 2) : end,
-          value: { raw: f_raw, cooked: f_isCookedUndefined ? null : f_cooked },
+          value: {{ raw: f_raw, cooked: f_isCookedUndefined ? null : f_cooked }},
           tail: f_tail,
-        };
+        }};
 "#,
-        ),
+        )
+        .unwrap(),
         "Class" => output.push_str(
             r#"        result = {
           type: f_classType, start, end,
@@ -498,45 +513,55 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField]) 
         }
 "#,
         ),
-        "UnaryExpression" => output.push_str(
-            r#"        result = {
-          type: "UnaryExpression", start, end,
+        "UnaryExpression" => write!(
+            output,
+            r#"        result = {{
+          type: "{tag}", start, end,
           operator: f_operator, prefix: true, argument: f_argument,
-        };
+        }};
 "#,
-        ),
-        "BindingProperty" => output.push_str(
-            r#"        result = {
-          type: "Property", start, end, kind: "init",
+        )
+        .unwrap(),
+        "BindingProperty" => write!(
+            output,
+            r#"        result = {{
+          type: "{tag}", start, end, kind: "init",
           key: f_key, value: f_value,
           method: false, shorthand: f_shorthand, computed: f_computed,
-        };
+        }};
         if (isTs) result.optional = false;
 "#,
-        ),
-        "ArrayPattern" => output.push_str(
+        )
+        .unwrap(),
+        "ArrayPattern" => write!(
+            output,
             r#"        const elements = f_rest === null ? f_elements : [...f_elements, f_rest];
-        result = { type: "ArrayPattern", start, end, elements };
-        if (isTs) {
+        result = {{ type: "{tag}", start, end, elements }};
+        if (isTs) {{
           result.decorators = f_decorators;
           result.optional = f_optional;
           result.typeAnnotation = f_typeAnnotation;
-        }
+        }}
 "#,
-        ),
-        "ObjectPattern" => output.push_str(
+        )
+        .unwrap(),
+        "ObjectPattern" => write!(
+            output,
             r#"        const properties = f_rest === null ? f_properties : [...f_properties, f_rest];
-        result = { type: "ObjectPattern", start, end, properties };
-        if (isTs) {
+        result = {{ type: "{tag}", start, end, properties }};
+        if (isTs) {{
           result.decorators = f_decorators;
           result.optional = f_optional;
           result.typeAnnotation = f_typeAnnotation;
-        }
+        }}
 "#,
-        ),
-        "JsxText" => output.push_str(
-            "        result = { type: \"JSXText\", start, end, value: f_value, raw: f_value };\n",
-        ),
+        )
+        .unwrap(),
+        "JsxText" => writeln!(
+            output,
+            "        result = {{ type: \"{tag}\", start, end, value: f_value, raw: f_value }};"
+        )
+        .unwrap(),
         "TsFunctionType"
         | "TsConstructorType"
         | "TsMethodSignature"
@@ -545,7 +570,7 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField]) 
             writeln!(
                 output,
                 "        result = {{\n          type: \"{}\", start, end,",
-                estree_type(name)
+                tag
             )
             .unwrap();
             if name == "TsConstructorType" {
@@ -576,40 +601,48 @@ fn write_special_node(output: &mut String, name: &str, fields: &[DecodedField]) 
                 );
             }
         }
-        "TsMappedType" => output.push_str(
-            r#"        result = {
-          type: "TSMappedType", start, end,
+        "TsMappedType" => write!(
+            output,
+            r#"        result = {{
+          type: "{tag}", start, end,
           key: f_key, constraint: f_constraint,
           nameType: f_nameType, typeAnnotation: f_typeAnnotation,
           optional: f_optional === null ? false : f_optional,
           readonly: f_readonly,
-        };
+        }};
 "#,
-        ),
-        "TsModuleDeclaration" => output.push_str(
-            r#"        result = {
-          type: "TSModuleDeclaration", start, end,
+        )
+        .unwrap(),
+        "TsModuleDeclaration" => write!(
+            output,
+            r#"        result = {{
+          type: "{tag}", start, end,
           id: f_id, kind: f_kind, declare: f_declare, global: false,
-        };
+        }};
         if (f_body !== null) result.body = f_body;
 "#,
-        ),
-        "TsGlobalDeclaration" => output.push_str(
-            r#"        result = {
-          type: "TSModuleDeclaration", start, end,
+        )
+        .unwrap(),
+        "TsGlobalDeclaration" => write!(
+            output,
+            r#"        result = {{
+          type: "{tag}", start, end,
           id: f_id, body: f_body, kind: "global",
           declare: f_declare, global: true,
-        };
+        }};
 "#,
-        ),
-        "TsThisParameter" => output.push_str(
-            r#"        result = {
-          type: "Identifier", start, end,
+        )
+        .unwrap(),
+        "TsThisParameter" => write!(
+            output,
+            r#"        result = {{
+          type: "{tag}", start, end,
           decorators: [], name: "this", optional: false,
           typeAnnotation: f_typeAnnotation,
-        };
+        }};
 "#,
-        ),
+        )
+        .unwrap(),
         _ => unreachable!("missing special ESTree decoder for {name}"),
     }
 }

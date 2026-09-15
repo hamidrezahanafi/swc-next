@@ -13,7 +13,7 @@ use syn::{
 
 use crate::schema::{
     AstAttrs, AstEnum, AstEnumVariant, AstFieldAttrs, AstOption, AstPrimitive, AstStruct,
-    AstStructField, AstSubRange, AstType, Schema, TypeId,
+    AstStructField, AstSubRange, AstType, EstreeAttrs, Schema, TypeId,
 };
 
 struct Parser {
@@ -24,6 +24,12 @@ struct Parser {
 }
 
 pub fn parse_files(file_paths: &[&str]) -> Schema {
+    parse_sources(file_paths.iter().map(|source| {
+        fs::read_to_string(source).unwrap_or_else(|_| panic!("Cannot find {source}"))
+    }))
+}
+
+fn parse_sources(sources: impl IntoIterator<Item = String>) -> Schema {
     struct PrototypeStruct {
         type_id: TypeId,
         item: ItemStruct,
@@ -46,9 +52,7 @@ pub fn parse_files(file_paths: &[&str]) -> Schema {
     let mut prototypes = Vec::new();
     let mut repr_sizes = HashMap::new();
 
-    for source in file_paths {
-        let content =
-            fs::read_to_string(source).unwrap_or_else(|_| panic!("Cannot not find {source}"));
+    for content in sources {
         let file = syn::parse_file(&content).unwrap();
         for item in file.items {
             match item {
@@ -234,8 +238,9 @@ fn parse_attrs(attrs: &[Attribute]) -> Option<AstAttrs> {
     let mut has_ast_attr = false;
     let mut ast_attrs = HashSet::new();
     let mut generate_derives = HashSet::new();
+    let mut estree = EstreeAttrs::default();
 
-    // Find #[ast] and #[generate_derive]
+    // Collect AST markers and node-level ESTree metadata.
     for attr in attrs {
         match &attr.meta {
             Meta::Path(path) => {
@@ -257,6 +262,24 @@ fn parse_attrs(attrs: &[Attribute]) -> Option<AstAttrs> {
                         .expect("Unable to parse `#[generate_derive]`");
                     generate_derives.extend(args.into_iter().map(|arg| arg.to_string()));
                 }
+                if meta_list.path.is_ident("estree") {
+                    attr.parse_nested_meta(|meta| {
+                        let target = if meta.path.is_ident("rename") {
+                            &mut estree.rename
+                        } else if meta.path.is_ident("ty") {
+                            &mut estree.ty
+                        } else {
+                            return Err(meta.error("Expected `rename` or `ty`"));
+                        };
+                        if target.is_some() {
+                            return Err(meta.error("Duplicate ESTree attribute"));
+                        }
+                        let value: syn::LitStr = meta.value()?.parse()?;
+                        *target = Some(value.value());
+                        Ok(())
+                    })
+                    .expect("Unable to parse node `#[estree]`");
+                }
             }
             _ => continue,
         };
@@ -269,6 +292,7 @@ fn parse_attrs(attrs: &[Attribute]) -> Option<AstAttrs> {
     Some(AstAttrs {
         ast_attrs,
         generate_derives,
+        estree,
     })
 }
 
@@ -284,7 +308,7 @@ impl Parser {
             type_id,
             name,
             fields,
-            _attrs: attrs,
+            attrs,
         })
     }
 
@@ -319,7 +343,7 @@ impl Parser {
             type_id,
             name,
             variants,
-            _attrs: attrs,
+            attrs,
         })
     }
 

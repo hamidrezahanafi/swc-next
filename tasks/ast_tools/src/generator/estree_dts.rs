@@ -10,7 +10,7 @@ use crate::{
     schema::{AstStruct, AstType, Schema},
 };
 
-use crate::estree::{ENUMS, estree_field_name, estree_type, is_ts_field, ts_extra_fields};
+use crate::estree::{ENUMS, default_name, estree_field_name, is_ts_field, ts_extra_fields};
 
 #[derive(Clone)]
 struct Field {
@@ -35,24 +35,12 @@ pub fn estree_dts(schema: &Schema) -> RawOutput {
         }
         let mut fields = fields(ast, schema);
         reshape(&ast.name, &mut fields);
-        for name in node_names(&ast.name) {
+        for name in node_names(ast) {
             let mut fields = fields.clone();
             if name == "TSEmptyBodyFunctionExpression" {
                 set(&mut fields, "body", "null");
             }
-            let tag = if matches!(
-                ast.name.as_str(),
-                "StringLiteral"
-                    | "NumericLiteral"
-                    | "BigIntLiteral"
-                    | "BooleanLiteral"
-                    | "NullLiteral"
-                    | "RegExpLiteral"
-            ) {
-                "Literal".into()
-            } else {
-                name.clone()
-            };
+            let tag = ast.attrs.estree.ty.clone().unwrap_or_else(|| name.clone());
             if let Some(existing) = nodes.get_mut(&name) {
                 // Several storage nodes decode to the same public node. Fields
                 // absent from one shape must stay optional in the merged type.
@@ -83,7 +71,7 @@ pub fn estree_dts(schema: &Schema) -> RawOutput {
         if matches!(*name, "ClassType" | "FunctionType" | "FormalParameterKind") {
             continue;
         }
-        write_alias(&mut output, &public_name(name), values.iter().copied());
+        write_alias(&mut output, &default_name(name), values.iter().copied());
     }
     for ty in &schema.types {
         let AstType::Enum(ast) = ty else { continue };
@@ -107,7 +95,7 @@ pub fn estree_dts(schema: &Schema) -> RawOutput {
             .collect();
         write_alias(
             &mut output,
-            &public_name(&ast.name),
+            &ast.attrs.estree.name(&ast.name),
             variants.iter().map(String::as_str),
         );
     }
@@ -193,24 +181,8 @@ fn union(left: &str, right: &str) -> String {
     members.into_iter().collect::<Vec<_>>().join(" | ")
 }
 
-fn public_name(name: &str) -> String {
-    match name {
-        "Stmt" => "Statement".into(),
-        "Decl" => "Declaration".into(),
-        "Expr" => "Expression".into(),
-        "BindingPattern" => "Pattern".into(),
-        "FunctionBody" => "BlockStatement".into(),
-        "Directive" => "ExpressionStatement".into(),
-        "BindingProperty" | "ObjectProperty" => "Property".into(),
-        "TsFunction" => "TSDeclareFunction".into(),
-        "TsGlobalDeclaration" => "TSModuleDeclaration".into(),
-        "TsThisParameter" => "Identifier".into(),
-        _ => estree_type(name),
-    }
-}
-
-fn node_names(name: &str) -> Vec<String> {
-    match name {
+fn node_names(ast: &AstStruct) -> Vec<String> {
+    match ast.name.as_str() {
         "Function" => vec!["FunctionDeclaration".into(), "FunctionExpression".into()],
         "Class" => vec!["ClassDeclaration".into(), "ClassExpression".into()],
         "MethodDefinition" | "TsMethodDefinition" => vec![
@@ -224,10 +196,10 @@ fn node_names(name: &str) -> Vec<String> {
             "TSAbstractAccessorProperty".into(),
         ],
         "TsFunction" => vec![
-            "TSDeclareFunction".into(),
+            ast.attrs.estree.name(&ast.name),
             "TSEmptyBodyFunctionExpression".into(),
         ],
-        _ => vec![public_name(name)],
+        _ => vec![ast.attrs.estree.name(&ast.name)],
     }
 }
 
@@ -241,7 +213,7 @@ fn type_ref(ty: &AstType, schema: &Schema) -> String {
             "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "f64" => "number".into(),
             "Span" => "{ start: number; end: number }".into(),
             "ScopeId" | "SymbolId" => "undefined".into(),
-            name if ENUMS.iter().any(|(key, _)| *key == name) => public_name(name),
+            name if ENUMS.iter().any(|(key, _)| *key == name) => default_name(name),
             name => panic!("unsupported ESTree primitive: {name}"),
         },
         AstType::Struct(ast) => match ast.name.as_str() {
@@ -249,9 +221,9 @@ fn type_ref(ty: &AstType, schema: &Schema) -> String {
             "FormalParameters" => "Array<FormalParameterItem | RestElement>".into(),
             "MethodDefinition" | "TsMethodDefinition" => "MethodDefinition | TSAbstractMethodDefinition".into(),
             "PropertyDefinition" => "PropertyDefinition | AccessorProperty | TSAbstractPropertyDefinition | TSAbstractAccessorProperty".into(),
-            _ => public_name(&ast.name),
+            _ => ast.attrs.estree.name(&ast.name),
         },
-        AstType::Enum(ast) => public_name(&ast.name),
+        AstType::Enum(ast) => ast.attrs.estree.name(&ast.name),
     }
 }
 

@@ -63,7 +63,7 @@ pub struct AstStruct {
     pub type_id: TypeId,
     pub name: String,
     pub fields: Vec<AstStructField>,
-    pub _attrs: AstAttrs,
+    pub attrs: AstAttrs,
 }
 
 #[derive(Debug)]
@@ -78,7 +78,7 @@ pub struct AstEnum {
     pub type_id: TypeId,
     pub name: String,
     pub variants: Vec<AstEnumVariant>,
-    pub _attrs: AstAttrs,
+    pub attrs: AstAttrs,
 }
 
 #[derive(Debug)]
@@ -119,6 +119,15 @@ pub struct AstPrimitive {
 pub struct AstAttrs {
     pub ast_attrs: HashSet<String>,
     pub generate_derives: HashSet<String>,
+    pub estree: EstreeAttrs,
+}
+
+#[derive(Debug, Default)]
+pub struct EstreeAttrs {
+    /// Public name, also used as the default node tag.
+    pub rename: Option<String>,
+    /// Override the node tag without changing its public name.
+    pub ty: Option<String>,
 }
 
 #[derive(Debug, Default)]
