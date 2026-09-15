@@ -649,6 +649,8 @@ pub struct BooleanLiteral {
 /// ```
 #[ast]
 #[estree(ty = "Literal")]
+#[estree(add_field(name = "value", value = null))]
+#[estree(add_field(name = "raw", value = "null"))]
 pub struct NullLiteral {}
 
 /// A regular expression literal.
@@ -725,6 +727,9 @@ pub struct TemplateElement {
 /// as a value reference.
 #[ast]
 #[estree(rename = "Identifier")]
+#[estree(add_field(name = "decorators", value = [], element_type = "Decorator", ts))]
+#[estree(add_field(name = "optional", value = false, ts))]
+#[estree(add_field(name = "typeAnnotation", value = null, ts))]
 pub struct IdentifierReference {
     name: AstUtf8,
 }
@@ -760,10 +765,13 @@ pub struct BindingIdentifier {
     name: AstUtf8,
     /// `decorator[]`. Decorators on a parameter binding (legacy
     /// `experimentalDecorators`). Empty for non-parameter bindings.
+    #[estree(ts)]
     decorators: SubRange<Decorator>,
     /// `ts_type_annotation`. `None` when absent.
+    #[estree(ts)]
     type_annotation: Option<TsTypeAnnotation>,
     /// true when marked optional (`x?: T`).
+    #[estree(ts)]
     optional: bool,
 }
 
@@ -778,6 +786,9 @@ pub struct BindingIdentifier {
 /// ```
 #[ast]
 #[estree(rename = "Identifier")]
+#[estree(add_field(name = "decorators", value = [], element_type = "Decorator", ts))]
+#[estree(add_field(name = "optional", value = false, ts))]
+#[estree(add_field(name = "typeAnnotation", value = null, ts))]
 pub struct IdentifierName {
     name: AstUtf8,
 }
@@ -793,6 +804,9 @@ pub struct IdentifierName {
 /// ```
 #[ast]
 #[estree(rename = "Identifier")]
+#[estree(add_field(name = "decorators", value = [], element_type = "Decorator", ts))]
+#[estree(add_field(name = "optional", value = false, ts))]
+#[estree(add_field(name = "typeAnnotation", value = null, ts))]
 pub struct LabelIdentifier {
     name: AstUtf8,
 }
@@ -810,14 +824,17 @@ pub struct LabelIdentifier {
 pub struct AssignmentPattern {
     /// `decorator[]`. Decorators on a parameter binding (legacy
     /// `experimentalDecorators`).
+    #[estree(ts)]
     decorators: SubRange<Decorator>,
     /// any binding pattern
     left: BindingPattern,
     /// `ts_type_annotation`. `None` when absent.
+    #[estree(ts)]
     type_annotation: Option<TsTypeAnnotation>,
     /// any expression
     right: Expr,
     /// true when marked optional in a parameter position.
+    #[estree(ts)]
     optional: bool,
 }
 
@@ -831,15 +848,19 @@ pub struct AssignmentPattern {
 /// ```
 #[ast]
 #[estree(rename = "RestElement")]
+#[estree(add_field(name = "value", value = null, ts))]
 pub struct BindingRestElement {
     /// `decorator[]`. Decorators on a parameter rest element (legacy
     /// `experimentalDecorators`).
+    #[estree(ts)]
     decorators: SubRange<Decorator>,
     /// any binding pattern
     argument: BindingPattern,
     /// `ts_type_annotation`. `None` when absent.
+    #[estree(ts)]
     type_annotation: Option<TsTypeAnnotation>,
     /// true when marked optional in a parameter position.
+    #[estree(ts)]
     optional: bool,
 }
 
@@ -858,14 +879,17 @@ pub struct BindingRestElement {
 pub struct ArrayPattern {
     /// `decorator[]`. Decorators on a parameter binding (legacy
     /// `experimentalDecorators`).
+    #[estree(ts)]
     decorators: SubRange<Decorator>,
     /// any binding pattern. Entries are `None` for holes.
     elements: SubRange<Option<BindingPattern>>,
     /// `binding_rest_element`. `None` when no rest element is present.
     rest: Option<BindingRestElement>,
     /// `ts_type_annotation`. `None` when absent.
+    #[estree(ts)]
     type_annotation: Option<TsTypeAnnotation>,
     /// true when marked optional in a parameter position.
+    #[estree(ts)]
     optional: bool,
 }
 
@@ -882,14 +906,17 @@ pub struct ArrayPattern {
 pub struct ObjectPattern {
     /// `decorator[]`. Decorators on a parameter binding (legacy
     /// `experimentalDecorators`).
+    #[estree(ts)]
     decorators: SubRange<Decorator>,
     /// `binding_property[]`
     properties: SubRange<BindingProperty>,
     /// `binding_rest_element`. `None` when no rest element is present.
     rest: Option<BindingRestElement>,
     /// `ts_type_annotation`. `None` when absent.
+    #[estree(ts)]
     type_annotation: Option<TsTypeAnnotation>,
     /// true when marked optional in a parameter position.
+    #[estree(ts)]
     optional: bool,
 }
 
@@ -904,6 +931,9 @@ pub struct ObjectPattern {
 /// ```
 #[ast]
 #[estree(rename = "Property")]
+#[estree(add_field(name = "kind", value = "init"))]
+#[estree(add_field(name = "method", value = false))]
+#[estree(add_field(name = "optional", value = false, ts))]
 pub struct BindingProperty {
     /// `identifier_name`, `string_literal`, `numeric_literal`,
     /// `private_identifier` (class members only), or any expression when `computed = true`
@@ -979,6 +1009,7 @@ pub struct ConditionalExpression {
 /// //     ^^^ argument
 /// ```
 #[ast]
+#[estree(add_field(name = "prefix", value = true))]
 pub struct UnaryExpression {
     /// any expression
     argument: Expr,
@@ -1038,6 +1069,7 @@ pub struct VariableDeclaration {
     #[estree(rename = "declarations")]
     declarators: SubRange<VariableDeclarator>,
     /// true for `declare var x: T`.
+    #[estree(ts)]
     declare: bool,
 }
 
@@ -1058,6 +1090,7 @@ pub struct VariableDeclarator {
     /// any expression. `None` when there is no initializer.
     init: Option<Expr>,
     /// true for a definite assignment assertion (`let x!: T`).
+    #[estree(ts)]
     definite: bool,
 }
 
@@ -1258,6 +1291,7 @@ pub struct LabeledStatement {
 /// // ^^^^ expression
 /// ```
 #[ast]
+#[estree(add_field(name = "directive", value = null, ts))]
 pub struct ExpressionStatement {
     /// any expression
     expression: Expr,
@@ -1368,19 +1402,24 @@ pub struct Class {
     id: Option<BindingIdentifier>,
     /// `ts_type_parameter_declaration`. `None` when the class has no `<T, U>`
     /// parameters.
+    #[estree(ts)]
     type_parameters: Option<TsTypeParameterDeclaration>,
     /// any expression. `None` when the class has no `extends` clause.
     super_class: Option<Expr>,
     /// `ts_type_parameter_instantiation`. `None` when `extends` has no `<T>`
     /// arguments.
+    #[estree(ts)]
     super_type_arguments: Option<TsTypeParameterInstantiation>,
     /// `ts_class_implements[]`. Empty when the class has no `implements`
     /// clause.
+    #[estree(ts)]
     implements: SubRange<TsClassImplements>,
     /// `class_body`
     body: ClassBody,
+    #[estree(ts)]
     r#abstract: bool,
     /// true for `declare class`.
+    #[estree(ts)]
     declare: bool,
 }
 
@@ -1424,11 +1463,14 @@ pub struct MethodDefinition {
     /// true when the key is written inside `[...]`.
     computed: bool,
     r#static: bool,
+    #[estree(ts)]
     r#override: bool,
     /// true for an optional method (`foo?()`).
+    #[estree(ts)]
     optional: bool,
     r#abstract: bool,
     /// `None` when no accessibility modifier was written.
+    #[estree(ts)]
     accessibility: Accessibility,
 }
 
@@ -1452,6 +1494,7 @@ pub struct PropertyDefinition {
     /// `private_identifier` (class members only), or any expression when `computed = true`
     key: PropertyKey,
     /// `ts_type_annotation`. `None` when the field has no annotation.
+    #[estree(ts)]
     type_annotation: Option<TsTypeAnnotation>,
     /// any expression. `None` when the field has no initializer.
     value: Option<Expr>,
@@ -1461,16 +1504,22 @@ pub struct PropertyDefinition {
     /// true for `accessor x;` auto-accessor fields.
     accessor: bool,
     /// true for the `declare` modifier.
+    #[estree(ts)]
     declare: bool,
+    #[estree(ts)]
     r#override: bool,
     /// true for an optional property (`foo?: T`).
+    #[estree(ts)]
     optional: bool,
     /// true for a definite assignment assertion (`foo!: T`).
+    #[estree(ts)]
     definite: bool,
     /// true for the `readonly` modifier.
+    #[estree(ts)]
     readonly: bool,
     r#abstract: bool,
     /// `None` when no accessibility modifier was written.
+    #[estree(ts)]
     accessibility: Accessibility,
 }
 
@@ -1505,15 +1554,19 @@ pub struct StaticBlock {
 /// //                              ^^^^^^^^^^^^ body
 /// ```
 #[ast]
+#[estree(add_field(name = "expression", value = false))]
+#[estree(add_field(name = "declare", value = false, ts))]
 pub struct Function {
     function_type: FunctionType,
     /// `binding_identifier`. `None` for anonymous functions.
     id: Option<BindingIdentifier>,
     /// `ts_type_parameter_declaration`. `None` when absent.
+    #[estree(ts)]
     type_parameters: Option<TsTypeParameterDeclaration>,
     /// `formal_parameters`
     params: FormalParameters,
     /// `ts_type_annotation`. `None` when absent.
+    #[estree(ts)]
     return_type: Option<TsTypeAnnotation>,
     /// `function_body`
     body: FunctionBody,
@@ -1679,6 +1732,7 @@ pub struct SpreadElement {
 /// ```
 #[ast]
 #[estree(rename = "Property")]
+#[estree(add_field(name = "optional", value = false, ts))]
 pub struct ObjectProperty {
     /// `identifier_name`, `string_literal`, `numeric_literal`,
     /// `private_identifier` (class members only), or any expression when `computed = true`
@@ -1723,16 +1777,20 @@ pub struct ParenthesizedExpression {
 /// //                    ^ body (expression = true)
 /// ```
 #[ast]
+#[estree(add_field(name = "id", value = null))]
+#[estree(add_field(name = "generator", value = false))]
 pub struct ArrowFunctionExpression {
     /// true for a concise body `() => expr`. false for a block body
     /// `() => { ... }`.
     expression: bool,
     r#async: bool,
     /// `ts_type_parameter_declaration`. `None` when absent.
+    #[estree(ts)]
     type_parameters: Option<TsTypeParameterDeclaration>,
     /// `formal_parameters`
     params: FormalParameters,
     /// `ts_type_annotation`. `None` when absent.
+    #[estree(ts)]
     return_type: Option<TsTypeAnnotation>,
     /// `function_body` when `expression` is false. any expression otherwise.
     body: ArrowFunctionBody,
@@ -1791,6 +1849,7 @@ pub struct CallExpression {
     /// any expression
     callee: Expr,
     /// `ts_type_parameter_instantiation`. `None` when absent.
+    #[estree(ts)]
     type_arguments: Option<TsTypeParameterInstantiation>,
     /// any expression or `spread_element`.
     arguments: SubRange<Argument>,
@@ -1830,6 +1889,7 @@ pub struct TaggedTemplateExpression {
     /// any expression
     tag: Expr,
     /// `ts_type_parameter_instantiation`. `None` when absent.
+    #[estree(ts)]
     type_arguments: Option<TsTypeParameterInstantiation>,
     /// `template_literal`
     quasi: TemplateLiteral,
@@ -1851,6 +1911,7 @@ pub struct NewExpression {
     /// any expression
     callee: Expr,
     /// `ts_type_parameter_instantiation`. `None` when absent.
+    #[estree(ts)]
     type_arguments: Option<TsTypeParameterInstantiation>,
     /// any expression or `spread_element`.
     arguments: SubRange<Argument>,
@@ -1963,6 +2024,7 @@ pub struct ImportDeclaration {
     /// `null` for a regular import.
     phase: Option<ImportPhase>,
     /// `Type` for `import type { ... }`.
+    #[estree(ts)]
     import_kind: ImportOrExportKind,
 }
 
@@ -1984,6 +2046,7 @@ pub struct ImportSpecifier {
     /// `binding_identifier`
     local: BindingIdentifier,
     /// `Type` for `import { type X }`.
+    #[estree(ts)]
     import_kind: ImportOrExportKind,
 }
 
@@ -2054,6 +2117,7 @@ pub struct ExportNamedDeclaration {
     /// `import_attribute[]`
     attributes: SubRange<ImportAttribute>,
     /// `Type` for `export type { ... }`.
+    #[estree(ts)]
     export_kind: ImportOrExportKind,
 }
 
@@ -2067,6 +2131,7 @@ pub struct ExportNamedDeclaration {
 /// //             ^^^^^^^^^^^^^^ declaration
 /// ```
 #[ast]
+#[estree(add_field(name = "exportKind", value = "value", ts))]
 pub struct ExportDefaultDeclaration {
     /// any expression, `function`, or `class`.
     declaration: ExportDefaultDeclarationKind,
@@ -2092,6 +2157,7 @@ pub struct ExportAllDeclaration {
     /// `import_attribute[]`
     attributes: SubRange<ImportAttribute>,
     /// `Type` for `export type * from "..."`.
+    #[estree(ts)]
     export_kind: ImportOrExportKind,
 }
 
@@ -2114,6 +2180,7 @@ pub struct ExportSpecifier {
     /// `identifier_name` or `string_literal`.
     exported: ModuleExportName,
     /// `Type` for `export { type X }`.
+    #[estree(ts)]
     export_kind: ImportOrExportKind,
 }
 

@@ -220,6 +220,8 @@ pub enum TsModuleReference {
 /// ```
 #[ast]
 #[estree(rename = "TSDeclareFunction")]
+#[estree(add_field(name = "body", value = null))]
+#[estree(add_field(name = "expression", value = false))]
 pub struct TsFunction {
     /// `binding_identifier`. `None` for anonymous default exports and method
     /// definitions.
@@ -264,11 +266,14 @@ pub struct TsMethodDefinition {
     /// true when the key is written inside `[...]`.
     computed: bool,
     r#static: bool,
+    #[estree(ts)]
     r#override: bool,
     /// true for an optional method (`foo?()`).
+    #[estree(ts)]
     optional: bool,
     r#abstract: bool,
     /// `None` when no accessibility modifier was written.
+    #[estree(ts)]
     accessibility: Accessibility,
 }
 
@@ -1132,6 +1137,8 @@ pub struct TsMappedType {
 /// //                      ^^^^^^^^ type_annotation
 /// ```
 #[ast]
+#[estree(add_field(name = "accessibility", value = null))]
+#[estree(add_field(name = "static", value = false))]
 pub struct TsPropertySignature {
     /// `identifier_name`, `string_literal`, `numeric_literal`,
     /// `private_identifier` (class members only), or any expression when `computed = true`
@@ -1168,6 +1175,9 @@ pub struct TsPropertySignature {
 /// };
 /// ```
 #[ast]
+#[estree(add_field(name = "accessibility", value = null))]
+#[estree(add_field(name = "readonly", value = false))]
+#[estree(add_field(name = "static", value = false))]
 pub struct TsMethodSignature {
     /// `identifier_name`, `string_literal`, `numeric_literal`,
     /// `private_identifier` (class members only), or any expression when `computed = true`
@@ -1240,6 +1250,7 @@ pub struct TsConstructSignatureDeclaration {
 /// //                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ TSIndexSignature (readonly)
 /// ```
 #[ast]
+#[estree(add_field(name = "accessibility", value = null))]
 pub struct TsIndexSignature {
     /// `binding_identifier[]`. Each entry carries its own
     /// `type_annotation`.
@@ -1248,6 +1259,7 @@ pub struct TsIndexSignature {
     type_annotation: TsTypeAnnotation,
     /// true when preceded by the `readonly` modifier.
     readonly: bool,
+    #[estree(ts)]
     r#static: bool,
 }
 
@@ -1458,6 +1470,7 @@ pub struct TsEnumMember {
 /// //             ^^^^^^^ id (StringLiteral), kind = module, declare = true
 /// ```
 #[ast]
+#[estree(add_field(name = "global", value = false))]
 pub struct TsModuleDeclaration {
     /// `binding_identifier`, `string_literal`, or `ts_qualified_name`.
     id: TsModuleName,
@@ -1494,6 +1507,8 @@ pub struct TsModuleBlock {
 /// ```
 #[ast]
 #[estree(rename = "TSModuleDeclaration")]
+#[estree(add_field(name = "kind", value = "global"))]
+#[estree(add_field(name = "global", value = true))]
 pub struct TsGlobalDeclaration {
     /// `identifier_name` capturing the span of the `global` keyword.
     id: IdentifierName,
@@ -1524,6 +1539,7 @@ pub struct TsGlobalDeclaration {
 /// }
 /// ```
 #[ast]
+#[estree(add_field(name = "static", value = false))]
 pub struct TsParameterProperty {
     /// `decorator[]`. Decorators preceding the modifier, in source order.
     decorators: SubRange<Decorator>,
@@ -1556,6 +1572,9 @@ pub struct TsParameterProperty {
 /// ```
 #[ast]
 #[estree(rename = "Identifier")]
+#[estree(add_field(name = "name", value = "this"))]
+#[estree(add_field(name = "decorators", value = [], element_type = "Decorator"))]
+#[estree(add_field(name = "optional", value = false))]
 pub struct TsThisParameter {
     /// `ts_type_annotation` wrapping the declared type of `this`. `None`
     /// when the parameter is written as bare `this` with no annotation.

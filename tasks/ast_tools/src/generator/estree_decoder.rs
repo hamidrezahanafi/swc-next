@@ -7,7 +7,7 @@ use crate::{
 };
 
 use crate::{
-    estree::{ENUMS, estree_field_name, is_ts_field, ts_extra_fields},
+    estree::{ENUMS, estree_field_name},
     js_minifier::minify,
 };
 
@@ -87,12 +87,25 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
         fields.push(DecodedField {
             name: field_name,
             expression,
+            ts: field.attrs.estree_ts,
         });
     }
 
     if is_special_node(&ast.name) {
         write_special_node(output, ast, &fields);
+        let additional_fields: Vec<_> = fields
+            .iter()
+            .filter(|field| field.ts)
+            .map(|field| DecodedField {
+                name: field.name.clone(),
+                expression: format!("f_{}", field.name),
+                ts: true,
+            })
+            .chain(added_fields(ast))
+            .collect();
+        write_field_assignments(output, &additional_fields);
     } else {
+        fields.extend(added_fields(ast));
         write_generic_node(output, ast, &fields);
     }
     writeln!(output, "        break;").unwrap();
@@ -102,6 +115,7 @@ fn write_node_case(output: &mut String, kind: usize, ast: &AstStruct, schema: &S
 struct DecodedField {
     name: String,
     expression: String,
+    ts: bool,
 }
 
 fn read_expression(ty: &AstType, schema: &Schema, location: &str, aligned_u32: bool) -> String {
@@ -197,27 +211,27 @@ fn read_u32(location: &str, aligned: bool) -> String {
     }
 }
 
-fn write_generic_node(output: &mut String, ast: &AstStruct, fields: &[DecodedField]) {
-    let name = ast.name.as_str();
-    let has_ts_shape = fields.iter().any(|field| is_ts_field(name, &field.name))
-        || !ts_extra_fields(name).is_empty();
+fn added_fields(ast: &AstStruct) -> impl Iterator<Item = DecodedField> + '_ {
+    ast.attrs
+        .estree
+        .added_fields
+        .iter()
+        .map(|field| DecodedField {
+            name: field.name.clone(),
+            expression: field.value.js(),
+            ts: field.ts,
+        })
+}
 
-    if has_ts_shape {
+fn write_generic_node(output: &mut String, ast: &AstStruct, fields: &[DecodedField]) {
+    if fields.iter().any(|field| field.ts) {
         writeln!(output, "        if (isTs) {{").unwrap();
-        write_object_literal(output, ast, fields.iter(), ts_extra_fields(name), 10);
+        write_object_literal(output, ast, fields.iter(), 10);
         writeln!(output, "        }} else {{").unwrap();
-        write_object_literal(
-            output,
-            ast,
-            fields
-                .iter()
-                .filter(|field| !is_ts_field(name, &field.name)),
-            &[],
-            10,
-        );
+        write_object_literal(output, ast, fields.iter().filter(|field| !field.ts), 10);
         writeln!(output, "        }}").unwrap();
     } else {
-        write_object_literal(output, ast, fields.iter(), &[], 8);
+        write_object_literal(output, ast, fields.iter(), 8);
     }
 }
 
@@ -225,7 +239,6 @@ fn write_object_literal<'a>(
     output: &mut String,
     ast: &AstStruct,
     fields: impl Iterator<Item = &'a DecodedField>,
-    extras: &[(&str, &str)],
     indent: usize,
 ) {
     let padding = " ".repeat(indent);
@@ -238,10 +251,30 @@ fn write_object_literal<'a>(
     for field in fields {
         writeln!(output, "{padding}  {}: {},", field.name, field.expression).unwrap();
     }
-    for (field, value) in extras {
-        writeln!(output, "{padding}  {field}: {value},").unwrap();
-    }
     writeln!(output, "{padding}}};").unwrap();
+}
+
+fn write_field_assignments(output: &mut String, fields: &[DecodedField]) {
+    for field in fields.iter().filter(|field| !field.ts) {
+        writeln!(
+            output,
+            "        result.{} = {};",
+            field.name, field.expression
+        )
+        .unwrap();
+    }
+    if fields.iter().any(|field| field.ts) {
+        writeln!(output, "        if (isTs) {{").unwrap();
+        for field in fields.iter().filter(|field| field.ts) {
+            writeln!(
+                output,
+                "          result.{} = {};",
+                field.name, field.expression
+            )
+            .unwrap();
+        }
+        writeln!(output, "        }}").unwrap();
+    }
 }
 
 fn is_special_node(name: &str) -> bool {
@@ -258,15 +291,12 @@ fn is_special_node(name: &str) -> bool {
             | "NumericLiteral"
             | "BigIntLiteral"
             | "BooleanLiteral"
-            | "NullLiteral"
             | "RegExpLiteral"
             | "TemplateElement"
             | "Class"
             | "MethodDefinition"
             | "TsMethodDefinition"
             | "PropertyDefinition"
-            | "UnaryExpression"
-            | "BindingProperty"
             | "ArrayPattern"
             | "ObjectPattern"
             | "JsxText"
@@ -277,8 +307,6 @@ fn is_special_node(name: &str) -> bool {
             | "TsConstructSignatureDeclaration"
             | "TsMappedType"
             | "TsModuleDeclaration"
-            | "TsGlobalDeclaration"
-            | "TsThisParameter"
     )
 }
 
@@ -327,13 +355,7 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
           async: f_async,
           params: f_params.params,
           body: f_body,
-          expression: false,
         };
-        if (isTs) {
-          result.typeParameters = f_typeParameters;
-          result.returnType = f_returnType;
-          result.declare = false;
-        }
 "#,
         ),
         "TsFunction" => write!(
@@ -345,8 +367,6 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
           generator: f_generator,
           async: f_async,
           params: f_params.params,
-          body: null,
-          expression: false,
           typeParameters: f_typeParameters,
           returnType: f_returnType,
           declare: f_declare,
@@ -358,14 +378,10 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
             output,
             r#"        result = {{
           type: "{tag}", start, end,
-          id: null, generator: false, async: f_async,
+          async: f_async,
           params: f_params.params,
           body: f_body, expression: f_expression,
         }};
-        if (isTs) {{
-          result.typeParameters = f_typeParameters;
-          result.returnType = f_returnType;
-        }}
 "#,
         )
         .unwrap(),
@@ -392,11 +408,6 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
           value: f_value, raw: f_value ? "true" : "false",
         }};
 "#,
-        )
-        .unwrap(),
-        "NullLiteral" => writeln!(
-            output,
-            "        result = {{ type: \"{tag}\", start, end, value: null, raw: \"null\" }};"
         )
         .unwrap(),
         "RegExpLiteral" => write!(
@@ -433,13 +444,6 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
           superClass: f_superClass,
           body: f_body,
         };
-        if (isTs) {
-          result.typeParameters = f_typeParameters;
-          result.superTypeArguments = f_superTypeArguments;
-          result.implements = f_implements;
-          result.abstract = f_abstract;
-          result.declare = f_declare;
-        }
 "#,
         ),
         "MethodDefinition" | "TsMethodDefinition" => {
@@ -467,12 +471,7 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
           computed: f_computed,
           static: f_static,
         };
-        if (isTs) {
-          result.override = f_override;
-          result.optional = f_optional;
-          result.accessibility = f_accessibility;
-          if (f_abstract) result.type = "TSAbstractMethodDefinition";
-        }
+        if (isTs && f_abstract) result.type = "TSAbstractMethodDefinition";
 "#,
             );
         }
@@ -487,51 +486,17 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
           computed: f_computed,
           static: f_static,
         };
-        if (isTs) {
-          result.typeAnnotation = f_typeAnnotation;
-          result.declare = f_declare;
-          result.override = f_override;
-          result.optional = f_optional;
-          result.definite = f_definite;
-          result.readonly = f_readonly;
-          result.accessibility = f_accessibility;
-          if (f_abstract) {
-            result.type = accessor
-              ? "TSAbstractAccessorProperty"
-              : "TSAbstractPropertyDefinition";
-          }
+        if (isTs && f_abstract) {
+          result.type = accessor
+            ? "TSAbstractAccessorProperty"
+            : "TSAbstractPropertyDefinition";
         }
 "#,
         ),
-        "UnaryExpression" => write!(
-            output,
-            r#"        result = {{
-          type: "{tag}", start, end,
-          operator: f_operator, prefix: true, argument: f_argument,
-        }};
-"#,
-        )
-        .unwrap(),
-        "BindingProperty" => write!(
-            output,
-            r#"        result = {{
-          type: "{tag}", start, end, kind: "init",
-          key: f_key, value: f_value,
-          method: false, shorthand: f_shorthand, computed: f_computed,
-        }};
-        if (isTs) result.optional = false;
-"#,
-        )
-        .unwrap(),
         "ArrayPattern" => write!(
             output,
             r#"        const elements = f_rest === null ? f_elements : [...f_elements, f_rest];
         result = {{ type: "{tag}", start, end, elements }};
-        if (isTs) {{
-          result.decorators = f_decorators;
-          result.optional = f_optional;
-          result.typeAnnotation = f_typeAnnotation;
-        }}
 "#,
         )
         .unwrap(),
@@ -539,11 +504,6 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
             output,
             r#"        const properties = f_rest === null ? f_properties : [...f_properties, f_rest];
         result = {{ type: "{tag}", start, end, properties }};
-        if (isTs) {{
-          result.decorators = f_decorators;
-          result.optional = f_optional;
-          result.typeAnnotation = f_typeAnnotation;
-        }}
 "#,
         )
         .unwrap(),
@@ -582,14 +542,6 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
         };
 "#,
             );
-            if name == "TsMethodSignature" {
-                output.push_str(
-                    r#"        result.accessibility = null;
-        result.readonly = false;
-        result.static = false;
-"#,
-                );
-            }
         }
         "TsMappedType" => write!(
             output,
@@ -607,29 +559,9 @@ fn write_special_node(output: &mut String, ast: &AstStruct, fields: &[DecodedFie
             output,
             r#"        result = {{
           type: "{tag}", start, end,
-          id: f_id, kind: f_kind, declare: f_declare, global: false,
+          id: f_id, kind: f_kind, declare: f_declare,
         }};
         if (f_body !== null) result.body = f_body;
-"#,
-        )
-        .unwrap(),
-        "TsGlobalDeclaration" => write!(
-            output,
-            r#"        result = {{
-          type: "{tag}", start, end,
-          id: f_id, body: f_body, kind: "global",
-          declare: f_declare, global: true,
-        }};
-"#,
-        )
-        .unwrap(),
-        "TsThisParameter" => write!(
-            output,
-            r#"        result = {{
-          type: "{tag}", start, end,
-          decorators: [], name: "this", optional: false,
-          typeAnnotation: f_typeAnnotation,
-        }};
 "#,
         )
         .unwrap(),

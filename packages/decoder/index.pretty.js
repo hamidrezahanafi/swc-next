@@ -313,7 +313,10 @@ export function decode(buffer, source) {
         break;
       }
       case 7: {
-        result = { type: "Literal", start, end, value: null, raw: "null" };
+        result = { type: "Literal", start, end,
+          value: null,
+          raw: "null",
+        };
         break;
       }
       case 8: {
@@ -465,8 +468,8 @@ export function decode(buffer, source) {
         result = { type: "ArrayPattern", start, end, elements };
         if (isTs) {
           result.decorators = f_decorators;
-          result.optional = f_optional;
           result.typeAnnotation = f_typeAnnotation;
+          result.optional = f_optional;
         }
         break;
       }
@@ -481,22 +484,32 @@ export function decode(buffer, source) {
         result = { type: "ObjectPattern", start, end, properties };
         if (isTs) {
           result.decorators = f_decorators;
-          result.optional = f_optional;
           result.typeAnnotation = f_typeAnnotation;
+          result.optional = f_optional;
         }
         break;
       }
       case 20: {
-        const f_key = node(_u32[(payload + 0) >> 2]);
-        const f_value = node(_u32[(payload + 4) >> 2]);
-        const f_shorthand = _dv.getUint8(payload + 8) !== 0;
-        const f_computed = _dv.getUint8(payload + 9) !== 0;
-        result = {
-          type: "Property", start, end, kind: "init",
-          key: f_key, value: f_value,
-          method: false, shorthand: f_shorthand, computed: f_computed,
-        };
-        if (isTs) result.optional = false;
+        if (isTs) {
+          result = { type: "Property", start, end,
+            key: node(_u32[(payload + 0) >> 2]),
+            value: node(_u32[(payload + 4) >> 2]),
+            shorthand: _dv.getUint8(payload + 8) !== 0,
+            computed: _dv.getUint8(payload + 9) !== 0,
+            kind: "init",
+            method: false,
+            optional: false,
+          };
+        } else {
+          result = { type: "Property", start, end,
+            key: node(_u32[(payload + 0) >> 2]),
+            value: node(_u32[(payload + 4) >> 2]),
+            shorthand: _dv.getUint8(payload + 8) !== 0,
+            computed: _dv.getUint8(payload + 9) !== 0,
+            kind: "init",
+            method: false,
+          };
+        }
         break;
       }
       case 21: {
@@ -524,11 +537,10 @@ export function decode(buffer, source) {
         break;
       }
       case 24: {
-        const f_argument = node(_u32[(payload + 0) >> 2]);
-        const f_operator = enumValue("UnaryOperator", _dv.getUint8(payload + 4));
-        result = {
-          type: "UnaryExpression", start, end,
-          operator: f_operator, prefix: true, argument: f_argument,
+        result = { type: "UnaryExpression", start, end,
+          argument: node(_u32[(payload + 0) >> 2]),
+          operator: enumValue("UnaryOperator", _dv.getUint8(payload + 4)),
+          prefix: true,
         };
         break;
       }
@@ -764,11 +776,11 @@ export function decode(buffer, source) {
           computed: f_computed,
           static: f_static,
         };
+        if (isTs && f_abstract) result.type = "TSAbstractMethodDefinition";
         if (isTs) {
           result.override = f_override;
           result.optional = f_optional;
           result.accessibility = f_accessibility;
-          if (f_abstract) result.type = "TSAbstractMethodDefinition";
         }
         break;
       }
@@ -798,6 +810,11 @@ export function decode(buffer, source) {
           computed: f_computed,
           static: f_static,
         };
+        if (isTs && f_abstract) {
+          result.type = accessor
+            ? "TSAbstractAccessorProperty"
+            : "TSAbstractPropertyDefinition";
+        }
         if (isTs) {
           result.typeAnnotation = f_typeAnnotation;
           result.declare = f_declare;
@@ -806,11 +823,6 @@ export function decode(buffer, source) {
           result.definite = f_definite;
           result.readonly = f_readonly;
           result.accessibility = f_accessibility;
-          if (f_abstract) {
-            result.type = accessor
-              ? "TSAbstractAccessorProperty"
-              : "TSAbstractPropertyDefinition";
-          }
         }
         break;
       }
@@ -837,8 +849,8 @@ export function decode(buffer, source) {
           async: f_async,
           params: f_params.params,
           body: f_body,
-          expression: false,
         };
+        result.expression = false;
         if (isTs) {
           result.typeParameters = f_typeParameters;
           result.returnType = f_returnType;
@@ -948,10 +960,12 @@ export function decode(buffer, source) {
         const f_body = node(_u32[(extra + (extraId + 1) * 8) >> 2]);
         result = {
           type: "ArrowFunctionExpression", start, end,
-          id: null, generator: false, async: f_async,
+          async: f_async,
           params: f_params.params,
           body: f_body, expression: f_expression,
         };
+        result.id = null;
+        result.generator = false;
         if (isTs) {
           result.typeParameters = f_typeParameters;
           result.returnType = f_returnType;
@@ -1198,12 +1212,12 @@ export function decode(buffer, source) {
           generator: f_generator,
           async: f_async,
           params: f_params.params,
-          body: null,
-          expression: false,
           typeParameters: f_typeParameters,
           returnType: f_returnType,
           declare: f_declare,
         };
+        result.body = null;
+        result.expression = false;
         break;
       }
       case 87: {
@@ -1229,11 +1243,11 @@ export function decode(buffer, source) {
           computed: f_computed,
           static: f_static,
         };
+        if (isTs && f_abstract) result.type = "TSAbstractMethodDefinition";
         if (isTs) {
           result.override = f_override;
           result.optional = f_optional;
           result.accessibility = f_accessibility;
-          if (f_abstract) result.type = "TSAbstractMethodDefinition";
         }
         break;
       }
@@ -1535,25 +1549,15 @@ export function decode(buffer, source) {
         break;
       }
       case 132: {
-        if (isTs) {
-          result = { type: "TSPropertySignature", start, end,
-            key: node(_u32[(payload + 0) >> 2]),
-            typeAnnotation: optionalNode(_u32[(payload + 4) >> 2]),
-            computed: _dv.getUint8(payload + 8) !== 0,
-            optional: _dv.getUint8(payload + 9) !== 0,
-            readonly: _dv.getUint8(payload + 10) !== 0,
-            accessibility: null,
-            static: false,
-          };
-        } else {
-          result = { type: "TSPropertySignature", start, end,
-            key: node(_u32[(payload + 0) >> 2]),
-            typeAnnotation: optionalNode(_u32[(payload + 4) >> 2]),
-            computed: _dv.getUint8(payload + 8) !== 0,
-            optional: _dv.getUint8(payload + 9) !== 0,
-            readonly: _dv.getUint8(payload + 10) !== 0,
-          };
-        }
+        result = { type: "TSPropertySignature", start, end,
+          key: node(_u32[(payload + 0) >> 2]),
+          typeAnnotation: optionalNode(_u32[(payload + 4) >> 2]),
+          computed: _dv.getUint8(payload + 8) !== 0,
+          optional: _dv.getUint8(payload + 9) !== 0,
+          readonly: _dv.getUint8(payload + 10) !== 0,
+          accessibility: null,
+          static: false,
+        };
         break;
       }
       case 133: {
@@ -1618,6 +1622,7 @@ export function decode(buffer, source) {
             parameters: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
             typeAnnotation: node(_u32[(payload + 8) >> 2]),
             readonly: _dv.getUint8(payload + 12) !== 0,
+            accessibility: null,
           };
         }
         break;
@@ -1692,9 +1697,10 @@ export function decode(buffer, source) {
         const f_declare = _dv.getUint8(payload + 9) !== 0;
         result = {
           type: "TSModuleDeclaration", start, end,
-          id: f_id, kind: f_kind, declare: f_declare, global: false,
+          id: f_id, kind: f_kind, declare: f_declare,
         };
         if (f_body !== null) result.body = f_body;
+        result.global = false;
         break;
       }
       case 146: {
@@ -1704,43 +1710,32 @@ export function decode(buffer, source) {
         break;
       }
       case 147: {
-        const f_id = node(_u32[(payload + 0) >> 2]);
-        const f_body = node(_u32[(payload + 4) >> 2]);
-        const f_declare = _dv.getUint8(payload + 8) !== 0;
-        result = {
-          type: "TSModuleDeclaration", start, end,
-          id: f_id, body: f_body, kind: "global",
-          declare: f_declare, global: true,
+        result = { type: "TSModuleDeclaration", start, end,
+          id: node(_u32[(payload + 0) >> 2]),
+          body: node(_u32[(payload + 4) >> 2]),
+          declare: _dv.getUint8(payload + 8) !== 0,
+          kind: "global",
+          global: true,
         };
         break;
       }
       case 148: {
-        if (isTs) {
-          result = { type: "TSParameterProperty", start, end,
-            decorators: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
-            parameter: node(_u32[(payload + 8) >> 2]),
-            override: _dv.getUint8(payload + 12) !== 0,
-            readonly: _dv.getUint8(payload + 13) !== 0,
-            accessibility: enumValue("Accessibility", _dv.getUint8(payload + 14)),
-            static: false,
-          };
-        } else {
-          result = { type: "TSParameterProperty", start, end,
-            decorators: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
-            parameter: node(_u32[(payload + 8) >> 2]),
-            override: _dv.getUint8(payload + 12) !== 0,
-            readonly: _dv.getUint8(payload + 13) !== 0,
-            accessibility: enumValue("Accessibility", _dv.getUint8(payload + 14)),
-          };
-        }
+        result = { type: "TSParameterProperty", start, end,
+          decorators: nodeArray(_u32[(payload + 0) >> 2], _u32[(payload + 0 + 4) >> 2], false),
+          parameter: node(_u32[(payload + 8) >> 2]),
+          override: _dv.getUint8(payload + 12) !== 0,
+          readonly: _dv.getUint8(payload + 13) !== 0,
+          accessibility: enumValue("Accessibility", _dv.getUint8(payload + 14)),
+          static: false,
+        };
         break;
       }
       case 149: {
-        const f_typeAnnotation = optionalNode(_u32[(payload + 0) >> 2]);
-        result = {
-          type: "Identifier", start, end,
-          decorators: [], name: "this", optional: false,
-          typeAnnotation: f_typeAnnotation,
+        result = { type: "Identifier", start, end,
+          typeAnnotation: optionalNode(_u32[(payload + 0) >> 2]),
+          name: "this",
+          decorators: [],
+          optional: false,
         };
         break;
       }

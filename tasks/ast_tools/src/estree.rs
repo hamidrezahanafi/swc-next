@@ -1,8 +1,10 @@
 //! Shared names and scalar values of the decoded ESTree representation.
 
+use std::fmt::Write;
+
 use convert_case::{Case, Casing};
 
-use crate::schema::{AstStructField, EstreeAttrs};
+use crate::schema::{AstStructField, EstreeAttrs, EstreeValue};
 
 impl EstreeAttrs {
     pub fn name(&self, name: &str) -> String {
@@ -19,69 +21,6 @@ pub(super) fn default_name(name: &str) -> String {
         _ if name.starts_with("Jsx") => format!("JSX{}", &name[3..]),
         _ if name.starts_with("Ts") => format!("TS{}", &name[2..]),
         _ => name.into(),
-    }
-}
-
-pub(super) fn is_ts_field(node: &str, field: &str) -> bool {
-    matches!(
-        (node, field),
-        ("VariableDeclaration", "declare")
-            | ("VariableDeclarator", "definite")
-            | ("CallExpression", "typeArguments")
-            | ("NewExpression", "typeArguments")
-            | ("TaggedTemplateExpression", "typeArguments")
-            | ("JsxOpeningElement", "typeArguments")
-            | ("ImportDeclaration", "importKind")
-            | ("ImportSpecifier", "importKind")
-            | ("ExportNamedDeclaration", "exportKind")
-            | ("ExportAllDeclaration", "exportKind")
-            | ("ExportSpecifier", "exportKind")
-            | (
-                "BindingRestElement",
-                "decorators" | "optional" | "typeAnnotation"
-            )
-            | (
-                "BindingIdentifier",
-                "decorators" | "optional" | "typeAnnotation"
-            )
-            | (
-                "AssignmentPattern",
-                "decorators" | "optional" | "typeAnnotation"
-            )
-            | (
-                "ObjectPattern",
-                "decorators" | "optional" | "typeAnnotation"
-            )
-            | ("ArrayPattern", "decorators" | "optional" | "typeAnnotation")
-            | ("TsIndexSignature", "static")
-    )
-}
-
-const IDENTIFIER_TS_EXTRAS: &[(&str, &str)] = &[
-    ("decorators", "[]"),
-    ("optional", "false"),
-    ("typeAnnotation", "null"),
-];
-const OBJECT_PROPERTY_TS_EXTRAS: &[(&str, &str)] = &[("optional", "false")];
-const EXPRESSION_STATEMENT_TS_EXTRAS: &[(&str, &str)] = &[("directive", "null")];
-const BINDING_REST_TS_EXTRAS: &[(&str, &str)] = &[("value", "null")];
-const EXPORT_DEFAULT_TS_EXTRAS: &[(&str, &str)] = &[("exportKind", "\"value\"")];
-const TS_PROPERTY_SIGNATURE_EXTRAS: &[(&str, &str)] =
-    &[("accessibility", "null"), ("static", "false")];
-const TS_INDEX_SIGNATURE_EXTRAS: &[(&str, &str)] = &[("accessibility", "null")];
-const TS_PARAMETER_PROPERTY_EXTRAS: &[(&str, &str)] = &[("static", "false")];
-
-pub(super) fn ts_extra_fields(name: &str) -> &'static [(&'static str, &'static str)] {
-    match name {
-        "IdentifierReference" | "IdentifierName" | "LabelIdentifier" => IDENTIFIER_TS_EXTRAS,
-        "ObjectProperty" => OBJECT_PROPERTY_TS_EXTRAS,
-        "ExpressionStatement" => EXPRESSION_STATEMENT_TS_EXTRAS,
-        "BindingRestElement" => BINDING_REST_TS_EXTRAS,
-        "ExportDefaultDeclaration" => EXPORT_DEFAULT_TS_EXTRAS,
-        "TsPropertySignature" => TS_PROPERTY_SIGNATURE_EXTRAS,
-        "TsIndexSignature" => TS_INDEX_SIGNATURE_EXTRAS,
-        "TsParameterProperty" => TS_PARAMETER_PROPERTY_EXTRAS,
-        _ => &[],
     }
 }
 
@@ -190,3 +129,35 @@ pub(super) const ENUMS: &[(&str, &[&str])] = &[
     ("TsModuleDeclarationKind", &["\"namespace\"", "\"module\""]),
     ("TsMappedTypeModifier", &["null", "true", "\"+\"", "\"-\""]),
 ];
+
+impl EstreeValue {
+    pub fn js(&self) -> String {
+        match self {
+            Self::Null => "null".into(),
+            Self::Bool(value) => value.to_string(),
+            Self::String(value) => {
+                let mut output = String::from("\"");
+                for ch in value.chars() {
+                    match ch {
+                        '"' => output.push_str("\\\""),
+                        '\\' => output.push_str("\\\\"),
+                        '\u{0000}'..='\u{001f}' | '\u{2028}' | '\u{2029}' => {
+                            write!(output, "\\u{:04x}", ch as u32).unwrap();
+                        }
+                        _ => output.push(ch),
+                    }
+                }
+                output.push('"');
+                output
+            }
+            Self::EmptyArray { .. } => "[]".into(),
+        }
+    }
+
+    pub fn ts_type(&self) -> String {
+        match self {
+            Self::EmptyArray { element_type } => format!("Array<{element_type}>"),
+            _ => self.js(),
+        }
+    }
+}

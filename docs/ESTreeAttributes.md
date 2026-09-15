@@ -96,6 +96,13 @@ Infer literal TypeScript types from constants: `true` produces type `true`, and
 `null` produces type `null`. Empty arrays need an explicit element type, such
 as Decorator for `decorators`.
 
+The implemented constant forms are `null`, booleans, strings, and `[]`. Specify
+the TypeScript element type of an empty array with
+`add_field(name = "decorators", value = [], element_type = "Decorator")`.
+Multiple `add_field` entries may share an `estree` attribute or use separate
+attributes. Added fields cannot duplicate stored output fields or the common
+`type`, `start`, and `end` properties.
+
 ### Add TS Conditions When a Case Requires Them
 
 BindingProperty also adds `optional: false`, but only in TS mode. Extend the

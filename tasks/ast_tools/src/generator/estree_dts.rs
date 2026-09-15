@@ -10,7 +10,7 @@ use crate::{
     schema::{AstStruct, AstType, Schema},
 };
 
-use crate::estree::{ENUMS, default_name, estree_field_name, is_ts_field, ts_extra_fields};
+use crate::estree::{ENUMS, default_name, estree_field_name};
 
 #[derive(Clone)]
 struct Field {
@@ -35,11 +35,17 @@ pub fn estree_dts(schema: &Schema) -> RawOutput {
         }
         let mut fields = fields(ast, schema);
         reshape(&ast.name, &mut fields);
+        for field in &ast.attrs.estree.added_fields {
+            fields.insert(
+                field.name.clone(),
+                Field {
+                    ty: field.value.ts_type(),
+                    optional: field.ts,
+                },
+            );
+        }
         for name in node_names(ast) {
-            let mut fields = fields.clone();
-            if name == "TSEmptyBodyFunctionExpression" {
-                set(&mut fields, "body", "null");
-            }
+            let fields = fields.clone();
             let tag = ast.attrs.estree.ty.clone().unwrap_or_else(|| name.clone());
             if let Some(existing) = nodes.get_mut(&name) {
                 // Several storage nodes decode to the same public node. Fields
@@ -228,13 +234,12 @@ fn type_ref(ty: &AstType, schema: &Schema) -> String {
 }
 
 fn fields(ast: &AstStruct, schema: &Schema) -> Fields {
-    let mut fields: Fields = ast
-        .fields
+    ast.fields
         .iter()
         .filter(|field| !field.attrs.estree_skip)
         .map(|field| {
             let name = estree_field_name(field);
-            let optional = is_ts_field(&ast.name, &name);
+            let optional = field.attrs.estree_ts;
             (
                 name,
                 Field {
@@ -243,22 +248,7 @@ fn fields(ast: &AstStruct, schema: &Schema) -> Fields {
                 },
             )
         })
-        .collect();
-    for (name, value) in ts_extra_fields(&ast.name) {
-        fields.insert(
-            (*name).into(),
-            Field {
-                ty: if *value == "[]" {
-                    "Array<Decorator>"
-                } else {
-                    value
-                }
-                .into(),
-                optional: !ast.name.starts_with("Ts"),
-            },
-        );
-    }
-    fields
+        .collect()
 }
 
 fn set(fields: &mut Fields, name: &str, ty: &str) {
@@ -293,34 +283,13 @@ fn reshape(name: &str, fields: &mut Fields) {
                 set(fields, "sourceType", "SourceType");
             }
         }
-        "Function" | "TsFunction" | "ArrowFunctionExpression" => {
-            remove(fields, &["functionType"]);
-            if name != "ArrowFunctionExpression" {
-                set(fields, "expression", "false");
-            }
-            if name == "TsFunction" {
-                set(fields, "body", "null");
-            } else {
-                optional(fields, &["typeParameters", "returnType"]);
-                if name == "Function" {
-                    set(fields, "declare", "false");
-                    optional(fields, &["declare"]);
-                } else {
-                    set(fields, "id", "null");
-                    set(fields, "generator", "false");
-                }
-            }
-        }
+        "Function" => remove(fields, &["functionType"]),
         "NumericLiteral" => set(fields, "raw", "string"),
         "BigIntLiteral" => {
             set(fields, "value", "bigint");
             set(fields, "bigint", "string");
         }
         "BooleanLiteral" => set(fields, "raw", "\"true\" | \"false\""),
-        "NullLiteral" => {
-            set(fields, "value", "null");
-            set(fields, "raw", "\"null\"");
-        }
         "RegExpLiteral" => {
             fields.clear();
             set(fields, "value", "RegExp | null");
@@ -331,19 +300,7 @@ fn reshape(name: &str, fields: &mut Fields) {
             remove(fields, &["raw", "cooked", "isCookedUndefined"]);
             set(fields, "value", "{ raw: string; cooked: string | null }");
         }
-        "Class" => {
-            remove(fields, &["classType"]);
-            optional(
-                fields,
-                &[
-                    "typeParameters",
-                    "superTypeArguments",
-                    "implements",
-                    "abstract",
-                    "declare",
-                ],
-            );
-        }
+        "Class" => remove(fields, &["classType"]),
         "MethodDefinition" | "TsMethodDefinition" => {
             remove(fields, &["abstract"]);
             set(
@@ -355,55 +312,18 @@ fn reshape(name: &str, fields: &mut Fields) {
                     "TSEmptyBodyFunctionExpression"
                 },
             );
-            optional(fields, &["override", "optional", "accessibility"]);
         }
-        "PropertyDefinition" => {
-            remove(fields, &["abstract", "accessor"]);
-            optional(
-                fields,
-                &[
-                    "typeAnnotation",
-                    "declare",
-                    "override",
-                    "optional",
-                    "definite",
-                    "readonly",
-                    "accessibility",
-                ],
-            );
-        }
-        "UnaryExpression" => set(fields, "prefix", "true"),
-        "BindingProperty" => {
-            set(fields, "kind", "\"init\"");
-            set(fields, "method", "false");
-            set(fields, "optional", "false");
-            optional(fields, &["optional"]);
-        }
+        "PropertyDefinition" => remove(fields, &["abstract", "accessor"]),
         "ArrayPattern" => remove(fields, &["rest"]),
         "ObjectPattern" => {
             remove(fields, &["rest"]);
             set(fields, "properties", "Array<Property | RestElement>");
         }
         "JsxText" => set(fields, "raw", "string"),
-        "TsMethodSignature" => {
-            set(fields, "accessibility", "null");
-            set(fields, "readonly", "false");
-            set(fields, "static", "false");
-        }
         "TsMappedType" => set(fields, "optional", "boolean | \"+\" | \"-\""),
         "TsModuleDeclaration" => {
             set(fields, "body", "TSModuleBody");
             optional(fields, &["body"]);
-            set(fields, "global", "false");
-        }
-        "TsGlobalDeclaration" => {
-            set(fields, "kind", "\"global\"");
-            set(fields, "global", "true");
-        }
-        "TsThisParameter" => {
-            set(fields, "name", "\"this\"");
-            set(fields, "decorators", "Array<Decorator>");
-            set(fields, "optional", "false");
         }
         _ => {}
     }

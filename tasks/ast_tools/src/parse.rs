@@ -13,7 +13,8 @@ use syn::{
 
 use crate::schema::{
     AstAttrs, AstEnum, AstEnumVariant, AstFieldAttrs, AstOption, AstPrimitive, AstStruct,
-    AstStructField, AstSubRange, AstType, EstreeAttrs, Schema, TypeId,
+    AstStructField, AstSubRange, AstType, EstreeAddedField, EstreeAttrs, EstreeValue, Schema,
+    TypeId,
 };
 
 struct Parser {
@@ -264,12 +265,16 @@ fn parse_attrs(attrs: &[Attribute]) -> Option<AstAttrs> {
                 }
                 if meta_list.path.is_ident("estree") {
                     attr.parse_nested_meta(|meta| {
+                        if meta.path.is_ident("add_field") {
+                            estree.added_fields.push(parse_added_field(meta)?);
+                            return Ok(());
+                        }
                         let target = if meta.path.is_ident("rename") {
                             &mut estree.rename
                         } else if meta.path.is_ident("ty") {
                             &mut estree.ty
                         } else {
-                            return Err(meta.error("Expected `rename` or `ty`"));
+                            return Err(meta.error("Expected `rename`, `ty`, or `add_field`"));
                         };
                         if target.is_some() {
                             return Err(meta.error("Duplicate ESTree attribute"));
@@ -296,14 +301,79 @@ fn parse_attrs(attrs: &[Attribute]) -> Option<AstAttrs> {
     })
 }
 
+fn parse_added_field(meta: syn::meta::ParseNestedMeta<'_>) -> syn::Result<EstreeAddedField> {
+    let mut name = None;
+    let mut value = None;
+    let mut element_type = None;
+    let mut ts = false;
+    meta.parse_nested_meta(|part| {
+        if part.path.is_ident("ts") {
+            if ts {
+                return Err(part.error("Duplicate `ts`"));
+            }
+            ts = true;
+        } else if part.path.is_ident("value") {
+            if value.is_some() {
+                return Err(part.error("Duplicate `value`"));
+            }
+            value = Some(part.value()?.parse::<syn::Expr>()?);
+        } else {
+            let target = if part.path.is_ident("name") {
+                &mut name
+            } else if part.path.is_ident("element_type") {
+                &mut element_type
+            } else {
+                return Err(part.error("Expected `name`, `value`, `element_type`, or `ts`"));
+            };
+            if target.is_some() {
+                return Err(part.error("Duplicate added field attribute"));
+            }
+            *target = Some(part.value()?.parse::<syn::LitStr>()?.value());
+        }
+        Ok(())
+    })?;
+    let name = name.ok_or_else(|| meta.error("Added field requires a name"))?;
+    let value = value.ok_or_else(|| meta.error("Added field requires a value"))?;
+    let value = match value {
+        syn::Expr::Path(path) if path.path.is_ident("null") => EstreeValue::Null,
+        syn::Expr::Lit(lit) => match lit.lit {
+            syn::Lit::Bool(value) => EstreeValue::Bool(value.value),
+            syn::Lit::Str(value) => EstreeValue::String(value.value()),
+            _ => return Err(meta.error("Expected null, a boolean, a string, or []")),
+        },
+        syn::Expr::Array(array) if array.elems.is_empty() => EstreeValue::EmptyArray {
+            element_type: element_type
+                .take()
+                .ok_or_else(|| meta.error("An empty array requires `element_type`"))?,
+        },
+        _ => return Err(meta.error("Expected null, a boolean, a string, or []")),
+    };
+    if element_type.is_some() {
+        return Err(meta.error("`element_type` is only valid for an empty array"));
+    }
+    Ok(EstreeAddedField { name, value, ts })
+}
+
 impl Parser {
     fn parse_struct(&mut self, type_id: TypeId, attrs: AstAttrs, item: ItemStruct) -> AstType {
         let name = item.ident.to_string();
-        let fields = item
+        let fields: Vec<_> = item
             .fields
             .into_iter()
             .map(|field| self.parse_struct_field(field))
             .collect();
+        let mut output_fields = HashSet::from(["type".into(), "start".into(), "end".into()]);
+        for field in fields.iter().filter(|field| !field.attrs.estree_skip) {
+            output_fields.insert(crate::estree::estree_field_name(field));
+        }
+        for field in &attrs.estree.added_fields {
+            assert!(
+                output_fields.insert(field.name.clone()),
+                "Duplicate ESTree field `{}.{}`",
+                name,
+                field.name
+            );
+        }
         AstType::Struct(AstStruct {
             type_id,
             name,
@@ -328,6 +398,10 @@ impl Parser {
 
     fn parse_enum(&mut self, type_id: TypeId, attrs: AstAttrs, item: ItemEnum) -> AstType {
         let name = item.ident.to_string();
+        assert!(
+            attrs.estree.added_fields.is_empty(),
+            "ESTree added fields require a struct: {name}"
+        );
         assert!(
             item.variants
                 .iter()
@@ -457,6 +531,7 @@ fn parse_field_attrs(attrs: &[Attribute]) -> AstFieldAttrs {
                 .expect("Unable to parse `#[estree]`");
             for arg in args {
                 match arg {
+                    Meta::Path(path) if path.is_ident("ts") => field_attrs.estree_ts = true,
                     arg if arg.path().is_ident("skip") => field_attrs.estree_skip = true,
                     Meta::NameValue(value) if value.path.is_ident("rename") => {
                         assert!(
@@ -467,7 +542,7 @@ fn parse_field_attrs(attrs: &[Attribute]) -> AstFieldAttrs {
                             .expect("ESTree field rename must be a string literal");
                         field_attrs.estree_rename = Some(rename.value());
                     }
-                    _ => panic!("Expected ESTree field `skip` or `rename = \"...\"`"),
+                    _ => panic!("Expected ESTree field `skip`, `ts`, or `rename = \"...\"`"),
                 }
             }
             continue;
