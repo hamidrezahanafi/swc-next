@@ -134,7 +134,21 @@ impl<'a> StringPool<'a> {
         if text.is_empty() {
             return (0, 0);
         }
-        if let Some(&id) = self.dedup.get(text) {
+        // Until a second distinct string is added, `extra` is the entire first
+        // string. Avoid allocating a duplicate key and a table for that case.
+        if self.dedup.is_empty() {
+            if self.extra.as_slice() == text {
+                let start = self.source.len() as u32;
+                return (start, start + self.extra.len() as u32);
+            }
+            if !self.extra.is_empty() {
+                let mut key = ArenaVec::with_capacity_in(self.extra.len(), self.allocator);
+                key.extend_from_slice(&self.extra);
+                let start = self.source.len() as u32;
+                self.dedup
+                    .insert(key, (start, start + self.extra.len() as u32));
+            }
+        } else if let Some(&id) = self.dedup.get(text) {
             return id;
         }
         let start = self
@@ -149,9 +163,11 @@ impl<'a> StringPool<'a> {
         self.extra.extend_from_slice(text);
 
         let id = (start as u32, end as u32);
-        let mut key = ArenaVec::with_capacity_in(text.len(), self.allocator);
-        key.extend_from_slice(text);
-        self.dedup.insert(key, id);
+        if !self.dedup.is_empty() {
+            let mut key = ArenaVec::with_capacity_in(text.len(), self.allocator);
+            key.extend_from_slice(text);
+            self.dedup.insert(key, id);
+        }
         id
     }
 }
