@@ -153,6 +153,7 @@ impl<'a> SemanticContext<'a> {
         self.enter_block_scope(node);
     }
 
+    #[expect(dead_code, reason = "pending Traverse method-signature migration")]
     pub fn enter_ts_method_signature(&mut self, node: NodeId) {
         self.enter_block_scope(node);
     }
@@ -173,6 +174,7 @@ impl<'a> SemanticContext<'a> {
         self.enter_block_scope(node);
     }
 
+    #[expect(dead_code, reason = "pending Traverse conditional-type migration")]
     pub fn enter_ts_conditional_type(&mut self, node: NodeId) {
         self.enter_block_scope(node);
     }

@@ -23,7 +23,7 @@ use swc_next_allocator::{
     hash_map::{HashMap as ArenaHashMap, Values},
     vec::Vec as ArenaVec,
 };
-use swc_next_ecma_ast::{Ast, Diagnostic, NodeId, ScopeId, SymbolId, VisitWith};
+use swc_next_ecma_ast::{Ast, Diagnostic, NodeId, ScopeId, SymbolId, TraverseCtx, TraverseWith};
 
 use crate::{
     binder::{Range, TsMemberIndex},
@@ -610,7 +610,7 @@ pub struct AnalyzeOptions {
 pub fn analyze<'a>(ast: &Ast<'a>, options: AnalyzeOptions) -> SemanticReturn<'a> {
     let root = ast.root_program();
     let mut visitor = SemanticBuilder::new(ast, options.check_syntax, options.build_module_record);
-    root.visit_with(&mut visitor);
+    root.traverse_with(&mut visitor, &mut TraverseCtx::new(ast, ()));
     let (semantic, diagnostics) = visitor.finish();
     SemanticReturn {
         semantic,

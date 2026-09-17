@@ -2610,6 +2610,7 @@ impl<'a> SymbolTracker<'a> {
         self.enter_signature_type(scope);
     }
 
+    #[expect(dead_code, reason = "pending Traverse method-signature migration")]
     pub fn enter_ts_method_signature(&mut self, scope: &ScopeTracker<'a>) {
         self.enter_signature_type(scope);
     }
@@ -3210,6 +3211,7 @@ impl<'a> SymbolTracker<'a> {
 
     /// An infer parameter is visible in its own constraint as well as the
     /// conditional true branch, without exposing its siblings' infer names.
+    #[expect(dead_code, reason = "pending Traverse infer-constraint migration")]
     pub fn expose_ts_infer_parameter(
         &mut self,
         tree: &Ast<'a>,
