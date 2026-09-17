@@ -67,6 +67,34 @@ dependency cycles are rejected while building the schema. Builders and clone
 implementations initialize all fields together and do not trigger field
 invalidation.
 
+## Traversal scopes
+
+Mark scope-owning AST structs with `#[scope]`, after `#[ast]`. By default,
+`Traverse` and `TraverseMut` call `enter_scope(node_id, ctx)` before the first
+field and `leave_scope(node_id, ctx)` after the last field. Both hooks have
+empty default implementations and receive the scope owner's `NodeId`.
+
+Use `#[scope(enter_before)]` or `#[scope(leave_before)]` on a field to move
+the corresponding boundary before that field:
+
+```rust
+#[ast]
+#[scope]
+pub struct TsConditionalType {
+    check_type: TsType,
+    #[scope(enter_before)]
+    extends_type: TsType,
+    true_type: TsType,
+    #[scope(leave_before)]
+    false_type: TsType,
+}
+```
+
+Boundaries run even when the field is an absent `Option`, an empty `SubRange`,
+or a primitive. They run inside the owning node's enter/exit hooks. Each scope
+may have at most one entry and one exit boundary, and entry must precede exit
+(or share the same field). These annotations do not change the `Visit` APIs.
+
 ## Development workflow
 
 1. Edit the AST declaration in `crates/swc_ecma_ast/src/ast/{js,ts,jsx}.rs`.

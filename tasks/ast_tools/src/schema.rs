@@ -63,7 +63,14 @@ pub struct AstStruct {
     pub type_id: TypeId,
     pub name: String,
     pub fields: Vec<AstStructField>,
+    pub scope: Option<AstScope>,
     pub _attrs: AstAttrs,
+}
+
+#[derive(Debug)]
+pub struct AstScope {
+    pub enter_before: usize,
+    pub leave_before: usize,
 }
 
 #[derive(Debug)]

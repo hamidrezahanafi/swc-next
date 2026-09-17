@@ -12,7 +12,7 @@ use syn::{
 };
 
 use crate::schema::{
-    AstAttrs, AstEnum, AstEnumVariant, AstFieldAttrs, AstOption, AstPrimitive, AstStruct,
+    AstAttrs, AstEnum, AstEnumVariant, AstFieldAttrs, AstOption, AstPrimitive, AstScope, AstStruct,
     AstStructField, AstSubRange, AstType, Schema, TypeId,
 };
 
@@ -275,6 +275,7 @@ fn parse_attrs(attrs: &[Attribute]) -> Option<AstAttrs> {
 impl Parser {
     fn parse_struct(&mut self, type_id: TypeId, attrs: AstAttrs, item: ItemStruct) -> AstType {
         let name = item.ident.to_string();
+        let scope = parse_scope(&item);
         let fields = item
             .fields
             .into_iter()
@@ -284,6 +285,7 @@ impl Parser {
             type_id,
             name,
             fields,
+            scope,
             _attrs: attrs,
         })
     }
@@ -418,6 +420,61 @@ impl Parser {
         };
         Some(type_id)
     }
+}
+
+fn parse_scope(item: &ItemStruct) -> Option<AstScope> {
+    let mut scope = None;
+    for attr in &item.attrs {
+        if attr.path().is_ident("scope") {
+            assert!(
+                matches!(attr.meta, Meta::Path(_)),
+                "Expected `#[scope]` on {}",
+                item.ident
+            );
+            assert!(scope.is_none(), "Duplicate `#[scope]` on {}", item.ident);
+            scope = Some(AstScope {
+                enter_before: 0,
+                leave_before: item.fields.len(),
+            });
+        }
+    }
+
+    let mut has_enter = false;
+    let mut has_leave = false;
+    for (index, field) in item.fields.iter().enumerate() {
+        for attr in &field.attrs {
+            if !attr.path().is_ident("scope") {
+                continue;
+            }
+            let scope = scope
+                .as_mut()
+                .unwrap_or_else(|| panic!("Scope boundaries require `#[scope]` on {}", item.ident));
+            let boundary = attr
+                .parse_args::<Ident>()
+                .expect("Expected a scope boundary");
+            let (position, seen) = match boundary.to_string().as_str() {
+                "enter_before" => (&mut scope.enter_before, &mut has_enter),
+                "leave_before" => (&mut scope.leave_before, &mut has_leave),
+                _ => panic!("Unknown scope boundary `{boundary}` on {}", item.ident),
+            };
+            assert!(
+                !*seen,
+                "Duplicate scope boundary `{boundary}` on {}",
+                item.ident
+            );
+            *position = index;
+            *seen = true;
+        }
+    }
+
+    if let Some(scope) = &scope {
+        assert!(
+            scope.enter_before <= scope.leave_before,
+            "Scope must be entered before leaving it on {}",
+            item.ident
+        );
+    }
+    scope
 }
 
 fn parse_field_attrs(attrs: &[Attribute]) -> AstFieldAttrs {

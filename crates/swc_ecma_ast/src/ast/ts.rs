@@ -218,6 +218,7 @@ pub enum TsModuleReference {
 /// //                           ^^^ return_type
 /// ```
 #[ast]
+#[scope]
 pub struct TsFunction {
     /// `binding_identifier`. `None` for anonymous default exports and method
     /// definitions.
@@ -904,14 +905,17 @@ pub struct TsIntersectionType {
 /// //                                            ^^^^ false_type
 /// ```
 #[ast]
+#[scope]
 pub struct TsConditionalType {
     /// any ts type
     check_type: TsType,
     /// any ts type
+    #[scope(enter_before)]
     extends_type: TsType,
     /// any ts type
     true_type: TsType,
     /// any ts type
+    #[scope(leave_before)]
     false_type: TsType,
 }
 
@@ -990,6 +994,7 @@ pub struct TsParenthesizedType {
 /// //       ^^^^^^^^^^^^^^ TSFunctionType with type_parameters
 /// ```
 #[ast]
+#[scope]
 pub struct TsFunctionType {
     /// `ts_type_parameter_declaration`. `None` when absent.
     type_parameters: Option<TsTypeParameterDeclaration>,
@@ -1012,6 +1017,7 @@ pub struct TsFunctionType {
 /// //       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ TSConstructorType (abstract = true)
 /// ```
 #[ast]
+#[scope]
 pub struct TsConstructorType {
     /// `ts_type_parameter_declaration`. `None` when absent.
     type_parameters: Option<TsTypeParameterDeclaration>,
@@ -1094,6 +1100,7 @@ pub struct TsTypeLiteral {
 /// //                                ^^ name_type = template literal type
 /// ```
 #[ast]
+#[scope]
 pub struct TsMappedType {
     /// `binding_identifier` naming the binding introduced by the `in` clause
     /// (`K` in `[K in T]`). Visible inside `name_type` and
@@ -1162,6 +1169,7 @@ pub struct TsPropertySignature {
 /// };
 /// ```
 #[ast]
+#[scope]
 pub struct TsMethodSignature {
     /// `identifier_name`, `string_literal`, `numeric_literal`,
     /// `private_identifier` (class members only), or any expression when `computed = true`
@@ -1191,6 +1199,7 @@ pub struct TsMethodSignature {
 /// //                ^^^^^^^^^^^^^ TSCallSignatureDeclaration
 /// ```
 #[ast]
+#[scope]
 pub struct TsCallSignatureDeclaration {
     /// `ts_type_parameter_declaration`. `None` when absent.
     type_parameters: Option<TsTypeParameterDeclaration>,
@@ -1210,6 +1219,7 @@ pub struct TsCallSignatureDeclaration {
 /// //            ^^^^^^^^^^^^^^^^^ TSConstructSignatureDeclaration
 /// ```
 #[ast]
+#[scope]
 pub struct TsConstructSignatureDeclaration {
     /// `ts_type_parameter_declaration`. `None` when absent.
     type_parameters: Option<TsTypeParameterDeclaration>,
@@ -1262,11 +1272,13 @@ pub struct TsIndexSignature {
 /// // ^^^^^^^ declare = true
 /// ```
 #[ast]
+#[scope]
 pub struct TsTypeAliasDeclaration {
     /// `binding_identifier`
     id: BindingIdentifier,
     /// `ts_type_parameter_declaration`. `None` when the alias has no `<T>`
     /// list.
+    #[scope(enter_before)]
     type_parameters: Option<TsTypeParameterDeclaration>,
     /// any ts type. Stored as a bare type without a wrapping
     /// `ts_type_annotation` node.
@@ -1294,11 +1306,13 @@ pub struct TsTypeAliasDeclaration {
 /// // ^^^^^^^ declare = true
 /// ```
 #[ast]
+#[scope]
 pub struct TsInterfaceDeclaration {
     /// `binding_identifier`
     id: BindingIdentifier,
     /// `ts_type_parameter_declaration`. `None` when the interface has no
     /// `<T>` list.
+    #[scope(enter_before)]
     type_parameters: Option<TsTypeParameterDeclaration>,
     /// `ts_interface_heritage[]`. Empty when the interface has no `extends`
     /// clause.
@@ -1408,6 +1422,7 @@ pub struct TsEnumDeclaration {
 /// //       ^^^^^^^^^^^^^^ TSEnumBody
 /// ```
 #[ast]
+#[scope]
 pub struct TsEnumBody {
     /// `ts_enum_member[]`
     members: SubRange<TsEnumMember>,
@@ -1451,11 +1466,13 @@ pub struct TsEnumMember {
 /// //             ^^^^^^^ id (StringLiteral), kind = module, declare = true
 /// ```
 #[ast]
+#[scope]
 pub struct TsModuleDeclaration {
     /// `binding_identifier`, `string_literal`, or `ts_qualified_name`.
     id: TsModuleName,
     /// `ts_module_block`. `None` for body-less forward declarations like
     /// `declare module "foo";`.
+    #[scope(enter_before)]
     body: Option<TsModuleBody>,
     kind: TsModuleDeclarationKind,
     /// true when preceded by the `declare` modifier.
@@ -1486,6 +1503,7 @@ pub struct TsModuleBlock {
 /// //             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ body
 /// ```
 #[ast]
+#[scope]
 pub struct TsGlobalDeclaration {
     /// `identifier_name` capturing the span of the `global` keyword.
     id: IdentifierName,

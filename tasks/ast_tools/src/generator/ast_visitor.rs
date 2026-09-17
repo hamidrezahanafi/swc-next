@@ -553,7 +553,18 @@ fn generate_traverse(schema: &Schema, mutable: bool) -> TokenStream {
                 let exit_fn = format_ident!("exit_{name}");
                 let walk_fn = format_ident!("{walk_prefix}_{name}");
                 let mut children = TokenStream::new();
-                for field in &ast.fields {
+                for index in 0..=ast.fields.len() {
+                    if let Some(scope) = &ast.scope {
+                        if scope.enter_before == index {
+                            children.extend(quote! { traverser.enter_scope(node_id, ctx); });
+                        }
+                        if scope.leave_before == index {
+                            children.extend(quote! { traverser.leave_scope(node_id, ctx); });
+                        }
+                    }
+                    let Some(field) = ast.fields.get(index) else {
+                        break;
+                    };
                     if !should_visit_type(field.type_id, schema) {
                         continue;
                     }
@@ -571,6 +582,11 @@ fn generate_traverse(schema: &Schema, mutable: bool) -> TokenStream {
                     });
                 }
 
+                let scope_node_id = ast.scope.as_ref().map(|_| {
+                    quote! {
+                        let node_id = node.node_id();
+                    }
+                });
                 walks.extend(quote! {
                     #[inline]
                     fn #walk_fn<'a, State, T: ?Sized + #trait_name<'a, State>>(
@@ -578,6 +594,7 @@ fn generate_traverse(schema: &Schema, mutable: bool) -> TokenStream {
                         traverser: &mut T,
                         ctx: &mut #ctx_ty<'_, 'a, State>,
                     ) {
+                        #scope_node_id
                         traverser.#enter_fn(node, ctx);
                         #children
                         traverser.#exit_fn(node, ctx);
@@ -698,12 +715,22 @@ fn generate_traverse(schema: &Schema, mutable: bool) -> TokenStream {
         /// Each node's enter/exit hooks enclose its enum and concrete hooks, even
         /// when nested enums describe the same node. Direct traversal uses the
         /// same ordering for the root node.
+        /// Scope hooks run at the boundaries marked in the AST declarations,
+        /// inside the owning node's enter and exit hooks.
         pub trait #trait_name<'a, State = ()> {
             #[inline]
             fn enter_node(&mut self, node_id: NodeId, ctx: &mut #ctx_ty<'_, 'a, State>) {}
 
             #[inline]
             fn exit_node(&mut self, node_id: NodeId, ctx: &mut #ctx_ty<'_, 'a, State>) {}
+
+            /// Enters the scope owned by `node_id` before traversing its scoped fields.
+            #[inline]
+            fn enter_scope(&mut self, node_id: NodeId, ctx: &mut #ctx_ty<'_, 'a, State>) {}
+
+            /// Leaves the scope owned by `node_id` after traversing its scoped fields.
+            #[inline]
+            fn leave_scope(&mut self, node_id: NodeId, ctx: &mut #ctx_ty<'_, 'a, State>) {}
 
             #hooks
         }

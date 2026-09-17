@@ -347,6 +347,7 @@ impl ExtraDataValue for Option<ImportPhase> {
 /// `hashbang` is the `#!` line if present. `directives` contains the directive
 /// prologue (`"use strict";`), while `body` contains imports and statements.
 #[ast]
+#[scope]
 pub struct Program {
     directives: SubRange<Directive>,
     /// Import and export declarations are classified as statements.
@@ -1067,10 +1068,12 @@ pub struct IfStatement {
 /// //           ^^^^^^^^^^^^^ cases[0]
 /// ```
 #[ast]
+#[scope]
 pub struct SwitchStatement {
     /// any expression
     discriminant: Expr,
     /// `switch_case[]`
+    #[scope(enter_before)]
     cases: SubRange<SwitchCase>,
 }
 
@@ -1100,6 +1103,7 @@ pub struct SwitchCase {
 /// //                          ^^^^^ body
 /// ```
 #[ast]
+#[scope]
 pub struct ForStatement {
     /// `variable_declaration` or any expression. `None` when omitted.
     init: Option<ForStatementInit>,
@@ -1120,6 +1124,7 @@ pub struct ForStatement {
 /// //                   ^^^^^ body
 /// ```
 #[ast]
+#[scope]
 pub struct ForInStatement {
     /// `variable_declaration` or any assignment target
     left: ForStatementLeft,
@@ -1140,6 +1145,7 @@ pub struct ForInStatement {
 /// //                          ^^^^^ body
 /// ```
 #[ast]
+#[scope]
 pub struct ForOfStatement {
     /// `variable_declaration` or any assignment target
     left: ForStatementLeft,
@@ -1178,6 +1184,7 @@ pub struct TryStatement {
 /// //               ^^^^^^^^ body
 /// ```
 #[ast]
+#[scope]
 pub struct CatchClause {
     /// any binding pattern. `None` for `catch { }` with no binding.
     param: Option<BindingPattern>,
@@ -1337,6 +1344,7 @@ pub struct Decorator {
 /// `@dec class` populates `decorators`. `abstract class` sets `abstract`.
 /// `declare class` sets `declare`.
 #[ast]
+#[scope]
 pub struct Class {
     class_type: ClassType,
     /// `decorator[]`
@@ -1345,6 +1353,7 @@ pub struct Class {
     id: Option<BindingIdentifier>,
     /// `ts_type_parameter_declaration`. `None` when the class has no `<T, U>`
     /// parameters.
+    #[scope(enter_before)]
     type_parameters: Option<TsTypeParameterDeclaration>,
     /// any expression. `None` when the class has no `extends` clause.
     super_class: Option<Expr>,
@@ -1462,6 +1471,7 @@ pub struct PropertyDefinition {
 /// //                 ^^^^^^^ body
 /// ```
 #[ast]
+#[scope]
 pub struct StaticBlock {
     /// any statement
     body: SubRange<Stmt>,
@@ -1482,6 +1492,7 @@ pub struct StaticBlock {
 /// //                              ^^^^^^^^^^^^ body
 /// ```
 #[ast]
+#[scope]
 pub struct Function {
     function_type: FunctionType,
     /// `binding_identifier`. `None` for anonymous functions.
@@ -1515,6 +1526,7 @@ pub struct FunctionBody {
 /// //^^^^^^^^^^^^^ body
 /// ```
 #[ast]
+#[scope]
 pub struct BlockStatement {
     /// any statement
     body: SubRange<Stmt>,
@@ -1559,10 +1571,12 @@ pub struct DoWhileStatement {
 /// //         ^^^^^ body
 /// ```
 #[ast]
+#[scope]
 pub struct WithStatement {
     /// any expression
     object: Expr,
     /// any statement
+    #[scope(enter_before)]
     body: Stmt,
 }
 
@@ -1698,6 +1712,7 @@ pub struct ParenthesizedExpression {
 /// //                    ^ body (expression = true)
 /// ```
 #[ast]
+#[scope]
 pub struct ArrowFunctionExpression {
     /// true for a concise body `() => expr`. false for a block body
     /// `() => { ... }`.
