@@ -51,8 +51,6 @@ pub struct SemanticBuilder<'traverse, 'a> {
     type_positions: Vec<ReferenceFlags>,
     arrow_exports: Vec<ExportState>,
     dynamic_var_writes: Vec<bool>,
-    // Const assertion markers, unsupported declarations, or pending migration hooks.
-    suppressed_subtree: Option<NodeId>,
     check_syntax: bool,
     in_ts_module_name: bool,
 }
@@ -70,7 +68,6 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
             type_positions: Vec::new(),
             arrow_exports: Vec::new(),
             dynamic_var_writes: Vec::new(),
-            suppressed_subtree: None,
             check_syntax,
             in_ts_module_name: false,
         }
@@ -92,7 +89,6 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
         debug_assert!(self.type_positions.is_empty());
         debug_assert!(self.arrow_exports.is_empty());
         debug_assert!(self.dynamic_var_writes.is_empty());
-        debug_assert!(self.suppressed_subtree.is_none());
         let semantic = self.state.finalize(self.ast);
         (semantic, self.diagnostics)
     }
@@ -307,28 +303,6 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
         };
         self.flags_with_space(space)
     }
-
-    fn is_const_assertion_marker(&self, node: NodeId) -> bool {
-        let tree = self.ast;
-        let Some(parent) = self.current_node() else {
-            return false;
-        };
-        let annotation = match tree.kind_data(parent) {
-            NodeKindData::TsAsExpression(node) => node.type_annotation(tree),
-            NodeKindData::TsTypeAssertion(node) => node.type_annotation(tree),
-            _ => return false,
-        };
-        if annotation.node_id() == node
-            && let NodeKindData::TsTypeReference(reference) = tree.kind_data(node)
-            && reference.type_arguments(tree).is_none()
-            && let NodeKindData::IdentifierReference(name) =
-                tree.kind_data(reference.type_name(tree).node_id())
-            && tree.get_utf8(name.name(tree)) == "const"
-        {
-            return true;
-        }
-        false
-    }
 }
 
 impl SemanticBuilder<'_, '_> {
@@ -380,29 +354,16 @@ impl SemanticBuilder<'_, '_> {
 }
 
 /// First Traverse migration. Pending hooks retain their original Visit bodies.
-/// A pending subtree contributes no semantic actions, rather than leaking its
-/// bindings into an unrelated outer context. The same guard skips const assertion
-/// markers and unsupported namespace exports.
 impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     fn enter_node(&mut self, node: NodeId, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_none() {
-            let flags = self.child_reference_flags(node);
-            if self.is_const_assertion_marker(node) {
-                self.suppressed_subtree = Some(node);
-            }
-            self.state.replace_reference_flags(flags);
-        }
+        let flags = self.child_reference_flags(node);
+        self.state.replace_reference_flags(flags);
         self.path.push(node);
         self.node_flags.push(self.state.enter_node());
     }
 
     fn exit_node(&mut self, node: NodeId, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree == Some(node) {
-            self.suppressed_subtree = None;
-        } else if self.suppressed_subtree.is_none()
-            && self.check_syntax
-            && self.ast.node_kind(node) != NodeKind::Function
-        {
+        if self.check_syntax && self.ast.node_kind(node) != NodeKind::Function {
             self.check(self.ast.kind_data(node));
         }
         let exited = self.path.pop();
@@ -411,9 +372,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_scope(&mut self, node: NodeId, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         match self.ast.kind_data(node) {
             NodeKindData::BlockStatement(node) => {
                 self.state.enter_block_statement(self.ast, node.node_id());
@@ -534,9 +492,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn leave_scope(&mut self, node: NodeId, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         match self.ast.kind_data(node) {
             NodeKindData::BlockStatement(node) => {
                 self.state.exit_scope(node.node_id());
@@ -623,9 +578,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_call_expression(&mut self, node: CallExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         if !self.state.symbols.in_ambient_context()
             && self.state.default_reference_flags().is_read()
             && is_direct_eval_call(self.ast, node)
@@ -639,9 +591,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: AssignmentExpression,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.record_ts_expando_assignment(node);
     }
 
@@ -650,9 +599,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: IdentifierReference,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         let flags = *self
             .node_flags
             .last()
@@ -661,16 +607,10 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_directive(&mut self, node: Directive, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.enter_directive(self.ast, node);
     }
 
     fn enter_function_body(&mut self, node: FunctionBody, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         // TODO(traverse): Traverse has no FunctionBody scope annotation; preserve the conditional parameter/body environment.
         // Original Visit body:
         // let parent = self.current_node();
@@ -684,16 +624,10 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn exit_function_body(&mut self, node: FunctionBody, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.exit_scope(node.node_id());
     }
 
     fn enter_class(&mut self, node: Class, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         // TODO(traverse): Class scope starts after id in Traverse; keep node hooks until binding and decorator contexts are aligned.
         // Original Visit body:
         // self.state.enter_class(self.ast, node);
@@ -710,24 +644,15 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn exit_class(&mut self, node: Class, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.symbols.exit_saved_context();
         self.state.exit_scope(node.node_id());
     }
 
     fn enter_class_body(&mut self, _node: ClassBody, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.symbols.enter_class_body();
     }
 
     fn enter_decorator(&mut self, node: Decorator, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         // TS resolves members and parameters at the class, skipping method
         // locals. Only a class declaration's own decorators skip the class;
         // class expressions retain their type parameters and name environment.
@@ -744,9 +669,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn exit_decorator(&mut self, _node: Decorator, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.exit_decorator();
     }
 
@@ -755,9 +677,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsClassImplements,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
@@ -766,9 +685,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: ImportDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         let state = &mut self.state;
         state
             .symbols
@@ -780,23 +696,14 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: ImportDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.symbols.exit_saved_context();
     }
 
     fn enter_import_specifier(&mut self, node: ImportSpecifier, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.symbols.enter_import_specifier(self.ast, node);
     }
 
     fn exit_import_specifier(&mut self, _node: ImportSpecifier, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.symbols.exit_saved_context();
     }
 
@@ -805,9 +712,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsImportEqualsDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         let state = &mut self.state;
         state
             .symbols
@@ -819,9 +723,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: ExportNamedDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state
             .symbols
             .enter_export_named_declaration(self.ast, node);
@@ -832,9 +733,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: ExportNamedDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.symbols.exit_export_declaration();
     }
 
@@ -843,9 +741,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: ExportDefaultDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         if !self.state.in_ts_namespace() {
             self.state.module_record.add_default_export(self.ast, node);
         }
@@ -857,18 +752,12 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: ExportAllDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         if !self.state.in_ts_namespace() {
             self.state.module_record.add_export_all(self.ast, node);
         }
     }
 
     fn enter_export_specifier(&mut self, node: ExportSpecifier, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         let declaration = self.parent().and_then(|parent| {
             let NodeKindData::ExportNamedDeclaration(declaration) = self.ast.kind_data(parent)
             else {
@@ -908,9 +797,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_ts_enum_member(&mut self, node: TsEnumMember, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         let state = &mut self.state;
         let prepared = state
             .symbols
@@ -930,9 +816,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsModuleDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         // TODO(traverse): The module body still owns its lexical scope; align owner identities separately.
         // Original Visit body:
         // self.enter_node(node.node_id());
@@ -962,9 +845,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_ts_module_block(&mut self, node: TsModuleBlock, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         // TODO(traverse): Namespace owner remains the body node until declaration/body scope ownership is aligned.
         // Original Visit body:
         // self.state.enter_ts_module_block(node.node_id());
@@ -980,9 +860,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn exit_ts_module_block(&mut self, node: TsModuleBlock, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.exit_ts_module_block(node.node_id());
     }
 
@@ -991,9 +868,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsGlobalDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state
             .symbols
             .enter_ts_global_declaration(self.ast, node);
@@ -1004,9 +878,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsGlobalDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.symbols.exit_ts_global_declaration();
     }
 
@@ -1015,9 +886,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsTypeAliasDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         // TODO(traverse): The binder still derives the declaration target from the inner scope parent.
         // Original Visit body:
         // self.state.enter_ts_type_alias_declaration(node.node_id());
@@ -1042,9 +910,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsTypeAliasDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.symbols.exit_saved_context();
         self.state.exit_scope(node.node_id());
     }
@@ -1054,9 +919,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsInterfaceDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         // TODO(traverse): The binder still derives the declaration target from the inner scope parent.
         // Original Visit body:
         // self.state.enter_ts_interface_declaration(node.node_id());
@@ -1081,9 +943,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsInterfaceDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.symbols.exit_saved_context();
         self.state.exit_scope(node.node_id());
     }
@@ -1093,65 +952,38 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsInterfaceHeritage,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn enter_ts_interface_body(&mut self, _node: TsInterfaceBody, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn exit_ts_interface_body(&mut self, _node: TsInterfaceBody, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
     fn enter_ts_type_reference(&mut self, _node: TsTypeReference, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn exit_ts_type_reference(&mut self, _node: TsTypeReference, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
     fn enter_ts_type_query(&mut self, _node: TsTypeQuery, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn enter_ts_import_type(&mut self, _node: TsImportType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn exit_ts_import_type(&mut self, _node: TsImportType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
-    fn enter_ts_type_parameter(&mut self, node: TsTypeParameter, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
+    fn enter_ts_type_parameter(&mut self, _node: TsTypeParameter, _ctx: &mut TraverseCtx<'_, 'a>) {
         // TODO(traverse): Infer constraints need a lookup view after the name is bound; ordinary type parameters are migrated below.
         // Original Visit body:
         // let type_position = self.state.enter_type_position();
@@ -1181,13 +1013,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         // self.state.symbols.exit_saved_context();
         // self.leave_node(NodeKindData::TsTypeParameter(node));
         // self.state.exit_type_position(type_position);
-        if self
-            .parent()
-            .is_some_and(|parent| self.ast.node_kind(parent) == NodeKind::TsInferType)
-        {
-            self.suppressed_subtree = Some(node.node_id());
-            return;
-        }
         self.enter_type_position();
         let parent = self.parent();
         let state = &mut self.state;
@@ -1201,9 +1026,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsTypeParameterDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
         self.state
             .scope
@@ -1215,9 +1037,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsTypeParameterDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.scope.exit_ts_lookup_view(node.node_id());
         self.exit_type_position();
     }
@@ -1227,9 +1046,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsTypeParameterInstantiation,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
@@ -1238,23 +1054,14 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsTypeParameterInstantiation,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
     fn enter_ts_literal_type(&mut self, _node: TsLiteralType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn exit_ts_literal_type(&mut self, _node: TsLiteralType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
@@ -1263,9 +1070,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsTemplateLiteralType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
@@ -1274,23 +1078,14 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsTemplateLiteralType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
     fn enter_ts_array_type(&mut self, _node: TsArrayType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn exit_ts_array_type(&mut self, _node: TsArrayType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
@@ -1299,9 +1094,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsIndexedAccessType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
@@ -1310,23 +1102,14 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsIndexedAccessType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
     fn enter_ts_tuple_type(&mut self, _node: TsTupleType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn exit_ts_tuple_type(&mut self, _node: TsTupleType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
@@ -1335,9 +1118,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsNamedTupleMember,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
@@ -1346,37 +1126,22 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsNamedTupleMember,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
     fn enter_ts_optional_type(&mut self, _node: TsOptionalType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn exit_ts_optional_type(&mut self, _node: TsOptionalType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
     fn enter_ts_rest_type(&mut self, _node: TsRestType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn exit_ts_rest_type(&mut self, _node: TsRestType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
@@ -1385,9 +1150,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsJsDocNullableType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
@@ -1396,9 +1158,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsJsDocNullableType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
@@ -1407,9 +1166,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsJsDocNonNullableType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
@@ -1418,9 +1174,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsJsDocNonNullableType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
@@ -1429,9 +1182,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsJsDocUnknownType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
@@ -1440,23 +1190,14 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsJsDocUnknownType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
     fn enter_ts_union_type(&mut self, _node: TsUnionType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn exit_ts_union_type(&mut self, _node: TsUnionType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
@@ -1465,9 +1206,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsIntersectionType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
@@ -1476,37 +1214,22 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsIntersectionType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
     fn enter_ts_infer_type(&mut self, _node: TsInferType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn exit_ts_infer_type(&mut self, _node: TsInferType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
     fn enter_ts_type_operator(&mut self, _node: TsTypeOperator, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn exit_ts_type_operator(&mut self, _node: TsTypeOperator, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
@@ -1515,9 +1238,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsParenthesizedType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
@@ -1526,23 +1246,14 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsParenthesizedType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
     fn enter_ts_type_literal(&mut self, _node: TsTypeLiteral, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn exit_ts_type_literal(&mut self, _node: TsTypeLiteral, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
@@ -1551,16 +1262,10 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsPropertySignature,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn enter_ts_type_predicate(&mut self, node: TsTypePredicate, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
         let state = &mut self.state;
         state
@@ -1569,20 +1274,14 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn exit_ts_type_predicate(&mut self, _node: TsTypePredicate, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
     fn enter_ts_conditional_type(
         &mut self,
-        node: TsConditionalType,
+        _node: TsConditionalType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         // TODO(traverse): The scope hook covers extends/true, but the extends-only lookup view still needs field boundaries.
         // Original Visit body:
         // let type_position = self.state.enter_type_position();
@@ -1600,22 +1299,13 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         // node.false_type(self.ast).visit_with(self);
         // self.leave_node(NodeKindData::TsConditionalType(node));
         // self.state.exit_type_position(type_position);
-        // Leave this subtree opaque until its semantic context can be migrated.
-        // Descendant hooks must not bind declarations in the surrounding scope.
-        self.suppressed_subtree = Some(node.node_id());
     }
 
     fn enter_ts_function_type(&mut self, _node: TsFunctionType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn exit_ts_function_type(&mut self, _node: TsFunctionType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
@@ -1624,9 +1314,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsConstructorType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
@@ -1635,34 +1322,22 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsConstructorType,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
     fn enter_ts_mapped_type(&mut self, _node: TsMappedType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
     fn exit_ts_mapped_type(&mut self, _node: TsMappedType, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
     fn enter_ts_method_signature(
         &mut self,
-        node: TsMethodSignature,
+        _node: TsMethodSignature,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         // TODO(traverse): The scope hook currently includes the computed key, which must resolve outside signature locals.
         // Original Visit body:
         // let type_position = self.state.enter_type_position();
@@ -1678,9 +1353,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         // self.state.exit_scope(node.node_id());
         // self.leave_node(NodeKindData::TsMethodSignature(node));
         // self.state.exit_type_position(type_position);
-        // Leave this subtree opaque until its semantic context can be migrated.
-        // Descendant hooks must not bind declarations in the surrounding scope.
-        self.suppressed_subtree = Some(node.node_id());
     }
 
     fn enter_ts_call_signature_declaration(
@@ -1688,9 +1360,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsCallSignatureDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
@@ -1699,9 +1368,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsCallSignatureDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
@@ -1710,9 +1376,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsConstructSignatureDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.enter_type_position();
     }
 
@@ -1721,16 +1384,10 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsConstructSignatureDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
     fn enter_ts_index_signature(&mut self, node: TsIndexSignature, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         // TODO(traverse): Traverse has no TsIndexSignature scope annotation yet.
         // Original Visit body:
         // self.state.enter_ts_index_signature(node.node_id());
@@ -1750,9 +1407,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn exit_ts_index_signature(&mut self, node: TsIndexSignature, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.symbols.exit_saved_context();
         self.state.exit_scope(node.node_id());
         self.exit_type_position();
@@ -1763,9 +1417,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: JsxOpeningElement,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         let state = &mut self.state;
         state
             .symbols
@@ -1777,9 +1428,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: JsxClosingElement,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         let state = &mut self.state;
         state
             .symbols
@@ -1787,9 +1435,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn exit_binding_identifier(&mut self, node: BindingIdentifier, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         let flags = *self.node_flags.last().expect("a binding has a node frame");
         let prepared = if self.check_syntax {
             js::check_binding_identifier(self, node)
@@ -1830,9 +1475,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: VariableDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         let state = &mut self.state;
         let dynamic_var_write =
             state
@@ -1846,9 +1488,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: VariableDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.dynamic_var_writes
             .pop()
             .expect("a declaration saved its write context");
@@ -1856,9 +1495,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_formal_parameters(&mut self, node: FormalParameters, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         if node.items(self.ast).is_empty() && node.rest(self.ast).is_none() {
             self.state.symbols.export_state = Default::default();
             return;
@@ -1873,9 +1509,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn exit_formal_parameters(&mut self, node: FormalParameters, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         if node.items(self.ast).is_empty() && node.rest(self.ast).is_none() {
             return;
         }
@@ -1886,9 +1519,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_ts_type_annotation(&mut self, node: TsTypeAnnotation, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         let signature_return = self.parent().is_some_and(|parent| {
             matches!(
                 self.ast.node_kind(parent),
@@ -1911,9 +1541,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn exit_ts_type_annotation(&mut self, node: TsTypeAnnotation, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         let signature_return = self.parent().is_some_and(|parent| {
             matches!(
                 self.ast.node_kind(parent),
@@ -1940,9 +1567,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsEnumDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         let state = &mut self.state;
         state
             .symbols
@@ -1954,9 +1578,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsEnumDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.symbols.exit_saved_context();
     }
 
@@ -1965,11 +1586,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsNamespaceExportDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         if self.state.symbols.in_unsupported_ts_external_module() {
-            self.suppressed_subtree = Some(node.node_id());
             return;
         }
         let state = &mut self.state;
@@ -1983,9 +1600,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsClassImplements,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
@@ -1994,16 +1608,10 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsInterfaceHeritage,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
     fn exit_ts_type_query(&mut self, _node: TsTypeQuery, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
@@ -2012,9 +1620,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsPropertySignature,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.exit_type_position();
     }
 
@@ -2023,9 +1628,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsImportEqualsDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state
             .symbols
             .record_ts_import_equals_target(self.ast, node);
@@ -2037,16 +1639,10 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: ExportDefaultDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.symbols.exit_export_declaration();
     }
 
     fn exit_ts_type_parameter(&mut self, _node: TsTypeParameter, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.suppressed_subtree.is_some() {
-            return;
-        }
         self.state.symbols.exit_saved_context();
         self.exit_type_position();
     }
