@@ -58,6 +58,14 @@ export declare function langFromPath(path: string): Lang
  * The caller must ensure that `source` contains valid UTF-8.
  * `source_utf16_len` must match the UTF-16 code unit length of `source`.
  */
+export declare function parse(source: Buffer, sourceUtf16Len: number, options?: ParserOptions | undefined | null): Promise<Buffer>
+
+/**
+ * # Safety
+ *
+ * The caller must ensure that `source` contains valid UTF-8.
+ * `source_utf16_len` must match the UTF-16 code unit length of `source`.
+ */
 export declare function parseSync(source: Buffer, sourceUtf16Len: number, options?: ParserOptions | undefined | null): Buffer
 
 export declare function sourceTypeFromPath(path: string): SourceType

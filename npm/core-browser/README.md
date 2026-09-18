@@ -15,3 +15,8 @@ console.log(printSync(program).code);
 
 Call `init()` before parsing or printing. It loads the bundled `.wasm` file;
 subsequent calls are idempotent.
+
+`parse(source, options)` returns a `Promise<ParseResult>` with the same result as
+`parseSync`. In this WebAssembly package, computation still runs synchronously
+on the calling thread. The native `@swc-next/core` and `@swc-next/parser` packages
+run `parse` on the worker pool; AST decoding happens lazily on the calling thread.

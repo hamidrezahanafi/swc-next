@@ -41,6 +41,12 @@ export interface ParseResult {
  */
 export default function init(): Promise<void>;
 
+/** Parse with a Promise API. WebAssembly computation runs on the calling thread. */
+export declare function parse(
+  source: string,
+  options?: ParserOptions | undefined | null,
+): Promise<ParseResult>;
+
 export declare function parseSync(
   source: string,
   options?: ParserOptions | undefined | null,

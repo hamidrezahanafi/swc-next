@@ -281,7 +281,8 @@ fn render_function(
         .join(", ");
     writeln!(
         source,
-        "export function {}({parameter_names}) {{",
+        "export {}function {}({parameter_names}) {{",
+        if function.async_task { "async " } else { "" },
         function.js_name
     )
     .unwrap();

@@ -2,7 +2,54 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { decode } from "@swc-next/decoder";
-import { CommentMode, Lang, parseSync, SourceType } from "../src-js/index.js";
+import {
+  CommentMode,
+  Lang,
+  parse,
+  parseSync,
+  SourceType,
+} from "../src-js/index.js";
+
+test("parse preserves synchronous results and lazy decoding", async () => {
+  const source = '// 😀\nexport const value: string = "😀";';
+  const options = { lang: Lang.Ts, comments: CommentMode.Flat };
+  const pending = parse(source, options);
+  assert.ok(pending instanceof Promise);
+
+  const result = await pending;
+  const descriptor = Object.getOwnPropertyDescriptor(result, "program");
+  assert.equal(typeof descriptor.get, "function");
+  assert.deepEqual(result, parseSync(source, options));
+  assert.equal(result.program, result.program);
+
+  const empty = await parse("");
+  assert.deepEqual(empty, parseSync(""));
+
+  const invalid = await parse("const = 1");
+  assert.ok(invalid.diagnostics.length > 0);
+  assert.deepEqual(invalid, parseSync("const = 1"));
+});
+
+test("parse keeps concurrent results independent", async () => {
+  const javascript = parse("export const first = 1;");
+  const typescript = parse("type Second = number;", { lang: Lang.Ts });
+  const invalid = parse("const third;");
+  const [first, second, third] = await Promise.all([
+    javascript,
+    typescript,
+    invalid,
+  ]);
+
+  assert.deepEqual(first, parseSync("export const first = 1;"));
+  assert.deepEqual(second, parseSync("type Second = number;", { lang: Lang.Ts }));
+  assert.deepEqual(third, parseSync("const third;"));
+});
+
+test("parse rejects invalid API arguments", async () => {
+  await assert.rejects(parse(123));
+  await assert.rejects(parse("", { lang: "invalid" }), TypeError);
+  await assert.rejects(parse("", { preserveParens: "invalid" }), TypeError);
+});
 
 test("decoder reads little-endian words from unaligned buffers", () => {
   const backing = new ArrayBuffer(77);

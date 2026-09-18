@@ -34,6 +34,15 @@ export interface ParseResult {
   readonly diagnostics: Diagnostic[];
 }
 
+/**
+ * Parse on the native worker pool. AST decoding remains lazy on the calling thread.
+ * WebAssembly uses the same Promise API but computes synchronously.
+ */
+export declare function parse(
+  source: string,
+  options?: ParserOptions | undefined | null,
+): Promise<ParseResult>;
+
 export declare function parseSync(
   source: string,
   options?: ParserOptions | undefined | null,

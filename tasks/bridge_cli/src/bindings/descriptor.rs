@@ -16,6 +16,8 @@ pub(super) struct BridgeFunction {
     pub parameters: Vec<BridgeParameter>,
     pub result: String,
     pub fallible: bool,
+    #[serde(default)]
+    pub async_task: bool,
 }
 
 #[derive(Debug, Deserialize)]

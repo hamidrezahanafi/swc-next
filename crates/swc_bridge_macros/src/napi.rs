@@ -2,9 +2,10 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{FnArg, ItemFn, Meta, Pat};
 
-use crate::{is_byte_slice, napi_function_meta, result_value_type, return_type};
+use crate::{is_async_task, is_byte_slice, napi_function_meta, result_value_type, return_type};
 
 pub(super) fn expand_function(function: &ItemFn, arguments: Vec<Meta>) -> syn::Result<TokenStream> {
+    let async_task = is_async_task(&arguments);
     let mut native_arguments = Vec::new();
     let mut conversions = Vec::new();
     let mut call_arguments = Vec::new();
@@ -74,6 +75,29 @@ pub(super) fn expand_function(function: &ItemFn, arguments: Vec<Meta>) -> syn::R
         quote!(let result = #call;)
     };
     let napi = napi_function_meta(arguments, function)?;
+    let wire_type = quote!(<#return_type as ::swc_next_bridge::BridgeEncode>::Wire);
+    let (native_return, body) = if async_task {
+        (
+            quote!(napi::bindgen_prelude::AsyncTask<::swc_next_bridge::BridgeTask<#wire_type>>),
+            quote! {
+                Ok(napi::bindgen_prelude::AsyncTask::new(
+                    ::swc_next_bridge::BridgeTask::new(move || {
+                        #call
+                        Ok(<#return_type as ::swc_next_bridge::BridgeEncode>::encode(result))
+                    })
+                ))
+            },
+        )
+    } else {
+        (
+            quote!(<#wire_type as ::swc_next_bridge::NativeAbi>::Abi),
+            quote! {
+                #call
+                let result = <#return_type as ::swc_next_bridge::BridgeEncode>::encode(result);
+                Ok(<#wire_type as ::swc_next_bridge::NativeAbi>::into_native(result))
+            },
+        )
+    };
 
     Ok(quote! {
         #[cfg(not(target_family = "wasm"))]
@@ -86,13 +110,9 @@ pub(super) fn expand_function(function: &ItemFn, arguments: Vec<Meta>) -> syn::R
             #[#napi]
             #visibility fn #native_adapter(
                 #(#native_arguments),*
-            ) -> napi::Result<<<#return_type as ::swc_next_bridge::BridgeEncode>::Wire as
-                ::swc_next_bridge::NativeAbi>::Abi> {
+            ) -> napi::Result<#native_return> {
                 #(#conversions)*
-                #call
-                let result = <#return_type as ::swc_next_bridge::BridgeEncode>::encode(result);
-                Ok(<<#return_type as ::swc_next_bridge::BridgeEncode>::Wire as
-                    ::swc_next_bridge::NativeAbi>::into_native(result))
+                #body
             }
         };
     })

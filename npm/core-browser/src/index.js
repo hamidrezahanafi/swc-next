@@ -1,4 +1,5 @@
 import {
+  parse as __parse,
   parseSync as __parseSync,
   printSync as __printSync,
 } from "./swc-next-core.browser.mjs";
@@ -24,7 +25,13 @@ export {
   sourceTypeFromPath,
 } from "./swc-next-core.browser.mjs";
 
-export function parseSync(source, options) {
+export async function parse(source, options) {
+  const sourceBytes = encodeSource(source);
+  const buffer = await __parse(sourceBytes, source.length, encodeParserOptions(options));
+  return decode(buffer, source, sourceBytes);
+}
+
+function encodeSource(source) {
   const sourceBuffer = new Uint8Array(source.length * 3);
   const { written } = textEncoder.encodeInto(source, sourceBuffer);
   // Lazy decoder getters retain sourceBytes, so drop the unused capacity of
@@ -32,6 +39,11 @@ export function parseSync(source, options) {
   const sourceBytes = canTransferToFixedLength
     ? new Uint8Array(sourceBuffer.buffer.transferToFixedLength(written))
     : sourceBuffer.slice(0, written);
+  return sourceBytes;
+}
+
+export function parseSync(source, options) {
+  const sourceBytes = encodeSource(source);
   const buffer = __parseSync(sourceBytes, source.length, encodeParserOptions(options));
   return decode(buffer, source, sourceBytes);
 }

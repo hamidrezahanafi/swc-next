@@ -1,5 +1,7 @@
 extern crate self as swc_next_bridge;
 
+#[cfg(not(target_family = "wasm"))]
+mod task;
 mod wire;
 pub use swc_next_bridge_macros::bridge;
 #[doc(hidden)]
@@ -21,7 +23,7 @@ pub use {
 
 #[cfg(not(target_family = "wasm"))]
 #[doc(hidden)]
-pub use {napi, napi_derive, wire::NativeAbi};
+pub use {napi, napi_derive, task::BridgeTask, wire::NativeAbi};
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 #[doc(hidden)]

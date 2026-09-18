@@ -17,6 +17,9 @@ mod napi;
 mod wasm;
 
 #[proc_macro_attribute]
+/// Expose a synchronous Rust function through the native and WebAssembly bridges.
+/// `async_task` runs native computation on the libuv pool and exposes a Promise API.
+/// WebAssembly bindings expose the same Promise API but compute on the calling thread.
 pub fn bridge(args: TokenStream, input: TokenStream) -> TokenStream {
     let arguments = match Punctuated::<Meta, Token![,]>::parse_terminated.parse(args) {
         Ok(arguments) => arguments.into_iter().collect::<Vec<_>>(),
@@ -102,6 +105,7 @@ fn describe_function(function: &ItemFn, arguments: &[Meta]) -> syn::Result<Bridg
         parameters,
         result: type_key(result),
         fallible,
+        async_task: is_async_task(arguments),
     }))
 }
 
@@ -363,6 +367,8 @@ pub(crate) fn napi_function_meta(
     mut arguments: Vec<Meta>,
     function: &ItemFn,
 ) -> syn::Result<proc_macro2::TokenStream> {
+    let async_task = is_async_task(&arguments);
+    arguments.retain(|argument| !argument.path().is_ident("async_task"));
     if napi_js_name(&arguments)?.is_none() {
         let ident = &function.sig.ident;
         let js_name = LitStr::new(&to_lower_camel_case(&ident.to_string()), ident.span());
@@ -385,14 +391,23 @@ pub(crate) fn napi_function_meta(
             .iter()
             .any(|argument| argument.path().is_ident("ts_return_type"))
     {
-        let value = LitStr::new(
-            &infer_ts_return_type(&function.sig.output)?,
-            function.sig.ident.span(),
-        );
+        let return_type = infer_ts_return_type(&function.sig.output)?;
+        let return_type = if async_task {
+            format!("Promise<{return_type}>")
+        } else {
+            return_type
+        };
+        let value = LitStr::new(&return_type, function.sig.ident.span());
         arguments.push(parse_quote!(ts_return_type = #value));
     }
 
     Ok(napi_meta(&arguments))
+}
+
+pub(crate) fn is_async_task(arguments: &[Meta]) -> bool {
+    arguments
+        .iter()
+        .any(|argument| argument.path().is_ident("async_task"))
 }
 
 fn infer_ts_arguments(function: &ItemFn) -> syn::Result<String> {
