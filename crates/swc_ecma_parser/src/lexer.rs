@@ -1157,12 +1157,23 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
     #[inline]
     fn skip_ws_and_comments(&mut self) -> Result<(), LexicalError> {
         debug_assert!((self.cursor as usize) <= self.source.len());
-        let at_start_of_source = self.cursor == 0;
+        let src = self.source;
+        let cursor = self.cursor as usize;
+
+        // Fast path: a plain ASCII token start cannot be preceded by
+        // whitespace, a comment, or a multi-byte character.
+        if src
+            .get(cursor)
+            .is_some_and(|&byte| PLAIN_TOKEN_START[byte as usize])
+        {
+            return Ok(());
+        }
+
+        let at_start_of_source = cursor == 0;
+
+        let mut pos = cursor;
 
         loop {
-            let src = self.source;
-            let mut pos = self.cursor as usize;
-
             while pos < src.len() {
                 match src[pos] {
                     b' ' | b'\t' | 0x0B | 0x0C => pos += 1,
@@ -1176,12 +1187,17 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
             }
 
             self.cursor = pos as u32;
-            if pos == src.len()
-                || !matches!(src[pos], b'/' | b'<' | b'-' | 0x80..=0xFF)
-                || !self.skip_ws_and_comments_slow(at_start_of_source)?
-            {
+            if pos == src.len() || !MAYBE_SLOW_AFTER_WS[src[pos] as usize] {
                 return Ok(());
             }
+
+            if !self.skip_ws_and_comments_slow(at_start_of_source)? {
+                return Ok(());
+            }
+
+            // The slow path consumed a comment or a multi-byte character;
+            // continue scanning from where it left the cursor.
+            pos = self.cursor as usize;
         }
     }
 
@@ -1442,6 +1458,38 @@ impl<'a, C: ParserConfig> Lexer<'a, C> {
 }
 
 const IDENTIFIER_BATCH_SIZE: usize = 32;
+
+/// Bytes that can start a token with no trivia in front of them: printable
+/// ASCII except comments (`/`), Annex B HTML comments (`<`, `-`), and the
+/// whitespace and control bytes below `!`.
+const PLAIN_TOKEN_START: [bool; 256] = {
+    let mut table = [false; 256];
+    let mut byte = b'!' as usize;
+    while byte < 0x7F {
+        table[byte] = true;
+        byte += 1;
+    }
+    table[b'/' as usize] = false;
+    table[b'<' as usize] = false;
+    table[b'-' as usize] = false;
+    table
+};
+
+/// Bytes that need the slow trivia path once whitespace has been skipped:
+/// comment starts, Annex B HTML comment starts, and multi-byte characters
+/// that may be Unicode whitespace.
+const MAYBE_SLOW_AFTER_WS: [bool; 256] = {
+    let mut table = [false; 256];
+    table[b'/' as usize] = true;
+    table[b'<' as usize] = true;
+    table[b'-' as usize] = true;
+    let mut byte = 0x80usize;
+    while byte < 256 {
+        table[byte] = true;
+        byte += 1;
+    }
+    table
+};
 
 const NOT_ASCII_IDENTIFIER_CONTINUE: [bool; 256] = {
     let mut table = [true; 256];
