@@ -88,6 +88,18 @@ fn is_eval_or_arguments(name: &[u8]) -> bool {
     matches!(name, b"eval" | b"arguments")
 }
 
+/// First bytes of the strict-mode reserved words matched by
+/// [`match_strict_reserved`], used as a cheap filter before the match.
+const MAYBE_STRICT_RESERVED_FIRST: [bool; 256] = {
+    let mut table = [false; 256];
+    table[b'i' as usize] = true; // implements, interface
+    table[b'l' as usize] = true; // let
+    table[b'p' as usize] = true; // package, private, protected, public
+    table[b's' as usize] = true; // static
+    table[b'y' as usize] = true; // yield
+    table
+};
+
 fn is_eval_or_arguments_reference(tree: &Ast<'_>, node: NodeId) -> bool {
     let NodeKindData::IdentifierReference(identifier) = tree.kind_data(node) else {
         return false;
@@ -398,7 +410,7 @@ fn module_export_name<'b>(tree: &'b Ast<'_>, node: NodeId) -> &'b [u8] {
 
 fn has_octal_escape(value: &[u8]) -> bool {
     let mut position = 0;
-    while let Some(offset) = value[position..].iter().position(|&byte| byte == b'\\') {
+    while let Some(offset) = memchr::memchr(b'\\', &value[position..]) {
         let slash = position + offset;
         let next = slash + 1;
         if next >= value.len() {
@@ -707,6 +719,12 @@ impl<'a> CheckerState<'a> {
         as_what: &'static str,
     ) {
         if !context.state.scope.is_strict() {
+            return;
+        }
+        if !name
+            .first()
+            .is_some_and(|byte| MAYBE_STRICT_RESERVED_FIRST[*byte as usize])
+        {
             return;
         }
         if let Some(word) = match_strict_reserved(name) {
