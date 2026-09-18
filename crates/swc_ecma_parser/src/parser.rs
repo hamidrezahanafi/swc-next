@@ -742,6 +742,9 @@ pub struct Parser<'a, C: ParserConfig = NoTokenParserConfig> {
     /// assignment target. The same target must be rejected if cover grammar
     /// later establishes that it is a binding pattern.
     stripped_paren: Option<NodeId>,
+    /// Parenthesized expression and type nodes created while `preserve_parens`
+    /// is false, so the final stripping pass can visit only those nodes.
+    paren_nodes: Vec<NodeId>,
     /// Start offsets which failed speculative parenthesized-arrow parsing.
     ///
     /// This cache is intentionally not part of [`Checkpoint`]: a failed
@@ -896,6 +899,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             state: ParserState::default(),
             cover_has_trailing_comma: None,
             stripped_paren: None,
+            paren_nodes: Vec::new(),
             not_parenthesized_arrow: FxHashSet::default(),
         }
     }
@@ -995,7 +999,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.report_module_mode_errors();
 
         if !self.preserve_parens {
-            strip_parenthesized_nodes(&mut self.ast, &mut self.lexer.comments);
+            strip_parenthesized_nodes(&mut self.ast, &mut self.lexer.comments, &self.paren_nodes);
         }
 
         if self.comment_mode == CommentMode::Flat {
@@ -1147,7 +1151,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         match expr {
             Some(expr) if self.diagnostics.is_empty() => {
                 if !self.preserve_parens {
-                    strip_parenthesized_nodes(&mut self.ast, &mut self.lexer.comments);
+                    strip_parenthesized_nodes(
+                        &mut self.ast,
+                        &mut self.lexer.comments,
+                        &self.paren_nodes,
+                    );
                 }
                 self.ast.set_root_expression(expr);
                 if self.comment_mode == CommentMode::Flat {
@@ -1467,6 +1475,16 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.current_token = checkpoint.current_token;
         self.ast
             .truncate(checkpoint.nodes_len, checkpoint.extra_len);
+        if self
+            .paren_nodes
+            .last()
+            .is_some_and(|id| id.index() >= checkpoint.nodes_len)
+        {
+            let keep = self
+                .paren_nodes
+                .partition_point(|id| id.index() < checkpoint.nodes_len);
+            self.paren_nodes.truncate(keep);
+        }
         self.diagnostics.truncate(checkpoint.diagnostics_len);
         self.commonjs_conditional_diagnostic_indices
             .truncate(checkpoint.commonjs_conditional_diagnostic_indices_len);
@@ -5749,10 +5767,13 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ) {
             return None;
         }
-        Some(TsType::TsParenthesizedType(self.ast.ts_parenthesized_type(
-            Span::new(start, end),
-            type_annotation,
-        )))
+        let parenthesized = self
+            .ast
+            .ts_parenthesized_type(Span::new(start, end), type_annotation);
+        if !self.preserve_parens {
+            self.paren_nodes.push(parenthesized.node_id());
+        }
+        Some(TsType::TsParenthesizedType(parenthesized))
     }
 
     fn parse_tuple_type(&mut self) -> Option<TsType> {
@@ -8453,10 +8474,13 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         })();
         self.scratch_cover.reset(checkpoint);
         let expression = expression_result?;
-        Some(
-            self.ast
-                .expr_parenthesized_expression(Span::new(cover.start, cover.end), expression),
-        )
+        let parenthesized = self
+            .ast
+            .expr_parenthesized_expression(Span::new(cover.start, cover.end), expression);
+        if !self.preserve_parens {
+            self.paren_nodes.push(parenthesized.node_id());
+        }
+        Some(parenthesized)
     }
 
     fn parse_parenthesized_expression(&mut self) -> Option<Expr> {
@@ -12689,10 +12713,9 @@ fn assignment_operator(tag: TokenTag) -> AssignmentOperator {
     }
 }
 
-fn strip_parenthesized_nodes(ast: &mut Ast<'_>, comments: &mut [Comment]) {
+fn strip_parenthesized_nodes(ast: &mut Ast<'_>, comments: &mut [Comment], paren_nodes: &[NodeId]) {
     let mut trailing_comment_index = 0;
-    for index in 0..ast.node_count() {
-        let node = NodeId::from_raw_unchecked(index as u32);
+    for &node in paren_nodes {
         let replacement = match ast.kind_data(node) {
             NodeKindData::ParenthesizedExpression(parenthesized) => {
                 let mut inner = parenthesized.expression(ast);
