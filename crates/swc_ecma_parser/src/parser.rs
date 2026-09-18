@@ -14162,7 +14162,34 @@ mod tests {
         let diagnostics = parse_js_diagnostics("if (a) c(async function () {});");
         assert!(diagnostics.is_empty());
 
+        let diagnostics = parse_js_diagnostics("if (a) c(async function* () {});");
+        assert!(diagnostics.is_empty());
+
+        let diagnostics = parse_js_diagnostics("if (a) { c(function* () {}); }");
+        assert!(diagnostics.is_empty());
+
+        let diagnostics = parse_js_diagnostics("if (a) { c(async function () {}); }");
+        assert!(diagnostics.is_empty());
+
+        let diagnostics = parse_js_diagnostics("while (a) c(function* () {});");
+        assert!(diagnostics.is_empty());
+
+        let diagnostics = parse_js_diagnostics("label: c(async function () {});");
+        assert!(diagnostics.is_empty());
+
+        let diagnostics = parse_js_diagnostics("if (a) { function* f() {} }");
+        assert!(diagnostics.is_empty());
+
+        let diagnostics = parse_js_diagnostics("if (a) { async function f() {} }");
+        assert!(diagnostics.is_empty());
+
         let diagnostics = parse_js_diagnostics("if (a) function* f() {}");
         assert_eq!(diagnostics.len(), 1);
+
+        let diagnostics = parse_js_diagnostics("if (a) async function f() {}");
+        assert!(!diagnostics.is_empty());
+
+        let diagnostics = parse_js_diagnostics("if (a) async function* f() {}");
+        assert!(!diagnostics.is_empty());
     }
 }
