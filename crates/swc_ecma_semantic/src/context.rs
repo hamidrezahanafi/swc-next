@@ -61,6 +61,7 @@ pub(crate) struct SemanticContext<'a> {
     pub scope: ScopeTracker<'a>,
     pub symbols: SymbolTracker<'a>,
     pub module_record: ModuleRecordBuilder<'a>,
+    build_use_index: bool,
     // depth of TS type-only context. inspect via `in_type_position()`.
     type_position_depth: u32,
     ts_namespace_depth: u32,
@@ -68,12 +69,13 @@ pub(crate) struct SemanticContext<'a> {
 }
 
 impl<'a> SemanticContext<'a> {
-    pub fn init(tree: &Ast<'a>, build_module_record: bool) -> Self {
+    pub fn init(tree: &Ast<'a>, build_module_record: bool, build_use_index: bool) -> Self {
         let allocator = tree.allocator();
         Self {
             scope: ScopeTracker::init(tree),
             symbols: SymbolTracker::init(tree),
             module_record: ModuleRecordBuilder::new(allocator, build_module_record),
+            build_use_index,
             type_position_depth: 0,
             ts_namespace_depth: 0,
             reference_flags: ReferenceFlags::default(),
@@ -256,7 +258,12 @@ impl<'a> SemanticContext<'a> {
 
     pub fn finalize(self, tree: &Ast) -> Semantic<'a> {
         let (scopes, has_with_statement) = self.scope.into_scope_tree();
-        self.symbols
-            .finalize(tree, scopes, has_with_statement, self.module_record)
+        self.symbols.finalize(
+            tree,
+            scopes,
+            has_with_statement,
+            self.module_record,
+            self.build_use_index,
+        )
     }
 }

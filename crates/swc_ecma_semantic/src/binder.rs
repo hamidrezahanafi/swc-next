@@ -1415,6 +1415,7 @@ impl<'a> SymbolTracker<'a> {
         scopes: ScopeTree<'a>,
         has_with_statement: bool,
         module_record: ModuleRecordBuilder<'a>,
+        build_use_index: bool,
     ) -> Semantic<'a> {
         // The walk must have ended balanced.
         debug_assert!(self.saved_stack.is_empty());
@@ -1430,8 +1431,13 @@ impl<'a> SymbolTracker<'a> {
         let mut node_references = ArenaVec::with_capacity_in(node_count, self.allocator);
         node_references.resize(node_count, None);
 
-        let mut use_ranges = ArenaVec::with_capacity_in(symbol_count, self.allocator);
-        use_ranges.resize(symbol_count, Range::default());
+        let mut use_ranges = if build_use_index {
+            let mut ranges = ArenaVec::with_capacity_in(symbol_count, self.allocator);
+            ranges.resize(symbol_count, Range::default());
+            ranges
+        } else {
+            ArenaVec::new_in(self.allocator)
+        };
 
         for reference_index in 0..self.references.len() {
             let reference = self.references[reference_index];
@@ -1467,7 +1473,7 @@ impl<'a> SymbolTracker<'a> {
                 }
             }
             self.references[reference_index].symbol = resolved;
-            if let Some(symbol) = resolved {
+            if build_use_index && let Some(symbol) = resolved {
                 use_ranges[symbol.index()].len += 1;
             }
             if reference.flags.space == ReferenceSpace::Any
@@ -1506,22 +1512,26 @@ impl<'a> SymbolTracker<'a> {
         }
 
         // Use index: prefix-sum and fill. Resolution counted uses above;
-        // `len` now doubles as the write cursor during the fill.
-        let mut use_offset = 0u32;
-        for range in &mut use_ranges {
-            range.start = use_offset;
-            use_offset += range.len;
-            range.len = 0;
-        }
-        let mut use_ids = ArenaVec::with_capacity_in(use_offset as usize, self.allocator);
-        use_ids.resize(use_offset as usize, ReferenceId::from_usize(0));
-        for (index, reference) in self.references.iter().enumerate() {
-            let Some(symbol) = reference.symbol else {
-                continue;
-            };
-            let range = &mut use_ranges[symbol.index()];
-            use_ids[(range.start + range.len) as usize] = ReferenceId::from_usize(index);
-            range.len += 1;
+        // `len` now doubles as the write cursor during the fill. The index
+        // is only built when the caller asks for `Semantic::uses`.
+        let mut use_ids = ArenaVec::new_in(self.allocator);
+        if build_use_index {
+            let mut use_offset = 0u32;
+            for range in &mut use_ranges {
+                range.start = use_offset;
+                use_offset += range.len;
+                range.len = 0;
+            }
+            use_ids = ArenaVec::with_capacity_in(use_offset as usize, self.allocator);
+            use_ids.resize(use_offset as usize, ReferenceId::from_usize(0));
+            for (index, reference) in self.references.iter().enumerate() {
+                let Some(symbol) = reference.symbol else {
+                    continue;
+                };
+                let range = &mut use_ranges[symbol.index()];
+                use_ids[(range.start + range.len) as usize] = ReferenceId::from_usize(index);
+                range.len += 1;
+            }
         }
 
         let module_record =

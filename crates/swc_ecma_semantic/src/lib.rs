@@ -150,8 +150,12 @@ impl<'a> Semantic<'a> {
     /// Every use site of `id`, in source order. Declaration sites are
     /// not uses; those are returned by [`Semantic::declarations`]. A dynamic
     /// `with` reference is included under its potential lexical fallback.
+    ///
+    /// Empty unless [`AnalyzeOptions::build_use_index`] was enabled.
     pub fn uses(&self, id: SymbolId) -> &[ReferenceId] {
-        let range = self.use_ranges[id.index()];
+        let Some(range) = self.use_ranges.get(id.index()).copied() else {
+            return &[];
+        };
         let start = range.start as usize;
         &self.use_ids[start..start + range.len as usize]
     }
@@ -407,6 +411,11 @@ pub struct AnalyzeOptions {
     ///
     /// Disabled by default.
     pub build_module_record: bool,
+    /// Whether to build the per-symbol use index returned by
+    /// [`Semantic::uses`].
+    ///
+    /// Disabled by default.
+    pub build_use_index: bool,
 }
 
 /// Runs semantic analysis on a tree and builds the requested [`Semantic`] model.
@@ -418,7 +427,12 @@ pub struct AnalyzeOptions {
 /// module record is empty.
 pub fn analyze<'a>(ast: &Ast<'a>, options: AnalyzeOptions) -> SemanticReturn<'a> {
     let root = ast.root_program();
-    let mut visitor = Checker::new(ast, options.check_syntax, options.build_module_record);
+    let mut visitor = Checker::new(
+        ast,
+        options.check_syntax,
+        options.build_module_record,
+        options.build_use_index,
+    );
     root.visit_with(&mut visitor);
     let (semantic, diagnostics) = visitor.finish();
     SemanticReturn {
@@ -663,7 +677,15 @@ mod tests {
         assert!(reference.symbol.is_some());
 
         let source = "with ({}) { var value = 1; }";
-        let (ast, semantic) = analyze_source(&allocator, source, js_script);
+        let (ast, semantic) = analyze_with_options(
+            &allocator,
+            source,
+            js_script,
+            AnalyzeOptions {
+                build_use_index: true,
+                ..AnalyzeOptions::default()
+            },
+        );
         let declaration = semantic.iter_declarations().next().unwrap();
         let reference_id = semantic.reference_of(declaration.declaration.node).unwrap();
         let reference = semantic.reference(reference_id);
