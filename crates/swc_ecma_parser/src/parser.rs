@@ -63,6 +63,11 @@ pub struct Options {
     pub preserve_parens: bool,
     /// Determines whether comments are collected.
     pub comments: CommentMode,
+    /// Records the source offset of every implicitly inserted semicolon.
+    ///
+    /// Disabled by default. Consumers which need statement boundaries but do
+    /// not want to collect the token stream can request this instead.
+    pub record_implicit_semicolons: bool,
 }
 
 impl Default for Options {
@@ -72,6 +77,7 @@ impl Default for Options {
             lang: Lang::Js,
             preserve_parens: true,
             comments: CommentMode::Flat,
+            record_implicit_semicolons: false,
         }
     }
 }
@@ -751,12 +757,21 @@ pub struct Parser<'a, C: ParserConfig = NoTokenParserConfig> {
     /// speculation remains impossible after rewinding and must not be retried
     /// by an enclosing speculative parse.
     not_parenthesized_arrow: FxHashSet<u32>,
+    /// Whether implicit semicolons are recorded into [`Self::implicit_semicolons`].
+    record_implicit_semicolons: bool,
+    /// Source offsets of the implicit semicolons seen so far, in source order.
+    /// Always empty unless [`Options::record_implicit_semicolons`] is enabled.
+    implicit_semicolons: Vec<u32>,
 }
 
 pub struct ParseReturn<'a> {
     pub ast: Ast<'a>,
     pub tokens: ArenaVec<'a, Token>,
     pub diagnostics: Vec<Diagnostic<'static>>,
+    /// Source offsets of the implicit semicolons, in source order.
+    ///
+    /// Empty unless [`Options::record_implicit_semicolons`] was enabled.
+    pub implicit_semicolons: Vec<u32>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -775,6 +790,7 @@ struct Checkpoint {
     extra_len: usize,
     diagnostics_len: usize,
     commonjs_conditional_diagnostic_indices_len: usize,
+    implicit_semicolons_len: usize,
     // Parser flags, copied by value.
     context: Context,
     statement_context: StatementContext,
@@ -901,6 +917,14 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             stripped_paren: None,
             paren_nodes: Vec::new(),
             not_parenthesized_arrow: FxHashSet::default(),
+            record_implicit_semicolons: options.record_implicit_semicolons,
+            implicit_semicolons: if options.record_implicit_semicolons {
+                // Statements are much rarer than bytes; this absorbs the common
+                // case without growing on every block-heavy file.
+                Vec::with_capacity(32.max(source.len() / 32))
+            } else {
+                Vec::new()
+            },
         }
     }
 
@@ -940,6 +964,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                         lang: self.lang,
                         preserve_parens: self.preserve_parens,
                         comments: self.comment_mode,
+                        record_implicit_semicolons: self.record_implicit_semicolons,
                     };
                     Parser::init(allocator, source, options, config)
                 };
@@ -1021,6 +1046,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             ast: self.ast,
             tokens,
             diagnostics,
+            implicit_semicolons: self.implicit_semicolons,
         }
     }
 
@@ -1078,6 +1104,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                         lang: self.lang,
                         preserve_parens: self.preserve_parens,
                         comments: self.comment_mode,
+                        record_implicit_semicolons: self.record_implicit_semicolons,
                     };
                     Parser::init(allocator, source, options, config)
                 };
@@ -1452,6 +1479,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             commonjs_conditional_diagnostic_indices_len: self
                 .commonjs_conditional_diagnostic_indices
                 .len(),
+            implicit_semicolons_len: self.implicit_semicolons.len(),
             context: self.context,
             statement_context: self.statement_context,
             ts_context: self.ts_context,
@@ -1488,6 +1516,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.diagnostics.truncate(checkpoint.diagnostics_len);
         self.commonjs_conditional_diagnostic_indices
             .truncate(checkpoint.commonjs_conditional_diagnostic_indices_len);
+        self.implicit_semicolons
+            .truncate(checkpoint.implicit_semicolons_len);
         self.context = checkpoint.context;
         self.statement_context = checkpoint.statement_context;
         self.ts_context = checkpoint.ts_context;
@@ -12273,6 +12303,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 },
             );
             return None;
+        }
+        if self.record_implicit_semicolons {
+            self.implicit_semicolons.push(end);
         }
         Some(end)
     }

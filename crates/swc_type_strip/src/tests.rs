@@ -11,6 +11,7 @@ fn options(lang: crate::Lang) -> crate::Options {
         lang,
         preserve_parens: true,
         comments: CommentMode::None,
+        record_implicit_semicolons: false,
     }
 }
 

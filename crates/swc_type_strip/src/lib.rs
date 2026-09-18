@@ -80,6 +80,7 @@ pub fn strip_types(source: &str, options: Options) -> StripResult<'_> {
         ast,
         tokens,
         mut diagnostics,
+        implicit_semicolons: _,
     } = parse;
 
     let program = ast.root_program();

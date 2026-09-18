@@ -135,6 +135,7 @@ mod tests {
                 lang: Lang::Ts,
                 preserve_parens: true,
                 comments: CommentMode::None,
+                record_implicit_semicolons: false,
             },
             TokenParserConfig,
         )
@@ -163,6 +164,7 @@ mod tests {
                 lang: Lang::Ts,
                 preserve_parens: true,
                 comments: CommentMode::None,
+                record_implicit_semicolons: false,
             },
             TokenParserConfig,
         )

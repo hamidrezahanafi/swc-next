@@ -108,6 +108,7 @@ fn expect_printed_common_with_options(
         lang,
         preserve_parens: false,
         comments: CommentMode::Flat,
+        record_implicit_semicolons: false,
     };
     let result = Parser::init(&allocator, source, parse_options, NoTokenParserConfig).parse();
     let has_errors = result

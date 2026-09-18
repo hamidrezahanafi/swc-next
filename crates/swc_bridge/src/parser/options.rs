@@ -123,6 +123,7 @@ impl From<ParserOptions> for AstParserOptions {
                 .comments
                 .map(Into::into)
                 .unwrap_or(defaults.comments),
+            record_implicit_semicolons: defaults.record_implicit_semicolons,
         }
     }
 }
