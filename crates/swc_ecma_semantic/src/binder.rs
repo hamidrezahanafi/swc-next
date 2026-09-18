@@ -1313,7 +1313,7 @@ impl<'a> SymbolTracker<'a> {
                 scope: target,
                 declaration: declaration_id,
             });
-            let key = tree.get_wtf8(name).as_bytes().clone_in(self.allocator);
+            let key = name_text.clone_in(self.allocator);
             self.scope_maps[target.index()].insert(key, new_id);
             new_id
         };
@@ -1380,11 +1380,16 @@ impl<'a> SymbolTracker<'a> {
     /// The binding of `name` at `scope`, including a hoisting `var` passing
     /// through on its way to its hoist target.
     pub fn binding(&self, scope: ScopeId, name: &[u8]) -> Option<SymbolId> {
-        self.own_binding(scope, name).or_else(|| {
-            self.hoisting_variables
-                .get(scope.index())
-                .and_then(|map| map.get(name).copied())
-        })
+        if let Some(id) = self.own_binding(scope, name) {
+            return Some(id);
+        }
+        // Most scopes declare no hoisting `var`, and probing an empty map still
+        // hashes the name, so skip it before paying for the hash.
+        let map = self.hoisting_variables.get(scope.index())?;
+        if map.is_empty() {
+            return None;
+        }
+        map.get(name).copied()
     }
 
     fn sync_scope_maps_from(&mut self, scope: &ScopeTracker<'a>) {

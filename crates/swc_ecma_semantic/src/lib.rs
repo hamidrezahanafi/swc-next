@@ -171,10 +171,15 @@ impl<'a> Semantic<'a> {
     /// //               lives in the function scope
     /// ```
     pub fn binding(&self, scope_id: ScopeId, name: &[u8]) -> Option<SymbolId> {
-        self.scope_maps[scope_id.index()]
-            .get(name)
-            .copied()
-            .or_else(|| self.hoisting_variables[scope_id.index()].get(name).copied())
+        if let Some(id) = self.scope_maps[scope_id.index()].get(name).copied() {
+            return Some(id);
+        }
+        // Most scopes declare no hoisting `var`; skip hashing for an empty map.
+        let hoisting = &self.hoisting_variables[scope_id.index()];
+        if hoisting.is_empty() {
+            return None;
+        }
+        hoisting.get(name).copied()
     }
 
     /// Every symbol declared directly in `scope`. A hoisting `var`
@@ -205,7 +210,13 @@ impl<'a> Semantic<'a> {
         space: ReferenceSpace,
     ) -> Option<SymbolId> {
         for ancestor in self.scopes.ancestors(Some(scope_id)) {
-            let Some(&id) = self.scope_maps[ancestor.index()].get(name) else {
+            let map = &self.scope_maps[ancestor.index()];
+            // Scopes without declarations are common, and probing one still
+            // hashes the name, so skip them before paying for the hash.
+            if map.is_empty() {
+                continue;
+            }
+            let Some(&id) = map.get(name) else {
                 continue;
             };
             if self.symbol(id).flags.visible_in(space) {
