@@ -50,7 +50,6 @@ pub struct SemanticBuilder<'traverse, 'a> {
     node_flags: Vec<ReferenceFlags>,
     type_positions: Vec<ReferenceFlags>,
     arrow_exports: Vec<ExportState>,
-    dynamic_var_writes: Vec<bool>,
     check_syntax: bool,
     in_ts_module_name: bool,
 }
@@ -67,7 +66,6 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
             node_flags: Vec::with_capacity(64),
             type_positions: Vec::new(),
             arrow_exports: Vec::new(),
-            dynamic_var_writes: Vec::new(),
             check_syntax,
             in_ts_module_name: false,
         }
@@ -88,7 +86,6 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
         debug_assert!(self.node_flags.is_empty());
         debug_assert!(self.type_positions.is_empty());
         debug_assert!(self.arrow_exports.is_empty());
-        debug_assert!(self.dynamic_var_writes.is_empty());
         let semantic = self.state.finalize(self.ast);
         (semantic, self.diagnostics)
     }
@@ -209,6 +206,13 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
                 self.assignment_reference_flags(false)
             }
             NodeKindData::VariableDeclarator(node) if node.id(tree).node_id() == child => {
+                let is_var = self.parent().is_some_and(|parent| {
+                    matches!(
+                        tree.kind_data(parent),
+                        NodeKindData::VariableDeclaration(declaration)
+                            if declaration.kind(tree) == VariableKind::Var
+                    )
+                });
                 let declaration_flags = self
                     .node_flags
                     .iter()
@@ -216,7 +220,8 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
                     .nth(1)
                     .copied()
                     .unwrap_or_default();
-                if self.dynamic_var_writes.last() == Some(&true)
+                if is_var
+                    && self.state.scope.current().flags.var_write_crosses_with
                     && (node.init(tree).is_some() || declaration_flags.is_write())
                 {
                     self.assignment_reference_flags(false)
@@ -1476,11 +1481,9 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
         let state = &mut self.state;
-        let dynamic_var_write =
-            state
-                .symbols
-                .enter_variable_declaration(self.ast, node, &state.scope);
-        self.dynamic_var_writes.push(dynamic_var_write);
+        state
+            .symbols
+            .enter_variable_declaration(self.ast, node, &state.scope);
     }
 
     fn exit_variable_declaration(
@@ -1488,9 +1491,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: VariableDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.dynamic_var_writes
-            .pop()
-            .expect("a declaration saved its write context");
         self.state.symbols.exit_saved_context();
     }
 

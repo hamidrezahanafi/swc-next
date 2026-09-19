@@ -2064,7 +2064,7 @@ impl<'a> SymbolTracker<'a> {
         tree: &Ast<'a>,
         declaration: VariableDeclaration,
         scope: &ScopeTracker<'a>,
-    ) -> bool {
+    ) {
         self.push_saved_context();
         let kind = declaration.kind(tree);
         self.pending = match kind {
@@ -2104,7 +2104,6 @@ impl<'a> SymbolTracker<'a> {
                 scope: scope.current,
             },
         };
-        kind == VariableKind::Var && scope.var_write_crosses_with()
     }
 
     pub fn enter_function(&mut self, tree: &Ast<'a>, function: Function, scope: &ScopeTracker<'a>) {
@@ -2112,7 +2111,7 @@ impl<'a> SymbolTracker<'a> {
         let is_declaration = function.function_type(tree) == FunctionType::FunctionDeclaration;
         let target = if is_declaration {
             scope
-                .current_scope()
+                .current()
                 .parent
                 .expect("a function declaration scope has a parent")
         } else {
@@ -2177,7 +2176,7 @@ impl<'a> SymbolTracker<'a> {
     ) {
         self.push_saved_context();
         let target = scope
-            .current_scope()
+            .current()
             .parent
             .expect("a TypeScript function scope has a parent");
         self.pending = PendingBinding {
@@ -2203,7 +2202,7 @@ impl<'a> SymbolTracker<'a> {
             },
             scope: if is_declaration {
                 scope
-                    .current_scope()
+                    .current()
                     .parent
                     .expect("a class declaration scope has a parent")
             } else {
@@ -2388,7 +2387,7 @@ impl<'a> SymbolTracker<'a> {
             ),
             excludes: Excludes::INTERFACE,
             scope: scope
-                .current_scope()
+                .current()
                 .parent
                 .expect("an interface scope has a parent"),
         };
@@ -2408,7 +2407,7 @@ impl<'a> SymbolTracker<'a> {
             ),
             excludes: Excludes::TYPE_ALIAS,
             scope: scope
-                .current_scope()
+                .current()
                 .parent
                 .expect("a type alias scope has a parent"),
         };
@@ -2544,9 +2543,9 @@ impl<'a> SymbolTracker<'a> {
         let target = if parent.is_some_and(|parent| tree.node_kind(parent) == NodeKind::TsInferType)
         {
             infer_owner(scope)
-        } else if scope.current_scope().kind == ScopeKind::TsTypeParameters {
+        } else if scope.current().kind == ScopeKind::TsTypeParameters {
             scope
-                .current_scope()
+                .current()
                 .parent
                 .expect("type parameters have an owning declaration scope")
         } else {
@@ -3580,7 +3579,6 @@ impl<'a> SymbolTracker<'a> {
         flags: ReferenceFlags,
     ) {
         debug_assert!(flags.is_write_only());
-        debug_assert!(scope.var_write_crosses_with());
         self.add_reference(
             tree,
             identifier.name(tree),
@@ -3676,9 +3674,9 @@ impl<'a> SymbolTracker<'a> {
             return;
         };
         let name = parameter_name.name(tree);
-        let parameter_scope = if scope.current_scope().kind == ScopeKind::TsSignatureReturn {
+        let parameter_scope = if scope.current().kind == ScopeKind::TsSignatureReturn {
             scope
-                .current_scope()
+                .current()
                 .parent
                 .expect("a return annotation has an owning signature")
         } else {
@@ -4652,7 +4650,7 @@ fn jsx_tag_root(tree: &Ast<'_>, name: JsxElementNameData) -> Option<JsxIdentifie
 // The expression-name scope sits between the outer and function/class
 // scopes, so it is the parent of the current scope.
 fn expression_name_scope(scope: &ScopeTracker<'_>) -> ScopeId {
-    let current = scope.current_scope();
+    let current = scope.current();
     if matches!(current.kind, ScopeKind::Function | ScopeKind::Class) {
         current
             .parent
