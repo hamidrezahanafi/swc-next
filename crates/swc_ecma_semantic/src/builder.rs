@@ -731,6 +731,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         self.pop_reference_flags();
     }
 
+    #[inline(always)]
     fn enter_binding_pattern(&mut self, _node: BindingPattern, _ctx: &mut TraverseCtx<'_, 'a>) {
         if let Some(NodeKindData::VariableDeclarator(declarator)) =
             self.parent().map(|parent| self.ast.kind_data(parent))
@@ -762,6 +763,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         }
     }
 
+    #[inline(always)]
     fn enter_property_key(&mut self, node: PropertyKey, _ctx: &mut TraverseCtx<'_, 'a>) {
         if matches!(
             self.ast.property_key_data(node),
