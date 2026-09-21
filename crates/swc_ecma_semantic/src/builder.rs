@@ -263,11 +263,28 @@ impl SemanticBuilder<'_, '_> {
 /// Builds scopes and bindings at Traverse node and scope boundaries.
 impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     fn enter_node(&mut self, node: NodeKindData, _ctx: &mut TraverseCtx<'_, 'a>) {
+        // These leaves have no binding actions or syntax checks that need ancestry.
+        if matches!(
+            node,
+            NodeKindData::IdentifierName(_)
+                | NodeKindData::ThisExpression(_)
+                | NodeKindData::BooleanLiteral(_)
+        ) {
+            return;
+        }
         self.path.push(node.node_id());
     }
 
     #[inline(always)]
     fn exit_node(&mut self, node: NodeKindData, _ctx: &mut TraverseCtx<'_, 'a>) {
+        if matches!(
+            node,
+            NodeKindData::IdentifierName(_)
+                | NodeKindData::ThisExpression(_)
+                | NodeKindData::BooleanLiteral(_)
+        ) {
+            return;
+        }
         if self.check_syntax {
             self.check(node);
         }
