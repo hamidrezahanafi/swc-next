@@ -1348,12 +1348,12 @@ pub struct Decorator {
 pub struct Class {
     class_type: ClassType,
     /// `decorator[]`
+    #[scope(enter_before)]
     decorators: SubRange<Decorator>,
     /// `binding_identifier`. `None` for anonymous class expressions.
     id: Option<BindingIdentifier>,
     /// `ts_type_parameter_declaration`. `None` when the class has no `<T, U>`
     /// parameters.
-    #[scope(enter_before)]
     type_parameters: Option<TsTypeParameterDeclaration>,
     /// any expression. `None` when the class has no `extends` clause.
     super_class: Option<Expr>,

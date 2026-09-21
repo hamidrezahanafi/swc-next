@@ -276,6 +276,10 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
 
     fn enter_scope(&mut self, node: NodeId, _ctx: &mut TraverseCtx<'_, 'a>) {
         match self.ast.kind_data(node) {
+            NodeKindData::Class(node) => {
+                self.scope.enter_class(self.ast, node);
+                self.symbols.enter_class(self.ast, node, &self.scope);
+            }
             NodeKindData::BlockStatement(node) => {
                 self.scope.enter_block_statement(self.ast, node.node_id());
             }
@@ -394,14 +398,18 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
                     &self.scope,
                 );
             }
-            // The root scope is initialized by SemanticBuilder::new. Class
-            // scopes and global container contexts still use node hooks below.
+            // The root scope is initialized by SemanticBuilder::new. Global
+            // container contexts use node hooks below.
             _ => {}
         }
     }
 
     fn leave_scope(&mut self, node: NodeId, _ctx: &mut TraverseCtx<'_, 'a>) {
         match self.ast.kind_data(node) {
+            NodeKindData::Class(node) => {
+                self.symbols.exit_saved_context();
+                self.scope.exit_scope(node.node_id());
+            }
             NodeKindData::BlockStatement(node) => {
                 self.scope.exit_scope(node.node_id());
             }
@@ -849,24 +857,8 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         self.scope.enter_directive(self.ast, node);
     }
 
-    fn enter_class(&mut self, node: Class, _ctx: &mut TraverseCtx<'_, 'a>) {
+    fn enter_class(&mut self, _node: Class, _ctx: &mut TraverseCtx<'_, 'a>) {
         self.reference_flags = self.default_reference_flags;
-        // TODO(traverse): Class scope starts after id in Traverse; keep node hooks until binding and decorator contexts are aligned.
-        // Original Visit body:
-        // self.scope.enter_class(self.ast, node);
-        // self.enter_node(node.node_id());
-        // self.symbols.enter_class(self.ast, node, &self.scope);
-        // node.visit_children_with(self);
-        // self.symbols.exit_saved_context();
-        // self.scope.exit_scope(node.node_id());
-        // self.leave_node(NodeKindData::Class(node));
-        self.scope.enter_class(self.ast, node);
-        self.symbols.enter_class(self.ast, node, &self.scope);
-    }
-
-    fn exit_class(&mut self, node: Class, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.symbols.exit_saved_context();
-        self.scope.exit_scope(node.node_id());
     }
 
     fn enter_class_body(&mut self, _node: ClassBody, _ctx: &mut TraverseCtx<'_, 'a>) {

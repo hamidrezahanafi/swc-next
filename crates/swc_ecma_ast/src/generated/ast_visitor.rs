@@ -21833,6 +21833,7 @@ fn walk_class<'a, State, T: ?Sized + Traverse<'a, State>>(
 ) {
     let node_id = node.node_id();
     traverser.enter_class(node, ctx);
+    traverser.enter_scope(node_id, ctx);
     let child = node.decorators(ctx.ast);
     for child_idx in child.iter() {
         let child = ctx.ast.get_node_in_sub_range(child_idx);
@@ -21852,7 +21853,6 @@ fn walk_class<'a, State, T: ?Sized + Traverse<'a, State>>(
             traverser.exit_node(node_id, ctx);
         }
     }
-    traverser.enter_scope(node_id, ctx);
     let child = node.type_parameters(ctx.ast);
     if let Some(child) = child {
         {
@@ -34236,6 +34236,7 @@ fn walk_mut_class<'a, State, T: ?Sized + TraverseMut<'a, State>>(
 ) {
     let node_id = node.node_id();
     traverser.enter_class(node, ctx);
+    traverser.enter_scope(node_id, ctx);
     let child = node.decorators(ctx.ast);
     for child_idx in child.iter() {
         let child = ctx.ast.get_node_in_sub_range(child_idx);
@@ -34255,7 +34256,6 @@ fn walk_mut_class<'a, State, T: ?Sized + TraverseMut<'a, State>>(
             traverser.exit_node(node_id, ctx);
         }
     }
-    traverser.enter_scope(node_id, ctx);
     let child = node.type_parameters(ctx.ast);
     if let Some(child) = child {
         {
