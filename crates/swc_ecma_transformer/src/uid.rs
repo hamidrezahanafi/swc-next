@@ -20,6 +20,10 @@ impl<'ast> UidGenerator<'ast> {
         Self { used_names }
     }
 
+    pub(crate) fn reserve(&mut self, name: &str) {
+        self.used_names.observe(name.as_bytes());
+    }
+
     pub(crate) fn fresh(&mut self, base: &'ast str, ast: &mut Ast<'ast>) -> AstUtf8 {
         ast.add_utf8(self.used_names.next_name(base, 2))
     }

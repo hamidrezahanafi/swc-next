@@ -59,6 +59,10 @@ impl Transformer {
         mut options: TransformerOptions,
     ) -> TransformerReturn<'ast> {
         let program = ast.root_program();
+        if let Some(refresh) = options.jsx.as_ref().and_then(|jsx| jsx.refresh.as_ref()) {
+            jsx::transform_refresh(program, ast, &semantic, refresh);
+            semantic = analyze(ast, AnalyzeOptions::default()).semantic;
+        }
         let jsx = options
             .jsx
             .take()
