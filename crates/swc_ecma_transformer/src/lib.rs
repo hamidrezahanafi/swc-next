@@ -1,11 +1,11 @@
 use swc_next_ecma_ast::{
-    ArrowFunctionExpression, Ast, BlockStatement, CatchClause, Class, ClassBody, ClassType, Decl,
-    Diagnostic, ExportDefaultDeclarationKind, Expr, ForInStatement, ForOfStatement, ForStatement,
-    FormalParameters, Function, FunctionBody, NodeId, Program, StaticBlock, SwitchCase,
-    TraverseAction, TraverseMut, TraverseMutCtx, TraverseMutWith, TsCallSignatureDeclaration,
-    TsConstructSignatureDeclaration, TsEnumBody, TsFunction, TsIndexSignature,
-    TsInterfaceDeclaration, TsMethodSignature, TsModuleBlock, TsThisParameter, TsType,
-    TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeParameter, TsTypeParameterDeclaration,
+    ArrowFunctionExpression, Ast, BlockStatement, CallExpression, CatchClause, Class, ClassBody,
+    ClassType, Decl, Diagnostic, ExportDefaultDeclarationKind, Expr, ForInStatement,
+    ForOfStatement, ForStatement, FormalParameters, Function, FunctionBody, NodeId, Program,
+    StaticBlock, SwitchCase, TraverseAction, TraverseMut, TraverseMutCtx, TraverseMutWith,
+    TsCallSignatureDeclaration, TsConstructSignatureDeclaration, TsEnumBody, TsFunction,
+    TsIndexSignature, TsInterfaceDeclaration, TsMethodSignature, TsModuleBlock, TsThisParameter,
+    TsType, TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeParameter, TsTypeParameterDeclaration,
 };
 use swc_next_ecma_semantic::{AnalyzeOptions, ScopeModel, Semantic, analyze};
 
@@ -31,6 +31,7 @@ pub mod typescript;
 #[derive(Default)]
 pub struct TransformerOptions {
     pub source_path: Option<String>,
+    pub react_display_name: bool,
     pub assumptions: Assumptions,
     pub es2022: es2022::ES2022Options,
     pub proposal: proposal::ProposalOptions,
@@ -46,6 +47,7 @@ pub struct TransformerReturn<'a> {
 
 pub struct Transformer {
     x0_es2022: es2022::ES2022,
+    display_name: Option<jsx::DisplayName>,
 }
 
 impl Transformer {
@@ -103,6 +105,9 @@ impl Transformer {
 
         let mut transformer = Self {
             x0_es2022: es2022::ES2022::new(options.es2022, options.proposal),
+            display_name: options
+                .react_display_name
+                .then(|| jsx::DisplayName::new(options.source_path)),
         };
 
         let state = TransformerState::new(semantic);
@@ -117,6 +122,17 @@ impl Transformer {
 }
 
 impl<'a> TraverseMut<'a, TransformerState<'a>> for Transformer {
+    fn exit_call_expression(
+        &mut self,
+        node: CallExpression,
+        ctx: &mut TraverseMutCtx<'_, 'a, TransformerState<'a>>,
+    ) -> TraverseAction<CallExpression> {
+        if let Some(display_name) = &self.display_name {
+            display_name.exit_call_expression(node, &mut TransformCtx::new(ctx));
+        }
+        TraverseAction::Continue
+    }
+
     fn enter_program(
         &mut self,
         node: Program,
