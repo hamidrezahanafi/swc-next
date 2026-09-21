@@ -154,6 +154,8 @@ impl<'ast> JsxLowerer<'_, 'ast> {
                     let statement = ast.get_node_in_sub_range(id);
                     if statement.is_import_declaration(ast) {
                         Some(index + 1)
+                    } else if Some(statement) == self.runtime_import_anchor {
+                        Some(index)
                     } else {
                         None
                     }

@@ -2,7 +2,7 @@ use super::{JsxOptions, self_context::JsxSelfContext, source::SourceLocations};
 use crate::{syntax::SyntaxResult, uid::UidGenerator};
 use build::QualifiedName;
 use rustc_hash::FxHashMap;
-use swc_next_ecma_ast::{Ast, AstUtf8, Diagnostic, NodeId, SymbolId};
+use swc_next_ecma_ast::{Ast, AstUtf8, Diagnostic, NodeId, Stmt, SymbolId};
 use swc_next_ecma_semantic::Semantic;
 
 mod build;
@@ -41,6 +41,7 @@ pub(crate) struct JsxLowerer<'options, 'ast> {
     filename: Option<AstUtf8>,
     helper_imports: Vec<(&'static str, AstUtf8)>,
     diagnostics: Vec<Diagnostic<'static>>,
+    runtime_import_anchor: Option<Stmt>,
 }
 
 impl<'options, 'ast> JsxLowerer<'options, 'ast> {
@@ -85,7 +86,12 @@ impl<'options, 'ast> JsxLowerer<'options, 'ast> {
             filename: None,
             helper_imports: Vec::new(),
             diagnostics: Vec::new(),
+            runtime_import_anchor: None,
         }
+    }
+
+    pub(crate) fn set_runtime_import_anchor(&mut self, anchor: Option<Stmt>) {
+        self.runtime_import_anchor = anchor;
     }
 
     pub(crate) fn take_result(&mut self) -> SyntaxResult {

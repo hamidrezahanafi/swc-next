@@ -59,8 +59,9 @@ impl Transformer {
         mut options: TransformerOptions,
     ) -> TransformerReturn<'ast> {
         let program = ast.root_program();
+        let mut runtime_import_anchor = None;
         if let Some(refresh) = options.jsx.as_ref().and_then(|jsx| jsx.refresh.as_ref()) {
-            jsx::transform_refresh(program, ast, &semantic, refresh);
+            runtime_import_anchor = jsx::transform_refresh(program, ast, &semantic, refresh);
             semantic = analyze(ast, AnalyzeOptions::default()).semantic;
         }
         let jsx = options
@@ -72,6 +73,7 @@ impl Transformer {
             (Some(typescript), Some(jsx)) => {
                 let mut jsx =
                     jsx::JsxLowerer::new(&jsx, ast, &semantic, options.source_path.as_deref());
+                jsx.set_runtime_import_anchor(runtime_import_anchor);
                 typescript::transform_with_following(program, ast, &semantic, typescript, &mut jsx);
                 jsx.take_result()
             }
@@ -85,6 +87,7 @@ impl Transformer {
                 &semantic,
                 jsx,
                 options.source_path.as_deref(),
+                runtime_import_anchor,
             ),
             (None, None) => syntax::SyntaxResult::default(),
         };
