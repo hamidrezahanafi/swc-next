@@ -11,24 +11,25 @@ use rustc_hash::FxHashMap;
 use swc_next_allocator::Allocator;
 use swc_next_ecma_ast::{
     ArrayExpression, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator,
-    AssignmentPattern, AssignmentTarget, Ast, AwaitExpression, BinaryExpression, BinaryOperator,
-    BindingIdentifier, BindingPattern, CallExpression, ChainExpression, Class, ClassBody,
-    ClassType, ConditionalExpression, Decorator, Diagnostic, Directive, ExportAllDeclaration,
+    AssignmentPattern, Ast, AwaitExpression, BinaryExpression, BinaryOperator, BindingIdentifier,
+    BindingPattern, CallExpression, ChainExpression, Class, ClassBody, ClassType,
+    ConditionalExpression, Decorator, Diagnostic, Directive, ExportAllDeclaration,
     ExportDefaultDeclaration, ExportDefaultDeclarationKindData, ExportNamedDeclaration,
     ExportSpecifier, ForInStatement, ForOfStatement, ForStatementLeft, FormalParameters, Function,
     FunctionBody, FunctionType, IdentifierReference, ImportDeclaration, ImportExpression,
     ImportOrExportKind, ImportSpecifier, JsxClosingElement, JsxElement, JsxFragment,
     JsxOpeningElement, Label, LogicalExpression, MemberExpression, NewExpression, NodeId, NodeKind,
     NodeKindData, ObjectExpression, PropertyKey, PropertyKeyData, ScopeId, SequenceExpression,
-    Severity, Span, SwitchStatement, TaggedTemplateExpression, TemplateLiteral, Traverse,
-    TraverseCtx, TsClassImplements, TsConditionalType, TsEnumDeclaration, TsEnumMember,
-    TsExportAssignment, TsGlobalDeclaration, TsImportEqualsDeclaration, TsImportType,
-    TsIndexSignature, TsInstantiationExpression, TsInterfaceBody, TsInterfaceDeclaration,
-    TsInterfaceHeritage, TsMethodSignature, TsModuleBlock, TsModuleDeclaration, TsModuleNameData,
-    TsModuleReference, TsNamespaceExportDeclaration, TsQualifiedName, TsType,
-    TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeParameter, TsTypeParameterDeclaration,
-    TsTypePredicate, TsTypeQuery, UnaryExpression, UnaryOperator, UpdateExpression,
-    VariableDeclaration, VariableDeclarator, VariableKind, WithStatement, YieldExpression,
+    Severity, SimpleAssignmentTarget, Span, SwitchStatement, TaggedTemplateExpression,
+    TemplateLiteral, Traverse, TraverseCtx, TsClassImplements, TsConditionalType,
+    TsEnumDeclaration, TsEnumMember, TsExportAssignment, TsGlobalDeclaration,
+    TsImportEqualsDeclaration, TsImportType, TsIndexSignature, TsInstantiationExpression,
+    TsInterfaceBody, TsInterfaceDeclaration, TsInterfaceHeritage, TsMethodSignature, TsModuleBlock,
+    TsModuleDeclaration, TsModuleNameData, TsModuleReference, TsNamespaceExportDeclaration,
+    TsQualifiedName, TsType, TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeParameter,
+    TsTypeParameterDeclaration, TsTypePredicate, TsTypeQuery, UnaryExpression, UnaryOperator,
+    UpdateExpression, VariableDeclaration, VariableDeclarator, VariableKind, WithStatement,
+    YieldExpression,
 };
 
 use crate::{
@@ -564,33 +565,28 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         self.record_ts_expando_assignment(node);
     }
 
-    fn enter_assignment_target(&mut self, _node: AssignmentTarget, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if let Some(NodeKindData::AssignmentExpression(parent)) =
-            self.parent().map(|parent| self.ast.kind_data(parent))
-        {
-            let flags = self.assignment_reference_flags(
-                parent.operator(self.ast) != AssignmentOperator::Assign,
-            );
-            // The assignment RHS always starts in the default context.
-            self.reference_flags = flags;
-        }
+    fn enter_simple_assignment_target(
+        &mut self,
+        _node: SimpleAssignmentTarget,
+        _ctx: &mut TraverseCtx<'_, 'a>,
+    ) {
+        let read = match self.parent().map(|parent| self.ast.kind_data(parent)) {
+            Some(NodeKindData::AssignmentExpression(parent)) => {
+                parent.operator(self.ast) != AssignmentOperator::Assign
+            }
+            Some(NodeKindData::UpdateExpression(_)) => true,
+            _ => false,
+        };
+        self.reference_flags = self.assignment_reference_flags(read);
     }
 
-    fn exit_assignment_target(&mut self, _node: AssignmentTarget, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self
-            .parent()
-            .is_some_and(|parent| self.ast.node_kind(parent) == NodeKind::AssignmentExpression)
-        {
-            self.reference_flags = self.default_reference_flags;
-        }
-    }
-
-    fn enter_update_expression(&mut self, _node: UpdateExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.push_reference_flags(self.assignment_reference_flags(true));
-    }
-
-    fn exit_update_expression(&mut self, _node: UpdateExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.pop_reference_flags();
+    fn exit_simple_assignment_target(
+        &mut self,
+        _node: SimpleAssignmentTarget,
+        _ctx: &mut TraverseCtx<'_, 'a>,
+    ) {
+        // Each target establishes its own flags; following expressions read.
+        self.reference_flags = self.default_reference_flags;
     }
 
     fn enter_unary_expression(&mut self, node: UnaryExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
