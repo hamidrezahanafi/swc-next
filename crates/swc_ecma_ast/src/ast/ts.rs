@@ -560,10 +560,12 @@ pub struct TsImportType {
 /// //                 ^^^^^^^  const = true
 /// ```
 #[ast]
+#[scope]
 pub struct TsTypeParameter {
     /// `binding_identifier`
     name: BindingIdentifier,
     /// any ts type. `None` when there is no `extends` constraint.
+    #[scope(enter_before)]
     constraint: Option<TsType>,
     /// any ts type. `None` when there is no default.
     default: Option<TsType>,
@@ -1491,6 +1493,7 @@ pub struct TsModuleDeclaration {
 /// //            ^^^^^^^^^^^^^^^^^^^^^^^^^^ TSModuleBlock
 /// ```
 #[ast]
+#[scope]
 pub struct TsModuleBlock {
     directives: SubRange<Directive>,
     body: SubRange<Stmt>,

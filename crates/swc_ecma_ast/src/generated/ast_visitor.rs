@@ -23726,6 +23726,7 @@ fn walk_ts_type_parameter<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) {
+    let node_id = node.node_id();
     traverser.enter_ts_type_parameter(node, ctx);
     let child = node.name(ctx.ast);
     {
@@ -23734,6 +23735,7 @@ fn walk_ts_type_parameter<'a, State, T: ?Sized + Traverse<'a, State>>(
         walk_binding_identifier(child, traverser, ctx);
         traverser.exit_node(node_id, ctx);
     }
+    traverser.enter_scope(node_id, ctx);
     let child = node.constraint(ctx.ast);
     if let Some(child) = child {
         {
@@ -23756,6 +23758,7 @@ fn walk_ts_type_parameter<'a, State, T: ?Sized + Traverse<'a, State>>(
             traverser.exit_node(node_id, ctx);
         }
     }
+    traverser.leave_scope(node_id, ctx);
     traverser.exit_ts_type_parameter(node, ctx);
 }
 #[inline]
@@ -24774,7 +24777,9 @@ fn walk_ts_module_block<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) {
+    let node_id = node.node_id();
     traverser.enter_ts_module_block(node, ctx);
+    traverser.enter_scope(node_id, ctx);
     let child = node.directives(ctx.ast);
     for child_idx in child.iter() {
         let child = ctx.ast.get_node_in_sub_range(child_idx);
@@ -24797,6 +24802,7 @@ fn walk_ts_module_block<'a, State, T: ?Sized + Traverse<'a, State>>(
             traverser.exit_node(node_id, ctx);
         }
     }
+    traverser.leave_scope(node_id, ctx);
     traverser.exit_ts_module_block(node, ctx);
 }
 #[inline]
@@ -36131,6 +36137,7 @@ fn walk_mut_ts_type_parameter<'a, State, T: ?Sized + TraverseMut<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseMutCtx<'_, 'a, State>,
 ) {
+    let node_id = node.node_id();
     traverser.enter_ts_type_parameter(node, ctx);
     let child = node.name(ctx.ast);
     {
@@ -36139,6 +36146,7 @@ fn walk_mut_ts_type_parameter<'a, State, T: ?Sized + TraverseMut<'a, State>>(
         walk_mut_binding_identifier(child, traverser, ctx);
         traverser.exit_node(node_id, ctx);
     }
+    traverser.enter_scope(node_id, ctx);
     let child = node.constraint(ctx.ast);
     if let Some(child) = child {
         {
@@ -36161,6 +36169,7 @@ fn walk_mut_ts_type_parameter<'a, State, T: ?Sized + TraverseMut<'a, State>>(
             traverser.exit_node(node_id, ctx);
         }
     }
+    traverser.leave_scope(node_id, ctx);
     traverser.exit_ts_type_parameter(node, ctx);
 }
 #[inline]
@@ -37179,7 +37188,9 @@ fn walk_mut_ts_module_block<'a, State, T: ?Sized + TraverseMut<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseMutCtx<'_, 'a, State>,
 ) {
+    let node_id = node.node_id();
     traverser.enter_ts_module_block(node, ctx);
+    traverser.enter_scope(node_id, ctx);
     let child = node.directives(ctx.ast);
     for child_idx in child.iter() {
         let child = ctx.ast.get_node_in_sub_range(child_idx);
@@ -37202,6 +37213,7 @@ fn walk_mut_ts_module_block<'a, State, T: ?Sized + TraverseMut<'a, State>>(
             traverser.exit_node(node_id, ctx);
         }
     }
+    traverser.leave_scope(node_id, ctx);
     traverser.exit_ts_module_block(node, ctx);
 }
 #[inline]

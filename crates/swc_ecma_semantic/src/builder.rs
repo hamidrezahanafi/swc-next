@@ -21,14 +21,14 @@ use swc_next_ecma_ast::{
     LogicalExpression, MemberExpression, NewExpression, NodeId, NodeKind, NodeKindData,
     ObjectExpression, PropertyKey, PropertyKeyData, ScopeId, SequenceExpression, Severity,
     SimpleAssignmentTarget, Span, SwitchStatement, TaggedTemplateExpression, TemplateLiteral,
-    Traverse, TraverseCtx, TsClassImplements, TsConditionalType, TsEnumDeclaration, TsEnumMember,
-    TsExportAssignment, TsGlobalDeclaration, TsImportEqualsDeclaration, TsImportType,
-    TsIndexSignature, TsInstantiationExpression, TsInterfaceBody, TsInterfaceDeclaration,
-    TsInterfaceHeritage, TsMethodSignature, TsModuleBlock, TsModuleDeclaration, TsModuleNameData,
-    TsModuleReference, TsNamespaceExportDeclaration, TsQualifiedName, TsType,
-    TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeParameter, TsTypeParameterDeclaration,
-    TsTypePredicate, TsTypeQuery, UnaryExpression, UnaryOperator, UpdateExpression,
-    VariableDeclaration, VariableDeclarator, VariableKind, WithStatement, YieldExpression,
+    Traverse, TraverseCtx, TsClassImplements, TsEnumDeclaration, TsEnumMember, TsExportAssignment,
+    TsGlobalDeclaration, TsImportEqualsDeclaration, TsImportType, TsIndexSignature,
+    TsInstantiationExpression, TsInterfaceBody, TsInterfaceDeclaration, TsInterfaceHeritage,
+    TsMethodSignature, TsModuleDeclaration, TsModuleNameData, TsModuleReference,
+    TsNamespaceExportDeclaration, TsQualifiedName, TsType, TsTypeAliasDeclaration,
+    TsTypeAnnotation, TsTypeParameter, TsTypeParameterDeclaration, TsTypePredicate, TsTypeQuery,
+    UnaryExpression, UnaryOperator, UpdateExpression, VariableDeclaration, VariableDeclarator,
+    VariableKind, WithStatement, YieldExpression,
 };
 
 use crate::{
@@ -137,6 +137,16 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     /// True when the walker is currently inside a TS namespace body.
     fn in_ts_namespace(&self) -> bool {
         self.ts_namespace_depth > 0
+    }
+
+    fn is_conditional_extends(&self, node: TsType) -> bool {
+        self.parent().is_some_and(|parent| {
+            matches!(
+                self.ast.kind_data(parent),
+                NodeKindData::TsConditionalType(conditional)
+                    if conditional.extends_type(self.ast).node_id() == node.node_id()
+            )
+        })
     }
 
     fn enter_type_position(&mut self) {
@@ -250,7 +260,7 @@ impl SemanticBuilder<'_, '_> {
     }
 }
 
-/// First Traverse migration. Pending hooks retain their original Visit bodies.
+/// Builds scopes and bindings at Traverse node and scope boundaries.
 impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     fn enter_node(&mut self, node: NodeId, _ctx: &mut TraverseCtx<'_, 'a>) {
         self.path.push(node);
@@ -362,8 +372,30 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
                     }
                 }
             }
-            // The root scope is initialized by SemanticBuilder::new. Class,
-            // type alias, interface, and global scopes still use node hooks below.
+            NodeKindData::TsModuleBlock(node) => {
+                self.ts_namespace_depth += 1;
+                self.scope.enter_ts_module_block(node.node_id());
+                self.symbols.enter_ts_module_block(&self.scope);
+            }
+            NodeKindData::TsTypeAliasDeclaration(_)
+            | NodeKindData::TsInterfaceDeclaration(_)
+            | NodeKindData::TsConditionalType(_) => self.scope.enter_block_scope(node),
+            NodeKindData::TsTypeParameter(parameter)
+                if self
+                    .parent()
+                    .is_some_and(|parent| self.ast.node_kind(parent) == NodeKind::TsInferType) =>
+            {
+                // The name is bound before this constraint/default region.
+                self.scope
+                    .enter_ts_lookup_view(node, ScopeKind::TsInferConstraint);
+                self.symbols.expose_ts_infer_parameter(
+                    self.ast,
+                    parameter.name(self.ast),
+                    &self.scope,
+                );
+            }
+            // The root scope is initialized by SemanticBuilder::new. Class
+            // scopes and global container contexts still use node hooks below.
             _ => {}
         }
     }
@@ -454,6 +486,21 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
             NodeKindData::TsModuleDeclaration(_) => {
                 self.symbols.exit_ts_module_body();
                 self.symbols.exit_saved_context();
+            }
+            NodeKindData::TsModuleBlock(_) => {
+                debug_assert!(self.ts_namespace_depth > 0);
+                self.scope.exit_scope(node);
+                self.ts_namespace_depth -= 1;
+            }
+            NodeKindData::TsTypeAliasDeclaration(_)
+            | NodeKindData::TsInterfaceDeclaration(_)
+            | NodeKindData::TsConditionalType(_) => self.scope.exit_scope(node),
+            NodeKindData::TsTypeParameter(_)
+                if self
+                    .parent()
+                    .is_some_and(|parent| self.ast.node_kind(parent) == NodeKind::TsInferType) =>
+            {
+                self.scope.exit_ts_lookup_view(node);
             }
             _ => {}
         }
@@ -620,13 +667,22 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         self.pop_reference_flags();
     }
 
-    fn enter_ts_type(&mut self, _node: TsType, _ctx: &mut TraverseCtx<'_, 'a>) {
+    fn enter_ts_type(&mut self, node: TsType, _ctx: &mut TraverseCtx<'_, 'a>) {
+        // The conditional scope spans extends and true, but infer bindings
+        // must remain hidden from references elsewhere in the extends subtree.
+        if self.is_conditional_extends(node) {
+            self.scope
+                .enter_ts_lookup_view(node.node_id(), ScopeKind::TsConditionalExtends);
+        }
         // Covers concrete type nodes, including nested types inside typeof.
         self.enter_type_position();
     }
 
-    fn exit_ts_type(&mut self, _node: TsType, _ctx: &mut TraverseCtx<'_, 'a>) {
+    fn exit_ts_type(&mut self, node: TsType, _ctx: &mut TraverseCtx<'_, 'a>) {
         self.exit_type_position();
+        if self.is_conditional_extends(node) {
+            self.scope.exit_ts_lookup_view(node.node_id());
+        }
     }
 
     fn enter_assignment_pattern(
@@ -987,52 +1043,9 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsModuleDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        // TODO(traverse): The module body still owns its lexical scope; align owner identities separately.
-        // Original Visit body:
-        // self.enter_node(node.node_id());
-        // self
-        //     .symbols
-        //     .enter_ts_module_declaration(self.ast, node, &self.scope);
-        // let name = node.id(self.ast);
-        // let was_in_ts_module_name = std::mem::replace(&mut self.in_ts_module_name, true);
-        // name.visit_with(self);
-        // self.in_ts_module_name = was_in_ts_module_name;
-        // let declarations = self.symbols.enter_ts_module_body(self.ast, node);
-        // if self.check_syntax {
-        //     for prepared in declarations {
-        //         declarations::check_prepared_redeclaration(self, prepared);
-        //     }
-        // }
-        // node.body(self.ast).visit_with(self);
-        // self.symbols.exit_ts_module_body();
-        // self.symbols.exit_saved_context();
-        // self.leave_node(NodeKindData::TsModuleDeclaration(node));
         self.symbols
             .enter_ts_module_declaration(self.ast, node, &self.scope);
         self.in_ts_module_name = true;
-    }
-
-    fn enter_ts_module_block(&mut self, node: TsModuleBlock, _ctx: &mut TraverseCtx<'_, 'a>) {
-        // TODO(traverse): Namespace owner remains the body node until declaration/body scope ownership is aligned.
-        // Original Visit body:
-        // self.ts_namespace_depth += 1;
-        // self.scope.enter_ts_module_block(node.node_id());
-        // self.enter_node(node.node_id());
-        // self.symbols.enter_ts_module_block(&self.scope);
-        // node.visit_children_with(self);
-        // debug_assert!(self.ts_namespace_depth > 0);
-        // self.scope.exit_scope(node.node_id());
-        // self.ts_namespace_depth -= 1;
-        // self.leave_node(NodeKindData::TsModuleBlock(node));
-        self.ts_namespace_depth += 1;
-        self.scope.enter_ts_module_block(node.node_id());
-        self.symbols.enter_ts_module_block(&self.scope);
-    }
-
-    fn exit_ts_module_block(&mut self, node: TsModuleBlock, _ctx: &mut TraverseCtx<'_, 'a>) {
-        debug_assert!(self.ts_namespace_depth > 0);
-        self.scope.exit_scope(node.node_id());
-        self.ts_namespace_depth -= 1;
     }
 
     fn enter_ts_global_declaration(
@@ -1056,29 +1069,16 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsTypeAliasDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        // TODO(traverse): The binder still derives the declaration target from the inner scope parent.
-        // Original Visit body:
-        // self.scope.enter_block_scope(node.node_id());
-        // self.enter_node(node.node_id());
-        // self
-        //     .symbols
-        //     .enter_ts_type_alias_declaration(self.ast, node, &self.scope);
-        // node.visit_children_with(self);
-        // self.symbols.exit_saved_context();
-        // self.scope.exit_scope(node.node_id());
-        // self.leave_node(NodeKindData::TsTypeAliasDeclaration(node));
-        self.scope.enter_block_scope(node.node_id());
         self.symbols
             .enter_ts_type_alias_declaration(self.ast, node, &self.scope);
     }
 
     fn exit_ts_type_alias_declaration(
         &mut self,
-        node: TsTypeAliasDeclaration,
+        _node: TsTypeAliasDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
         self.symbols.exit_saved_context();
-        self.scope.exit_scope(node.node_id());
     }
 
     fn enter_ts_interface_declaration(
@@ -1086,29 +1086,16 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsInterfaceDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        // TODO(traverse): The binder still derives the declaration target from the inner scope parent.
-        // Original Visit body:
-        // self.scope.enter_block_scope(node.node_id());
-        // self.enter_node(node.node_id());
-        // self
-        //     .symbols
-        //     .enter_ts_interface_declaration(self.ast, node, &self.scope);
-        // node.visit_children_with(self);
-        // self.symbols.exit_saved_context();
-        // self.scope.exit_scope(node.node_id());
-        // self.leave_node(NodeKindData::TsInterfaceDeclaration(node));
-        self.scope.enter_block_scope(node.node_id());
         self.symbols
             .enter_ts_interface_declaration(self.ast, node, &self.scope);
     }
 
     fn exit_ts_interface_declaration(
         &mut self,
-        node: TsInterfaceDeclaration,
+        _node: TsInterfaceDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
         self.symbols.exit_saved_context();
-        self.scope.exit_scope(node.node_id());
     }
 
     fn enter_ts_interface_heritage(
@@ -1143,33 +1130,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_ts_type_parameter(&mut self, _node: TsTypeParameter, _ctx: &mut TraverseCtx<'_, 'a>) {
-        // TODO(traverse): Infer constraints need a lookup view after the name is bound; ordinary type parameters are migrated below.
-        // Original Visit body:
-        // self.enter_type_position();
-        // self.enter_node(node.node_id());
-        // let parent = self.parent();
-        // self
-        //     .symbols
-        //     .enter_ts_type_parameter(self.ast, parent, &self.scope);
-        // node.name(self.ast).visit_with(self);
-        // let infer =
-        //     parent.is_some_and(|parent| self.ast.node_kind(parent) == NodeKind::TsInferType);
-        // if infer {
-        //     self
-        //         .scope
-        //         .enter_ts_lookup_view(node.node_id(), ScopeKind::TsInferConstraint);
-        //     self
-        //         .symbols
-        //         .expose_ts_infer_parameter(self.ast, node.name(self.ast), &self.scope);
-        // }
-        // node.constraint(self.ast).visit_with(self);
-        // node.default(self.ast).visit_with(self);
-        // if infer {
-        //     self.scope.exit_ts_lookup_view(node.node_id());
-        // }
-        // self.symbols.exit_saved_context();
-        // self.leave_node(NodeKindData::TsTypeParameter(node));
-        // self.exit_type_position();
         self.enter_type_position();
         let parent = self.parent();
         self.symbols
@@ -1196,30 +1156,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     fn enter_ts_type_predicate(&mut self, node: TsTypePredicate, _ctx: &mut TraverseCtx<'_, 'a>) {
         self.symbols
             .add_ts_type_predicate_reference(self.ast, node, &self.scope);
-    }
-
-    fn enter_ts_conditional_type(
-        &mut self,
-        _node: TsConditionalType,
-        _ctx: &mut TraverseCtx<'_, 'a>,
-    ) {
-        // TODO(traverse): The scope hook covers extends/true, but the extends-only lookup view still needs field boundaries.
-        // Original Visit body:
-        // self.enter_type_position();
-        // self.enter_node(node.node_id());
-        // node.check_type(self.ast).visit_with(self);
-        // self.scope.enter_block_scope(node.node_id());
-        // let extends = node.extends_type(self.ast);
-        // self
-        //     .scope
-        //     .enter_ts_lookup_view(extends.node_id(), ScopeKind::TsConditionalExtends);
-        // extends.visit_with(self);
-        // self.scope.exit_ts_lookup_view(extends.node_id());
-        // node.true_type(self.ast).visit_with(self);
-        // self.scope.exit_scope(node.node_id());
-        // node.false_type(self.ast).visit_with(self);
-        // self.leave_node(NodeKindData::TsConditionalType(node));
-        // self.exit_type_position();
     }
 
     fn enter_ts_method_signature(

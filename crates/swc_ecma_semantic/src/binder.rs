@@ -2386,10 +2386,7 @@ impl<'a> SymbolTracker<'a> {
                 declaration.declare(tree) || self.ambient,
             ),
             excludes: Excludes::INTERFACE,
-            scope: scope
-                .current()
-                .parent
-                .expect("an interface scope has a parent"),
+            scope: scope.current,
         };
     }
 
@@ -2406,10 +2403,7 @@ impl<'a> SymbolTracker<'a> {
                 declaration.declare(tree) || self.ambient,
             ),
             excludes: Excludes::TYPE_ALIAS,
-            scope: scope
-                .current()
-                .parent
-                .expect("a type alias scope has a parent"),
+            scope: scope.current,
         };
     }
 
@@ -3209,7 +3203,6 @@ impl<'a> SymbolTracker<'a> {
 
     /// An infer parameter is visible in its own constraint as well as the
     /// conditional true branch, without exposing its siblings' infer names.
-    #[expect(dead_code, reason = "pending Traverse infer-constraint migration")]
     pub fn expose_ts_infer_parameter(
         &mut self,
         tree: &Ast<'a>,
