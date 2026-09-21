@@ -9,6 +9,8 @@ pub(super) fn expand_function(function: &ItemFn, arguments: Vec<Meta>) -> syn::R
     let mut native_arguments = Vec::new();
     let mut conversions = Vec::new();
     let mut call_arguments = Vec::new();
+    let mut task_argument_names = Vec::new();
+    let mut task_argument_types = Vec::new();
     for input in &function.sig.inputs {
         let FnArg::Typed(argument) = input else {
             return Err(syn::Error::new_spanned(
@@ -25,11 +27,14 @@ pub(super) fn expand_function(function: &ItemFn, arguments: Vec<Meta>) -> syn::R
 
         let ident = &pattern.ident;
         let semantic_type = &argument.ty;
+        task_argument_names.push(ident);
         if is_byte_slice(semantic_type) {
             native_arguments.push(quote!(#ident: napi::bindgen_prelude::Buffer));
             call_arguments.push(quote!(&#ident));
+            task_argument_types.push(quote!(napi::bindgen_prelude::Buffer));
             continue;
         }
+        task_argument_types.push(quote!(#semantic_type));
 
         let decode_type = (**semantic_type).clone();
         native_arguments.push(quote! {
@@ -76,20 +81,42 @@ pub(super) fn expand_function(function: &ItemFn, arguments: Vec<Meta>) -> syn::R
     };
     let napi = napi_function_meta(arguments, function)?;
     let wire_type = quote!(<#return_type as ::swc_next_bridge::BridgeEncode>::Wire);
-    let (native_return, body) = if async_task {
+    let (task, native_return, body) = if async_task {
         (
-            quote!(napi::bindgen_prelude::AsyncTask<::swc_next_bridge::BridgeTask<#wire_type>>),
             quote! {
-                Ok(napi::bindgen_prelude::AsyncTask::new(
-                    ::swc_next_bridge::BridgeTask::new(move || {
+                #visibility struct __SwcAsyncTask {
+                    arguments: Option<(#(#task_argument_types,)*)>,
+                }
+
+                impl napi::Task for __SwcAsyncTask {
+                    type Output = #wire_type;
+                    type JsValue = <#wire_type as ::swc_next_bridge::NativeAbi>::Abi;
+
+                    fn compute(&mut self) -> napi::Result<Self::Output> {
+                        let (#(#task_argument_names,)*) = self.arguments
+                            .take()
+                            .expect("bridge task runs once");
                         #call
                         Ok(<#return_type as ::swc_next_bridge::BridgeEncode>::encode(result))
-                    })
-                ))
+                    }
+
+                    fn resolve(&mut self, _: napi::Env, output: Self::Output)
+                        -> napi::Result<Self::JsValue>
+                    {
+                        Ok(<#wire_type as ::swc_next_bridge::NativeAbi>::into_native(output))
+                    }
+                }
+            },
+            quote!(napi::bindgen_prelude::AsyncTask<__SwcAsyncTask>),
+            quote! {
+                Ok(napi::bindgen_prelude::AsyncTask::new(__SwcAsyncTask {
+                    arguments: Some((#(#task_argument_names,)*)),
+                }))
             },
         )
     } else {
         (
+            TokenStream::new(),
             quote!(<#wire_type as ::swc_next_bridge::NativeAbi>::Abi),
             quote! {
                 #call
@@ -105,6 +132,8 @@ pub(super) fn expand_function(function: &ItemFn, arguments: Vec<Meta>) -> syn::R
             // NAPI-RS emits relative `napi::` paths. Keep its import local to each
             // adapter so callers need neither a dependency nor a module-level import.
             use ::swc_next_bridge::napi;
+
+            #task
 
             #(#attributes)*
             #[#napi]
