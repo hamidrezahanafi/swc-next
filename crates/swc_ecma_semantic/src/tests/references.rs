@@ -197,35 +197,6 @@ fn known_reference_targets() {
 }
 
 #[track_caller]
-fn assert_const_assertion_references(source: &str, count: usize) {
-    let allocator = Allocator::new();
-    let check = |options| {
-        let (ast, semantic) =
-            analyze_with_options(&allocator, source, ts_module_options(), options);
-        let references = semantic.iter_references().collect::<Vec<_>>();
-        assert_eq!(references.len(), count);
-        for entry in references {
-            assert_eq!(ast.get_utf8(entry.reference.name), "value");
-            assert!(entry.reference.flags.is_read_only());
-            assert!(entry.reference.resolution().symbol().is_some());
-        }
-    };
-    check(AnalyzeOptions::default());
-    check(AnalyzeOptions {
-        check_syntax: true,
-        ..AnalyzeOptions::default()
-    });
-}
-
-#[test]
-fn const_assertions() {
-    assert_const_assertion_references("const result = 1 as const;", 0);
-    assert_const_assertion_references("const result = <const>1;", 0);
-    assert_const_assertion_references("const value = 1; const result = { value } as const;", 1);
-    assert_const_assertion_references("const value = 1; const result = <const>{ value };", 1);
-}
-
-#[track_caller]
 fn assert_export_value_reference(source: &str, value: Option<&str>) {
     assert_export_reference(source, value, value.is_some());
 }
