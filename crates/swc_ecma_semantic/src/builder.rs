@@ -258,7 +258,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn exit_node(&mut self, node: NodeId, _ctx: &mut TraverseCtx<'_, 'a>) {
-        if self.check_syntax && self.ast.node_kind(node) != NodeKind::Function {
+        if self.check_syntax {
             self.check(self.ast.kind_data(node));
         }
         let exited = self.path.pop();
@@ -286,16 +286,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
                 self.scope.enter_with_scope(node.node_id());
             }
             NodeKindData::Function(node) => {
-                // TODO(traverse): Annex B still uses the function strict flag; preserve this known issue for a separate fix.
-                // Original Visit body:
-                // let annex_b_if_body = is_annex_b_if_function(self.ast, self.current_node(), node);
-                // self.scope.enter_function(self.ast, node, annex_b_if_body);
-                // self.enter_node(node.node_id());
-                // self.symbols.enter_function(self.ast, node, &self.scope);
-                // node.visit_children_with(self);
-                // self.symbols.exit_saved_context();
-                // self.leave_node(NodeKindData::Function(node));
-                // self.scope.exit_scope(node.node_id());
                 let annex_b_if_body = is_annex_b_if_function(self.ast, self.parent(), node);
                 self.scope.enter_function(self.ast, node, annex_b_if_body);
                 self.symbols.enter_function(self.ast, node, &self.scope);
@@ -387,9 +377,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
             }
             NodeKindData::Function(node) => {
                 self.symbols.exit_saved_context();
-                if self.check_syntax {
-                    self.check(NodeKindData::Function(node));
-                }
                 self.scope.exit_scope(node.node_id());
             }
             NodeKindData::TsFunction(node) => {
