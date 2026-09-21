@@ -556,10 +556,14 @@ fn generate_traverse(schema: &Schema, mutable: bool) -> TokenStream {
                 for index in 0..=ast.fields.len() {
                     if let Some(scope) = &ast.scope {
                         if scope.enter_before == index {
-                            children.extend(quote! { traverser.enter_scope(node_id, ctx); });
+                            children.extend(quote! {
+                                traverser.enter_scope(NodeKindData::#ty_ident(node), ctx);
+                            });
                         }
                         if scope.leave_before == index {
-                            children.extend(quote! { traverser.leave_scope(node_id, ctx); });
+                            children.extend(quote! {
+                                traverser.leave_scope(NodeKindData::#ty_ident(node), ctx);
+                            });
                         }
                     }
                     let Some(field) = ast.fields.get(index) else {
@@ -574,7 +578,6 @@ fn generate_traverse(schema: &Schema, mutable: bool) -> TokenStream {
                         schema,
                         walk_prefix,
                         quote!(child),
-                        true,
                     );
                     children.extend(quote! {
                         let child = node.#getter(ctx.ast);
@@ -582,11 +585,6 @@ fn generate_traverse(schema: &Schema, mutable: bool) -> TokenStream {
                     });
                 }
 
-                let scope_node_id = ast.scope.as_ref().map(|_| {
-                    quote! {
-                        let node_id = node.node_id();
-                    }
-                });
                 walks.extend(quote! {
                     #[inline]
                     fn #walk_fn<'a, State, T: ?Sized + #trait_name<'a, State>>(
@@ -594,13 +592,12 @@ fn generate_traverse(schema: &Schema, mutable: bool) -> TokenStream {
                         traverser: &mut T,
                         ctx: &mut #ctx_ty<'_, 'a, State>,
                     ) {
-                        #scope_node_id
                         traverser.#enter_fn(node, ctx);
                         #children
                         traverser.#exit_fn(node, ctx);
                     }
                 });
-                traverse_child(ty, schema, walk_prefix, quote!(self), true)
+                traverse_child(ty, schema, walk_prefix, quote!(self))
             }
             AstType::Enum(ast) => {
                 let walk_fn = format_ident!("{walk_prefix}_{}", ast.name.to_case(Case::Snake));
@@ -610,57 +607,19 @@ fn generate_traverse(schema: &Schema, mutable: bool) -> TokenStream {
                     let Some(type_id) = variant.type_id else {
                         continue;
                     };
-                    let variant_ty = &schema.types[type_id];
-                    let variant_ident = variant_ty.repr_ident(schema);
-                    let traverse = traverse_child(
-                        variant_ty,
-                        schema,
-                        walk_prefix,
-                        quote!(#variant_ident(node.0)),
-                        false,
-                    );
-                    let mut node_kinds = Vec::new();
                     for kind in concrete_node_kinds(type_id, schema) {
                         if !seen.insert(kind.clone()) {
                             continue;
                         }
                         let concrete_ty = format_ident!("{kind}");
-                        // These variants share a node kind with Expr but are declarations
-                        // only when their contextual type says so, just as in VisitWith.
-                        if ast.name == "ExportDefaultDeclarationKind"
-                            && variant.name == "Expr"
-                            && matches!(kind.as_str(), "Function" | "Class")
-                        {
-                            let concrete_walk =
-                                format_ident!("{walk_prefix}_{}", kind.to_case(Case::Snake));
-                            let (getter, declaration) = if kind == "Function" {
-                                (
-                                    format_ident!("function_type"),
-                                    quote!(FunctionType::FunctionDeclaration),
-                                )
-                            } else {
-                                (
-                                    format_ident!("class_type"),
-                                    quote!(ClassType::ClassDeclaration),
-                                )
-                            };
-                            arms.extend(quote! {
-                                NodeKind::#concrete_ty => {
-                                    let concrete = #concrete_ty(node.0);
-                                    if concrete.#getter(ctx.ast) == #declaration {
-                                        #concrete_walk(concrete, traverser, ctx);
-                                    } else {
-                                        #traverse
-                                    }
-                                }
-                            });
-                        } else {
-                            node_kinds.push(concrete_ty);
-                        }
-                    }
-                    if !node_kinds.is_empty() {
+                        let traverse = traverse_variant(ty, &kind, schema, walk_prefix);
                         arms.extend(quote! {
-                            #(NodeKind::#node_kinds)|* => { #traverse }
+                            NodeKind::#concrete_ty => {
+                                let node_data = NodeKindData::#concrete_ty(#concrete_ty(node.0));
+                                traverser.enter_node(node_data, ctx);
+                                #traverse
+                                traverser.exit_node(node_data, ctx);
+                            }
                         });
                     }
                 }
@@ -678,19 +637,19 @@ fn generate_traverse(schema: &Schema, mutable: bool) -> TokenStream {
                         }
                     }
                 });
-                traverse_child(ty, schema, walk_prefix, quote!(self), true)
+                traverse_child(ty, schema, walk_prefix, quote!(self))
             }
             AstType::Option(ast) => {
                 if !should_visit_type(ast.inner_type_id, schema) {
                     continue;
                 }
-                traverse_child(ty, schema, walk_prefix, quote!(self), true)
+                traverse_child(ty, schema, walk_prefix, quote!(self))
             }
             AstType::SubRange(ast) => {
                 if !should_visit_type(ast.inner_type_id, schema) {
                     continue;
                 }
-                traverse_child(ty, schema, walk_prefix, quote!(self), true)
+                traverse_child(ty, schema, walk_prefix, quote!(self))
             }
             AstType::Primitive(_) => continue,
         };
@@ -717,20 +676,21 @@ fn generate_traverse(schema: &Schema, mutable: bool) -> TokenStream {
         /// same ordering for the root node.
         /// Scope hooks run at the boundaries marked in the AST declarations,
         /// inside the owning node's enter and exit hooks.
+        /// Generic node and scope hooks receive the concrete node's typed wrapper.
         pub trait #trait_name<'a, State = ()> {
             #[inline]
-            fn enter_node(&mut self, node_id: NodeId, ctx: &mut #ctx_ty<'_, 'a, State>) {}
+            fn enter_node(&mut self, node: NodeKindData, ctx: &mut #ctx_ty<'_, 'a, State>) {}
 
             #[inline]
-            fn exit_node(&mut self, node_id: NodeId, ctx: &mut #ctx_ty<'_, 'a, State>) {}
+            fn exit_node(&mut self, node: NodeKindData, ctx: &mut #ctx_ty<'_, 'a, State>) {}
 
-            /// Enters the scope owned by `node_id` before traversing its scoped fields.
+            /// Enters the scope owned by `node` before traversing its scoped fields.
             #[inline]
-            fn enter_scope(&mut self, node_id: NodeId, ctx: &mut #ctx_ty<'_, 'a, State>) {}
+            fn enter_scope(&mut self, node: NodeKindData, ctx: &mut #ctx_ty<'_, 'a, State>) {}
 
-            /// Leaves the scope owned by `node_id` after traversing its scoped fields.
+            /// Leaves the scope owned by `node` after traversing its scoped fields.
             #[inline]
-            fn leave_scope(&mut self, node_id: NodeId, ctx: &mut #ctx_ty<'_, 'a, State>) {}
+            fn leave_scope(&mut self, node: NodeKindData, ctx: &mut #ctx_ty<'_, 'a, State>) {}
 
             #hooks
         }
@@ -749,44 +709,93 @@ fn generate_traverse(schema: &Schema, mutable: bool) -> TokenStream {
     }
 }
 
-/// Generate the caller's traversal boundary. Enum dispatch passes `false` since
-/// its variants describe the same node; fields and public entry points pass `true`.
+/// Generate the known variant's enum hook chain without dispatching again.
+fn traverse_variant(ty: &AstType, kind: &str, schema: &Schema, walk_prefix: &str) -> TokenStream {
+    let ty_ident = ty.repr_ident(schema);
+    let name = ty.name().to_case(Case::Snake);
+    match ty {
+        AstType::Struct(_) => {
+            let walk_fn = format_ident!("{walk_prefix}_{name}");
+            quote!(#walk_fn(#ty_ident(node.0), traverser, ctx);)
+        }
+        AstType::Enum(ast) => {
+            let variant = ast
+                .variants
+                .iter()
+                .find(|variant| {
+                    variant.type_id.is_some_and(|type_id| {
+                        concrete_node_kinds(type_id, schema)
+                            .iter()
+                            .any(|it| it == kind)
+                    })
+                })
+                .expect("the concrete node belongs to this enum");
+            let variant_ty = &schema.types[variant.type_id.unwrap()];
+            let traverse = traverse_variant(variant_ty, kind, schema, walk_prefix);
+            // Function and class declarations share a node kind with expressions,
+            // but default exports visit them without the Expr hooks.
+            let traverse = if ast.name == "ExportDefaultDeclarationKind"
+                && variant.name == "Expr"
+                && matches!(kind, "Function" | "Class")
+            {
+                let concrete_ty = format_ident!("{kind}");
+                let concrete_walk = format_ident!("{walk_prefix}_{}", kind.to_case(Case::Snake));
+                let (getter, declaration) = if kind == "Function" {
+                    (
+                        format_ident!("function_type"),
+                        quote!(FunctionType::FunctionDeclaration),
+                    )
+                } else {
+                    (
+                        format_ident!("class_type"),
+                        quote!(ClassType::ClassDeclaration),
+                    )
+                };
+                quote! {
+                    let concrete = #concrete_ty(node.0);
+                    if concrete.#getter(ctx.ast) == #declaration {
+                        #concrete_walk(concrete, traverser, ctx);
+                    } else {
+                        #traverse
+                    }
+                }
+            } else {
+                traverse
+            };
+            let enter_fn = format_ident!("enter_{name}");
+            let exit_fn = format_ident!("exit_{name}");
+            quote! {
+                traverser.#enter_fn(#ty_ident(node.0), ctx);
+                #traverse
+                traverser.#exit_fn(#ty_ident(node.0), ctx);
+            }
+        }
+        _ => unreachable!("enum variants are node types"),
+    }
+}
+
+/// Concrete nodes have a caller-side boundary; enum walkers create their own
+/// boundary after dispatch so every hook receives a statically known variant.
 fn traverse_child(
     ty: &AstType,
     schema: &Schema,
     walk_prefix: &str,
     node: TokenStream,
-    node_hooks: bool,
 ) -> TokenStream {
     match ty {
-        AstType::Struct(_) | AstType::Enum(_) => {
-            let name = ty.name().to_case(Case::Snake);
-            let walk_fn = format_ident!("{walk_prefix}_{name}");
-            let walk = quote!(#walk_fn(#node, traverser, ctx););
-            let walk = if matches!(ty, AstType::Enum(_)) {
-                let enter_fn = format_ident!("enter_{name}");
-                let exit_fn = format_ident!("exit_{name}");
-                quote! {
-                    traverser.#enter_fn(#node, ctx);
-                    #walk
-                    traverser.#exit_fn(#node, ctx);
-                }
-            } else {
-                walk
-            };
-            let walk = if node_hooks {
-                quote! {
-                    let node_id = (#node).node_id();
-                    traverser.enter_node(node_id, ctx);
-                    #walk
-                    traverser.exit_node(node_id, ctx);
-                }
-            } else {
-                walk
-            };
+        AstType::Struct(_) => {
+            let ty_ident = ty.repr_ident(schema);
+            let walk_fn = format_ident!("{walk_prefix}_{}", ty.name().to_case(Case::Snake));
             quote! {{
-                #walk
+                let node_data = NodeKindData::#ty_ident(#node);
+                traverser.enter_node(node_data, ctx);
+                #walk_fn(#node, traverser, ctx);
+                traverser.exit_node(node_data, ctx);
             }}
+        }
+        AstType::Enum(_) => {
+            let walk_fn = format_ident!("{walk_prefix}_{}", ty.name().to_case(Case::Snake));
+            quote!(#walk_fn(#node, traverser, ctx);)
         }
         AstType::Option(ast) => {
             let traverse = traverse_child(
@@ -794,7 +803,6 @@ fn traverse_child(
                 schema,
                 walk_prefix,
                 quote!(child),
-                node_hooks,
             );
             quote! {
                 if let Some(child) = #node {
@@ -808,7 +816,6 @@ fn traverse_child(
                 schema,
                 walk_prefix,
                 quote!(child),
-                node_hooks,
             );
             quote! {
                 for child_idx in #node.iter() {

@@ -262,20 +262,22 @@ impl SemanticBuilder<'_, '_> {
 
 /// Builds scopes and bindings at Traverse node and scope boundaries.
 impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
-    fn enter_node(&mut self, node: NodeId, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.path.push(node);
+    fn enter_node(&mut self, node: NodeKindData, _ctx: &mut TraverseCtx<'_, 'a>) {
+        self.path.push(node.node_id());
     }
 
-    fn exit_node(&mut self, node: NodeId, _ctx: &mut TraverseCtx<'_, 'a>) {
+    #[inline(always)]
+    fn exit_node(&mut self, node: NodeKindData, _ctx: &mut TraverseCtx<'_, 'a>) {
         if self.check_syntax {
-            self.check(self.ast.kind_data(node));
+            self.check(node);
         }
         let exited = self.path.pop();
-        debug_assert_eq!(exited, Some(node));
+        debug_assert_eq!(exited, Some(node.node_id()));
     }
 
-    fn enter_scope(&mut self, node: NodeId, _ctx: &mut TraverseCtx<'_, 'a>) {
-        match self.ast.kind_data(node) {
+    #[inline(always)]
+    fn enter_scope(&mut self, node: NodeKindData, _ctx: &mut TraverseCtx<'_, 'a>) {
+        match node {
             NodeKindData::Class(node) => {
                 self.scope.enter_class(self.ast, node);
                 self.symbols.enter_class(self.ast, node, &self.scope);
@@ -383,7 +385,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
             }
             NodeKindData::TsTypeAliasDeclaration(_)
             | NodeKindData::TsInterfaceDeclaration(_)
-            | NodeKindData::TsConditionalType(_) => self.scope.enter_block_scope(node),
+            | NodeKindData::TsConditionalType(_) => self.scope.enter_block_scope(node.node_id()),
             NodeKindData::TsTypeParameter(parameter)
                 if self
                     .parent()
@@ -391,7 +393,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
             {
                 // The name is bound before this constraint/default region.
                 self.scope
-                    .enter_ts_lookup_view(node, ScopeKind::TsInferConstraint);
+                    .enter_ts_lookup_view(node.node_id(), ScopeKind::TsInferConstraint);
                 self.symbols.expose_ts_infer_parameter(
                     self.ast,
                     parameter.name(self.ast),
@@ -404,8 +406,9 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         }
     }
 
-    fn leave_scope(&mut self, node: NodeId, _ctx: &mut TraverseCtx<'_, 'a>) {
-        match self.ast.kind_data(node) {
+    #[inline(always)]
+    fn leave_scope(&mut self, node: NodeKindData, _ctx: &mut TraverseCtx<'_, 'a>) {
+        match node {
             NodeKindData::Class(node) => {
                 self.symbols.exit_saved_context();
                 self.scope.exit_scope(node.node_id());
@@ -497,18 +500,18 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
             }
             NodeKindData::TsModuleBlock(_) => {
                 debug_assert!(self.ts_namespace_depth > 0);
-                self.scope.exit_scope(node);
+                self.scope.exit_scope(node.node_id());
                 self.ts_namespace_depth -= 1;
             }
             NodeKindData::TsTypeAliasDeclaration(_)
             | NodeKindData::TsInterfaceDeclaration(_)
-            | NodeKindData::TsConditionalType(_) => self.scope.exit_scope(node),
+            | NodeKindData::TsConditionalType(_) => self.scope.exit_scope(node.node_id()),
             NodeKindData::TsTypeParameter(_)
                 if self
                     .parent()
                     .is_some_and(|parent| self.ast.node_kind(parent) == NodeKind::TsInferType) =>
             {
-                self.scope.exit_ts_lookup_view(node);
+                self.scope.exit_ts_lookup_view(node.node_id());
             }
             _ => {}
         }

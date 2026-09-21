@@ -70,9 +70,14 @@ invalidation.
 ## Traversal scopes
 
 Mark scope-owning AST structs with `#[scope]`, after `#[ast]`. By default,
-`Traverse` and `TraverseMut` call `enter_scope(node_id, ctx)` before the first
-field and `leave_scope(node_id, ctx)` after the last field. Both hooks have
-empty default implementations and receive the scope owner's `NodeId`.
+`Traverse` and `TraverseMut` call `enter_scope(node, ctx)` before the first
+field and `leave_scope(node, ctx)` after the last field. Both hooks have
+empty default implementations and receive the scope owner's `NodeKindData`,
+constructed directly from the concrete node type. The generic `enter_node`
+and `exit_node` hooks also receive `NodeKindData`. Enum walkers dispatch first,
+then construct the concrete variant inside each branch. The generic node hooks
+still enclose all nested enum hooks and run exactly once per concrete node;
+nested enum hook chains reuse the selected variant without dispatching again.
 
 Use `#[scope(enter_before)]` or `#[scope(leave_before)]` on a field to move
 the corresponding boundary before that field:
