@@ -19,7 +19,6 @@ pub(crate) struct SemanticContext<'a> {
     // Nested type syntax saves and restores this default through the visitor.
     default_reference_flags: ReferenceFlags,
     ts_namespace_depth: u32,
-    reference_flags: ReferenceFlags,
 }
 
 impl<'a> SemanticContext<'a> {
@@ -31,7 +30,6 @@ impl<'a> SemanticContext<'a> {
             module_record: ModuleRecordBuilder::new(allocator, build_module_record),
             default_reference_flags: ReferenceFlags::default(),
             ts_namespace_depth: 0,
-            reference_flags: ReferenceFlags::default(),
         }
     }
 
@@ -46,20 +44,8 @@ impl<'a> SemanticContext<'a> {
     }
 
     #[inline]
-    pub fn enter_node(&mut self) -> ReferenceFlags {
-        let flags = self.reference_flags;
-        self.reference_flags = self.default_reference_flags();
-        flags
-    }
-
-    #[inline]
     pub fn default_reference_flags(&self) -> ReferenceFlags {
         self.default_reference_flags
-    }
-
-    #[inline]
-    pub fn replace_reference_flags(&mut self, flags: ReferenceFlags) -> ReferenceFlags {
-        std::mem::replace(&mut self.reference_flags, flags)
     }
 
     #[inline]
@@ -74,7 +60,6 @@ impl<'a> SemanticContext<'a> {
     pub fn exit_type_position(&mut self, previous: ReferenceFlags) {
         debug_assert!(self.in_type_position());
         self.default_reference_flags = previous;
-        self.reference_flags = previous;
     }
 
     pub fn enter_directive(&mut self, tree: &Ast, directive: Directive) {
