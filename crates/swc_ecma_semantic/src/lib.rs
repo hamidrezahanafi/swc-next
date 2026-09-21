@@ -33,7 +33,6 @@ use crate::{
 
 mod binder;
 mod builder;
-mod context;
 mod ecmascript;
 mod module_record;
 pub mod name_resolver;

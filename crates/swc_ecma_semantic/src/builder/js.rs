@@ -7,7 +7,7 @@ use swc_next_ecma_ast::{
 use super::*;
 
 pub(super) fn check_string_literal(builder: &mut SemanticBuilder<'_, '_>, literal: StringLiteral) {
-    if builder.state.in_type_position() || !builder.state.scope.is_strict() {
+    if builder.in_type_position() || !builder.scope.is_strict() {
         return;
     }
     let span = builder.ast.span(literal.node_id());
@@ -29,7 +29,7 @@ pub(super) fn check_numeric_literal(
     builder: &mut SemanticBuilder<'_, '_>,
     literal: NumericLiteral,
 ) {
-    if builder.state.in_type_position() || !builder.state.scope.is_strict() {
+    if builder.in_type_position() || !builder.scope.is_strict() {
         return;
     }
     let span = builder.ast.span(literal.node_id());
@@ -84,7 +84,7 @@ pub(super) fn check_identifier_reference(
     builder: &mut SemanticBuilder<'_, '_>,
     identifier: IdentifierReference,
 ) {
-    if builder.state.in_type_position() {
+    if builder.in_type_position() {
         return;
     }
     let node_id = identifier.node_id();
@@ -111,12 +111,12 @@ pub(super) fn check_binding_identifier(
         .ast
         .get_utf8(identifier.name(builder.ast))
         .as_bytes();
-    let flags = builder.state.symbols.pending.flags;
+    let flags = builder.symbols.pending.flags;
     if flags.is_empty() {
         return None;
     }
-    if !builder.state.in_type_position()
-        && builder.state.scope.is_strict()
+    if !builder.in_type_position()
+        && builder.scope.is_strict()
         && !flags.contains(SymbolFlags::AMBIENT)
     {
         builder.check_strict_reserved(name, node_id, "a binding identifier");
@@ -134,13 +134,13 @@ pub(super) fn check_binding_identifier(
             ReportOptions::default(),
         );
     }
-    let prepared = builder.state.symbols.prepare_declaration(
+    let prepared = builder.symbols.prepare_declaration(
         builder.ast,
         identifier.name(builder.ast).into(),
         node_id,
     );
     builder.check_redeclaration(node_id, name, prepared);
-    if builder.state.symbols.export_state.named().is_some() {
+    if builder.symbols.export_state.named().is_some() {
         builder.record_exported_name(name, node_id);
     }
     Some(prepared)
@@ -160,7 +160,7 @@ pub(super) fn check_label_identifier(
 impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     /// <https://tc39.es/ecma262/#sec-keywords-and-reserved-words>
     fn check_strict_reserved(&mut self, name: &[u8], node: NodeId, as_what: &'static str) {
-        if !self.state.scope.is_strict() {
+        if !self.scope.is_strict() {
             return;
         }
         if let Some(word) = match_strict_reserved(name) {
@@ -258,7 +258,7 @@ pub(super) fn check_unary_expression(
         target = unwrap_parentheses(builder.ast, chain.expression(builder.ast).node_id());
     }
     match builder.ast.kind_data(target) {
-        NodeKindData::IdentifierReference(_) if builder.state.scope.is_strict() => {
+        NodeKindData::IdentifierReference(_) if builder.scope.is_strict() => {
             builder.report(
                 builder.ast.span(expression.node_id()),
                 "Deleting a variable in strict mode is not allowed",
@@ -286,7 +286,7 @@ pub(super) fn check_update_expression(
     builder: &mut SemanticBuilder<'_, '_>,
     expression: UpdateExpression,
 ) {
-    if builder.state.scope.is_strict()
+    if builder.scope.is_strict()
         && is_eval_or_arguments_reference(builder.ast, expression.argument(builder.ast).node_id())
     {
         builder.report(
@@ -301,7 +301,7 @@ pub(super) fn check_assignment_expression(
     builder: &mut SemanticBuilder<'_, '_>,
     expression: AssignmentExpression,
 ) {
-    if builder.state.scope.is_strict() {
+    if builder.scope.is_strict() {
         builder.check_assign_target_eval_arguments(expression.left(builder.ast).node_id());
     }
 }
@@ -668,7 +668,7 @@ pub(super) fn check_for_in_statement(
 ) {
     let left = statement.left(builder.ast).node_id();
     builder.check_for_in_of_initializer(left, true);
-    if builder.state.scope.is_strict() {
+    if builder.scope.is_strict() {
         builder.check_assign_target_eval_arguments(left);
     }
 }
@@ -686,7 +686,7 @@ pub(super) fn check_for_of_statement(
     }
     let left = statement.left(builder.ast).node_id();
     builder.check_for_in_of_initializer(left, false);
-    if builder.state.scope.is_strict() {
+    if builder.scope.is_strict() {
         builder.check_assign_target_eval_arguments(left);
     }
 }
@@ -835,7 +835,7 @@ pub(super) fn check_with_statement(
     builder: &mut SemanticBuilder<'_, '_>,
     statement: WithStatement,
 ) {
-    if builder.state.scope.is_strict() {
+    if builder.scope.is_strict() {
         builder.report(
             builder.ast.span(statement.node_id()),
             "'with' statements are not allowed in strict mode",
@@ -868,7 +868,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
             let annex_b = is_for_in
                 && !self.ast.is_ts()
                 && declaration.kind(self.ast) == VariableKind::Var
-                && !self.state.scope.is_strict()
+                && !self.scope.is_strict()
                 && self.ast.node_kind(declarator.id(self.ast).node_id())
                     == NodeKind::BindingIdentifier;
             if annex_b {
@@ -1005,7 +1005,7 @@ pub(super) fn check_function(builder: &mut SemanticBuilder<'_, '_>, function: Fu
     if function.function_type(builder.ast) != FunctionType::FunctionDeclaration {
         return;
     }
-    let strict = builder.state.scope.is_strict();
+    let strict = builder.scope.is_strict();
     let mut through_labels = false;
     let mut ancestors = builder.ancestors();
     let _ = ancestors.next();
@@ -1420,7 +1420,7 @@ pub(super) fn check_export_specifier(
     // resolved and checked together after traversal by the alias pass.
     if builder.ast.is_ts()
         || specifier.export_kind(builder.ast) == ImportOrExportKind::Type
-        || builder.state.in_ts_namespace()
+        || builder.in_ts_namespace()
     {
         return;
     }
@@ -1444,7 +1444,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
         for index in 0..self.export_specifiers.len() {
             let specifier = self.export_specifiers[index];
             let name = module_export_name(tree, specifier.local(tree).node_id());
-            if self.state.symbols.binding(ScopeId::MODULE, name).is_none() {
+            if self.symbols.binding(ScopeId::MODULE, name).is_none() {
                 self.report_unresolved_export(tree, name, specifier.node_id());
             }
         }
@@ -1524,7 +1524,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
             return;
         }
         // Exports inside a TS namespace are namespace-scoped, not module-scoped.
-        if !self.ast.is_module() || self.state.in_ts_namespace() {
+        if !self.ast.is_module() || self.in_ts_namespace() {
             return;
         }
         let first = match self.exported_names.entry(name) {

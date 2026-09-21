@@ -176,7 +176,7 @@ pub(super) fn check_ts_ambient_export_assignment_expression(
     builder: &mut SemanticBuilder<'_, '_>,
     expression: NodeId,
 ) {
-    if !builder.state.symbols.in_ambient_context()
+    if !builder.symbols.in_ambient_context()
         || is_ts_entity_name_expression(builder.ast, expression)
         || !is_export_assignment_container(builder)
     {

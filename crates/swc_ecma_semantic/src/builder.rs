@@ -38,19 +38,24 @@ use swc_next_ecma_ast::{
 
 use crate::{
     ReferenceFlags, ReferenceSpace, Semantic, SymbolFlags,
-    binder::{ExportState, PreparedDeclaration},
-    context::SemanticContext,
+    binder::{ExportState, PreparedDeclaration, SymbolTracker},
     ecmascript,
-    scope::{DecoratorSite, ScopeKind},
+    module_record::ModuleRecordBuilder,
+    scope::{DecoratorSite, ScopeKind, ScopeTracker},
 };
 
 pub struct SemanticBuilder<'traverse, 'a> {
     exported_names: FxHashMap<&'traverse [u8], NodeId>,
     export_specifiers: Vec<ExportSpecifier>,
     diagnostics: Vec<Diagnostic<'a>>,
-    state: SemanticContext<'a>,
+    scope: ScopeTracker<'a>,
+    symbols: SymbolTracker<'a>,
+    module_record: ModuleRecordBuilder<'a>,
+    ts_namespace_depth: u32,
     ast: &'traverse Ast<'a>,
     path: Vec<NodeId>,
+    // Nested type syntax saves and restores this default through the visitor.
+    default_reference_flags: ReferenceFlags,
     // Only syntax that changes reference context saves and restores these flags.
     reference_flags: ReferenceFlags,
     reference_flags_stack: Vec<ReferenceFlags>,
@@ -66,7 +71,11 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
             exported_names: FxHashMap::default(),
             export_specifiers: Vec::new(),
             diagnostics: Vec::new(),
-            state: SemanticContext::init(ast, build_module_record),
+            scope: ScopeTracker::init(ast),
+            symbols: SymbolTracker::init(ast),
+            module_record: ModuleRecordBuilder::new(ast.allocator(), build_module_record),
+            default_reference_flags: ReferenceFlags::default(),
+            ts_namespace_depth: 0,
             ast,
             path: Vec::with_capacity(64),
             reference_flags: ReferenceFlags::default(),
@@ -80,12 +89,9 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
 
     pub fn finish(mut self) -> (Semantic<'a>, Vec<Diagnostic<'a>>) {
         let check_syntax = self.check_syntax;
-        let (export_alias_issues, import_alias_issues) = {
-            let state = &mut self.state;
-            state
-                .symbols
-                .resolve_ts_aliases(self.ast, &state.scope, check_syntax)
-        };
+        let (export_alias_issues, import_alias_issues) =
+            self.symbols
+                .resolve_ts_aliases(self.ast, &self.scope, check_syntax);
         if check_syntax {
             ts::check_ts_alias_issues(&mut self, export_alias_issues, import_alias_issues);
         }
@@ -93,7 +99,10 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
         debug_assert!(self.reference_flags_stack.is_empty());
         debug_assert!(self.type_positions.is_empty());
         debug_assert!(self.arrow_exports.is_empty());
-        let semantic = self.state.finalize(self.ast);
+        let (scopes, has_with_statement) = self.scope.into_scope_tree();
+        let semantic =
+            self.symbols
+                .finalize(self.ast, scopes, has_with_statement, self.module_record);
         (semantic, self.diagnostics)
     }
 
@@ -110,25 +119,37 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     }
 
     fn record_ts_expando_assignment(&mut self, node: swc_next_ecma_ast::AssignmentExpression) {
-        self.state.symbols.record_ts_expando_assignment(
+        self.symbols.record_ts_expando_assignment(
             self.ast,
             node,
-            &self.state.scope,
+            &self.scope,
             self.path.iter().rev().copied(),
         );
     }
 
     #[inline]
     fn record_identifier_reference(&mut self, node: IdentifierReference, flags: ReferenceFlags) {
-        let state = &mut self.state;
-        state
-            .symbols
-            .add_identifier_reference(self.ast, node, &state.scope, flags);
+        self.symbols
+            .add_identifier_reference(self.ast, node, &self.scope, flags);
+    }
+
+    /// True when the walker is currently inside a TS type-only subtree.
+    fn in_type_position(&self) -> bool {
+        self.default_reference_flags.space == ReferenceSpace::Type
+    }
+
+    /// True when the walker is currently inside a TS namespace body.
+    fn in_ts_namespace(&self) -> bool {
+        self.ts_namespace_depth > 0
     }
 
     fn enter_type_position(&mut self) {
-        self.type_positions.push(self.state.enter_type_position());
-        self.push_reference_flags(self.state.default_reference_flags());
+        let flags = ReferenceFlags::default()
+            .with_space(ReferenceSpace::Type)
+            .no_access();
+        self.type_positions
+            .push(std::mem::replace(&mut self.default_reference_flags, flags));
+        self.push_reference_flags(flags);
     }
 
     fn exit_type_position(&mut self) {
@@ -137,12 +158,13 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
             .pop()
             .expect("a type position was entered");
         self.pop_reference_flags();
-        self.state.exit_type_position(previous);
+        debug_assert!(self.in_type_position());
+        self.default_reference_flags = previous;
     }
 
     #[inline]
     fn assignment_reference_flags(&self, read: bool) -> ReferenceFlags {
-        let flags = self.state.default_reference_flags();
+        let flags = self.default_reference_flags;
         if !flags.is_read() {
             flags
         } else if read {
@@ -154,7 +176,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
 
     #[inline]
     fn flags_with_space(&self, space: ReferenceSpace) -> ReferenceFlags {
-        let flags = self.state.default_reference_flags().with_space(space);
+        let flags = self.default_reference_flags.with_space(space);
         if space.in_type_position() {
             flags.no_access()
         } else {
@@ -249,89 +271,73 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     fn enter_scope(&mut self, node: NodeId, _ctx: &mut TraverseCtx<'_, 'a>) {
         match self.ast.kind_data(node) {
             NodeKindData::BlockStatement(node) => {
-                self.state.enter_block_statement(self.ast, node.node_id());
+                self.scope.enter_block_statement(self.ast, node.node_id());
             }
             NodeKindData::SwitchStatement(node) => {
                 if !node.cases(self.ast).is_empty() {
-                    self.state.enter_switch_case(Some(node.node_id()));
+                    self.scope.enter_switch_case(Some(node.node_id()));
                 }
             }
             NodeKindData::ForStatement(node) => {
-                self.state.enter_for_statement(node.node_id());
+                self.scope.enter_block_scope(node.node_id());
             }
             NodeKindData::CatchClause(node) => {
-                self.state.enter_catch_clause(node.node_id());
-                let state = &mut self.state;
-                state.symbols.enter_catch_clause(&state.scope);
+                self.scope.enter_block_scope(node.node_id());
+                self.symbols.enter_catch_clause(&self.scope);
             }
             NodeKindData::WithStatement(node) => {
-                self.state.enter_with_statement(node.node_id());
+                self.scope.enter_with_scope(node.node_id());
             }
             NodeKindData::Function(node) => {
                 // TODO(traverse): Annex B still uses the function strict flag; preserve this known issue for a separate fix.
                 // Original Visit body:
                 // let annex_b_if_body = is_annex_b_if_function(self.ast, self.current_node(), node);
-                // self.state.enter_function(self.ast, node, annex_b_if_body);
+                // self.scope.enter_function(self.ast, node, annex_b_if_body);
                 // self.enter_node(node.node_id());
-                // let state = &mut self.state;
-                // state.symbols.enter_function(self.ast, node, &state.scope);
+                // self.symbols.enter_function(self.ast, node, &self.scope);
                 // node.visit_children_with(self);
-                // self.state.symbols.exit_saved_context();
+                // self.symbols.exit_saved_context();
                 // self.leave_node(NodeKindData::Function(node));
-                // self.state.exit_scope(node.node_id());
+                // self.scope.exit_scope(node.node_id());
                 let annex_b_if_body = is_annex_b_if_function(self.ast, self.parent(), node);
-                self.state.enter_function(self.ast, node, annex_b_if_body);
-                let state = &mut self.state;
-                state.symbols.enter_function(self.ast, node, &state.scope);
+                self.scope.enter_function(self.ast, node, annex_b_if_body);
+                self.symbols.enter_function(self.ast, node, &self.scope);
             }
             NodeKindData::TsFunction(node) => {
-                self.state.enter_ts_function(node.node_id());
-                let state = &mut self.state;
-                state
-                    .symbols
-                    .enter_ts_function(self.ast, node, &state.scope);
+                self.scope.enter_ts_function(node.node_id());
+                self.symbols.enter_ts_function(self.ast, node, &self.scope);
             }
             NodeKindData::StaticBlock(node) => {
-                self.state.enter_static_block(node.node_id());
+                self.scope.enter_static_block(node.node_id());
             }
             NodeKindData::TsFunctionType(node) => {
-                self.state.enter_ts_function_type(node.node_id());
-                let state = &mut self.state;
-                state.symbols.enter_ts_function_type(&state.scope);
+                self.scope.enter_block_scope(node.node_id());
+                self.symbols.enter_ts_function_type(&self.scope);
             }
             NodeKindData::TsConstructorType(node) => {
-                self.state.enter_ts_constructor_type(node.node_id());
-                let state = &mut self.state;
-                state.symbols.enter_ts_constructor_type(&state.scope);
+                self.scope.enter_block_scope(node.node_id());
+                self.symbols.enter_ts_constructor_type(&self.scope);
             }
             NodeKindData::TsMappedType(node) => {
-                self.state.enter_ts_mapped_type(node.node_id());
+                self.scope.enter_block_scope(node.node_id());
                 let parent = self.parent();
-                let state = &mut self.state;
-                state
-                    .symbols
-                    .enter_ts_mapped_type(self.ast, parent, &state.scope);
+                self.symbols
+                    .enter_ts_mapped_type(self.ast, parent, &self.scope);
             }
             NodeKindData::TsCallSignatureDeclaration(node) => {
-                self.state
-                    .enter_ts_call_signature_declaration(node.node_id());
-                let state = &mut self.state;
-                state
-                    .symbols
-                    .enter_ts_call_signature_declaration(&state.scope);
+                self.scope.enter_block_scope(node.node_id());
+                self.symbols
+                    .enter_ts_call_signature_declaration(&self.scope);
             }
             NodeKindData::TsConstructSignatureDeclaration(node) => {
-                self.state
-                    .enter_ts_construct_signature_declaration(node.node_id());
-                let state = &mut self.state;
-                state
-                    .symbols
-                    .enter_ts_construct_signature_declaration(&state.scope);
+                self.scope.enter_block_scope(node.node_id());
+                self.symbols
+                    .enter_ts_construct_signature_declaration(&self.scope);
             }
             NodeKindData::ArrowFunctionExpression(node) => {
-                self.state.enter_arrow_function_expression(self.ast, node);
+                self.scope.enter_arrow_function_expression(self.ast, node);
                 self.arrow_exports
-                    .push(self.state.symbols.enter_arrow_function_expression());
+                    .push(self.symbols.enter_arrow_function_expression());
             }
             NodeKindData::TsEnumBody(node) => {
                 let Some(NodeKindData::TsEnumDeclaration(declaration)) =
@@ -340,27 +346,25 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
                     unreachable!("an enum body belongs to an enum declaration");
                 };
                 let owner = self
-                    .state
                     .symbols
                     .symbol_of_node(declaration.id(self.ast).node_id())
                     .expect("an enum declaration has a symbol");
-                self.state.symbols.enter_ts_enum_members(owner);
-                self.state.enter_ts_enum_body(node.node_id());
-                let state = &mut self.state;
-                state.symbols.enter_ts_enum_body(&state.scope);
+                self.symbols.enter_ts_enum_members(owner);
+                self.scope.enter_ts_enum_body(node.node_id());
+                self.symbols.enter_ts_enum_body(&self.scope);
             }
-            NodeKindData::ForInStatement(node) => self.state.enter_for_in_statement(node.node_id()),
-            NodeKindData::ForOfStatement(node) => self.state.enter_for_of_statement(node.node_id()),
+            NodeKindData::ForInStatement(node) => self.scope.enter_block_scope(node.node_id()),
+            NodeKindData::ForOfStatement(node) => self.scope.enter_block_scope(node.node_id()),
             NodeKindData::TsModuleDeclaration(node) => {
                 self.in_ts_module_name = false;
-                let declarations = self.state.symbols.enter_ts_module_body(self.ast, node);
+                let declarations = self.symbols.enter_ts_module_body(self.ast, node);
                 if self.check_syntax {
                     for prepared in declarations {
                         declarations::check_prepared_redeclaration(self, prepared);
                     }
                 }
             }
-            // The root scope is initialized by SemanticContext::init. Class,
+            // The root scope is initialized by SemanticBuilder::new. Class,
             // type alias, interface, and global scopes still use node hooks below.
             _ => {}
         }
@@ -369,91 +373,88 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     fn leave_scope(&mut self, node: NodeId, _ctx: &mut TraverseCtx<'_, 'a>) {
         match self.ast.kind_data(node) {
             NodeKindData::BlockStatement(node) => {
-                self.state.exit_scope(node.node_id());
+                self.scope.exit_scope(node.node_id());
             }
             NodeKindData::SwitchStatement(node) => {
-                self.state.exit_scope(node.node_id());
+                self.scope.exit_scope(node.node_id());
             }
             NodeKindData::ForStatement(node) => {
-                self.state.exit_scope(node.node_id());
+                self.scope.exit_scope(node.node_id());
             }
             NodeKindData::CatchClause(node) => {
-                self.state.symbols.exit_saved_context();
-                self.state.exit_scope(node.node_id());
+                self.symbols.exit_saved_context();
+                self.scope.exit_scope(node.node_id());
             }
             NodeKindData::WithStatement(node) => {
-                self.state.exit_with_statement(node.node_id());
+                self.scope.exit_with_scope(node.node_id());
             }
             NodeKindData::Function(node) => {
-                self.state.symbols.exit_saved_context();
+                self.symbols.exit_saved_context();
                 if self.check_syntax {
                     self.check(NodeKindData::Function(node));
                 }
-                self.state.exit_scope(node.node_id());
+                self.scope.exit_scope(node.node_id());
             }
             NodeKindData::TsFunction(node) => {
-                self.state.symbols.exit_saved_context();
-                self.state.exit_scope(node.node_id());
+                self.symbols.exit_saved_context();
+                self.scope.exit_scope(node.node_id());
             }
             NodeKindData::StaticBlock(node) => {
-                self.state.exit_scope(node.node_id());
+                self.scope.exit_scope(node.node_id());
             }
             NodeKindData::TsFunctionType(node) => {
-                self.state.symbols.exit_saved_context();
-                self.state.exit_scope(node.node_id());
+                self.symbols.exit_saved_context();
+                self.scope.exit_scope(node.node_id());
             }
             NodeKindData::TsConstructorType(node) => {
-                self.state.symbols.exit_saved_context();
-                self.state.exit_scope(node.node_id());
+                self.symbols.exit_saved_context();
+                self.scope.exit_scope(node.node_id());
             }
             NodeKindData::TsMappedType(node) => {
-                self.state.symbols.exit_saved_context();
-                self.state.exit_scope(node.node_id());
+                self.symbols.exit_saved_context();
+                self.scope.exit_scope(node.node_id());
             }
             NodeKindData::TsCallSignatureDeclaration(node) => {
-                self.state.symbols.exit_saved_context();
-                self.state.exit_scope(node.node_id());
+                self.symbols.exit_saved_context();
+                self.scope.exit_scope(node.node_id());
             }
             NodeKindData::TsConstructSignatureDeclaration(node) => {
-                self.state.symbols.exit_saved_context();
-                self.state.exit_scope(node.node_id());
+                self.symbols.exit_saved_context();
+                self.scope.exit_scope(node.node_id());
             }
             NodeKindData::ArrowFunctionExpression(node) => {
                 let export_state = self
                     .arrow_exports
                     .pop()
                     .expect("an arrow saved its export state");
-                self.state
-                    .symbols
-                    .exit_arrow_function_expression(export_state);
-                self.state.exit_scope(node.node_id());
+                self.symbols.exit_arrow_function_expression(export_state);
+                self.scope.exit_scope(node.node_id());
             }
             NodeKindData::TsEnumBody(node) => {
-                self.state.exit_scope(node.node_id());
+                self.scope.exit_scope(node.node_id());
                 let Some(NodeKindData::TsEnumDeclaration(declaration)) =
                     self.parent().map(|parent| self.ast.kind_data(parent))
                 else {
                     unreachable!("an enum body belongs to an enum declaration");
                 };
                 let owner = self
-                    .state
                     .symbols
                     .symbol_of_node(declaration.id(self.ast).node_id())
                     .expect("an enum declaration has a symbol");
-                self.state.symbols.exit_ts_enum_members(owner);
+                self.symbols.exit_ts_enum_members(owner);
             }
-            NodeKindData::ForInStatement(node) => self.state.exit_scope(node.node_id()),
-            NodeKindData::ForOfStatement(node) => self.state.exit_scope(node.node_id()),
+            NodeKindData::ForInStatement(node) => self.scope.exit_scope(node.node_id()),
+            NodeKindData::ForOfStatement(node) => self.scope.exit_scope(node.node_id()),
             NodeKindData::TsModuleDeclaration(_) => {
-                self.state.symbols.exit_ts_module_body();
-                self.state.symbols.exit_saved_context();
+                self.symbols.exit_ts_module_body();
+                self.symbols.exit_saved_context();
             }
             _ => {}
         }
     }
 
     fn enter_binary_expression(&mut self, _node: BinaryExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_binary_expression(&mut self, _node: BinaryExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -465,7 +466,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: LogicalExpression,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_logical_expression(
@@ -481,7 +482,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: ConditionalExpression,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_conditional_expression(
@@ -497,7 +498,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: SequenceExpression,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_sequence_expression(
@@ -509,7 +510,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_chain_expression(&mut self, _node: ChainExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_chain_expression(&mut self, _node: ChainExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -517,7 +518,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_new_expression(&mut self, _node: NewExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_new_expression(&mut self, _node: NewExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -529,7 +530,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TaggedTemplateExpression,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_tagged_template_expression(
@@ -545,7 +546,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: ArrowFunctionExpression,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_arrow_function_expression(
@@ -557,7 +558,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_array_expression(&mut self, _node: ArrayExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_array_expression(&mut self, _node: ArrayExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -565,7 +566,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_object_expression(&mut self, _node: ObjectExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_object_expression(&mut self, _node: ObjectExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -573,7 +574,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_import_expression(&mut self, _node: ImportExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_import_expression(&mut self, _node: ImportExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -581,7 +582,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_await_expression(&mut self, _node: AwaitExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_await_expression(&mut self, _node: AwaitExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -589,7 +590,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_yield_expression(&mut self, _node: YieldExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_yield_expression(&mut self, _node: YieldExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -601,7 +602,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsInstantiationExpression,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_ts_instantiation_expression(
@@ -613,7 +614,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_jsx_element(&mut self, _node: JsxElement, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_jsx_element(&mut self, _node: JsxElement, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -621,7 +622,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_jsx_fragment(&mut self, _node: JsxFragment, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_jsx_fragment(&mut self, _node: JsxFragment, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -629,7 +630,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_template_literal(&mut self, _node: TemplateLiteral, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_template_literal(&mut self, _node: TemplateLiteral, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -637,7 +638,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_function(&mut self, _node: Function, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
     }
 
     fn exit_function(&mut self, _node: Function, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -645,12 +646,12 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_call_expression(&mut self, node: CallExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.push_reference_flags(self.state.default_reference_flags());
-        if !self.state.symbols.in_ambient_context()
-            && self.state.default_reference_flags().is_read()
+        self.push_reference_flags(self.default_reference_flags);
+        if !self.symbols.in_ambient_context()
+            && self.default_reference_flags.is_read()
             && is_direct_eval_call(self.ast, node)
         {
-            self.state.scope.mark_direct_eval();
+            self.scope.mark_direct_eval();
         }
     }
 
@@ -663,7 +664,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: AssignmentExpression,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
         self.record_ts_expando_assignment(node);
     }
 
@@ -704,7 +705,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_unary_expression(&mut self, node: UnaryExpression, _ctx: &mut TraverseCtx<'_, 'a>) {
-        let flags = self.state.default_reference_flags();
+        let flags = self.default_reference_flags;
         let flags = if node.operator(self.ast) == UnaryOperator::Delete {
             flags.no_access()
         } else {
@@ -780,12 +781,12 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
                 )
             });
             let flags = if is_var
-                && self.state.scope.current().flags.var_write_crosses_with
+                && self.scope.current().flags.var_write_crosses_with
                 && (declarator.init(self.ast).is_some() || self.reference_flags.is_write())
             {
                 self.assignment_reference_flags(false)
             } else {
-                self.state.default_reference_flags()
+                self.default_reference_flags
             };
             self.push_reference_flags(flags);
         }
@@ -795,10 +796,10 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         match self.parent().map(|parent| self.ast.node_kind(parent)) {
             Some(NodeKind::VariableDeclarator) => {
                 self.pop_reference_flags();
-                self.reference_flags = self.state.default_reference_flags();
+                self.reference_flags = self.default_reference_flags;
             }
             Some(NodeKind::AssignmentPattern) => {
-                self.reference_flags = self.state.default_reference_flags();
+                self.reference_flags = self.default_reference_flags;
             }
             _ => {}
         }
@@ -820,7 +821,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         let flags = if type_query {
             self.flags_with_space(ReferenceSpace::Typeof)
         } else {
-            self.state.default_reference_flags()
+            self.default_reference_flags
         };
         self.push_reference_flags(flags);
     }
@@ -887,51 +888,49 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_directive(&mut self, node: Directive, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.state.enter_directive(self.ast, node);
+        self.scope.enter_directive(self.ast, node);
     }
 
     fn enter_function_body(&mut self, node: FunctionBody, _ctx: &mut TraverseCtx<'_, 'a>) {
         // TODO(traverse): Traverse has no FunctionBody scope annotation; preserve the conditional parameter/body environment.
         // Original Visit body:
         // let parent = self.current_node();
-        // self.state.enter_function_body(self.ast, node, parent);
+        // self.scope.enter_function_body(self.ast, node, parent);
         // self.enter_node(node.node_id());
         // node.visit_children_with(self);
-        // self.state.exit_scope(node.node_id());
+        // self.scope.exit_scope(node.node_id());
         // self.leave_node(NodeKindData::FunctionBody(node));
         let parent = self.parent();
-        self.state.enter_function_body(self.ast, node, parent);
+        self.scope.enter_function_body(self.ast, node, parent);
     }
 
     fn exit_function_body(&mut self, node: FunctionBody, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.state.exit_scope(node.node_id());
+        self.scope.exit_scope(node.node_id());
     }
 
     fn enter_class(&mut self, node: Class, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.push_reference_flags(self.state.default_reference_flags());
+        self.push_reference_flags(self.default_reference_flags);
         // TODO(traverse): Class scope starts after id in Traverse; keep node hooks until binding and decorator contexts are aligned.
         // Original Visit body:
-        // self.state.enter_class(self.ast, node);
+        // self.scope.enter_class(self.ast, node);
         // self.enter_node(node.node_id());
-        // let state = &mut self.state;
-        // state.symbols.enter_class(self.ast, node, &state.scope);
+        // self.symbols.enter_class(self.ast, node, &self.scope);
         // node.visit_children_with(self);
-        // self.state.symbols.exit_saved_context();
-        // self.state.exit_scope(node.node_id());
+        // self.symbols.exit_saved_context();
+        // self.scope.exit_scope(node.node_id());
         // self.leave_node(NodeKindData::Class(node));
-        self.state.enter_class(self.ast, node);
-        let state = &mut self.state;
-        state.symbols.enter_class(self.ast, node, &state.scope);
+        self.scope.enter_class(self.ast, node);
+        self.symbols.enter_class(self.ast, node, &self.scope);
     }
 
     fn exit_class(&mut self, node: Class, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.state.symbols.exit_saved_context();
-        self.state.exit_scope(node.node_id());
+        self.symbols.exit_saved_context();
+        self.scope.exit_scope(node.node_id());
         self.pop_reference_flags();
     }
 
     fn enter_class_body(&mut self, _node: ClassBody, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.state.symbols.enter_class_body();
+        self.symbols.enter_class_body();
     }
 
     fn enter_decorator(&mut self, node: Decorator, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -947,12 +946,12 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
             Some(NodeKindData::Class(_)) => DecoratorSite::ClassExpression,
             _ => DecoratorSite::Member,
         };
-        self.push_reference_flags(self.state.default_reference_flags());
-        self.state.enter_decorator(node.node_id(), site);
+        self.push_reference_flags(self.default_reference_flags);
+        self.scope.enter_decorator(node.node_id(), site);
     }
 
     fn exit_decorator(&mut self, _node: Decorator, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.state.exit_decorator();
+        self.scope.exit_decorator();
         self.pop_reference_flags();
     }
 
@@ -971,10 +970,8 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: ImportDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        let state = &mut self.state;
-        state
-            .symbols
-            .enter_import_declaration(self.ast, node, &state.scope);
+        self.symbols
+            .enter_import_declaration(self.ast, node, &self.scope);
     }
 
     fn exit_import_declaration(
@@ -982,15 +979,15 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: ImportDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.state.symbols.exit_saved_context();
+        self.symbols.exit_saved_context();
     }
 
     fn enter_import_specifier(&mut self, node: ImportSpecifier, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.state.symbols.enter_import_specifier(self.ast, node);
+        self.symbols.enter_import_specifier(self.ast, node);
     }
 
     fn exit_import_specifier(&mut self, _node: ImportSpecifier, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.state.symbols.exit_saved_context();
+        self.symbols.exit_saved_context();
     }
 
     fn enter_ts_import_equals_declaration(
@@ -998,10 +995,8 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsImportEqualsDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        let state = &mut self.state;
-        state
-            .symbols
-            .enter_ts_import_equals_declaration(node.import_kind(self.ast), &state.scope);
+        self.symbols
+            .enter_ts_import_equals_declaration(node.import_kind(self.ast), &self.scope);
         // Import-equals narrows lookup without erasing runtime reads.
         let mut flags = self.flags_with_space(ReferenceSpace::Any);
         if node.import_kind(self.ast) == ImportOrExportKind::Type {
@@ -1031,9 +1026,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: ExportNamedDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.state
-            .symbols
-            .enter_export_named_declaration(self.ast, node);
+        self.symbols.enter_export_named_declaration(self.ast, node);
     }
 
     fn exit_export_named_declaration(
@@ -1041,7 +1034,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: ExportNamedDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.state.symbols.exit_export_declaration();
+        self.symbols.exit_export_declaration();
     }
 
     fn enter_export_default_declaration(
@@ -1049,10 +1042,10 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: ExportDefaultDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if !self.state.in_ts_namespace() {
-            self.state.module_record.add_default_export(self.ast, node);
+        if !self.in_ts_namespace() {
+            self.module_record.add_default_export(self.ast, node);
         }
-        self.state.symbols.enter_export_default_declaration();
+        self.symbols.enter_export_default_declaration();
         let declaration = node.declaration(self.ast);
         let space = declaration
             .as_expr(self.ast)
@@ -1067,8 +1060,8 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: ExportAllDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if !self.state.in_ts_namespace() {
-            self.state.module_record.add_export_all(self.ast, node);
+        if !self.in_ts_namespace() {
+            self.module_record.add_export_all(self.ast, node);
         }
     }
 
@@ -1080,11 +1073,10 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
             };
             Some(declaration)
         });
-        if !self.state.in_ts_namespace()
+        if !self.in_ts_namespace()
             && let Some(declaration) = declaration
         {
-            self.state
-                .module_record
+            self.module_record
                 .add_specifier(self.ast, declaration, node);
         }
         let type_only = node.export_kind(self.ast) == ImportOrExportKind::Type
@@ -1096,14 +1088,8 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
             flags = flags.no_access();
         }
         if declaration.is_some_and(|declaration| declaration.source(self.ast).is_none()) {
-            let state = &mut self.state;
-            state.symbols.add_local_export_reference(
-                self.ast,
-                node,
-                &state.scope,
-                flags,
-                type_only,
-            );
+            self.symbols
+                .add_local_export_reference(self.ast, node, &self.scope, flags, type_only);
         }
         self.push_reference_flags(flags);
     }
@@ -1113,16 +1099,14 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     }
 
     fn enter_ts_enum_member(&mut self, node: TsEnumMember, _ctx: &mut TraverseCtx<'_, 'a>) {
-        let state = &mut self.state;
-        let prepared = state
+        let prepared = self
             .symbols
-            .prepare_ts_enum_member(self.ast, node, &state.scope);
+            .prepare_ts_enum_member(self.ast, node, &self.scope);
         if let Some(prepared) = prepared {
             if self.check_syntax {
                 declarations::check_prepared_redeclaration(self, prepared);
             }
-            self.state
-                .symbols
+            self.symbols
                 .declare_prepared_ts_enum_member(self.ast, prepared);
         }
     }
@@ -1135,48 +1119,49 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         // TODO(traverse): The module body still owns its lexical scope; align owner identities separately.
         // Original Visit body:
         // self.enter_node(node.node_id());
-        // let state = &mut self.state;
-        // state
+        // self
         //     .symbols
-        //     .enter_ts_module_declaration(self.ast, node, &state.scope);
+        //     .enter_ts_module_declaration(self.ast, node, &self.scope);
         // let name = node.id(self.ast);
         // let was_in_ts_module_name = std::mem::replace(&mut self.in_ts_module_name, true);
         // name.visit_with(self);
         // self.in_ts_module_name = was_in_ts_module_name;
-        // let declarations = self.state.symbols.enter_ts_module_body(self.ast, node);
+        // let declarations = self.symbols.enter_ts_module_body(self.ast, node);
         // if self.check_syntax {
         //     for prepared in declarations {
         //         declarations::check_prepared_redeclaration(self, prepared);
         //     }
         // }
         // node.body(self.ast).visit_with(self);
-        // self.state.symbols.exit_ts_module_body();
-        // self.state.symbols.exit_saved_context();
+        // self.symbols.exit_ts_module_body();
+        // self.symbols.exit_saved_context();
         // self.leave_node(NodeKindData::TsModuleDeclaration(node));
-        let state = &mut self.state;
-        state
-            .symbols
-            .enter_ts_module_declaration(self.ast, node, &state.scope);
+        self.symbols
+            .enter_ts_module_declaration(self.ast, node, &self.scope);
         self.in_ts_module_name = true;
     }
 
     fn enter_ts_module_block(&mut self, node: TsModuleBlock, _ctx: &mut TraverseCtx<'_, 'a>) {
         // TODO(traverse): Namespace owner remains the body node until declaration/body scope ownership is aligned.
         // Original Visit body:
-        // self.state.enter_ts_module_block(node.node_id());
+        // self.ts_namespace_depth += 1;
+        // self.scope.enter_ts_module_block(node.node_id());
         // self.enter_node(node.node_id());
-        // let state = &mut self.state;
-        // state.symbols.enter_ts_module_block(&state.scope);
+        // self.symbols.enter_ts_module_block(&self.scope);
         // node.visit_children_with(self);
-        // self.state.exit_ts_module_block(node.node_id());
+        // debug_assert!(self.ts_namespace_depth > 0);
+        // self.scope.exit_scope(node.node_id());
+        // self.ts_namespace_depth -= 1;
         // self.leave_node(NodeKindData::TsModuleBlock(node));
-        self.state.enter_ts_module_block(node.node_id());
-        let state = &mut self.state;
-        state.symbols.enter_ts_module_block(&state.scope);
+        self.ts_namespace_depth += 1;
+        self.scope.enter_ts_module_block(node.node_id());
+        self.symbols.enter_ts_module_block(&self.scope);
     }
 
     fn exit_ts_module_block(&mut self, node: TsModuleBlock, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.state.exit_ts_module_block(node.node_id());
+        debug_assert!(self.ts_namespace_depth > 0);
+        self.scope.exit_scope(node.node_id());
+        self.ts_namespace_depth -= 1;
     }
 
     fn enter_ts_global_declaration(
@@ -1184,9 +1169,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsGlobalDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.state
-            .symbols
-            .enter_ts_global_declaration(self.ast, node);
+        self.symbols.enter_ts_global_declaration(self.ast, node);
     }
 
     fn exit_ts_global_declaration(
@@ -1194,7 +1177,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsGlobalDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.state.symbols.exit_ts_global_declaration();
+        self.symbols.exit_ts_global_declaration();
     }
 
     fn enter_ts_type_alias_declaration(
@@ -1204,21 +1187,18 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     ) {
         // TODO(traverse): The binder still derives the declaration target from the inner scope parent.
         // Original Visit body:
-        // self.state.enter_ts_type_alias_declaration(node.node_id());
+        // self.scope.enter_block_scope(node.node_id());
         // self.enter_node(node.node_id());
-        // let state = &mut self.state;
-        // state
+        // self
         //     .symbols
-        //     .enter_ts_type_alias_declaration(self.ast, node, &state.scope);
+        //     .enter_ts_type_alias_declaration(self.ast, node, &self.scope);
         // node.visit_children_with(self);
-        // self.state.symbols.exit_saved_context();
-        // self.state.exit_scope(node.node_id());
+        // self.symbols.exit_saved_context();
+        // self.scope.exit_scope(node.node_id());
         // self.leave_node(NodeKindData::TsTypeAliasDeclaration(node));
-        self.state.enter_ts_type_alias_declaration(node.node_id());
-        let state = &mut self.state;
-        state
-            .symbols
-            .enter_ts_type_alias_declaration(self.ast, node, &state.scope);
+        self.scope.enter_block_scope(node.node_id());
+        self.symbols
+            .enter_ts_type_alias_declaration(self.ast, node, &self.scope);
     }
 
     fn exit_ts_type_alias_declaration(
@@ -1226,8 +1206,8 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsTypeAliasDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.state.symbols.exit_saved_context();
-        self.state.exit_scope(node.node_id());
+        self.symbols.exit_saved_context();
+        self.scope.exit_scope(node.node_id());
     }
 
     fn enter_ts_interface_declaration(
@@ -1237,21 +1217,18 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     ) {
         // TODO(traverse): The binder still derives the declaration target from the inner scope parent.
         // Original Visit body:
-        // self.state.enter_ts_interface_declaration(node.node_id());
+        // self.scope.enter_block_scope(node.node_id());
         // self.enter_node(node.node_id());
-        // let state = &mut self.state;
-        // state
+        // self
         //     .symbols
-        //     .enter_ts_interface_declaration(self.ast, node, &state.scope);
+        //     .enter_ts_interface_declaration(self.ast, node, &self.scope);
         // node.visit_children_with(self);
-        // self.state.symbols.exit_saved_context();
-        // self.state.exit_scope(node.node_id());
+        // self.symbols.exit_saved_context();
+        // self.scope.exit_scope(node.node_id());
         // self.leave_node(NodeKindData::TsInterfaceDeclaration(node));
-        self.state.enter_ts_interface_declaration(node.node_id());
-        let state = &mut self.state;
-        state
-            .symbols
-            .enter_ts_interface_declaration(self.ast, node, &state.scope);
+        self.scope.enter_block_scope(node.node_id());
+        self.symbols
+            .enter_ts_interface_declaration(self.ast, node, &self.scope);
     }
 
     fn exit_ts_interface_declaration(
@@ -1259,8 +1236,8 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsInterfaceDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.state.symbols.exit_saved_context();
-        self.state.exit_scope(node.node_id());
+        self.symbols.exit_saved_context();
+        self.scope.exit_scope(node.node_id());
     }
 
     fn enter_ts_interface_heritage(
@@ -1305,39 +1282,35 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     fn enter_ts_type_parameter(&mut self, _node: TsTypeParameter, _ctx: &mut TraverseCtx<'_, 'a>) {
         // TODO(traverse): Infer constraints need a lookup view after the name is bound; ordinary type parameters are migrated below.
         // Original Visit body:
-        // let type_position = self.state.enter_type_position();
+        // self.enter_type_position();
         // self.enter_node(node.node_id());
         // let parent = self.parent();
-        // let state = &mut self.state;
-        // state
+        // self
         //     .symbols
-        //     .enter_ts_type_parameter(self.ast, parent, &state.scope);
+        //     .enter_ts_type_parameter(self.ast, parent, &self.scope);
         // node.name(self.ast).visit_with(self);
         // let infer =
         //     parent.is_some_and(|parent| self.ast.node_kind(parent) == NodeKind::TsInferType);
         // if infer {
-        //     let state = &mut self.state;
-        //     state
+        //     self
         //         .scope
         //         .enter_ts_lookup_view(node.node_id(), ScopeKind::TsInferConstraint);
-        //     state
+        //     self
         //         .symbols
-        //         .expose_ts_infer_parameter(self.ast, node.name(self.ast), &state.scope);
+        //         .expose_ts_infer_parameter(self.ast, node.name(self.ast), &self.scope);
         // }
         // node.constraint(self.ast).visit_with(self);
         // node.default(self.ast).visit_with(self);
         // if infer {
-        //     self.state.scope.exit_ts_lookup_view(node.node_id());
+        //     self.scope.exit_ts_lookup_view(node.node_id());
         // }
-        // self.state.symbols.exit_saved_context();
+        // self.symbols.exit_saved_context();
         // self.leave_node(NodeKindData::TsTypeParameter(node));
-        // self.state.exit_type_position(type_position);
+        // self.exit_type_position();
         self.enter_type_position();
         let parent = self.parent();
-        let state = &mut self.state;
-        state
-            .symbols
-            .enter_ts_type_parameter(self.ast, parent, &state.scope);
+        self.symbols
+            .enter_ts_type_parameter(self.ast, parent, &self.scope);
     }
 
     fn enter_ts_type_parameter_declaration(
@@ -1346,8 +1319,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
         self.enter_type_position();
-        self.state
-            .scope
+        self.scope
             .enter_ts_lookup_view(node.node_id(), ScopeKind::TsTypeParameters);
     }
 
@@ -1356,7 +1328,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsTypeParameterDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.state.scope.exit_ts_lookup_view(node.node_id());
+        self.scope.exit_ts_lookup_view(node.node_id());
         self.exit_type_position();
     }
 
@@ -1586,10 +1558,8 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
 
     fn enter_ts_type_predicate(&mut self, node: TsTypePredicate, _ctx: &mut TraverseCtx<'_, 'a>) {
         self.enter_type_position();
-        let state = &mut self.state;
-        state
-            .symbols
-            .add_ts_type_predicate_reference(self.ast, node, &state.scope);
+        self.symbols
+            .add_ts_type_predicate_reference(self.ast, node, &self.scope);
     }
 
     fn exit_ts_type_predicate(&mut self, _node: TsTypePredicate, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -1603,21 +1573,21 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     ) {
         // TODO(traverse): The scope hook covers extends/true, but the extends-only lookup view still needs field boundaries.
         // Original Visit body:
-        // let type_position = self.state.enter_type_position();
+        // self.enter_type_position();
         // self.enter_node(node.node_id());
         // node.check_type(self.ast).visit_with(self);
-        // self.state.enter_ts_conditional_type(node.node_id());
+        // self.scope.enter_block_scope(node.node_id());
         // let extends = node.extends_type(self.ast);
-        // self.state
+        // self
         //     .scope
         //     .enter_ts_lookup_view(extends.node_id(), ScopeKind::TsConditionalExtends);
         // extends.visit_with(self);
-        // self.state.scope.exit_ts_lookup_view(extends.node_id());
+        // self.scope.exit_ts_lookup_view(extends.node_id());
         // node.true_type(self.ast).visit_with(self);
-        // self.state.exit_scope(node.node_id());
+        // self.scope.exit_scope(node.node_id());
         // node.false_type(self.ast).visit_with(self);
         // self.leave_node(NodeKindData::TsConditionalType(node));
-        // self.state.exit_type_position(type_position);
+        // self.exit_type_position();
     }
 
     fn enter_ts_function_type(&mut self, _node: TsFunctionType, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -1659,19 +1629,18 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     ) {
         // TODO(traverse): The scope hook currently includes the computed key, which must resolve outside signature locals.
         // Original Visit body:
-        // let type_position = self.state.enter_type_position();
+        // self.enter_type_position();
         // self.enter_node(node.node_id());
         // self.visit_type_member_key(node.key(self.ast), node.computed(self.ast));
-        // self.state.enter_ts_method_signature(node.node_id());
-        // let state = &mut self.state;
-        // state.symbols.enter_ts_method_signature(&state.scope);
+        // self.scope.enter_block_scope(node.node_id());
+        // self.symbols.enter_ts_method_signature(&self.scope);
         // node.type_parameters(self.ast).visit_with(self);
         // node.params(self.ast).visit_with(self);
         // node.return_type(self.ast).visit_with(self);
-        // self.state.symbols.exit_saved_context();
-        // self.state.exit_scope(node.node_id());
+        // self.symbols.exit_saved_context();
+        // self.scope.exit_scope(node.node_id());
         // self.leave_node(NodeKindData::TsMethodSignature(node));
-        // self.state.exit_type_position(type_position);
+        // self.exit_type_position();
     }
 
     fn enter_ts_call_signature_declaration(
@@ -1709,25 +1678,23 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     fn enter_ts_index_signature(&mut self, node: TsIndexSignature, _ctx: &mut TraverseCtx<'_, 'a>) {
         // TODO(traverse): Traverse has no TsIndexSignature scope annotation yet.
         // Original Visit body:
-        // self.state.enter_ts_index_signature(node.node_id());
-        // let type_position = self.state.enter_type_position();
+        // self.scope.enter_block_scope(node.node_id());
+        // self.enter_type_position();
         // self.enter_node(node.node_id());
-        // let state = &mut self.state;
-        // state.symbols.enter_ts_index_signature(&state.scope);
+        // self.symbols.enter_ts_index_signature(&self.scope);
         // node.visit_children_with(self);
-        // self.state.symbols.exit_saved_context();
-        // self.state.exit_scope(node.node_id());
+        // self.symbols.exit_saved_context();
+        // self.scope.exit_scope(node.node_id());
         // self.leave_node(NodeKindData::TsIndexSignature(node));
-        // self.state.exit_type_position(type_position);
-        self.state.enter_ts_index_signature(node.node_id());
+        // self.exit_type_position();
+        self.scope.enter_block_scope(node.node_id());
         self.enter_type_position();
-        let state = &mut self.state;
-        state.symbols.enter_ts_index_signature(&state.scope);
+        self.symbols.enter_ts_index_signature(&self.scope);
     }
 
     fn exit_ts_index_signature(&mut self, node: TsIndexSignature, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.state.symbols.exit_saved_context();
-        self.state.exit_scope(node.node_id());
+        self.symbols.exit_saved_context();
+        self.scope.exit_scope(node.node_id());
         self.exit_type_position();
     }
 
@@ -1736,10 +1703,8 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: JsxOpeningElement,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        let state = &mut self.state;
-        state
-            .symbols
-            .add_jsx_opening_element_reference(self.ast, node, &state.scope);
+        self.symbols
+            .add_jsx_opening_element_reference(self.ast, node, &self.scope);
     }
 
     fn enter_jsx_closing_element(
@@ -1747,10 +1712,8 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: JsxClosingElement,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        let state = &mut self.state;
-        state
-            .symbols
-            .add_jsx_closing_element_reference(self.ast, node, &state.scope);
+        self.symbols
+            .add_jsx_closing_element_reference(self.ast, node, &self.scope);
     }
 
     fn exit_binding_identifier(&mut self, node: BindingIdentifier, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -1760,31 +1723,23 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         } else {
             None
         };
-        let direct_export = self.state.symbols.export_state.named();
-        let direct_export = direct_export.filter(|_| !self.state.in_ts_namespace());
-        let state = &mut self.state;
+        let direct_export = self.symbols.export_state.named();
+        let direct_export = direct_export.filter(|_| !self.in_ts_namespace());
         let declaration = if let Some(prepared) = prepared {
-            state.symbols.declare_prepared_binding_identifier(
-                self.ast,
-                node,
-                &state.scope,
-                prepared,
-            )
+            self.symbols
+                .declare_prepared_binding_identifier(self.ast, node, &self.scope, prepared)
         } else {
-            state
-                .symbols
-                .declare_binding_identifier(self.ast, node, &state.scope)
+            self.symbols
+                .declare_binding_identifier(self.ast, node, &self.scope)
         };
         if declaration.is_some() && flags.is_write_only() {
-            state
-                .symbols
-                .add_var_write_reference(self.ast, node, &state.scope, flags);
+            self.symbols
+                .add_var_write_reference(self.ast, node, &self.scope, flags);
         }
         if declaration.is_some()
             && let Some(statement) = direct_export
         {
-            state
-                .module_record
+            self.module_record
                 .add_direct_export(self.ast, node.node_id(), statement);
         }
     }
@@ -1794,10 +1749,8 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: VariableDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        let state = &mut self.state;
-        state
-            .symbols
-            .enter_variable_declaration(self.ast, node, &state.scope);
+        self.symbols
+            .enter_variable_declaration(self.ast, node, &self.scope);
     }
 
     fn exit_variable_declaration(
@@ -1805,19 +1758,17 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: VariableDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.state.symbols.exit_saved_context();
+        self.symbols.exit_saved_context();
     }
 
     fn enter_formal_parameters(&mut self, node: FormalParameters, _ctx: &mut TraverseCtx<'_, 'a>) {
         if node.items(self.ast).is_empty() && node.rest(self.ast).is_none() {
-            self.state.symbols.export_state = Default::default();
+            self.symbols.export_state = Default::default();
             return;
         }
-        let state = &mut self.state;
-        state.symbols.enter_formal_parameters(&state.scope);
+        self.symbols.enter_formal_parameters(&self.scope);
         if self.ast.is_ts() {
-            state
-                .scope
+            self.scope
                 .enter_ts_lookup_view(node.node_id(), ScopeKind::TsSignatureParameter);
         }
     }
@@ -1827,9 +1778,9 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
             return;
         }
         if self.ast.is_ts() {
-            self.state.scope.exit_ts_lookup_view(node.node_id());
+            self.scope.exit_ts_lookup_view(node.node_id());
         }
-        self.state.symbols.exit_formal_parameters();
+        self.symbols.exit_formal_parameters();
     }
 
     fn enter_ts_type_annotation(&mut self, node: TsTypeAnnotation, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -1849,7 +1800,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         });
         let view = signature_return.then_some(ScopeKind::TsSignatureReturn);
         if let Some(view) = view {
-            self.state.scope.enter_ts_lookup_view(node.node_id(), view);
+            self.scope.enter_ts_lookup_view(node.node_id(), view);
         }
         self.enter_type_position();
     }
@@ -1871,7 +1822,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         });
         let view = signature_return.then_some(ScopeKind::TsSignatureReturn);
         if view.is_some() {
-            self.state.scope.exit_ts_lookup_view(node.node_id());
+            self.scope.exit_ts_lookup_view(node.node_id());
         }
         self.exit_type_position();
     }
@@ -1881,10 +1832,8 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsEnumDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        let state = &mut self.state;
-        state
-            .symbols
-            .enter_ts_enum_declaration(self.ast, node, &state.scope);
+        self.symbols
+            .enter_ts_enum_declaration(self.ast, node, &self.scope);
     }
 
     fn exit_ts_enum_declaration(
@@ -1892,7 +1841,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsEnumDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.state.symbols.exit_saved_context();
+        self.symbols.exit_saved_context();
     }
 
     fn enter_ts_namespace_export_declaration(
@@ -1900,13 +1849,11 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsNamespaceExportDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        if self.state.symbols.in_unsupported_ts_external_module() {
+        if self.symbols.in_unsupported_ts_external_module() {
             return;
         }
-        let state = &mut self.state;
-        state
-            .symbols
-            .record_ts_global_export(self.ast, node, &state.scope);
+        self.symbols
+            .record_ts_global_export(self.ast, node, &self.scope);
     }
 
     fn exit_ts_class_implements(
@@ -1942,10 +1889,8 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         node: TsImportEqualsDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.state
-            .symbols
-            .record_ts_import_equals_target(self.ast, node);
-        self.state.symbols.exit_saved_context();
+        self.symbols.record_ts_import_equals_target(self.ast, node);
+        self.symbols.exit_saved_context();
         self.pop_reference_flags();
     }
 
@@ -1954,12 +1899,12 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: ExportDefaultDeclaration,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        self.state.symbols.exit_export_declaration();
+        self.symbols.exit_export_declaration();
         self.pop_reference_flags();
     }
 
     fn exit_ts_type_parameter(&mut self, _node: TsTypeParameter, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.state.symbols.exit_saved_context();
+        self.symbols.exit_saved_context();
         self.exit_type_position();
     }
 }
