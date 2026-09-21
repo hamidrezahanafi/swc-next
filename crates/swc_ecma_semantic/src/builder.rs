@@ -16,20 +16,19 @@ use swc_next_ecma_ast::{
     ConditionalExpression, Decorator, Diagnostic, Directive, ExportAllDeclaration,
     ExportDefaultDeclaration, ExportDefaultDeclarationKindData, ExportNamedDeclaration,
     ExportSpecifier, ForInStatement, ForOfStatement, ForStatementLeft, FormalParameters, Function,
-    FunctionBody, FunctionType, IdentifierReference, ImportDeclaration, ImportExpression,
-    ImportOrExportKind, ImportSpecifier, JsxClosingElement, JsxElement, JsxFragment,
-    JsxOpeningElement, Label, LogicalExpression, MemberExpression, NewExpression, NodeId, NodeKind,
-    NodeKindData, ObjectExpression, PropertyKey, PropertyKeyData, ScopeId, SequenceExpression,
-    Severity, SimpleAssignmentTarget, Span, SwitchStatement, TaggedTemplateExpression,
-    TemplateLiteral, Traverse, TraverseCtx, TsClassImplements, TsConditionalType,
-    TsEnumDeclaration, TsEnumMember, TsExportAssignment, TsGlobalDeclaration,
-    TsImportEqualsDeclaration, TsImportType, TsIndexSignature, TsInstantiationExpression,
-    TsInterfaceBody, TsInterfaceDeclaration, TsInterfaceHeritage, TsMethodSignature, TsModuleBlock,
-    TsModuleDeclaration, TsModuleNameData, TsModuleReference, TsNamespaceExportDeclaration,
-    TsQualifiedName, TsType, TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeParameter,
-    TsTypeParameterDeclaration, TsTypePredicate, TsTypeQuery, UnaryExpression, UnaryOperator,
-    UpdateExpression, VariableDeclaration, VariableDeclarator, VariableKind, WithStatement,
-    YieldExpression,
+    FunctionType, IdentifierReference, ImportDeclaration, ImportExpression, ImportOrExportKind,
+    ImportSpecifier, JsxClosingElement, JsxElement, JsxFragment, JsxOpeningElement, Label,
+    LogicalExpression, MemberExpression, NewExpression, NodeId, NodeKind, NodeKindData,
+    ObjectExpression, PropertyKey, PropertyKeyData, ScopeId, SequenceExpression, Severity,
+    SimpleAssignmentTarget, Span, SwitchStatement, TaggedTemplateExpression, TemplateLiteral,
+    Traverse, TraverseCtx, TsClassImplements, TsConditionalType, TsEnumDeclaration, TsEnumMember,
+    TsExportAssignment, TsGlobalDeclaration, TsImportEqualsDeclaration, TsImportType,
+    TsIndexSignature, TsInstantiationExpression, TsInterfaceBody, TsInterfaceDeclaration,
+    TsInterfaceHeritage, TsMethodSignature, TsModuleBlock, TsModuleDeclaration, TsModuleNameData,
+    TsModuleReference, TsNamespaceExportDeclaration, TsQualifiedName, TsType,
+    TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeParameter, TsTypeParameterDeclaration,
+    TsTypePredicate, TsTypeQuery, UnaryExpression, UnaryOperator, UpdateExpression,
+    VariableDeclaration, VariableDeclarator, VariableKind, WithStatement, YieldExpression,
 };
 
 use crate::{
@@ -290,6 +289,10 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
                 self.scope.enter_function(self.ast, node, annex_b_if_body);
                 self.symbols.enter_function(self.ast, node, &self.scope);
             }
+            NodeKindData::FunctionBody(node) => {
+                let parent = self.parent();
+                self.scope.enter_function_body(self.ast, node, parent);
+            }
             NodeKindData::TsFunction(node) => {
                 self.scope.enter_ts_function(node.node_id());
                 self.symbols.enter_ts_function(self.ast, node, &self.scope);
@@ -304,6 +307,14 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
             NodeKindData::TsConstructorType(node) => {
                 self.scope.enter_block_scope(node.node_id());
                 self.symbols.enter_ts_constructor_type(&self.scope);
+            }
+            NodeKindData::TsMethodSignature(node) => {
+                self.scope.enter_block_scope(node.node_id());
+                self.symbols.enter_ts_method_signature(&self.scope);
+            }
+            NodeKindData::TsIndexSignature(node) => {
+                self.scope.enter_block_scope(node.node_id());
+                self.symbols.enter_ts_index_signature(&self.scope);
             }
             NodeKindData::TsMappedType(node) => {
                 self.scope.enter_block_scope(node.node_id());
@@ -379,6 +390,9 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
                 self.symbols.exit_saved_context();
                 self.scope.exit_scope(node.node_id());
             }
+            NodeKindData::FunctionBody(node) => {
+                self.scope.exit_scope(node.node_id());
+            }
             NodeKindData::TsFunction(node) => {
                 self.symbols.exit_saved_context();
                 self.scope.exit_scope(node.node_id());
@@ -391,6 +405,14 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
                 self.scope.exit_scope(node.node_id());
             }
             NodeKindData::TsConstructorType(node) => {
+                self.symbols.exit_saved_context();
+                self.scope.exit_scope(node.node_id());
+            }
+            NodeKindData::TsMethodSignature(node) => {
+                self.symbols.exit_saved_context();
+                self.scope.exit_scope(node.node_id());
+            }
+            NodeKindData::TsIndexSignature(node) => {
                 self.symbols.exit_saved_context();
                 self.scope.exit_scope(node.node_id());
             }
@@ -690,6 +712,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
                 node.decorators(self.ast).is_empty() && node.computed(self.ast)
             }
             Some(NodeKindData::TsPropertySignature(node)) => node.computed(self.ast),
+            Some(NodeKindData::TsMethodSignature(node)) => node.computed(self.ast),
             _ => false,
         };
         let flags = if type_query {
@@ -768,23 +791,6 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
 
     fn enter_directive(&mut self, node: Directive, _ctx: &mut TraverseCtx<'_, 'a>) {
         self.scope.enter_directive(self.ast, node);
-    }
-
-    fn enter_function_body(&mut self, node: FunctionBody, _ctx: &mut TraverseCtx<'_, 'a>) {
-        // TODO(traverse): Traverse has no FunctionBody scope annotation; preserve the conditional parameter/body environment.
-        // Original Visit body:
-        // let parent = self.current_node();
-        // self.scope.enter_function_body(self.ast, node, parent);
-        // self.enter_node(node.node_id());
-        // node.visit_children_with(self);
-        // self.scope.exit_scope(node.node_id());
-        // self.leave_node(NodeKindData::FunctionBody(node));
-        let parent = self.parent();
-        self.scope.enter_function_body(self.ast, node, parent);
-    }
-
-    fn exit_function_body(&mut self, node: FunctionBody, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.scope.exit_scope(node.node_id());
     }
 
     fn enter_class(&mut self, node: Class, _ctx: &mut TraverseCtx<'_, 'a>) {
@@ -1221,42 +1227,26 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
         _node: TsMethodSignature,
         _ctx: &mut TraverseCtx<'_, 'a>,
     ) {
-        // TODO(traverse): The scope hook currently includes the computed key, which must resolve outside signature locals.
-        // Original Visit body:
-        // self.enter_type_position();
-        // self.enter_node(node.node_id());
-        // self.visit_type_member_key(node.key(self.ast), node.computed(self.ast));
-        // self.scope.enter_block_scope(node.node_id());
-        // self.symbols.enter_ts_method_signature(&self.scope);
-        // node.type_parameters(self.ast).visit_with(self);
-        // node.params(self.ast).visit_with(self);
-        // node.return_type(self.ast).visit_with(self);
-        // self.symbols.exit_saved_context();
-        // self.scope.exit_scope(node.node_id());
-        // self.leave_node(NodeKindData::TsMethodSignature(node));
-        // self.exit_type_position();
-    }
-
-    fn enter_ts_index_signature(&mut self, node: TsIndexSignature, _ctx: &mut TraverseCtx<'_, 'a>) {
-        // TODO(traverse): Traverse has no TsIndexSignature scope annotation yet.
-        // Original Visit body:
-        // self.scope.enter_block_scope(node.node_id());
-        // self.enter_type_position();
-        // self.enter_node(node.node_id());
-        // self.symbols.enter_ts_index_signature(&self.scope);
-        // node.visit_children_with(self);
-        // self.symbols.exit_saved_context();
-        // self.scope.exit_scope(node.node_id());
-        // self.leave_node(NodeKindData::TsIndexSignature(node));
-        // self.exit_type_position();
-        self.scope.enter_block_scope(node.node_id());
         self.enter_type_position();
-        self.symbols.enter_ts_index_signature(&self.scope);
     }
 
-    fn exit_ts_index_signature(&mut self, node: TsIndexSignature, _ctx: &mut TraverseCtx<'_, 'a>) {
-        self.symbols.exit_saved_context();
-        self.scope.exit_scope(node.node_id());
+    fn exit_ts_method_signature(
+        &mut self,
+        _node: TsMethodSignature,
+        _ctx: &mut TraverseCtx<'_, 'a>,
+    ) {
+        self.exit_type_position();
+    }
+
+    fn enter_ts_index_signature(
+        &mut self,
+        _node: TsIndexSignature,
+        _ctx: &mut TraverseCtx<'_, 'a>,
+    ) {
+        self.enter_type_position();
+    }
+
+    fn exit_ts_index_signature(&mut self, _node: TsIndexSignature, _ctx: &mut TraverseCtx<'_, 'a>) {
         self.exit_type_position();
     }
 

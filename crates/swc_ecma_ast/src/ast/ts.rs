@@ -1175,6 +1175,7 @@ pub struct TsMethodSignature {
     /// `private_identifier` (class members only), or any expression when `computed = true`
     key: PropertyKey,
     /// `ts_type_parameter_declaration`. `None` when absent.
+    #[scope(enter_before)]
     type_parameters: Option<TsTypeParameterDeclaration>,
     /// `formal_parameters`
     params: FormalParameters,
@@ -1244,6 +1245,7 @@ pub struct TsConstructSignatureDeclaration {
 /// //                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ TSIndexSignature (readonly)
 /// ```
 #[ast]
+#[scope]
 pub struct TsIndexSignature {
     /// `binding_identifier[]`. Each entry carries its own
     /// `type_annotation`.

@@ -2609,7 +2609,6 @@ impl<'a> SymbolTracker<'a> {
         self.enter_signature_type(scope);
     }
 
-    #[expect(dead_code, reason = "pending Traverse method-signature migration")]
     pub fn enter_ts_method_signature(&mut self, scope: &ScopeTracker<'a>) {
         self.enter_signature_type(scope);
     }

@@ -1513,6 +1513,7 @@ pub struct Function {
 ///
 /// See: <https://tc39.es/ecma262/#prod-FunctionBody>
 #[ast]
+#[scope]
 pub struct FunctionBody {
     directives: SubRange<Directive>,
     body: SubRange<Stmt>,

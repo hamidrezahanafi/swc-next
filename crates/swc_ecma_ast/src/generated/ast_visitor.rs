@@ -22089,7 +22089,9 @@ fn walk_function_body<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) {
+    let node_id = node.node_id();
     traverser.enter_function_body(node, ctx);
+    traverser.enter_scope(node_id, ctx);
     let child = node.directives(ctx.ast);
     for child_idx in child.iter() {
         let child = ctx.ast.get_node_in_sub_range(child_idx);
@@ -22112,6 +22114,7 @@ fn walk_function_body<'a, State, T: ?Sized + Traverse<'a, State>>(
             traverser.exit_node(node_id, ctx);
         }
     }
+    traverser.leave_scope(node_id, ctx);
     traverser.exit_function_body(node, ctx);
 }
 #[inline]
@@ -24361,7 +24364,6 @@ fn walk_ts_method_signature<'a, State, T: ?Sized + Traverse<'a, State>>(
 ) {
     let node_id = node.node_id();
     traverser.enter_ts_method_signature(node, ctx);
-    traverser.enter_scope(node_id, ctx);
     let child = node.key(ctx.ast);
     {
         let node_id = (child).node_id();
@@ -24371,6 +24373,7 @@ fn walk_ts_method_signature<'a, State, T: ?Sized + Traverse<'a, State>>(
         traverser.exit_property_key(child, ctx);
         traverser.exit_node(node_id, ctx);
     }
+    traverser.enter_scope(node_id, ctx);
     let child = node.type_parameters(ctx.ast);
     if let Some(child) = child {
         {
@@ -24479,7 +24482,9 @@ fn walk_ts_index_signature<'a, State, T: ?Sized + Traverse<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseCtx<'_, 'a, State>,
 ) {
+    let node_id = node.node_id();
     traverser.enter_ts_index_signature(node, ctx);
+    traverser.enter_scope(node_id, ctx);
     let child = node.parameters(ctx.ast);
     for child_idx in child.iter() {
         let child = ctx.ast.get_node_in_sub_range(child_idx);
@@ -24497,6 +24502,7 @@ fn walk_ts_index_signature<'a, State, T: ?Sized + Traverse<'a, State>>(
         walk_ts_type_annotation(child, traverser, ctx);
         traverser.exit_node(node_id, ctx);
     }
+    traverser.leave_scope(node_id, ctx);
     traverser.exit_ts_index_signature(node, ctx);
 }
 #[inline]
@@ -34480,7 +34486,9 @@ fn walk_mut_function_body<'a, State, T: ?Sized + TraverseMut<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseMutCtx<'_, 'a, State>,
 ) {
+    let node_id = node.node_id();
     traverser.enter_function_body(node, ctx);
+    traverser.enter_scope(node_id, ctx);
     let child = node.directives(ctx.ast);
     for child_idx in child.iter() {
         let child = ctx.ast.get_node_in_sub_range(child_idx);
@@ -34503,6 +34511,7 @@ fn walk_mut_function_body<'a, State, T: ?Sized + TraverseMut<'a, State>>(
             traverser.exit_node(node_id, ctx);
         }
     }
+    traverser.leave_scope(node_id, ctx);
     traverser.exit_function_body(node, ctx);
 }
 #[inline]
@@ -36760,7 +36769,6 @@ fn walk_mut_ts_method_signature<'a, State, T: ?Sized + TraverseMut<'a, State>>(
 ) {
     let node_id = node.node_id();
     traverser.enter_ts_method_signature(node, ctx);
-    traverser.enter_scope(node_id, ctx);
     let child = node.key(ctx.ast);
     {
         let node_id = (child).node_id();
@@ -36770,6 +36778,7 @@ fn walk_mut_ts_method_signature<'a, State, T: ?Sized + TraverseMut<'a, State>>(
         traverser.exit_property_key(child, ctx);
         traverser.exit_node(node_id, ctx);
     }
+    traverser.enter_scope(node_id, ctx);
     let child = node.type_parameters(ctx.ast);
     if let Some(child) = child {
         {
@@ -36878,7 +36887,9 @@ fn walk_mut_ts_index_signature<'a, State, T: ?Sized + TraverseMut<'a, State>>(
     traverser: &mut T,
     ctx: &mut TraverseMutCtx<'_, 'a, State>,
 ) {
+    let node_id = node.node_id();
     traverser.enter_ts_index_signature(node, ctx);
+    traverser.enter_scope(node_id, ctx);
     let child = node.parameters(ctx.ast);
     for child_idx in child.iter() {
         let child = ctx.ast.get_node_in_sub_range(child_idx);
@@ -36896,6 +36907,7 @@ fn walk_mut_ts_index_signature<'a, State, T: ?Sized + TraverseMut<'a, State>>(
         walk_mut_ts_type_annotation(child, traverser, ctx);
         traverser.exit_node(node_id, ctx);
     }
+    traverser.leave_scope(node_id, ctx);
     traverser.exit_ts_index_signature(node, ctx);
 }
 #[inline]
