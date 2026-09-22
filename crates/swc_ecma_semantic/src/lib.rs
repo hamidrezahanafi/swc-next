@@ -25,12 +25,7 @@ use swc_next_allocator::{
 };
 use swc_next_ecma_ast::{Ast, Diagnostic, NodeId, ScopeId, SymbolId, TraverseCtx, TraverseWith};
 
-use crate::{
-    binder::{Range, TsMemberIndex},
-    builder::SemanticBuilder,
-    scope::ScopeTree,
-    state::State,
-};
+use crate::{binder::Range, builder::SemanticBuilder, scope::ScopeTree, state::State};
 
 // legacy
 pub mod name_resolver;
@@ -98,7 +93,6 @@ pub struct Semantic<'a> {
     node_references: ArenaVec<'a, Option<ReferenceId>>,
 
     module_record: ModuleRecord<'a>,
-    ts_members: TsMemberIndex<'a>,
 }
 
 impl<'a> Semantic<'a> {
@@ -148,35 +142,6 @@ impl<'a> Semantic<'a> {
     pub fn scope_of(&self, id: SymbolId) -> ScopeId {
         let declaration = self.symbol(id).declaration;
         self.declaration(declaration).scope
-    }
-
-    /// The definite terminal symbol of an internal TypeScript import alias.
-    /// Follows forwarding aliases without changing their binding identities.
-    /// Returns `None` for non-aliases, opaque or cyclic targets, property-only
-    /// targets, and merged contributions without a unique terminal symbol.
-    /// The target retains its declaration kind, including `CONST_ENUM`, regardless
-    /// of JavaScript emit options. This does not decide runtime access or emission.
-    pub fn ts_import_alias_target(&self, alias: SymbolId) -> Option<SymbolId> {
-        self.ts_members.import_alias_target(alias)
-    }
-
-    /// The initializer's root reference in an internal `import A = N.Member`.
-    /// Its access flags account for the whole alias target, not just `N`:
-    /// a known type-only target does not read the root, while opaque targets
-    /// conservatively retain a read. Ambient and explicit type-only aliases
-    /// also have no runtime access. External `require` targets return `None`.
-    ///
-    /// This describes initializer access, not whether the alias is used or
-    /// whether an emit option preserves its target. Use ordinary reference
-    /// queries for declaration dependencies even when this reference is unread.
-    /// `ast` must be the tree analyzed to produce this model.
-    pub fn import_equals_reference(
-        &self,
-        ast: &Ast<'_>,
-        declaration: swc_next_ecma_ast::TsImportEqualsDeclaration,
-    ) -> Option<ReferenceId> {
-        let node = ecmascript::import_equals_reference_node(ast, declaration)?;
-        self.reference_of(node)
     }
 
     /// Iterates the ids of every declaration of `id`, in source order.
@@ -279,30 +244,6 @@ impl<'a> Semantic<'a> {
             .flatten()
             .copied()
             .chain(lexical_values)
-    }
-
-    /// Members declared by any declaration merged into a TypeScript namespace.
-    pub fn ts_namespace_members(&self, owner: SymbolId) -> impl Iterator<Item = SymbolId> + '_ {
-        self.ts_members.namespace_members(owner)
-    }
-
-    /// Finds a member declared by any declaration merged into a TypeScript namespace.
-    /// This returns its identity; its declaration flags do not describe its
-    /// resolved visibility in every reference space or member view.
-    pub fn ts_namespace_member(&self, owner: SymbolId, name: &[u8]) -> Option<SymbolId> {
-        self.ts_members.namespace_member(owner, name)
-    }
-
-    /// Members declared by any declaration merged into a TypeScript enum.
-    pub fn ts_enum_members(&self, owner: SymbolId) -> impl Iterator<Item = SymbolId> + '_ {
-        self.ts_members.enum_members(owner)
-    }
-
-    /// Finds a member declared by any declaration merged into a TypeScript enum.
-    /// This returns its identity; a merged symbol can also have declarations
-    /// whose visibility belongs to a different member view.
-    pub fn ts_enum_member(&self, owner: SymbolId, name: &[u8]) -> Option<SymbolId> {
-        self.ts_members.enum_member(owner, name)
     }
 
     /// The lexical binding of `name` at `scope` alone, including a hoisting
