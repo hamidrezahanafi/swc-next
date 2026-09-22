@@ -6,7 +6,193 @@ use swc_next_ecma_ast::{
 
 use super::*;
 
-pub(super) fn check_string_literal(builder: &mut SemanticBuilder<'_, '_>, literal: StringLiteral) {
+fn check_hoisting_var_conflict(
+    builder: &mut SemanticBuilder<'_, '_>,
+    node: NodeId,
+    name: &[u8],
+    prepared: PreparedDeclaration,
+) {
+    let target = prepared.target();
+    let flags = prepared.flags();
+    // Per 14.2.1, a hoisting var conflicts with block-scoped names
+    // in any intermediate block it passes through.
+    if flags.is_hoisting_var() {
+        for scope_id in builder.scope.ancestors(Some(builder.scope.current)) {
+            if scope_id == target {
+                break;
+            }
+            let Some(symbol_id) = builder.symbols.own_binding(scope_id, name) else {
+                continue;
+            };
+            let existing = builder.symbols.symbol(symbol_id);
+            if existing.flags.is_block_scoped_like() {
+                builder.report_redeclaration(
+                    builder.ast,
+                    name,
+                    node,
+                    builder.symbols.first_decl_of(symbol_id),
+                    existing.flags,
+                );
+                break;
+            }
+            if existing.flags.contains(SymbolFlags::CATCH_VAR) {
+                // https://tc39.es/ecma262/#sec-variablestatements-in-catch-blocks
+                // (14.15.1): a var colliding with a catch parameter is a
+                // syntax error, except for the Annex B.3.4 simple-binding
+                // web-compat carve-out.
+                let catch_node = builder.scope.get(scope_id).node;
+                let NodeKindData::CatchClause(catch) = builder.ast.kind_data(catch_node) else {
+                    unreachable!()
+                };
+                let simple_parameter = catch.param(builder.ast).is_some_and(|parameter| {
+                    builder.ast.node_kind(parameter.node_id()) == NodeKind::BindingIdentifier
+                });
+                if !simple_parameter {
+                    builder.report_redeclaration(
+                        builder.ast,
+                        name,
+                        node,
+                        builder.symbols.first_decl_of(symbol_id),
+                        existing.flags,
+                    );
+                    break;
+                }
+            }
+        }
+    }
+}
+
+fn check_outer_parameter_conflict(
+    builder: &mut SemanticBuilder<'_, '_>,
+    node: NodeId,
+    name: &[u8],
+    prepared: PreparedDeclaration,
+) {
+    let target = prepared.target();
+    let flags = prepared.flags();
+    let excludes = prepared.excludes();
+    // A split body environment keeps the early errors: lexical body names
+    // may not duplicate parameter names (15.2.1) or catch parameter names
+    // (14.15.1) one scope up:
+    //
+    //   function f(a = 1) { let a }   // still an error
+    //   function f(a = 1) { var a }   // legal, var stays out
+    if !flags.intersects(SymbolFlags::FUNCTION_SCOPED_VAR | SymbolFlags::FUNCTION) {
+        let target_scope = builder.scope.get(target);
+        let outer = target_scope.parent;
+        let outer_holds_parameters = outer.is_some_and(|outer| match target_scope.kind {
+            ScopeKind::FunctionBody => true,
+            ScopeKind::Block => match builder.ast.kind_data(builder.scope.get(outer).node) {
+                NodeKindData::CatchClause(catch) => {
+                    catch.body(builder.ast).node_id() == target_scope.node
+                }
+                _ => false,
+            },
+            _ => false,
+        });
+        if outer_holds_parameters
+            && let Some(outer) = outer
+            && let Some(symbol_id) = builder.symbols.own_binding(outer, name)
+        {
+            let existing = builder.symbols.symbol(symbol_id);
+            if existing
+                .flags
+                .intersects(SymbolFlags::PARAMETER | SymbolFlags::CATCH_VAR)
+                && existing.flags.intersects(excludes)
+            {
+                builder.report_redeclaration(
+                    builder.ast,
+                    name,
+                    node,
+                    builder.symbols.first_decl_of(symbol_id),
+                    existing.flags,
+                );
+            }
+        }
+    }
+}
+
+pub fn check_redeclaration(
+    builder: &mut SemanticBuilder<'_, '_>,
+    node: NodeId,
+    name: &[u8],
+    prepared: PreparedDeclaration,
+) {
+    let target = prepared.target();
+    let flags = prepared.flags();
+    let excludes = prepared.excludes();
+    debug_assert!(!name.is_empty() || flags.contains(SymbolFlags::ENUM_MEMBER));
+    for candidate in prepared.conflict_candidates() {
+        let existing_id = candidate.symbol;
+        let (existing_flags, existing_node) = builder.symbols.conflict_candidate_info(candidate);
+        if builder.ast.is_ts()
+            && (flags.contains(SymbolFlags::EXPORTED)
+                || existing_flags.contains(SymbolFlags::EXPORTED))
+            && builder
+                .symbols
+                .has_same_scope_export_visibility_conflict(prepared, existing_id)
+        {
+            builder.report_redeclaration(builder.ast, name, node, existing_node, existing_flags);
+            return;
+        }
+        let import_value_conflict = !builder.ast.is_ts()
+            && builder.ast.is_module()
+            && target == ScopeId::MODULE
+            && ((flags.contains(SymbolFlags::IMPORT) && existing_flags.in_value_space())
+                || (flags.in_value_space() && existing_flags.contains(SymbolFlags::IMPORT)));
+        let declaration_conflict = existing_flags.intersects(excludes) || import_value_conflict;
+        let invalid_class_function_merge = !declaration_conflict
+            && builder.ast.is_ts()
+            && flags.intersects(SymbolFlags::FUNCTION | SymbolFlags::CLASS)
+            && existing_flags.intersects(SymbolFlags::FUNCTION | SymbolFlags::CLASS)
+            && builder
+                .symbols
+                .has_non_ambient_class_declaration(candidate, flags);
+        if (declaration_conflict || invalid_class_function_merge)
+            && !prepared.allows_annex_b_function_duplicate(existing_flags)
+        {
+            builder.report_redeclaration(builder.ast, name, node, existing_node, existing_flags);
+            return;
+        }
+
+        // https://tc39.es/ecma262/#sec-parameter-lists-static-semantics-early-errors
+        // Duplicate parameters are allowed in sloppy simple-parameter-list
+        // functions. Re-add the conflict for strict, unique, arrow, and
+        // non-simple cases.
+        if existing_flags.contains(SymbolFlags::PARAMETER)
+            && flags.contains(SymbolFlags::PARAMETER)
+            && let Some(parameters) = find_formal_parameters(builder)
+        {
+            let kind = parameters.kind(builder.ast);
+            let must_be_unique = builder.scope.is_strict()
+                || matches!(
+                    kind,
+                    swc_next_ecma_ast::FormalParameterKind::UniqueFormalParameters
+                        | swc_next_ecma_ast::FormalParameterKind::ArrowFormalParameters
+                )
+                || ecmascript::find_non_simple_parameter(builder.ast, parameters).is_some();
+            if must_be_unique {
+                builder.report_redeclaration(
+                    builder.ast,
+                    name,
+                    node,
+                    existing_node,
+                    existing_flags,
+                );
+            }
+        }
+    }
+
+    let flags = prepared.flags();
+    if !flags.intersects(SymbolFlags::FUNCTION_SCOPED_VAR | SymbolFlags::FUNCTION) {
+        check_outer_parameter_conflict(builder, node, name, prepared);
+    }
+    if flags.is_hoisting_var() {
+        check_hoisting_var_conflict(builder, node, name, prepared);
+    }
+}
+
+pub fn check_string_literal(builder: &mut SemanticBuilder<'_, '_>, literal: StringLiteral) {
     if builder.in_type_position() || !builder.scope.is_strict() {
         return;
     }
@@ -25,10 +211,7 @@ pub(super) fn check_string_literal(builder: &mut SemanticBuilder<'_, '_>, litera
     }
 }
 
-pub(super) fn check_numeric_literal(
-    builder: &mut SemanticBuilder<'_, '_>,
-    literal: NumericLiteral,
-) {
+pub fn check_numeric_literal(builder: &mut SemanticBuilder<'_, '_>, literal: NumericLiteral) {
     if builder.in_type_position() || !builder.scope.is_strict() {
         return;
     }
@@ -59,7 +242,7 @@ pub(super) fn check_numeric_literal(
     );
 }
 
-pub(super) fn check_reg_exp_literal(builder: &mut SemanticBuilder<'_, '_>, literal: RegExpLiteral) {
+pub fn check_reg_exp_literal(builder: &mut SemanticBuilder<'_, '_>, literal: RegExpLiteral) {
     let pattern = builder.ast.get_utf8(literal.pattern(builder.ast));
     let flags = builder.ast.get_utf8(literal.flags(builder.ast));
     let allocator = Allocator::new();
@@ -80,7 +263,7 @@ pub(super) fn check_reg_exp_literal(builder: &mut SemanticBuilder<'_, '_>, liter
     }
 }
 
-pub(super) fn check_identifier_reference(
+pub fn check_identifier_reference(
     builder: &mut SemanticBuilder<'_, '_>,
     identifier: IdentifierReference,
 ) {
@@ -102,7 +285,7 @@ pub(super) fn check_identifier_reference(
     }
 }
 
-pub(super) fn check_binding_identifier(
+pub fn check_binding_identifier(
     builder: &mut SemanticBuilder<'_, '_>,
     identifier: BindingIdentifier,
 ) -> Option<PreparedDeclaration> {
@@ -139,17 +322,14 @@ pub(super) fn check_binding_identifier(
         identifier.name(builder.ast).into(),
         node_id,
     );
-    builder.check_redeclaration(node_id, name, prepared);
+    check_redeclaration(builder, node_id, name, prepared);
     if builder.symbols.export_state.named().is_some() {
         builder.record_exported_name(name, node_id);
     }
     Some(prepared)
 }
 
-pub(super) fn check_label_identifier(
-    builder: &mut SemanticBuilder<'_, '_>,
-    identifier: LabelIdentifier,
-) {
+pub fn check_label_identifier(builder: &mut SemanticBuilder<'_, '_>, identifier: LabelIdentifier) {
     let name = builder
         .ast
         .get_utf8(identifier.name(builder.ast))
@@ -224,7 +404,7 @@ fn has_octal_escape(value: &[u8]) -> bool {
     false
 }
 
-pub(super) fn check_binary_expression(
+pub fn check_binary_expression(
     builder: &mut SemanticBuilder<'_, '_>,
     expression: BinaryExpression,
 ) {
@@ -246,10 +426,7 @@ pub(super) fn check_binary_expression(
     }
 }
 
-pub(super) fn check_unary_expression(
-    builder: &mut SemanticBuilder<'_, '_>,
-    expression: UnaryExpression,
-) {
+pub fn check_unary_expression(builder: &mut SemanticBuilder<'_, '_>, expression: UnaryExpression) {
     if expression.operator(builder.ast) != UnaryOperator::Delete {
         return;
     }
@@ -282,7 +459,7 @@ pub(super) fn check_unary_expression(
     }
 }
 
-pub(super) fn check_update_expression(
+pub fn check_update_expression(
     builder: &mut SemanticBuilder<'_, '_>,
     expression: UpdateExpression,
 ) {
@@ -297,7 +474,7 @@ pub(super) fn check_update_expression(
     }
 }
 
-pub(super) fn check_assignment_expression(
+pub fn check_assignment_expression(
     builder: &mut SemanticBuilder<'_, '_>,
     expression: AssignmentExpression,
 ) {
@@ -306,10 +483,7 @@ pub(super) fn check_assignment_expression(
     }
 }
 
-pub(super) fn check_object_expression(
-    builder: &mut SemanticBuilder<'_, '_>,
-    object: ObjectExpression,
-) {
+pub fn check_object_expression(builder: &mut SemanticBuilder<'_, '_>, object: ObjectExpression) {
     let mut first_proto = None;
     for property in object.properties(builder.ast).iter() {
         let property = builder.ast.get_node_in_sub_range(property).node_id();
@@ -352,7 +526,7 @@ pub(super) fn check_object_expression(
     }
 }
 
-pub(super) fn check_member_expression(
+pub fn check_member_expression(
     builder: &mut SemanticBuilder<'_, '_>,
     expression: MemberExpression,
 ) {
@@ -397,7 +571,7 @@ pub(super) fn check_member_expression(
     }
 }
 
-pub(super) fn check_call_expression(builder: &mut SemanticBuilder<'_, '_>, call: CallExpression) {
+pub fn check_call_expression(builder: &mut SemanticBuilder<'_, '_>, call: CallExpression) {
     if builder.ast.node_kind(call.callee(builder.ast).node_id()) == NodeKind::Super {
         let message = "'super()' is only valid in a constructor of a derived class";
         match super_call_validity(builder) {
@@ -426,10 +600,7 @@ pub(super) fn check_call_expression(builder: &mut SemanticBuilder<'_, '_>, call:
     }
 }
 
-pub(super) fn check_await_expression(
-    builder: &mut SemanticBuilder<'_, '_>,
-    expression: AwaitExpression,
-) {
+pub fn check_await_expression(builder: &mut SemanticBuilder<'_, '_>, expression: AwaitExpression) {
     let message = await_expression_error(builder);
     if let Some(message) = message {
         builder.report(
@@ -440,10 +611,7 @@ pub(super) fn check_await_expression(
     }
 }
 
-pub(super) fn check_yield_expression(
-    builder: &mut SemanticBuilder<'_, '_>,
-    expression: YieldExpression,
-) {
+pub fn check_yield_expression(builder: &mut SemanticBuilder<'_, '_>, expression: YieldExpression) {
     if let Some(message) = yield_expression_error(builder) {
         builder.report(
             builder.ast.span(expression.node_id()),
@@ -453,7 +621,7 @@ pub(super) fn check_yield_expression(
     }
 }
 
-pub(super) fn check_meta_property(builder: &mut SemanticBuilder<'_, '_>, property: MetaProperty) {
+pub fn check_meta_property(builder: &mut SemanticBuilder<'_, '_>, property: MetaProperty) {
     let name = builder
         .ast
         .get_utf8(property.meta(builder.ast).name(builder.ast));
@@ -607,7 +775,7 @@ fn yield_expression_error(builder: &SemanticBuilder<'_, '_>) -> Option<&'static 
     Some(OUTSIDE_GENERATOR)
 }
 
-pub(super) fn check_variable_declaration(
+pub fn check_variable_declaration(
     builder: &mut SemanticBuilder<'_, '_>,
     declaration: VariableDeclaration,
 ) {
@@ -635,10 +803,7 @@ pub(super) fn check_variable_declaration(
     }
 }
 
-pub(super) fn check_switch_statement(
-    builder: &mut SemanticBuilder<'_, '_>,
-    statement: SwitchStatement,
-) {
+pub fn check_switch_statement(builder: &mut SemanticBuilder<'_, '_>, statement: SwitchStatement) {
     let mut first_default = None;
     for case in statement.cases(builder.ast).iter() {
         let case = builder.ast.get_node_in_sub_range(case);
@@ -662,10 +827,7 @@ pub(super) fn check_switch_statement(
     }
 }
 
-pub(super) fn check_for_in_statement(
-    builder: &mut SemanticBuilder<'_, '_>,
-    statement: ForInStatement,
-) {
+pub fn check_for_in_statement(builder: &mut SemanticBuilder<'_, '_>, statement: ForInStatement) {
     let left = statement.left(builder.ast).node_id();
     builder.check_for_in_of_initializer(left, true);
     if builder.scope.is_strict() {
@@ -673,10 +835,7 @@ pub(super) fn check_for_in_statement(
     }
 }
 
-pub(super) fn check_for_of_statement(
-    builder: &mut SemanticBuilder<'_, '_>,
-    statement: ForOfStatement,
-) {
+pub fn check_for_of_statement(builder: &mut SemanticBuilder<'_, '_>, statement: ForOfStatement) {
     if statement.r#await(builder.ast) && !builder.ast.is_ts() && is_inside_static_block(builder) {
         builder.report(
             builder.ast.span(statement.node_id()),
@@ -691,10 +850,7 @@ pub(super) fn check_for_of_statement(
     }
 }
 
-pub(super) fn check_break_statement(
-    builder: &mut SemanticBuilder<'_, '_>,
-    statement: BreakStatement,
-) {
+pub fn check_break_statement(builder: &mut SemanticBuilder<'_, '_>, statement: BreakStatement) {
     if let Some(label) = statement.label(builder.ast) {
         let name = builder.ast.get_utf8(label.name(builder.ast)).as_bytes();
         let result = find_label(builder, name);
@@ -730,7 +886,7 @@ pub(super) fn check_break_statement(
     }
 }
 
-pub(super) fn check_continue_statement(
+pub fn check_continue_statement(
     builder: &mut SemanticBuilder<'_, '_>,
     statement: ContinueStatement,
 ) {
@@ -787,10 +943,7 @@ pub(super) fn check_continue_statement(
     }
 }
 
-pub(super) fn check_labeled_statement(
-    builder: &mut SemanticBuilder<'_, '_>,
-    statement: LabeledStatement,
-) {
+pub fn check_labeled_statement(builder: &mut SemanticBuilder<'_, '_>, statement: LabeledStatement) {
     let name = builder
         .ast
         .get_utf8(statement.label(builder.ast).name(builder.ast))
@@ -831,10 +984,7 @@ pub(super) fn check_labeled_statement(
     }
 }
 
-pub(super) fn check_with_statement(
-    builder: &mut SemanticBuilder<'_, '_>,
-    statement: WithStatement,
-) {
+pub fn check_with_statement(builder: &mut SemanticBuilder<'_, '_>, statement: WithStatement) {
     if builder.scope.is_strict() {
         builder.report(
             builder.ast.span(statement.node_id()),
@@ -1001,7 +1151,7 @@ fn find_label_for_continue(builder: &SemanticBuilder<'_, '_>, name: &[u8]) -> Co
     ContinueLabelSearch::NotFound
 }
 
-pub(super) fn check_function(builder: &mut SemanticBuilder<'_, '_>, function: Function) {
+pub fn check_function(builder: &mut SemanticBuilder<'_, '_>, function: Function) {
     if function.function_type(builder.ast) != FunctionType::FunctionDeclaration {
         return;
     }
@@ -1046,7 +1196,7 @@ pub(super) fn check_function(builder: &mut SemanticBuilder<'_, '_>, function: Fu
     }
 }
 
-pub(super) fn check_directive(builder: &mut SemanticBuilder<'_, '_>, directive: Directive) {
+pub fn check_directive(builder: &mut SemanticBuilder<'_, '_>, directive: Directive) {
     if builder.ast.get_utf8(directive.value(builder.ast)) != "use strict" {
         return;
     }
@@ -1082,7 +1232,7 @@ pub(super) fn check_directive(builder: &mut SemanticBuilder<'_, '_>, directive: 
     }
 }
 
-pub(super) fn check_class_body(builder: &mut SemanticBuilder<'_, '_>, body: ClassBody) {
+pub fn check_class_body(builder: &mut SemanticBuilder<'_, '_>, body: ClassBody) {
     let children = body.body(builder.ast);
     let mut first_constructor = None;
     for index in 0..children.len() {
@@ -1348,11 +1498,11 @@ fn is_arguments_available(builder: &SemanticBuilder<'_, '_>) -> bool {
     true
 }
 
-pub(super) fn check_program(builder: &mut SemanticBuilder<'_, '_>) {
+pub fn check_program(builder: &mut SemanticBuilder<'_, '_>) {
     builder.check_unresolved_exports();
 }
 
-pub(super) fn check_import_declaration(
+pub fn check_import_declaration(
     builder: &mut SemanticBuilder<'_, '_>,
     declaration: ImportDeclaration,
 ) {
@@ -1364,7 +1514,7 @@ pub(super) fn check_import_declaration(
     builder.check_duplicate_with_attributes(declaration.attributes(builder.ast));
 }
 
-pub(super) fn check_export_named_declaration(
+pub fn check_export_named_declaration(
     builder: &mut SemanticBuilder<'_, '_>,
     declaration: ExportNamedDeclaration,
 ) {
@@ -1376,7 +1526,7 @@ pub(super) fn check_export_named_declaration(
     builder.check_duplicate_with_attributes(declaration.attributes(builder.ast));
 }
 
-pub(super) fn check_export_default_declaration(
+pub fn check_export_default_declaration(
     builder: &mut SemanticBuilder<'_, '_>,
     declaration: ExportDefaultDeclaration,
 ) {
@@ -1394,7 +1544,7 @@ pub(super) fn check_export_default_declaration(
     builder.record_exported_name(b"default", declaration.node_id());
 }
 
-pub(super) fn check_export_all_declaration(
+pub fn check_export_all_declaration(
     builder: &mut SemanticBuilder<'_, '_>,
     declaration: ExportAllDeclaration,
 ) {
@@ -1410,10 +1560,7 @@ pub(super) fn check_export_all_declaration(
     builder.check_duplicate_with_attributes(declaration.attributes(builder.ast));
 }
 
-pub(super) fn check_export_specifier(
-    builder: &mut SemanticBuilder<'_, '_>,
-    specifier: ExportSpecifier,
-) {
+pub fn check_export_specifier(builder: &mut SemanticBuilder<'_, '_>, specifier: ExportSpecifier) {
     let exported_name = module_export_name(builder.ast, specifier.exported(builder.ast).node_id());
     builder.record_exported_name(exported_name, specifier.node_id());
     // TypeScript export targets, including global augmentation members, are
@@ -1569,4 +1716,23 @@ fn import_attribute_name<'a>(tree: &'a Ast<'_>, key: NodeId) -> Option<&'a [u8]>
         NodeKindData::StringLiteral(string) => Some(tree.get_wtf8(string.value(tree)).as_bytes()),
         _ => None,
     }
+}
+
+fn find_formal_parameters(
+    builder: &SemanticBuilder<'_, '_>,
+) -> Option<swc_next_ecma_ast::FormalParameters> {
+    for ancestor in builder.ancestors() {
+        match builder.ast.kind_data(ancestor) {
+            NodeKindData::FormalParameters(parameters) => {
+                return Some(parameters);
+            }
+            NodeKindData::Program(_)
+            | NodeKindData::Function(_)
+            | NodeKindData::ArrowFunctionExpression(_) => {
+                return None;
+            }
+            _ => {}
+        }
+    }
+    None
 }

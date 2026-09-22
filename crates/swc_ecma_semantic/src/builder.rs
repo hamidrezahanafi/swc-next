@@ -1,7 +1,6 @@
 //! The semantic builder, a visitor that builds the semantic model and reports
 //! the scope-dependent early errors the specification requires.
 
-mod declarations;
 mod js;
 mod ts;
 
@@ -374,7 +373,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
                 let declarations = self.symbols.enter_ts_module_body(self.ast, node);
                 if self.check_syntax {
                     for prepared in declarations {
-                        declarations::check_prepared_redeclaration(self, prepared);
+                        ts::check_prepared_redeclaration(self, prepared);
                     }
                 }
             }
@@ -1028,7 +1027,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
             .prepare_ts_enum_member(self.ast, node, &self.scope);
         if let Some(prepared) = prepared {
             if self.check_syntax {
-                declarations::check_prepared_redeclaration(self, prepared);
+                ts::check_prepared_redeclaration(self, prepared);
             }
             self.symbols
                 .declare_prepared_ts_enum_member(self.ast, prepared);

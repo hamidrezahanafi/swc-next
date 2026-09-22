@@ -1,7 +1,15 @@
 use super::*;
 use crate::binder::{TsImportAliasIssue, TsNamespaceExportAliasIssue};
 
-pub(super) fn check_ts_alias_issues(
+pub fn check_prepared_redeclaration(
+    builder: &mut SemanticBuilder<'_, '_>,
+    prepared: PreparedDeclaration,
+) {
+    let name = builder.ast.get_wtf8(prepared.name()).as_bytes();
+    js::check_redeclaration(builder, prepared.node(), name, prepared);
+}
+
+pub fn check_ts_alias_issues(
     builder: &mut SemanticBuilder<'_, '_>,
     export_alias_issues: impl IntoIterator<Item = TsNamespaceExportAliasIssue>,
     import_alias_issues: impl IntoIterator<Item = TsImportAliasIssue>,
@@ -34,7 +42,7 @@ pub(super) fn check_ts_alias_issues(
     }
 }
 
-fn check_ts_namespace_export_alias_missing(
+pub fn check_ts_namespace_export_alias_missing(
     builder: &mut SemanticBuilder<'_, '_>,
     name: swc_next_ecma_ast::AstUtf8,
     node: NodeId,
@@ -43,7 +51,7 @@ fn check_ts_namespace_export_alias_missing(
     builder.report_unresolved_export(builder.ast, name, node);
 }
 
-fn check_ts_namespace_export_alias_non_local(
+pub fn check_ts_namespace_export_alias_non_local(
     builder: &mut SemanticBuilder<'_, '_>,
     name: swc_next_ecma_ast::AstUtf8,
     node: NodeId,
@@ -52,7 +60,7 @@ fn check_ts_namespace_export_alias_non_local(
     builder.report_non_local_export(builder.ast, name, node);
 }
 
-fn check_ts_namespace_export_alias_duplicate(
+pub fn check_ts_namespace_export_alias_duplicate(
     builder: &mut SemanticBuilder<'_, '_>,
     node: NodeId,
     previous: NodeId,
@@ -60,7 +68,7 @@ fn check_ts_namespace_export_alias_duplicate(
     check_ts_namespace_export_alias_conflict_with_kind(builder, node, previous, true);
 }
 
-fn check_ts_namespace_export_alias_conflict(
+pub fn check_ts_namespace_export_alias_conflict(
     builder: &mut SemanticBuilder<'_, '_>,
     node: NodeId,
     previous: NodeId,
@@ -68,7 +76,7 @@ fn check_ts_namespace_export_alias_conflict(
     check_ts_namespace_export_alias_conflict_with_kind(builder, node, previous, false);
 }
 
-fn check_ts_namespace_export_alias_conflict_with_kind(
+pub fn check_ts_namespace_export_alias_conflict_with_kind(
     builder: &mut SemanticBuilder<'_, '_>,
     node: NodeId,
     previous: NodeId,
@@ -82,7 +90,7 @@ fn check_ts_namespace_export_alias_conflict_with_kind(
     builder.report_ts_namespace_export_alias_conflict(builder.ast, name, node, previous, duplicate);
 }
 
-fn check_ts_import_alias_conflict(
+pub fn check_ts_import_alias_conflict(
     builder: &mut SemanticBuilder<'_, '_>,
     issue: crate::binder::TsImportAliasConflictIssue,
 ) {
@@ -96,7 +104,7 @@ fn check_ts_import_alias_conflict(
     );
 }
 
-fn check_ts_import_alias_type_only_export(
+pub fn check_ts_import_alias_type_only_export(
     builder: &mut SemanticBuilder<'_, '_>,
     node: NodeId,
     export: NodeId,
@@ -105,7 +113,7 @@ fn check_ts_import_alias_type_only_export(
 }
 
 impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
-    fn report_ts_namespace_export_alias_conflict(
+    pub fn report_ts_namespace_export_alias_conflict(
         &mut self,
         tree: &Ast<'a>,
         name: &[u8],
@@ -138,7 +146,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
         );
     }
 
-    fn report_ts_import_alias_type_only_export(
+    pub fn report_ts_import_alias_type_only_export(
         &mut self,
         tree: &Ast<'a>,
         node: NodeId,
@@ -164,7 +172,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     }
 }
 
-pub(super) fn check_ts_export_assignment(
+pub fn check_ts_export_assignment(
     builder: &mut SemanticBuilder<'_, '_>,
     assignment: TsExportAssignment,
 ) {
@@ -172,7 +180,7 @@ pub(super) fn check_ts_export_assignment(
     check_ts_ambient_export_assignment_expression(builder, expression.node_id());
 }
 
-pub(super) fn check_ts_ambient_export_assignment_expression(
+pub fn check_ts_ambient_export_assignment_expression(
     builder: &mut SemanticBuilder<'_, '_>,
     expression: NodeId,
 ) {
@@ -189,7 +197,7 @@ pub(super) fn check_ts_ambient_export_assignment_expression(
     );
 }
 
-fn is_ts_entity_name_expression(tree: &Ast<'_>, expression: NodeId) -> bool {
+pub fn is_ts_entity_name_expression(tree: &Ast<'_>, expression: NodeId) -> bool {
     let mut current = expression;
     loop {
         current = crate::ecmascript::unwrap_parentheses(tree, current);
@@ -212,7 +220,7 @@ fn is_ts_entity_name_expression(tree: &Ast<'_>, expression: NodeId) -> bool {
     }
 }
 
-fn is_export_assignment_container(builder: &SemanticBuilder<'_, '_>) -> bool {
+pub fn is_export_assignment_container(builder: &SemanticBuilder<'_, '_>) -> bool {
     let Some(parent) = builder.parent() else {
         return false;
     };
