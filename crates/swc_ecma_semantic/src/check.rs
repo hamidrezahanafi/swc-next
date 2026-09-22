@@ -1,7 +1,20 @@
+use std::{borrow::Cow, collections::hash_map::Entry};
+
+use swc_next_allocator::Allocator;
 use swc_next_ecma_ast::{
-    AwaitExpression, BinaryExpression, BreakStatement, ContinueStatement, LabelIdentifier,
-    LabeledStatement, MetaProperty, NumericLiteral, ObjectExpression, RegExpLiteral, StringLiteral,
-    YieldExpression,
+    AssignmentExpression, AwaitExpression, BinaryExpression, BinaryOperator, BindingIdentifier,
+    BreakStatement, CallExpression, ClassBody, ContinueStatement, Directive, ExportAllDeclaration,
+    ExportDefaultDeclaration, ExportDefaultDeclarationKindData, ExportNamedDeclaration,
+    ExportSpecifier, ForInStatement, ForOfStatement, Function, FunctionType, IdentifierReference,
+    ImportDeclaration, ImportOrExportKind, LabelIdentifier, LabeledStatement, MemberExpression,
+    MetaProperty, NodeKind, NodeKindData, NumericLiteral, ObjectExpression, RegExpLiteral,
+    StringLiteral, SwitchStatement, UnaryExpression, UnaryOperator, UpdateExpression,
+    VariableDeclaration, VariableKind, WithStatement, YieldExpression,
+};
+
+use crate::{
+    binder::PreparedDeclaration, builder::ReportOptions, ecmascript::module_export_name,
+    scope::ScopeKind,
 };
 
 use super::*;
@@ -1534,7 +1547,7 @@ pub fn check_export_default_declaration(
     if let ExportDefaultDeclarationKindData::Expr(expression) =
         builder.ast.export_default_declaration_kind_data(export)
     {
-        ts::check_ts_ambient_export_assignment_expression(builder, expression.node_id());
+        ts::check::check_ts_ambient_export_assignment_expression(builder, expression.node_id());
     }
     builder.check_import_export_position(
         declaration.node_id(),

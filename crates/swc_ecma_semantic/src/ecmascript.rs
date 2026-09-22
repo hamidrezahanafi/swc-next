@@ -117,3 +117,16 @@ pub(crate) fn find_non_simple_parameter(
 
     None
 }
+
+/// Extracts the name from a ModuleExportName: an IdentifierName,
+/// IdentifierReference, or StringLiteral.
+pub(crate) fn module_export_name<'b>(tree: &'b Ast<'_>, node: NodeId) -> &'b [u8] {
+    match tree.kind_data(node) {
+        NodeKindData::IdentifierName(identifier) => tree.get_utf8(identifier.name(tree)).as_bytes(),
+        NodeKindData::IdentifierReference(identifier) => {
+            tree.get_utf8(identifier.name(tree)).as_bytes()
+        }
+        NodeKindData::StringLiteral(literal) => tree.get_wtf8(literal.value(tree)).as_bytes(),
+        _ => b"",
+    }
+}

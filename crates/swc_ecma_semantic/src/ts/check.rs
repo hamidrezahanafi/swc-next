@@ -1,12 +1,21 @@
-use super::*;
-use crate::binder::{TsImportAliasIssue, TsNamespaceExportAliasIssue};
+use swc_next_ecma_ast::{
+    Ast, NodeId, NodeKindData, PropertyKeyData, TsExportAssignment, TsModuleNameData,
+};
+
+use crate::builder::ReportOptions;
+use crate::check as js_check;
+use crate::ecmascript::module_export_name;
+use crate::{
+    binder::{PreparedDeclaration, TsImportAliasIssue, TsNamespaceExportAliasIssue},
+    builder::SemanticBuilder,
+};
 
 pub fn check_prepared_redeclaration(
     builder: &mut SemanticBuilder<'_, '_>,
     prepared: PreparedDeclaration,
 ) {
     let name = builder.ast.get_wtf8(prepared.name()).as_bytes();
-    js::check_redeclaration(builder, prepared.node(), name, prepared);
+    js_check::check_redeclaration(builder, prepared.node(), name, prepared);
 }
 
 pub fn check_ts_alias_issues(

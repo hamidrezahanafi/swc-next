@@ -31,12 +31,19 @@ use crate::{
     scope::ScopeTree,
 };
 
+// legacy
+pub mod name_resolver;
+
+// core
 mod binder;
 mod builder;
+mod check;
 mod ecmascript;
 mod module_record;
-pub mod name_resolver;
 pub mod scope;
+
+// extensions
+mod ts;
 
 pub use binder::{
     Declaration, NameResolution, Reference, ReferenceFlags, ReferenceSpace, Symbol, SymbolFlags,

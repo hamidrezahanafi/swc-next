@@ -1,52 +1,48 @@
 //! The semantic builder, a visitor that builds the semantic model and reports
 //! the scope-dependent early errors the specification requires.
 
-mod js;
-mod ts;
-
-use std::{borrow::Cow, collections::hash_map::Entry};
+use std::borrow::Cow;
 
 use rustc_hash::FxHashMap;
-use swc_next_allocator::Allocator;
 use swc_next_ecma_ast::{
     ArrayExpression, ArrowFunctionExpression, AssignmentExpression, AssignmentOperator,
-    AssignmentPattern, Ast, AwaitExpression, BinaryExpression, BinaryOperator, BindingIdentifier,
-    BindingPattern, CallExpression, ChainExpression, Class, ClassBody, ClassType,
-    ConditionalExpression, Decorator, Diagnostic, Directive, ExportAllDeclaration,
-    ExportDefaultDeclaration, ExportDefaultDeclarationKindData, ExportNamedDeclaration,
-    ExportSpecifier, ForInStatement, ForOfStatement, ForStatementLeft, FormalParameters, Function,
-    FunctionType, IdentifierReference, ImportDeclaration, ImportExpression, ImportOrExportKind,
-    ImportSpecifier, JsxClosingElement, JsxElement, JsxFragment, JsxOpeningElement, Label,
-    LogicalExpression, MemberExpression, NewExpression, NodeId, NodeKind, NodeKindData,
-    ObjectExpression, PropertyKey, PropertyKeyData, ScopeId, SequenceExpression, Severity,
-    SimpleAssignmentTarget, Span, SwitchStatement, TaggedTemplateExpression, TemplateLiteral,
-    Traverse, TraverseCtx, TsClassImplements, TsEnumDeclaration, TsEnumMember, TsExportAssignment,
-    TsGlobalDeclaration, TsImportEqualsDeclaration, TsImportType, TsIndexSignature,
-    TsInstantiationExpression, TsInterfaceBody, TsInterfaceDeclaration, TsInterfaceHeritage,
-    TsMethodSignature, TsModuleDeclaration, TsModuleNameData, TsModuleReference,
-    TsNamespaceExportDeclaration, TsQualifiedName, TsType, TsTypeAliasDeclaration,
-    TsTypeAnnotation, TsTypeParameter, TsTypeParameterDeclaration, TsTypePredicate, TsTypeQuery,
-    UnaryExpression, UnaryOperator, UpdateExpression, VariableDeclaration, VariableDeclarator,
-    VariableKind, WithStatement, YieldExpression,
+    AssignmentPattern, Ast, AwaitExpression, BinaryExpression, BindingIdentifier, BindingPattern,
+    CallExpression, ChainExpression, Class, ClassBody, ClassType, ConditionalExpression, Decorator,
+    Diagnostic, Directive, ExportAllDeclaration, ExportDefaultDeclaration, ExportNamedDeclaration,
+    ExportSpecifier, ForStatementLeft, FormalParameters, Function, FunctionType,
+    IdentifierReference, ImportDeclaration, ImportExpression, ImportOrExportKind, ImportSpecifier,
+    JsxClosingElement, JsxElement, JsxFragment, JsxOpeningElement, Label, LogicalExpression,
+    MemberExpression, NewExpression, NodeId, NodeKind, NodeKindData, ObjectExpression, PropertyKey,
+    PropertyKeyData, SequenceExpression, Severity, SimpleAssignmentTarget, Span,
+    TaggedTemplateExpression, TemplateLiteral, Traverse, TraverseCtx, TsClassImplements,
+    TsEnumDeclaration, TsEnumMember, TsExportAssignment, TsGlobalDeclaration,
+    TsImportEqualsDeclaration, TsImportType, TsIndexSignature, TsInstantiationExpression,
+    TsInterfaceBody, TsInterfaceDeclaration, TsInterfaceHeritage, TsMethodSignature,
+    TsModuleDeclaration, TsModuleReference, TsNamespaceExportDeclaration, TsQualifiedName, TsType,
+    TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeParameter, TsTypeParameterDeclaration,
+    TsTypePredicate, TsTypeQuery, UnaryExpression, UnaryOperator, VariableDeclaration,
+    VariableDeclarator, VariableKind, YieldExpression,
 };
 
 use crate::{
     ReferenceFlags, ReferenceSpace, Semantic, SymbolFlags,
-    binder::{ExportState, PreparedDeclaration, SymbolTracker},
-    ecmascript,
+    binder::{ExportState, SymbolTracker},
+    check,
     module_record::ModuleRecordBuilder,
     scope::{DecoratorSite, ScopeKind, ScopeTracker},
+    ts,
 };
 
 pub struct SemanticBuilder<'traverse, 'a> {
-    exported_names: FxHashMap<&'traverse [u8], NodeId>,
-    export_specifiers: Vec<ExportSpecifier>,
+    pub(crate) ast: &'traverse Ast<'a>,
+    pub(crate) scope: ScopeTracker<'a>,
+    pub(crate) symbols: SymbolTracker<'a>,
+
+    pub(crate) exported_names: FxHashMap<&'traverse [u8], NodeId>,
+    pub(crate) export_specifiers: Vec<ExportSpecifier>,
     diagnostics: Vec<Diagnostic<'a>>,
-    scope: ScopeTracker<'a>,
-    symbols: SymbolTracker<'a>,
     module_record: ModuleRecordBuilder<'a>,
     ts_namespace_depth: u32,
-    ast: &'traverse Ast<'a>,
     path: Vec<NodeId>,
     // Nested type syntax saves and restores this default through the visitor.
     default_reference_flags: ReferenceFlags,
@@ -56,8 +52,9 @@ pub struct SemanticBuilder<'traverse, 'a> {
     reference_flags_stack: Vec<ReferenceFlags>,
     type_positions: Vec<ReferenceFlags>,
     arrow_exports: Vec<ExportState>,
-    check_syntax: bool,
     in_ts_module_name: bool,
+
+    check_syntax: bool,
 }
 
 impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
@@ -88,7 +85,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
             self.symbols
                 .resolve_ts_aliases(self.ast, &self.scope, check_syntax);
         if check_syntax {
-            ts::check_ts_alias_issues(&mut self, export_alias_issues, import_alias_issues);
+            ts::check::check_ts_alias_issues(&mut self, export_alias_issues, import_alias_issues);
         }
         debug_assert!(self.path.is_empty());
         debug_assert!(self.reference_flags_stack.is_empty());
@@ -101,15 +98,15 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
         (semantic, self.diagnostics)
     }
 
-    fn parent(&self) -> Option<NodeId> {
+    pub(crate) fn parent(&self) -> Option<NodeId> {
         self.path.iter().rev().nth(1).copied()
     }
 
-    fn current_node(&self) -> Option<NodeId> {
+    pub(crate) fn current_node(&self) -> Option<NodeId> {
         self.path.last().copied()
     }
 
-    fn ancestors(&self) -> impl Iterator<Item = NodeId> + '_ {
+    pub(crate) fn ancestors(&self) -> impl Iterator<Item = NodeId> + '_ {
         self.path.iter().rev().copied()
     }
 
@@ -129,12 +126,12 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     }
 
     /// True when the walker is currently inside a TS type-only subtree.
-    fn in_type_position(&self) -> bool {
+    pub(crate) fn in_type_position(&self) -> bool {
         self.default_reference_flags.space == ReferenceSpace::Type
     }
 
     /// True when the walker is currently inside a TS namespace body.
-    fn in_ts_namespace(&self) -> bool {
+    pub(crate) fn in_ts_namespace(&self) -> bool {
         self.ts_namespace_depth > 0
     }
 
@@ -215,45 +212,53 @@ impl SemanticBuilder<'_, '_> {
     #[inline(always)]
     fn check(&mut self, node_data: NodeKindData) {
         match node_data {
-            NodeKindData::Program(_) => js::check_program(self),
-            NodeKindData::StringLiteral(node) => js::check_string_literal(self, node),
-            NodeKindData::NumericLiteral(node) => js::check_numeric_literal(self, node),
-            NodeKindData::RegExpLiteral(node) => js::check_reg_exp_literal(self, node),
-            NodeKindData::IdentifierReference(node) => js::check_identifier_reference(self, node),
-            NodeKindData::LabelIdentifier(node) => js::check_label_identifier(self, node),
-            NodeKindData::BinaryExpression(node) => js::check_binary_expression(self, node),
-            NodeKindData::UnaryExpression(node) => js::check_unary_expression(self, node),
-            NodeKindData::UpdateExpression(node) => js::check_update_expression(self, node),
-            NodeKindData::AssignmentExpression(node) => js::check_assignment_expression(self, node),
-            NodeKindData::VariableDeclaration(node) => js::check_variable_declaration(self, node),
-            NodeKindData::SwitchStatement(node) => js::check_switch_statement(self, node),
-            NodeKindData::ForInStatement(node) => js::check_for_in_statement(self, node),
-            NodeKindData::ForOfStatement(node) => js::check_for_of_statement(self, node),
-            NodeKindData::BreakStatement(node) => js::check_break_statement(self, node),
-            NodeKindData::ContinueStatement(node) => js::check_continue_statement(self, node),
-            NodeKindData::LabeledStatement(node) => js::check_labeled_statement(self, node),
-            NodeKindData::Directive(node) => js::check_directive(self, node),
-            NodeKindData::ClassBody(node) => js::check_class_body(self, node),
-            NodeKindData::Function(node) => js::check_function(self, node),
-            NodeKindData::WithStatement(node) => js::check_with_statement(self, node),
-            NodeKindData::ObjectExpression(node) => js::check_object_expression(self, node),
-            NodeKindData::MemberExpression(node) => js::check_member_expression(self, node),
-            NodeKindData::CallExpression(node) => js::check_call_expression(self, node),
-            NodeKindData::AwaitExpression(node) => js::check_await_expression(self, node),
-            NodeKindData::YieldExpression(node) => js::check_yield_expression(self, node),
-            NodeKindData::MetaProperty(node) => js::check_meta_property(self, node),
-            NodeKindData::ImportDeclaration(node) => js::check_import_declaration(self, node),
+            NodeKindData::Program(_) => check::check_program(self),
+            NodeKindData::StringLiteral(node) => check::check_string_literal(self, node),
+            NodeKindData::NumericLiteral(node) => check::check_numeric_literal(self, node),
+            NodeKindData::RegExpLiteral(node) => check::check_reg_exp_literal(self, node),
+            NodeKindData::IdentifierReference(node) => {
+                check::check_identifier_reference(self, node)
+            }
+            NodeKindData::LabelIdentifier(node) => check::check_label_identifier(self, node),
+            NodeKindData::BinaryExpression(node) => check::check_binary_expression(self, node),
+            NodeKindData::UnaryExpression(node) => check::check_unary_expression(self, node),
+            NodeKindData::UpdateExpression(node) => check::check_update_expression(self, node),
+            NodeKindData::AssignmentExpression(node) => {
+                check::check_assignment_expression(self, node)
+            }
+            NodeKindData::VariableDeclaration(node) => {
+                check::check_variable_declaration(self, node)
+            }
+            NodeKindData::SwitchStatement(node) => check::check_switch_statement(self, node),
+            NodeKindData::ForInStatement(node) => check::check_for_in_statement(self, node),
+            NodeKindData::ForOfStatement(node) => check::check_for_of_statement(self, node),
+            NodeKindData::BreakStatement(node) => check::check_break_statement(self, node),
+            NodeKindData::ContinueStatement(node) => check::check_continue_statement(self, node),
+            NodeKindData::LabeledStatement(node) => check::check_labeled_statement(self, node),
+            NodeKindData::Directive(node) => check::check_directive(self, node),
+            NodeKindData::ClassBody(node) => check::check_class_body(self, node),
+            NodeKindData::Function(node) => check::check_function(self, node),
+            NodeKindData::WithStatement(node) => check::check_with_statement(self, node),
+            NodeKindData::ObjectExpression(node) => check::check_object_expression(self, node),
+            NodeKindData::MemberExpression(node) => check::check_member_expression(self, node),
+            NodeKindData::CallExpression(node) => check::check_call_expression(self, node),
+            NodeKindData::AwaitExpression(node) => check::check_await_expression(self, node),
+            NodeKindData::YieldExpression(node) => check::check_yield_expression(self, node),
+            NodeKindData::MetaProperty(node) => check::check_meta_property(self, node),
+            NodeKindData::ImportDeclaration(node) => check::check_import_declaration(self, node),
             NodeKindData::ExportNamedDeclaration(node) => {
-                js::check_export_named_declaration(self, node)
+                check::check_export_named_declaration(self, node)
             }
             NodeKindData::ExportDefaultDeclaration(node) => {
-                js::check_export_default_declaration(self, node)
+                check::check_export_default_declaration(self, node)
             }
-            NodeKindData::TsExportAssignment(node) => ts::check_ts_export_assignment(self, node),
+            NodeKindData::TsExportAssignment(node) => {
+                ts::check::check_ts_export_assignment(self, node)
+            }
             NodeKindData::ExportAllDeclaration(node) => {
-                js::check_export_all_declaration(self, node)
+                check::check_export_all_declaration(self, node)
             }
-            NodeKindData::ExportSpecifier(node) => js::check_export_specifier(self, node),
+            NodeKindData::ExportSpecifier(node) => check::check_export_specifier(self, node),
             _ => {}
         }
     }
@@ -373,7 +378,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
                 let declarations = self.symbols.enter_ts_module_body(self.ast, node);
                 if self.check_syntax {
                     for prepared in declarations {
-                        ts::check_prepared_redeclaration(self, prepared);
+                        ts::check::check_prepared_redeclaration(self, prepared);
                     }
                 }
             }
@@ -1027,7 +1032,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
             .prepare_ts_enum_member(self.ast, node, &self.scope);
         if let Some(prepared) = prepared {
             if self.check_syntax {
-                ts::check_prepared_redeclaration(self, prepared);
+                ts::check::check_prepared_redeclaration(self, prepared);
             }
             self.symbols
                 .declare_prepared_ts_enum_member(self.ast, prepared);
@@ -1203,7 +1208,7 @@ impl<'a> Traverse<'a> for SemanticBuilder<'_, 'a> {
     fn exit_binding_identifier(&mut self, node: BindingIdentifier, _ctx: &mut TraverseCtx<'_, 'a>) {
         let flags = self.reference_flags;
         let prepared = if self.check_syntax {
-            js::check_binding_identifier(self, node)
+            check::check_binding_identifier(self, node)
         } else {
             None
         };
@@ -1427,23 +1432,10 @@ fn is_direct_eval_call(tree: &Ast<'_>, call: CallExpression) -> bool {
     }
 }
 
-/// Extracts the name from a ModuleExportName: an IdentifierName,
-/// IdentifierReference, or StringLiteral.
-fn module_export_name<'b>(tree: &'b Ast<'_>, node: NodeId) -> &'b [u8] {
-    match tree.kind_data(node) {
-        NodeKindData::IdentifierName(identifier) => tree.get_utf8(identifier.name(tree)).as_bytes(),
-        NodeKindData::IdentifierReference(identifier) => {
-            tree.get_utf8(identifier.name(tree)).as_bytes()
-        }
-        NodeKindData::StringLiteral(literal) => tree.get_wtf8(literal.value(tree)).as_bytes(),
-        _ => b"",
-    }
-}
-
-struct ReportOptions<'a> {
-    severity: Severity,
-    help: Option<Cow<'a, str>>,
-    labels: Vec<Label<'a>>,
+pub(crate) struct ReportOptions<'a> {
+    pub severity: Severity,
+    pub help: Option<Cow<'a, str>>,
+    pub labels: Vec<Label<'a>>,
 }
 
 impl Default for ReportOptions<'_> {
@@ -1457,12 +1449,12 @@ impl Default for ReportOptions<'_> {
 }
 
 impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
-    fn report_unresolved_export(&mut self, tree: &Ast<'a>, name: &[u8], node: NodeId) {
+    pub(crate) fn report_unresolved_export(&mut self, tree: &Ast<'a>, name: &[u8], node: NodeId) {
         let message = self.unresolved_export_message(name);
         self.report(tree.span(node), message, ReportOptions::default());
     }
 
-    fn report_non_local_export(&mut self, tree: &Ast<'a>, name: &[u8], node: NodeId) {
+    pub(crate) fn report_non_local_export(&mut self, tree: &Ast<'a>, name: &[u8], node: NodeId) {
         let message = self.fmt(format_args!(
             "Cannot export '{}'. Only local declarations can be exported from a module",
             String::from_utf8_lossy(name)
@@ -1470,7 +1462,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
         self.report(tree.span(node), message, ReportOptions::default());
     }
 
-    fn unresolved_export_message(&self, name: &[u8]) -> String {
+    pub(crate) fn unresolved_export_message(&self, name: &[u8]) -> String {
         self.fmt(format_args!(
             "Export '{}' is not defined",
             String::from_utf8_lossy(name)
@@ -1478,7 +1470,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     }
 
     #[cold]
-    fn report_redeclaration(
+    pub(crate) fn report_redeclaration(
         &mut self,
         tree: &Ast<'a>,
         name: &[u8],
@@ -1528,7 +1520,12 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     }
 
     #[cold]
-    fn report(&mut self, span: Span, message: impl Into<Cow<'a, str>>, options: ReportOptions<'a>) {
+    pub(crate) fn report(
+        &mut self,
+        span: Span,
+        message: impl Into<Cow<'a, str>>,
+        options: ReportOptions<'a>,
+    ) {
         let message = message.into();
         debug_assert!(span.start <= span.end);
         debug_assert!(!message.is_empty());
@@ -1541,18 +1538,18 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
         });
     }
 
-    fn label(&self, span: Span, message: impl Into<Cow<'a, str>>) -> Label<'a> {
+    pub(crate) fn label(&self, span: Span, message: impl Into<Cow<'a, str>>) -> Label<'a> {
         Label {
             span,
             message: message.into(),
         }
     }
 
-    fn labels(&self, items: &[Label<'a>]) -> Vec<Label<'a>> {
+    pub(crate) fn labels(&self, items: &[Label<'a>]) -> Vec<Label<'a>> {
         items.to_vec()
     }
 
-    fn fmt(&self, arguments: std::fmt::Arguments<'_>) -> String {
+    pub(crate) fn fmt(&self, arguments: std::fmt::Arguments<'_>) -> String {
         arguments.to_string()
     }
 }
