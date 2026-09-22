@@ -28,6 +28,12 @@ pub struct Label<'a> {
     pub message: Cow<'a, str>,
 }
 
+impl<'a> Label<'a> {
+    pub const fn new(span: Span, message: Cow<'a, str>) -> Self {
+        Self { span, message }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Diagnostic<'a> {
     pub severity: Severity,

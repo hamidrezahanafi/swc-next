@@ -1,21 +1,32 @@
 use swc_next_ecma_ast::{
-    Ast, NodeId, NodeKindData, PropertyKeyData, TsExportAssignment, TsModuleNameData,
+    Ast, ExportDefaultDeclaration, ExportDefaultDeclarationKindData, NodeId, NodeKindData,
+    PropertyKeyData, TsExportAssignment, TsModuleNameData,
 };
 
+use crate::binder::{PreparedDeclaration, TsImportAliasIssue, TsNamespaceExportAliasIssue};
 use crate::builder::ReportOptions;
 use crate::check as js_check;
 use crate::ecmascript::module_export_name;
-use crate::{
-    binder::{PreparedDeclaration, TsImportAliasIssue, TsNamespaceExportAliasIssue},
-    builder::SemanticBuilder,
-};
+use crate::ts::builder::SemanticBuilder;
+
+pub fn check_export_default_declaration(
+    builder: &mut SemanticBuilder<'_, '_>,
+    declaration: ExportDefaultDeclaration,
+) {
+    let export = declaration.declaration(builder.ast());
+    if let ExportDefaultDeclarationKindData::Expr(expression) =
+        builder.ast().export_default_declaration_kind_data(export)
+    {
+        check_ts_ambient_export_assignment_expression(builder, expression.node_id());
+    }
+}
 
 pub fn check_prepared_redeclaration(
     builder: &mut SemanticBuilder<'_, '_>,
     prepared: PreparedDeclaration,
 ) {
-    let name = builder.ast.get_wtf8(prepared.name()).as_bytes();
-    js_check::check_redeclaration(builder, prepared.node(), name, prepared);
+    let name = builder.ast().get_wtf8(prepared.name()).as_bytes();
+    js_check::check_redeclaration(&mut builder.base, prepared.node(), name, prepared);
 }
 
 pub fn check_ts_alias_issues(
@@ -56,8 +67,8 @@ pub fn check_ts_namespace_export_alias_missing(
     name: swc_next_ecma_ast::AstUtf8,
     node: NodeId,
 ) {
-    let name = builder.ast.get_utf8(name).as_bytes();
-    builder.report_unresolved_export(builder.ast, name, node);
+    let name = builder.base.ast.get_utf8(name).as_bytes();
+    builder.base.report_unresolved_export(name, node);
 }
 
 pub fn check_ts_namespace_export_alias_non_local(
@@ -65,8 +76,8 @@ pub fn check_ts_namespace_export_alias_non_local(
     name: swc_next_ecma_ast::AstUtf8,
     node: NodeId,
 ) {
-    let name = builder.ast.get_utf8(name).as_bytes();
-    builder.report_non_local_export(builder.ast, name, node);
+    let name = builder.base.ast.get_utf8(name).as_bytes();
+    builder.base.report_non_local_export(name, node);
 }
 
 pub fn check_ts_namespace_export_alias_duplicate(
@@ -91,26 +102,20 @@ pub fn check_ts_namespace_export_alias_conflict_with_kind(
     previous: NodeId,
     duplicate: bool,
 ) {
-    let NodeKindData::ExportSpecifier(specifier) = builder.ast.kind_data(node) else {
+    let NodeKindData::ExportSpecifier(specifier) = builder.ast().kind_data(node) else {
         unreachable!("namespace export aliases are export specifiers")
     };
-    let exported = specifier.exported(builder.ast).node_id();
-    let name = module_export_name(builder.ast, exported);
-    builder.report_ts_namespace_export_alias_conflict(builder.ast, name, node, previous, duplicate);
+    let exported = specifier.exported(builder.ast()).node_id();
+    let name = module_export_name(builder.ast(), exported);
+    builder.report_ts_namespace_export_alias_conflict(name, node, previous, duplicate);
 }
 
 pub fn check_ts_import_alias_conflict(
     builder: &mut SemanticBuilder<'_, '_>,
     issue: crate::binder::TsImportAliasConflictIssue,
 ) {
-    let name = builder.ast.get_wtf8(issue.name).as_bytes();
-    builder.report_redeclaration(
-        builder.ast,
-        name,
-        issue.node,
-        issue.previous,
-        issue.previous_flags,
-    );
+    let name = builder.ast().get_wtf8(issue.name).as_bytes();
+    builder.report_redeclaration(name, issue.node, issue.previous, issue.previous_flags);
 }
 
 pub fn check_ts_import_alias_type_only_export(
@@ -118,74 +123,14 @@ pub fn check_ts_import_alias_type_only_export(
     node: NodeId,
     export: NodeId,
 ) {
-    builder.report_ts_import_alias_type_only_export(builder.ast, node, export);
-}
-
-impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
-    pub fn report_ts_namespace_export_alias_conflict(
-        &mut self,
-        tree: &Ast<'a>,
-        name: &[u8],
-        node: NodeId,
-        previous: NodeId,
-        duplicate: bool,
-    ) {
-        let name = String::from_utf8_lossy(name);
-        let message = if duplicate {
-            self.fmt(format_args!("Export '{}' has already been declared", name))
-        } else {
-            self.fmt(format_args!(
-                "Export declaration conflicts with exported declaration of '{}'",
-                name
-            ))
-        };
-        let current_span = tree.span(node);
-        let previous_span = tree.span(previous);
-        let labels = self.labels(&[
-            self.label(previous_span, "the existing export is declared here"),
-            self.label(current_span, "this export conflicts with it"),
-        ]);
-        self.report(
-            current_span,
-            message,
-            ReportOptions {
-                labels,
-                ..ReportOptions::default()
-            },
-        );
-    }
-
-    pub fn report_ts_import_alias_type_only_export(
-        &mut self,
-        tree: &Ast<'a>,
-        node: NodeId,
-        export: NodeId,
-    ) {
-        let current_span = tree.span(node);
-        let export_span = tree.span(export);
-        let labels = self.labels(&[
-            self.label(
-                export_span,
-                "the declaration was exported as type-only here",
-            ),
-            self.label(current_span, "this import alias references it here"),
-        ]);
-        self.report(
-            current_span,
-            "An import alias cannot reference a declaration that was exported using 'export type'",
-            ReportOptions {
-                labels,
-                ..ReportOptions::default()
-            },
-        );
-    }
+    builder.report_ts_import_alias_type_only_export(node, export);
 }
 
 pub fn check_ts_export_assignment(
     builder: &mut SemanticBuilder<'_, '_>,
     assignment: TsExportAssignment,
 ) {
-    let expression = assignment.expression(builder.ast);
+    let expression = assignment.expression(builder.ast());
     check_ts_ambient_export_assignment_expression(builder, expression.node_id());
 }
 
@@ -194,13 +139,13 @@ pub fn check_ts_ambient_export_assignment_expression(
     expression: NodeId,
 ) {
     if !builder.symbols.in_ambient_context()
-        || is_ts_entity_name_expression(builder.ast, expression)
+        || is_ts_entity_name_expression(builder.ast(), expression)
         || !is_export_assignment_container(builder)
     {
         return;
     }
     builder.report(
-        builder.ast.span(expression),
+        builder.ast().span(expression),
         "The expression of an export assignment must be an identifier or qualified name in an ambient context",
         ReportOptions::default(),
     );
@@ -233,16 +178,18 @@ pub fn is_export_assignment_container(builder: &SemanticBuilder<'_, '_>) -> bool
     let Some(parent) = builder.parent() else {
         return false;
     };
-    match builder.ast.kind_data(parent) {
+    match builder.ast().kind_data(parent) {
         NodeKindData::Program(_) => true,
         NodeKindData::TsModuleBlock(_) => {
             let Some(container) = builder.ancestors().nth(2) else {
                 return false;
             };
-            match builder.ast.kind_data(container) {
+            match builder.ast().kind_data(container) {
                 NodeKindData::TsGlobalDeclaration(_) => true,
                 NodeKindData::TsModuleDeclaration(declaration) => matches!(
-                    builder.ast.ts_module_name_data(declaration.id(builder.ast)),
+                    builder
+                        .ast()
+                        .ts_module_name_data(declaration.id(builder.ast())),
                     TsModuleNameData::StringLiteral(_)
                 ),
                 _ => false,

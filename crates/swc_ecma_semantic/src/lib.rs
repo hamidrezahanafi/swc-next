@@ -29,6 +29,7 @@ use crate::{
     binder::{Range, TsMemberIndex},
     builder::SemanticBuilder,
     scope::ScopeTree,
+    state::State,
 };
 
 // legacy
@@ -41,6 +42,7 @@ mod check;
 mod ecmascript;
 mod module_record;
 pub mod scope;
+mod state;
 
 // extensions
 mod ts;
@@ -615,9 +617,12 @@ pub struct AnalyzeOptions {
 /// module record is empty.
 pub fn analyze<'a>(ast: &Ast<'a>, options: AnalyzeOptions) -> SemanticReturn<'a> {
     let root = ast.root_program();
-    let mut visitor = SemanticBuilder::new(ast, options.check_syntax, options.build_module_record);
-    root.traverse_with(&mut visitor, &mut TraverseCtx::new(ast, ()));
-    let (semantic, diagnostics) = visitor.finish();
+
+    let state = State::new(ast);
+    let mut ctx = TraverseCtx::new(ast, state);
+    let mut builder = SemanticBuilder::new(ast, options.check_syntax, options.build_module_record);
+    root.traverse_with(&mut builder, &mut ctx);
+    let (semantic, diagnostics) = builder.finish(ctx.state);
     SemanticReturn {
         semantic,
         diagnostics,

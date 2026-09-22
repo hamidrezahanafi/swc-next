@@ -4,12 +4,12 @@ use swc_next_allocator::Allocator;
 use swc_next_ecma_ast::{
     AssignmentExpression, AwaitExpression, BinaryExpression, BinaryOperator, BindingIdentifier,
     BreakStatement, CallExpression, ClassBody, ContinueStatement, Directive, ExportAllDeclaration,
-    ExportDefaultDeclaration, ExportDefaultDeclarationKindData, ExportNamedDeclaration,
-    ExportSpecifier, ForInStatement, ForOfStatement, Function, FunctionType, IdentifierReference,
-    ImportDeclaration, ImportOrExportKind, LabelIdentifier, LabeledStatement, MemberExpression,
-    MetaProperty, NodeKind, NodeKindData, NumericLiteral, ObjectExpression, RegExpLiteral,
-    StringLiteral, SwitchStatement, UnaryExpression, UnaryOperator, UpdateExpression,
-    VariableDeclaration, VariableKind, WithStatement, YieldExpression,
+    ExportDefaultDeclaration, ExportNamedDeclaration, ExportSpecifier, ForInStatement,
+    ForOfStatement, Function, FunctionType, IdentifierReference, ImportDeclaration,
+    ImportOrExportKind, Label, LabelIdentifier, LabeledStatement, MemberExpression, MetaProperty,
+    NodeKind, NodeKindData, NumericLiteral, ObjectExpression, RegExpLiteral, StringLiteral,
+    SwitchStatement, UnaryExpression, UnaryOperator, UpdateExpression, VariableDeclaration,
+    VariableKind, WithStatement, YieldExpression,
 };
 
 use crate::{
@@ -40,7 +40,6 @@ fn check_hoisting_var_conflict(
             let existing = builder.symbols.symbol(symbol_id);
             if existing.flags.is_block_scoped_like() {
                 builder.report_redeclaration(
-                    builder.ast,
                     name,
                     node,
                     builder.symbols.first_decl_of(symbol_id),
@@ -62,7 +61,6 @@ fn check_hoisting_var_conflict(
                 });
                 if !simple_parameter {
                     builder.report_redeclaration(
-                        builder.ast,
                         name,
                         node,
                         builder.symbols.first_decl_of(symbol_id),
@@ -114,7 +112,6 @@ fn check_outer_parameter_conflict(
                 && existing.flags.intersects(excludes)
             {
                 builder.report_redeclaration(
-                    builder.ast,
                     name,
                     node,
                     builder.symbols.first_decl_of(symbol_id),
@@ -145,7 +142,7 @@ pub fn check_redeclaration(
                 .symbols
                 .has_same_scope_export_visibility_conflict(prepared, existing_id)
         {
-            builder.report_redeclaration(builder.ast, name, node, existing_node, existing_flags);
+            builder.report_redeclaration(name, node, existing_node, existing_flags);
             return;
         }
         let import_value_conflict = !builder.ast.is_ts()
@@ -164,7 +161,7 @@ pub fn check_redeclaration(
         if (declaration_conflict || invalid_class_function_merge)
             && !prepared.allows_annex_b_function_duplicate(existing_flags)
         {
-            builder.report_redeclaration(builder.ast, name, node, existing_node, existing_flags);
+            builder.report_redeclaration(name, node, existing_node, existing_flags);
             return;
         }
 
@@ -185,13 +182,7 @@ pub fn check_redeclaration(
                 )
                 || ecmascript::find_non_simple_parameter(builder.ast, parameters).is_some();
             if must_be_unique {
-                builder.report_redeclaration(
-                    builder.ast,
-                    name,
-                    node,
-                    existing_node,
-                    existing_flags,
-                );
+                builder.report_redeclaration(name, node, existing_node, existing_flags);
             }
         }
     }
@@ -317,10 +308,10 @@ pub fn check_binding_identifier(
     {
         builder.check_strict_reserved(name, node_id, "a binding identifier");
         if is_eval_or_arguments(name) {
-            let message = builder.fmt(format_args!(
+            let message = format!(
                 "'{}' is not allowed as a binding identifier in strict mode",
                 String::from_utf8_lossy(name)
-            ));
+            );
             builder.report(builder.ast.span(node_id), message, ReportOptions::default());
         }
     } else if flags.contains(SymbolFlags::BLOCK_SCOPED_VAR) && name == b"let" {
@@ -357,10 +348,10 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
             return;
         }
         if let Some(word) = match_strict_reserved(name) {
-            let message = self.fmt(format_args!(
+            let message = format!(
                 "'{}' is reserved in strict mode and cannot be used as {}",
                 word, as_what
-            ));
+            );
             self.report(self.ast.span(node), message, ReportOptions::default());
         }
     }
@@ -430,10 +421,10 @@ pub fn check_binary_expression(
             .get_utf8(identifier.name(builder.ast))
             .as_bytes();
         if !is_private_name_declared(builder, name) {
-            let message = builder.fmt(format_args!(
+            let message = format!(
                 "Private field '#{}' must be declared in an enclosing class",
                 String::from_utf8_lossy(name)
-            ));
+            );
             builder.report(builder.ast.span(left), message, ReportOptions::default());
         }
     }
@@ -528,8 +519,10 @@ pub fn check_object_expression(builder: &mut SemanticBuilder<'_, '_>, object: Ob
                 builder.ast.span(property),
                 "Duplicate '__proto__' property in object literal",
                 ReportOptions {
-                    labels: builder
-                        .labels(&[builder.label(builder.ast.span(first), "first defined here")]),
+                    labels: vec![Label::new(
+                        builder.ast.span(first),
+                        Cow::Borrowed("first defined here"),
+                    )],
                     ..ReportOptions::default()
                 },
             );
@@ -571,10 +564,10 @@ pub fn check_member_expression(
                 ReportOptions::default(),
             );
         } else if !is_private_name_declared(builder, name) {
-            let message = builder.fmt(format_args!(
+            let message = format!(
                 "Private field '#{}' must be declared in an enclosing class",
                 String::from_utf8_lossy(name)
-            ));
+            );
             builder.report(
                 builder.ast.span(property),
                 message,
@@ -804,10 +797,10 @@ pub fn check_variable_declaration(
         && builder.ast.source_type() == swc_next_ecma_ast::SourceType::Script
         && is_at_program_level(builder)
     {
-        let message = builder.fmt(format_args!(
+        let message = format!(
             "'{}' is not allowed at the top level of a script",
             kind.as_str()
-        ));
+        );
         builder.report(
             builder.ast.span(declaration.node_id()),
             message,
@@ -828,9 +821,10 @@ pub fn check_switch_statement(builder: &mut SemanticBuilder<'_, '_>, statement: 
                 builder.ast.span(case.node_id()),
                 "A switch statement can only have one default clause",
                 ReportOptions {
-                    labels: builder.labels(&[
-                        builder.label(builder.ast.span(first), "first default defined here")
-                    ]),
+                    labels: vec![Label::new(
+                        builder.ast.span(first),
+                        "first default defined here".into(),
+                    )],
                     ..ReportOptions::default()
                 },
             );
@@ -869,14 +863,13 @@ pub fn check_break_statement(builder: &mut SemanticBuilder<'_, '_>, statement: B
         let result = find_label(builder, name);
         if result != LabelSearch::Found {
             let message = match result {
-                LabelSearch::NotFound => builder.fmt(format_args!(
-                    "Use of undefined label '{}'",
-                    String::from_utf8_lossy(name)
-                )),
-                LabelSearch::CrossedBoundary => builder.fmt(format_args!(
+                LabelSearch::NotFound => {
+                    format!("Use of undefined label '{}'", String::from_utf8_lossy(name))
+                }
+                LabelSearch::CrossedBoundary => format!(
                     "Cannot break to label '{}' across function boundaries",
                     String::from_utf8_lossy(name)
-                )),
+                ),
                 LabelSearch::Found => unreachable!(),
             };
             builder.report(
@@ -909,24 +902,21 @@ pub fn check_continue_statement(
         if result != ContinueLabelSearch::Found {
             let (message, help) = match result {
                 ContinueLabelSearch::NotFound => (
-                    builder.fmt(format_args!(
-                        "Use of undefined label '{}'",
-                        String::from_utf8_lossy(name)
-                    )),
+                    format!("Use of undefined label '{}'", String::from_utf8_lossy(name)),
                     None,
                 ),
                 ContinueLabelSearch::CrossedBoundary => (
-                    builder.fmt(format_args!(
+                    format!(
                         "Cannot continue to label '{}' across function boundaries",
                         String::from_utf8_lossy(name)
-                    )),
+                    ),
                     None,
                 ),
                 ContinueLabelSearch::NotIteration => (
-                    builder.fmt(format_args!(
+                    format!(
                         "Label '{}' does not denote an iteration statement",
                         String::from_utf8_lossy(name)
-                    )),
+                    ),
                     Some(Cow::Borrowed(
                         "A 'continue' statement can only jump to a label of an enclosing 'for', 'while', 'do-while', 'for-in', or 'for-of' statement",
                     )),
@@ -985,10 +975,7 @@ pub fn check_labeled_statement(builder: &mut SemanticBuilder<'_, '_>, statement:
         duplicate
     };
     if duplicate {
-        let message = builder.fmt(format_args!(
-            "Duplicate label '{}'",
-            String::from_utf8_lossy(name)
-        ));
+        let message = format!("Duplicate label '{}'", String::from_utf8_lossy(name));
         builder.report(
             builder.ast.span(statement.label(builder.ast).node_id()),
             message,
@@ -1237,8 +1224,10 @@ pub fn check_directive(builder: &mut SemanticBuilder<'_, '_>, directive: Directi
             builder.ast.span(directive.node_id()),
             "Illegal 'use strict' directive in function with non-simple parameter list",
             ReportOptions {
-                labels: builder
-                    .labels(&[builder.label(builder.ast.span(parameter), "non-simple parameter")]),
+                labels: vec![Label::new(
+                    builder.ast.span(parameter),
+                    Cow::Borrowed("non-simple parameter"),
+                )],
                 ..ReportOptions::default()
             },
         );
@@ -1264,8 +1253,10 @@ pub fn check_class_body(builder: &mut SemanticBuilder<'_, '_>, body: ClassBody) 
                     builder.ast.span(method.key(builder.ast).node_id()),
                     "A class can only have one constructor",
                     ReportOptions {
-                        labels: builder.labels(&[builder
-                            .label(builder.ast.span(first), "first constructor defined here")]),
+                        labels: vec![Label::new(
+                            builder.ast.span(first),
+                            Cow::Borrowed("first constructor defined here"),
+                        )],
                         ..ReportOptions::default()
                     },
                 );
@@ -1308,17 +1299,18 @@ pub fn check_class_body(builder: &mut SemanticBuilder<'_, '_>, body: ClassBody) 
             {
                 continue;
             }
-            let message = builder.fmt(format_args!(
+            let message = format!(
                 "Duplicate private name '#{}'",
                 String::from_utf8_lossy(name)
-            ));
+            );
             builder.report(
                 builder.ast.span(child),
                 message,
                 ReportOptions {
-                    labels: builder.labels(&[
-                        builder.label(builder.ast.span(previous), "first declared here")
-                    ]),
+                    labels: vec![Label::new(
+                        builder.ast.span(previous),
+                        Cow::Borrowed("first declared here"),
+                    )],
                     ..ReportOptions::default()
                 },
             );
@@ -1543,12 +1535,6 @@ pub fn check_export_default_declaration(
     builder: &mut SemanticBuilder<'_, '_>,
     declaration: ExportDefaultDeclaration,
 ) {
-    let export = declaration.declaration(builder.ast);
-    if let ExportDefaultDeclarationKindData::Expr(expression) =
-        builder.ast.export_default_declaration_kind_data(export)
-    {
-        ts::check::check_ts_ambient_export_assignment_expression(builder, expression.node_id());
-    }
     builder.check_import_export_position(
         declaration.node_id(),
         "'export default' declaration",
@@ -1605,7 +1591,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
             let specifier = self.export_specifiers[index];
             let name = module_export_name(tree, specifier.local(tree).node_id());
             if self.symbols.binding(ScopeId::MODULE, name).is_none() {
-                self.report_unresolved_export(tree, name, specifier.node_id());
+                self.report_unresolved_export(name, specifier.node_id());
             }
         }
     }
@@ -1620,15 +1606,15 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
             return;
         };
         let message = match self.ast.node_kind(parent) {
-            NodeKind::Program if !self.ast.is_module() => Some(self.fmt(format_args!(
+            NodeKind::Program if !self.ast.is_module() => Some(format!(
                 "Cannot use {} outside a module",
                 out_of_module_label
-            ))),
+            )),
             NodeKind::Program | NodeKind::TsModuleBlock => None,
-            _ => Some(self.fmt(format_args!(
+            _ => Some(format!(
                 "{} may only appear at the top level",
                 top_level_label
-            ))),
+            )),
         };
         if let Some(message) = message {
             self.report(self.ast.span(node), message, ReportOptions::default());
@@ -1656,17 +1642,18 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
                     continue;
                 };
                 if key_name == previous_key_name {
-                    let message = self.fmt(format_args!(
+                    let message = format!(
                         "Duplicate import attribute key '{}'",
                         String::from_utf8_lossy(key_name)
-                    ));
+                    );
                     self.report(
                         self.ast.span(key),
                         message,
                         ReportOptions {
-                            labels: self.labels(&[
-                                self.label(self.ast.span(previous_key), "first used here")
-                            ]),
+                            labels: vec![Label::new(
+                                self.ast.span(previous_key),
+                                Cow::Borrowed("first used here"),
+                            )],
                             ..ReportOptions::default()
                         },
                     );
@@ -1694,18 +1681,15 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
                 return;
             }
         };
-        let message = self.fmt(format_args!(
-            "Duplicate export of '{}'",
-            String::from_utf8_lossy(name)
-        ));
+        let message = format!("Duplicate export of '{}'", String::from_utf8_lossy(name));
         self.report(
             self.ast.span(node),
             message,
             ReportOptions {
-                labels: self.labels(&[
-                    self.label(self.ast.span(first), "first exported here"),
-                    self.label(self.ast.span(node), "exported again here"),
-                ]),
+                labels: vec![
+                    Label::new(self.ast.span(first), Cow::Borrowed("first exported here")),
+                    Label::new(self.ast.span(node), Cow::Borrowed("exported again here")),
+                ],
                 ..ReportOptions::default()
             },
         );
