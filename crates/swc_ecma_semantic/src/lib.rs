@@ -616,6 +616,3 @@ pub fn analyze<'a>(ast: &Ast<'a>, options: AnalyzeOptions) -> SemanticReturn<'a>
         diagnostics,
     }
 }
-
-#[cfg(test)]
-mod tests;
