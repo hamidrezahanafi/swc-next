@@ -1,7 +1,7 @@
-import { decode_js } from "./decode_js.js";
-import { decode_ts } from "./decode_ts.js";
+import { decodeJs } from "./decode-js.js";
+import { decodeTs } from "./decode-ts.js";
 
-export { decode_js, decode_ts };
+export { decodeJs, decodeTs };
 
 const FLAGS_OFFSET = 32;
 const TYPESCRIPT_FLAG = 1;
@@ -46,6 +46,6 @@ export function decode(buffer, source) {
   const view = new DataView(arrayBuffer, buffer.byteOffset ?? 0, buffer.byteLength);
   const flags = view.getUint32(FLAGS_OFFSET, true);
   return (flags & TYPESCRIPT_FLAG) !== 0
-    ? decode_ts(buffer, source)
-    : decode_js(buffer, source);
+    ? decodeTs(buffer, source)
+    : decodeJs(buffer, source);
 }

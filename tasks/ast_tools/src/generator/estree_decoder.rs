@@ -14,9 +14,9 @@ const OUTPUT_DIR: &str = "packages/decoder";
 
 pub fn estree_decoder(schema: &Schema) -> Vec<RawOutput> {
     let mut outputs = Vec::new();
-    for (is_ts, name) in [(false, "decode_js"), (true, "decode_ts")] {
-        let pretty_path = format!("{OUTPUT_DIR}/{name}.pretty.js");
-        let minified_path = format!("{OUTPUT_DIR}/{name}.js");
+    for (is_ts, suffix, name) in [(false, "js", "decodeJs"), (true, "ts", "decodeTs")] {
+        let pretty_path = format!("{OUTPUT_DIR}/decode-{suffix}.pretty.js");
+        let minified_path = format!("{OUTPUT_DIR}/decode-{suffix}.js");
         let output = decoder_source(schema, is_ts, name);
         let minified = minify(&output, &pretty_path);
         outputs.push(RawOutput {
