@@ -909,9 +909,6 @@ const DECODE_PREAMBLE: &str = r#"
   const extraCount = _i32[1];
   const stringPoolLength = _i32[2];
   const sourceLength = _dv.getUint32(12, true);
-  if (sourceLength > 0x7fffffff) {
-    throw new RangeError("AST source exceeds signed 32-bit range");
-  }
   const commentCount = _i32[4];
   const diagnosticCount = _i32[6];
   const programIndex = _i32[7];

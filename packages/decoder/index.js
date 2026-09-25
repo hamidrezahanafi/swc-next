@@ -42,8 +42,12 @@ function encodeOptionBoolean(value, name) {
 }
 
 export function decode(buffer, source) {
+  const byteLength = buffer.byteLength;
+  if (byteLength > 0x7fffffff) {
+    throw new RangeError("AST buffer exceeds signed 32-bit range");
+  }
   const arrayBuffer = buffer instanceof ArrayBuffer ? buffer : buffer.buffer;
-  const view = new DataView(arrayBuffer, buffer.byteOffset ?? 0, buffer.byteLength);
+  const view = new DataView(arrayBuffer, buffer.byteOffset ?? 0, byteLength);
   const flags = view.getInt32(FLAGS_OFFSET, true);
   return (flags & TYPESCRIPT_FLAG) !== 0
     ? decodeTs(buffer, source)
