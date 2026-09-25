@@ -20,11 +20,11 @@ pub fn estree_decoder(schema: &Schema) -> Vec<RawOutput> {
         let output = decoder_source(schema, is_ts, name);
         let minified = minify(&output, &pretty_path);
         outputs.push(RawOutput {
-            path: pretty_path.into(),
+            path: pretty_path,
             content: output.into_bytes(),
         });
         outputs.push(RawOutput {
-            path: minified_path.into(),
+            path: minified_path,
             content: minified.into_bytes(),
         });
     }
