@@ -24,6 +24,17 @@ test("decoder reads little-endian words from unaligned buffers", () => {
   assert.deepEqual(result.comments, []);
 });
 
+test("decoder rejects source lengths outside the signed 32-bit range", () => {
+  const buffer = new Uint8Array(36);
+  const view = new DataView(buffer.buffer);
+  view.setUint32(12, 0x80000000, true);
+
+  assert.throws(() => decode(buffer, ""), new RangeError("AST source exceeds signed 32-bit range"));
+
+  view.setUint32(32, 1, true);
+  assert.throws(() => decode(buffer, ""), new RangeError("AST source exceeds signed 32-bit range"));
+});
+
 test("decoder rejects unknown diagnostic severities", () => {
   const buffer = new Uint8Array(65);
   const view = new DataView(buffer.buffer);
