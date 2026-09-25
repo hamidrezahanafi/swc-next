@@ -907,8 +907,11 @@ const DECODE_PREAMBLE: &str = r#"
     : copyLittleEndianI32(_dv);
   const nodeCount = _i32[0];
   const extraCount = _i32[1];
-  const stringPoolLength = _i32[2];
+  const stringPoolLength = _dv.getUint32(8, true);
   const sourceLength = _dv.getUint32(12, true);
+  if (sourceLength + stringPoolLength > 0x7fffffff) {
+    throw new RangeError("AST string offsets exceed signed 32-bit range");
+  }
   const commentCount = _i32[4];
   const diagnosticCount = _i32[6];
   const programIndex = _i32[7];
