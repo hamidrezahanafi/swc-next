@@ -12,8 +12,9 @@ After building `@swc-next/core`, run
 `pnpm --filter @swc-next/core bench:codspeed:encoder` or `bench:codspeed:decoder`
 for local Tinybench timings; `bench:parser` compares parser implementations.
 The `.bench.js` files also run directly with Node. Environment variables select
-local timings, input preparation, or CodSpeed measurement. CI uses the same harness and
-dependencies for both revisions, and measures only registered callbacks.
+local timings, input preparation, or CodSpeed measurement. CI runs each benchmark
+file in a separate Node process, uses the same harness and dependencies for both
+revisions, and measures only registered callbacks.
 
 ### Rust Development
 
