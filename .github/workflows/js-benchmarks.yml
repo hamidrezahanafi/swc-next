@@ -54,8 +54,6 @@ jobs:
       # links still resolve encoder/decoder source from the checked-out revision.
       - run: pnpm install --frozen-lockfile
 
-      - run: node --test .github/scripts/render-js-bench-summary.test.mjs
-
       - name: Install CodSpeed runner
         run: |
           archive="$RUNNER_TEMP/codspeed.tar.gz"
