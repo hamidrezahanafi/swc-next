@@ -17,8 +17,9 @@ test("decoder rejects unaligned buffers", () => {
 test("decoder rejects unknown diagnostic severities", () => {
   const buffer = new Uint8Array(69);
   const view = new DataView(buffer.buffer);
-  view.setUint32(0, 1, true); // node count
-  view.setUint32(24, 1, true); // diagnostic count
+  const littleEndian = new Uint8Array(new Int32Array([1]).buffer)[0] === 1;
+  view.setUint32(0, 1, littleEndian); // node count
+  view.setUint32(24, 1, littleEndian); // diagnostic count
   buffer[68] = 0xff; // diagnostic severity
 
   const result = decode(buffer, "", new Uint8Array());

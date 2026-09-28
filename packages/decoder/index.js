@@ -5,6 +5,8 @@ export { decodeJs, decodeTs };
 
 const FLAGS_OFFSET = 32;
 const TYPESCRIPT_FLAG = 1;
+const NATIVE_LITTLE_ENDIAN =
+  new Uint8Array(new Int32Array([1]).buffer)[0] === 1;
 
 const OPTION_SOURCE_TYPES = ["module", "script", "commonjs", "unambiguous"];
 const OPTION_LANGS = ["js", "ts", "jsx", "tsx", "dts"];
@@ -43,8 +45,12 @@ function encodeOptionBoolean(value, name) {
 
 export function decode(buffer, source, sourceBuffer) {
   const arrayBuffer = buffer instanceof ArrayBuffer ? buffer : buffer.buffer;
-  const view = new DataView(arrayBuffer, buffer.byteOffset ?? 0, buffer.byteLength);
-  const flags = view.getInt32(FLAGS_OFFSET, true);
+  const byteOffset = buffer.byteOffset ?? 0;
+  if ((byteOffset & 3) !== 0) {
+    throw new RangeError("AST buffer must be 4-byte aligned");
+  }
+  const view = new DataView(arrayBuffer, byteOffset, buffer.byteLength);
+  const flags = view.getInt32(FLAGS_OFFSET, NATIVE_LITTLE_ENDIAN);
   return (flags & TYPESCRIPT_FLAG) !== 0
     ? decodeTs(buffer, source, sourceBuffer)
     : decodeJs(buffer, source, sourceBuffer);

@@ -43,7 +43,6 @@ pub fn ast_payload(schema: &Schema) -> RawOutput {
     let mut layouts = TokenStream::new();
     let mut members = TokenStream::new();
     let mut size_checks = TokenStream::new();
-    let mut endian_swap_arms = TokenStream::new();
 
     for ty in schema.types.iter() {
         let AstType::Struct(ast) = ty else { continue };
@@ -60,7 +59,6 @@ pub fn ast_payload(schema: &Schema) -> RawOutput {
         fields.sort_by_key(|&(_, offset, _)| offset);
         let mut definitions = TokenStream::new();
         let mut field_checks = TokenStream::new();
-        let mut endian_swaps = TokenStream::new();
         let mut cursor = 0;
         let mut pad_index = 0;
         for (field_index, offset, size) in fields {
@@ -72,24 +70,6 @@ pub fn ast_payload(schema: &Schema) -> RawOutput {
             }
             let name = safe_ident(&ast.fields[field_index].name);
             let field_ty = &schema.types[ast.fields[field_index].type_id];
-            if size == 2 || size == 4 {
-                let end = offset + size;
-                endian_swaps.extend(quote!(bytes[#offset..#end].reverse();));
-            } else if size == 8 {
-                if matches!(field_ty, AstType::Option(_))
-                    || matches!(field_ty, AstType::Primitive(primitive) if matches!(primitive.name, "f64" | "u64"))
-                {
-                    let end = offset + size;
-                    endian_swaps.extend(quote!(bytes[#offset..#end].reverse();));
-                } else {
-                    let middle = offset + 4;
-                    let end = offset + size;
-                    endian_swaps.extend(quote! {
-                        bytes[#offset..#middle].reverse();
-                        bytes[#middle..#end].reverse();
-                    });
-                }
-            }
             let ty = if direct_payload_field(field_ty, schema) {
                 field_ty.repr_ident(schema)
             } else {
@@ -137,15 +117,6 @@ pub fn ast_payload(schema: &Schema) -> RawOutput {
             }
         });
         size_checks.extend(field_checks);
-        let kind = format_ident!("{}", ast.name);
-        if layout.mode == LayoutMode::Partial {
-            let start = layout.extra_start_offset().unwrap();
-            let end = start + 4;
-            endian_swaps.extend(quote!(bytes[#start..#end].reverse();));
-        }
-        if !endian_swaps.is_empty() {
-            endian_swap_arms.extend(quote!(NodeKind::#kind => { #endian_swaps },));
-        }
     }
 
     RustOutput {
@@ -169,14 +140,6 @@ pub fn ast_payload(schema: &Schema) -> RawOutput {
                 #size_checks
             };
 
-            /// Convert each numeric field between native and little-endian bytes.
-            /// Swapping twice restores the original representation.
-            pub(crate) fn swap_payload_endian(bytes: &mut [u8; 16], kind: NodeKind) {
-                match kind {
-                    #endian_swap_arms
-                    _ => {}
-                }
-            }
         },
     }
     .into()

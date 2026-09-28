@@ -4,7 +4,7 @@ import test from "node:test";
 import { encode } from "@swc-next/encoder";
 import { parseSync, printSync } from "../src-js/index.js";
 
-test("encode writes spans in canonical little-endian order", () => {
+test("encode writes spans in native byte order", () => {
   const buffer = encode({
     type: "Program",
     start: 0x01020304,
@@ -13,10 +13,11 @@ test("encode writes spans in canonical little-endian order", () => {
     body: [],
   });
 
-  assert.deepEqual(
-    [...buffer.subarray(40, 48)],
-    [0x04, 0x03, 0x02, 0x01, 0x08, 0x07, 0x06, 0x05],
-  );
+  const littleEndian = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
+  assert.deepEqual([...buffer.subarray(20, 24)], [0, 0, 0, 0]);
+  assert.deepEqual([...buffer.subarray(40, 48)], littleEndian
+    ? [4, 3, 2, 1, 8, 7, 6, 5]
+    : [1, 2, 3, 4, 5, 6, 7, 8]);
 });
 
 test("printSync prints modified parser-produced ESTree", () => {

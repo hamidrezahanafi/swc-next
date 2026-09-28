@@ -96,13 +96,6 @@ function decodePool(bytes) {
   return result;
 }
 
-function copyLittleEndianI32(view) {
-  const i32 = new Int32Array(view.byteLength >> 2);
-  for (let offset = 0; offset + 4 <= view.byteLength; offset += 4) {
-    i32[offset >> 2] = view.getInt32(offset, true);
-  }
-  return i32;
-}
 export function decodeTs(buffer, source, sourceBuffer) {
 
   const arrayBuffer = buffer instanceof ArrayBuffer ? buffer : buffer.buffer;
@@ -116,13 +109,11 @@ export function decodeTs(buffer, source, sourceBuffer) {
   }
   const bytes = new Uint8Array(arrayBuffer, byteOffset, byteLength);
   const _dv = new DataView(arrayBuffer, byteOffset, byteLength);
-  const _i32 = NATIVE_LITTLE_ENDIAN
-    ? new Int32Array(arrayBuffer, byteOffset, byteLength >> 2)
-    : copyLittleEndianI32(_dv);
+  const _i32 = new Int32Array(arrayBuffer, byteOffset, byteLength >> 2);
   const nodeCount = _i32[0];
   const extraCount = _i32[1];
-  const stringPoolLength = _dv.getUint32(8, true);
-  const sourceLength = _dv.getUint32(12, true);
+  const stringPoolLength = _dv.getUint32(8, NATIVE_LITTLE_ENDIAN);
+  const sourceLength = _dv.getUint32(12, NATIVE_LITTLE_ENDIAN);
   if (sourceLength + stringPoolLength > 0x7fffffff) {
     throw new RangeError("AST string offsets exceed signed 32-bit range");
   }
@@ -219,7 +210,7 @@ export function decodeTs(buffer, source, sourceBuffer) {
     let offset = diagnostics;
     const readU8 = () => bytes[offset++];
     const readU32 = () => {
-      const value = _dv.getUint32(offset, true);
+      const value = _dv.getUint32(offset, NATIVE_LITTLE_ENDIAN);
       offset += 4;
       return value;
     };
@@ -286,7 +277,7 @@ export function decodeTs(buffer, source, sourceBuffer) {
         break;
       }
       case 4: {
-        const f_value = _dv.getFloat64(payload + 0, true);
+        const f_value = _dv.getFloat64(payload + 0, NATIVE_LITTLE_ENDIAN);
         const f_raw = _i32[(payload + 8) >> 2] === NULL && _i32[(payload + 8 + 4) >> 2] === 0 ? null : source.slice(start, end);
         const value = f_value;
         const raw = f_raw ?? String(value);
