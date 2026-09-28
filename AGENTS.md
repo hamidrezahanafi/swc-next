@@ -4,15 +4,13 @@
 
 Run from the workspace root.
 
-The JavaScript Codec Benchmarks PR workflow compares encoder and decoder
-instruction counts with CodSpeed CPU Simulation, without uploading to CodSpeed.
-After building `@swc-next/core`, prepare inputs with
-`node .github/scripts/codec-bench.mjs prepare /tmp/codec-inputs`, then run
-`node .github/scripts/codec-bench.mjs run /tmp/codec-inputs` (ordinary Tinybench
-locally). On Linux, use `CODSPEED_SKIP_UPLOAD=true codspeed run --mode simulation
---profile-folder /tmp/codec-profile -- node --no-maglev .github/scripts/codec-bench.mjs run
-/tmp/codec-inputs` to collect instruction counts. The workflow uses the same
-harness and dependencies for both revisions; native parsing is preparation only.
+The JavaScript Benchmarks PR workflow discovers `npm/core/benches/**/*.bench.js`
+and `*.bench.ts` and compares instruction counts with CodSpeed CPU Simulation,
+without uploading to CodSpeed. Add cases using the default registration function
+and optional `prepare()` described in `npm/core/benches/README.md`.
+After building `@swc-next/core`, run `pnpm --filter @swc-next/core bench` for local
+Tinybench timings. CI prepares inputs separately, uses the same harness and
+dependencies for both revisions, and measures only registered callbacks.
 
 ### Rust Development
 

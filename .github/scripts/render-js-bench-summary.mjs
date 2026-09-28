@@ -6,10 +6,15 @@ import { pathToFileURL } from "node:url";
 export function parseProfile(text) {
   const results = new Map();
   for (const part of text.split(/^part: /m).slice(1)) {
-    const name = part.match(
-      /^desc: Trigger: Client Request: .*::((?:encoder|decoder)\/[^\r\n]+)$/m,
+    const trigger = part.match(
+      /^desc: Trigger: Client Request: ([^\r\n]+)$/m,
     )?.[1];
-    if (!name) continue; // Ignore runtime metadata and process termination.
+    if (!trigger || trigger.startsWith("Metadata:")) continue;
+    // The plugin prefixes the URI with the file that called bench.add(). The
+    // remainder is our Bench.name (the discovered file) and the task name.
+    const separator = trigger.indexOf("::");
+    if (separator === -1) continue;
+    const name = trigger.slice(separator + 2);
     const events = part
       .match(/^events:\s*(.+)$/m)?.[1]
       .trim()
@@ -48,10 +53,19 @@ export async function loadProfiles(directory) {
       results.set(name, count);
     }
   }
-  assert.equal(
-    results.size,
-    6,
-    `Expected all six codec measurements in ${directory}`,
+  const expected = JSON.parse(
+    await readFile(join(directory, "benchmarks.json"), "utf8"),
+  );
+  assert.ok(
+    Array.isArray(expected) &&
+      expected.length > 0 &&
+      expected.every((name) => typeof name === "string"),
+    "Invalid benchmark manifest",
+  );
+  assert.deepEqual(
+    [...results.keys()].sort(),
+    expected.toSorted(),
+    `Missing or unexpected measurements in ${directory}`,
   );
   return results;
 }
@@ -62,18 +76,13 @@ export function renderSummary(base, merge) {
     [...base.keys()].sort(),
     "Benchmark sets differ",
   );
-  assert.ok(
-    [...base.keys()].some((name) => name.startsWith("encoder/")) &&
-      [...base.keys()].some((name) => name.startsWith("decoder/")),
-    "Missing encoder or decoder measurements",
-  );
+  assert.ok(base.size > 0, "No benchmark measurements");
   const lines = [
-    "<!-- codec-benchmark-diff -->",
-    "## JavaScript codec benchmark diff",
+    "<!-- js-benchmark-diff -->",
+    "## JavaScript benchmark diff",
     "",
     "CodSpeed CPU Simulation · instruction counts (Ir) · lower is better.",
-    "Encoder: plain AST → buffer. Decoder: precomputed parser buffer → fully traversed AST.",
-    "Parsing, file I/O and input preparation are excluded. These counts are not wall-clock timings.",
+    "Each row measures its bench.add() callback. Input preparation is excluded; counts are not wall-clock timings.",
     "",
     `Merge: \`${process.env.COMPARE_SHA ?? "local"}\`; base: \`${process.env.BASE_SHA ?? "local"}\`.`,
     "",
@@ -99,7 +108,7 @@ if (
   const [base, merge] = process.argv.slice(2);
   assert.ok(
     base && merge,
-    "Usage: render-codec-summary.mjs <base profiles> <merge profiles>",
+    "Usage: render-js-bench-summary.mjs <base profiles> <merge profiles>",
   );
   process.stdout.write(
     renderSummary(await loadProfiles(base), await loadProfiles(merge)),

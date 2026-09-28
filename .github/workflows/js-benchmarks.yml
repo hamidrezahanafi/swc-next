@@ -1,4 +1,4 @@
-name: JavaScript Codec Benchmarks
+name: JavaScript Benchmarks
 
 on:
   pull_request:
@@ -9,12 +9,12 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: codec-benchmarks-${{ github.event.pull_request.number }}
+  group: js-benchmarks-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   benchmarks:
-    name: Compare encoder and decoder instructions
+    name: Compare JavaScript instructions
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -30,14 +30,14 @@ jobs:
           persist-credentials: false
 
       - name: Prepare shared build directory
-        run: echo "CARGO_TARGET_DIR=$RUNNER_TEMP/codec-target" >> "$GITHUB_ENV"
+        run: echo "CARGO_TARGET_DIR=$RUNNER_TEMP/js-bench-target" >> "$GITHUB_ENV"
 
       - uses: actions-rust-lang/setup-rust-toolchain@dc354b3df5a8e4db0bff5361fa176da74fcf3151 # v1
         with:
           toolchain: 1.97.1
           cache-save-if: false
-          cache-key: codec-benchmarks
-          cache-workspaces: ". -> ${{ runner.temp }}/codec-target"
+          cache-key: js-benchmarks
+          cache-workspaces: ". -> ${{ runner.temp }}/js-bench-target"
 
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
@@ -52,7 +52,7 @@ jobs:
       # links still resolve encoder/decoder source from the checked-out revision.
       - run: pnpm install --frozen-lockfile
 
-      - run: node --test .github/scripts/render-codec-summary.test.mjs
+      - run: node --test .github/scripts/render-js-bench-summary.test.mjs
 
       - name: Install CodSpeed runner
         run: |
@@ -64,50 +64,51 @@ jobs:
           tar -xzf "$archive" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/codspeed-runner-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
 
-      - name: Measure base codecs
+      - name: Measure base benchmarks
         run: |
           git checkout --detach "$BASE_SHA"
           # Use the same harness on both sides, including the PR introducing it.
-          git checkout "$COMPARE_SHA" -- \
-            .github/scripts/codec-bench.mjs \
-            .github/scripts/render-codec-summary.mjs \
-            tasks/benchmark/files/jquery-1.9.1.js \
-            tasks/benchmark/files/effect-schema-ast.ts
+          git restore --source "$COMPARE_SHA" --staged --worktree -- \
+            npm/core/benches \
+            .github/scripts/render-js-bench-summary.mjs \
+            tasks/benchmark/files
           pnpm --filter @swc-next/core build --release -- --locked
-          node .github/scripts/codec-bench.mjs prepare "$RUNNER_TEMP/codec-inputs/base"
-          mkdir -p "$RUNNER_TEMP/codec-results/base"
+          node npm/core/benches/run.mjs prepare "$RUNNER_TEMP/js-bench-inputs/base"
+          mkdir -p "$RUNNER_TEMP/js-bench-results/base"
+          cp "$RUNNER_TEMP/js-bench-inputs/base/benchmarks.json" "$RUNNER_TEMP/js-bench-results/base/"
           # Plugin 5.7.1 disables TurboFan; also disable Node 24's Maglev tier.
           codspeed run --mode simulation \
-            --profile-folder "$RUNNER_TEMP/codec-results/base" -- \
-            node --no-maglev .github/scripts/codec-bench.mjs run "$RUNNER_TEMP/codec-inputs/base"
+            --profile-folder "$RUNNER_TEMP/js-bench-results/base" -- \
+            node --no-maglev npm/core/benches/run.mjs run "$RUNNER_TEMP/js-bench-inputs/base"
 
-      - name: Measure merge codecs
+      - name: Measure merge benchmarks
         run: |
           git checkout --detach "$COMPARE_SHA"
           pnpm --filter @swc-next/core build --release -- --locked
-          node .github/scripts/codec-bench.mjs prepare "$RUNNER_TEMP/codec-inputs/merge"
-          mkdir -p "$RUNNER_TEMP/codec-results/merge"
+          node npm/core/benches/run.mjs prepare "$RUNNER_TEMP/js-bench-inputs/merge"
+          mkdir -p "$RUNNER_TEMP/js-bench-results/merge"
+          cp "$RUNNER_TEMP/js-bench-inputs/merge/benchmarks.json" "$RUNNER_TEMP/js-bench-results/merge/"
           codspeed run --mode simulation \
-            --profile-folder "$RUNNER_TEMP/codec-results/merge" -- \
-            node --no-maglev .github/scripts/codec-bench.mjs run "$RUNNER_TEMP/codec-inputs/merge"
+            --profile-folder "$RUNNER_TEMP/js-bench-results/merge" -- \
+            node --no-maglev npm/core/benches/run.mjs run "$RUNNER_TEMP/js-bench-inputs/merge"
 
-      - name: Render codec diff
+      - name: Render benchmark diff
         id: report
         if: always() && !cancelled()
         env:
           MEASUREMENT_RESULT: ${{ job.status }}
         run: |
-          mkdir -p "$RUNNER_TEMP/codec-results"
-          report="$RUNNER_TEMP/codec-results/summary.md"
+          mkdir -p "$RUNNER_TEMP/js-bench-results"
+          report="$RUNNER_TEMP/js-bench-results/summary.md"
           if [[ "$MEASUREMENT_RESULT" == success ]] && \
-            node .github/scripts/render-codec-summary.mjs \
-              "$RUNNER_TEMP/codec-results/base" \
-              "$RUNNER_TEMP/codec-results/merge" > "$report"
+            node .github/scripts/render-js-bench-summary.mjs \
+              "$RUNNER_TEMP/js-bench-results/base" \
+              "$RUNNER_TEMP/js-bench-results/merge" > "$report"
           then
             cat "$report" >> "$GITHUB_STEP_SUMMARY"
           else
-            printf '%s\n' '<!-- codec-benchmark-diff -->' \
-              '## JavaScript codec benchmark diff' '' \
+            printf '%s\n' '<!-- js-benchmark-diff -->' \
+              '## JavaScript benchmark diff' '' \
               '⚠️ Comparison unavailable. See the workflow log.' > "$report"
             cat "$report" >> "$GITHUB_STEP_SUMMARY"
             exit 1
@@ -117,11 +118,11 @@ jobs:
         if: always() && !cancelled()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: codec-benchmarks-${{ github.event.pull_request.number }}
-          path: ${{ runner.temp }}/codec-results
+          name: js-benchmarks-${{ github.event.pull_request.number }}
+          path: ${{ runner.temp }}/js-bench-results
           retention-days: 90
 
-      - name: Publish codec diff to pull request
+      - name: Publish benchmark diff to pull request
         if: >-
           always() && !cancelled() && steps.report.outcome != 'skipped' &&
           github.event.pull_request.head.repo.full_name == github.repository &&
@@ -132,13 +133,13 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          comment="$RUNNER_TEMP/codec-results/summary.md"
+          comment="$RUNNER_TEMP/js-bench-results/summary.md"
           [[ -s "$comment" ]] || exit 1
           current_head="$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq '.head.sha')"
           [[ "$current_head" == "$PR_HEAD_SHA" ]] || exit 0
           comment_id="$(
             gh api --paginate --slurp "repos/$GH_REPO/issues/$PR_NUMBER/comments?per_page=100" |
-              jq -r 'flatten | map(select(.user.login == "github-actions[bot]" and (.body | contains("<!-- codec-benchmark-diff -->")))) | first | .id // empty'
+              jq -r 'flatten | map(select(.user.login == "github-actions[bot]" and (.body | contains("<!-- js-benchmark-diff -->")))) | first | .id // empty'
           )"
           if [[ -n "$comment_id" ]]; then
             gh api --method PATCH "repos/$GH_REPO/issues/comments/$comment_id" -F body=@"$comment"

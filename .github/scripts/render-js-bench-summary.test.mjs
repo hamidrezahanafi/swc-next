@@ -1,18 +1,42 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
-import { parseProfile, renderSummary } from "./render-codec-summary.mjs";
+import {
+  loadProfiles,
+  parseProfile,
+  renderSummary,
+} from "./render-js-bench-summary.mjs";
 
 const profile = (name, events, totals) => `part: 1
-desc: Trigger: Client Request: .github/scripts/codec-bench.mjs::${name}
+desc: Trigger: Client Request: npm/core/benches/example.bench.js::${name}
 events: ${events}
 summary: 999999
 totals: ${totals}
 `;
 
+test("accepts newly registered cases and detects missing measurements", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "swc-bench-profile-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const name = "custom/new.bench.ts::options";
+  await writeFile(join(directory, "benchmarks.json"), JSON.stringify([name]));
+  await writeFile(join(directory, "1.out"), profile(name, "Ir", "123"));
+  assert.deepEqual([...(await loadProfiles(directory))], [[name, 123]]);
+  await writeFile(
+    join(directory, "benchmarks.json"),
+    JSON.stringify([name, "another.bench.js::case"]),
+  );
+  await assert.rejects(
+    loadProfiles(directory),
+    /Missing or unexpected measurements/,
+  );
+});
+
 test("reads combined benchmark dumps, not metadata or summary counters", () => {
   const text =
     profile("encoder/jquery-1.9.1.js", "Ir Dr Dw", "120") +
-    "part: 2\ndesc: Trigger: Client Request: Metadata: runtime\nevents: Ir\ntotals: 900\n" +
+    "part: 2\ndesc: Trigger: Client Request: Metadata: runtime::version\nevents: Ir\ntotals: 900\n" +
     profile("decoder/jquery-1.9.1.js", "Dr Ir Dw", "10 240") +
     "part: 4\ndesc: Trigger: Program termination\nevents: Ir\ntotals: 0\n";
   assert.deepEqual(
@@ -67,6 +91,6 @@ test("compares matching benchmark sets and reports the direction of change", () 
   );
   assert.throws(
     () => renderSummary(new Map(), new Map()),
-    /Missing encoder or decoder/,
+    /No benchmark measurements/,
   );
 });
