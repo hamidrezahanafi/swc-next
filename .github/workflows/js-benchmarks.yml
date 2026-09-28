@@ -3,6 +3,11 @@ name: JavaScript Benchmarks
 on:
   pull_request:
     types: ["opened", "reopened", "synchronize"]
+    paths:
+      - "packages/encoder/index.js"
+      - "packages/decoder/index.js"
+      - "packages/decoder/decode-js.js"
+      - "packages/decoder/decode-ts.js"
 
 permissions:
   contents: read

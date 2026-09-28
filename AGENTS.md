@@ -4,7 +4,8 @@
 
 Run from the workspace root.
 
-The JavaScript Benchmarks PR workflow lists files relative to `npm/core/benches/`
+The JavaScript Benchmarks PR workflow runs when encoder/decoder runtime JS files
+change. It lists benchmark files relative to `npm/core/benches/`
 in its `BENCHMARK_FILES` array and compares instruction counts with CodSpeed CPU
 Simulation, without uploading to CodSpeed. Add executable benchmark files using
 `runBenchmark` from `npm/core/benches/utils.js`.
