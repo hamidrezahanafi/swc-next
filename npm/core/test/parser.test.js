@@ -10,17 +10,17 @@ test("decoder rejects unaligned buffers", () => {
 
   assert.throws(
     () => decode(buffer, "", new Uint8Array()),
-    new RangeError("AST buffer must be 4-byte aligned"),
+    new RangeError("AST buffer must be 8-byte aligned"),
   );
 });
 
 test("decoder rejects unknown diagnostic severities", () => {
-  const buffer = new Uint8Array(69);
+  const buffer = new Uint8Array(73);
   const view = new DataView(buffer.buffer);
   const littleEndian = new Uint8Array(new Int32Array([1]).buffer)[0] === 1;
   view.setUint32(0, 1, littleEndian); // node count
   view.setUint32(24, 1, littleEndian); // diagnostic count
-  buffer[68] = 0xff; // diagnostic severity
+  buffer[72] = 0xff; // diagnostic severity
 
   const result = decode(buffer, "", new Uint8Array());
   assert.throws(

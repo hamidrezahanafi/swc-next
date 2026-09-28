@@ -1101,7 +1101,7 @@ function encode(program) {
 "#;
 
 const POSTAMBLE: &str = r#"  const root = encProgram(program);
-  const kindsLength = (nodeCount + 3) & ~3;
+  const kindsLength = (nodeCount + 7) & ~7;
   const poolPadded = (poolLength + 3) & ~3;
   const spansOffset = HEADER_SIZE;
   const kindsOffset = spansOffset + nodeCount * 8;

@@ -8,18 +8,18 @@
 //! Layout, in order:
 //! - 40-byte header, including the first non-ASCII source byte position;
 //! - `node_count` UTF-16 spans (`start: u32`, `end: u32`);
-//! - `node_count` one-byte node kinds, padded to four bytes;
+//! - `node_count` one-byte node kinds, padded to eight bytes;
 //! - `node_count` 16-byte `NodePayload` values;
 //! - `extra_count` 8-byte `ExtraData` values;
 //! - the raw extra string pool, padded to four bytes;
 //! - `comment_count` 16-byte records in source order. Each record contains
 //!   UTF-16 start/end and UTF-8 byte start/end for extracting comment text.
-//! - `diag_count` packed variable-length diagnostic records: severity (`u8`;
+//! - `diag_count` variable-length diagnostic records: severity (`u8`;
 //!   `0` error, `1` warning, `2` hint, `3` info), UTF-16 start/end, message,
 //!   optional help, label count, then labels (UTF-16 start/end, message).
-//!   Other integers are unaligned native-endian `u32`; strings are a byte
-//!   length followed by unpadded UTF-8 bytes. Optional help uses a one-byte
-//!   presence flag.
+//!   Integers are four-byte-aligned native-endian `u32`; strings are a byte
+//!   length followed by UTF-8 bytes and padding to four bytes. Severity and
+//!   the one-byte optional-help flag are also padded to four bytes.
 //!
 //! Attached comments are intentionally omitted for now. Their count in the
 //! header is always zero.
@@ -76,7 +76,7 @@ const _: () = {
 pub fn buffer_size(tree: &Ast<'_>, diagnostics: &[Diagnostic<'_>]) -> usize {
     HEADER_SIZE
         + tree.node_count() * SPAN_SIZE
-        + align_to_four(tree.node_count() * NODE_KIND_SIZE)
+        + align_to_eight(tree.node_count() * NODE_KIND_SIZE)
         + tree.node_count() * NODE_PAYLOAD_SIZE
         + tree.extra_data_count() * EXTRA_DATA_SIZE
         + align_to_four(tree.strings.extra_bytes().len())
@@ -86,17 +86,17 @@ pub fn buffer_size(tree: &Ast<'_>, diagnostics: &[Diagnostic<'_>]) -> usize {
             .map(|diagnostic| {
                 let mut size = 0;
 
-                size += size_of::<u8>(); // severity
+                size += size_of::<u32>(); // severity and padding
                 size += SPAN_SIZE; // start, end
-                size += size_of::<u32>() + diagnostic.message.len(); // message_len, message
-                size += size_of::<u8>(); // has_help
+                size += align_to_four(size_of::<u32>() + diagnostic.message.len()); // message
+                size += size_of::<u32>(); // has_help and padding
                 if let Some(help) = &diagnostic.help {
-                    size += size_of::<u32>() + help.len(); // help_len, help
+                    size += align_to_four(size_of::<u32>() + help.len()); // help
                 }
                 size += size_of::<u32>(); // label_count
                 for label in &diagnostic.labels {
                     size += SPAN_SIZE; // start, end
-                    size += size_of::<u32>() + label.message.len(); // message_len, message
+                    size += align_to_four(size_of::<u32>() + label.message.len()); // message
                 }
 
                 size
@@ -177,7 +177,7 @@ pub fn serialize_into(
         )
     };
     write(buf, &mut pos, kinds);
-    pad_to_four(buf, &mut pos);
+    pad_to_eight(buf, &mut pos);
 
     // =================== Payloads ====================
     let payloads = unsafe {
@@ -216,12 +216,14 @@ pub fn serialize_into(
     // =================== Diagnostics ====================
     for diagnostic in diagnostics {
         write(buf, &mut pos, &[diagnostic.severity as u8]);
+        pad_to_four(buf, &mut pos);
         let start = utf16_pos(diagnostic.span.start, positions.as_ref());
         let end = utf16_pos(diagnostic.span.end, positions.as_ref());
         write(buf, &mut pos, &start.to_ne_bytes());
         write(buf, &mut pos, &end.to_ne_bytes());
         write_bytes_with_length(buf, &mut pos, diagnostic.message.as_bytes());
         write(buf, &mut pos, &[u8::from(diagnostic.help.is_some())]);
+        pad_to_four(buf, &mut pos);
         if let Some(help) = &diagnostic.help {
             write_bytes_with_length(buf, &mut pos, help.as_bytes());
         }
@@ -285,7 +287,7 @@ pub fn deserialize_from<'a>(
     // ================== Section Offsets ==================
     let spans = HEADER_SIZE;
     let kinds = checked_section_end(spans, node_count, SPAN_SIZE)?;
-    let payloads = align_to_four(checked_section_end(kinds, node_count, NODE_KIND_SIZE)?);
+    let payloads = align_to_eight(checked_section_end(kinds, node_count, NODE_KIND_SIZE)?);
     let extra = checked_section_end(payloads, node_count, NODE_PAYLOAD_SIZE)?;
     let strings = checked_section_end(extra, extra_count, EXTRA_DATA_SIZE)?;
     let comments = checked_add(strings, align_to_four(string_pool_len))?;
@@ -560,6 +562,18 @@ const fn align_to_four(len: usize) -> usize {
 }
 
 #[inline]
+const fn align_to_eight(len: usize) -> usize {
+    (len + 7) & !7
+}
+
+#[inline]
+fn pad_to_eight(buf: &mut [u8], pos: &mut usize) {
+    let aligned = align_to_eight(*pos);
+    buf[*pos..aligned].fill(0);
+    *pos = aligned;
+}
+
+#[inline]
 fn pad_to_four(buf: &mut [u8], pos: &mut usize) {
     let aligned = align_to_four(*pos);
     buf[*pos..aligned].fill(0);
@@ -583,6 +597,7 @@ fn write_bytes_with_length(buf: &mut [u8], pos: &mut usize, bytes: &[u8]) {
     let len = u32::try_from(bytes.len()).expect("byte sequence length exceeds u32");
     write(buf, pos, &len.to_ne_bytes());
     write(buf, pos, bytes);
+    pad_to_four(buf, pos);
 }
 
 #[cfg(test)]
@@ -607,7 +622,7 @@ mod tests {
 
         let mut buffer = vec![0; buffer_size(&ast, &[])];
         assert_eq!(serialize_into(&ast, &[], &mut buffer, 0), buffer.len());
-        assert_eq!(buffer.len(), 108);
+        assert_eq!(buffer.len(), 112);
 
         assert_eq!(u32_at(&buffer, 0), 2); // node count
         assert_eq!(u32_at(&buffer, 4), 2); // extra-data count
@@ -615,15 +630,15 @@ mod tests {
         assert_eq!(u32_at(&buffer, 28), 1); // root node ID
         assert_eq!(u32_at(&buffer, 36), 0); // no non-ASCII source bytes
 
-        assert_eq!(u32_at(&buffer, 76), 0); // inline directives start
-        assert_eq!(u32_at(&buffer, 80), 0); // inline directives end
-        assert_eq!(u32_at(&buffer, 84), u32::MAX); // no hashbang
-        assert_eq!(u32_at(&buffer, 88), 1); // out-of-line body field
+        assert_eq!(u32_at(&buffer, 80), 0); // inline directives start
+        assert_eq!(u32_at(&buffer, 84), 0); // inline directives end
+        assert_eq!(u32_at(&buffer, 88), u32::MAX); // no hashbang
+        assert_eq!(u32_at(&buffer, 92), 1); // out-of-line body field
 
-        assert_eq!(u32_at(&buffer, 92), 0); // body element node ID
-        assert_eq!(u32_at(&buffer, 96), 0); // node ID padding
-        assert_eq!(u32_at(&buffer, 100), 0); // body range start
-        assert_eq!(u32_at(&buffer, 104), 1); // body range end
+        assert_eq!(u32_at(&buffer, 96), 0); // body element node ID
+        assert_eq!(u32_at(&buffer, 100), 0); // node ID padding
+        assert_eq!(u32_at(&buffer, 104), 0); // body range start
+        assert_eq!(u32_at(&buffer, 108), 1); // body range end
     }
 
     #[test]
@@ -705,7 +720,7 @@ mod tests {
     }
 
     #[test]
-    fn packed_diagnostic_format() {
+    fn aligned_diagnostic_format() {
         let allocator = Allocator::new();
         let mut ast = Ast::new("éx", &allocator);
         let program = ast.program(Span::new(0, 3), SubRange::empty(), SubRange::empty(), None);
@@ -723,7 +738,7 @@ mod tests {
         }];
         let diagnostics_offset = buffer_size(&ast, &[]);
         let required = buffer_size(&ast, &diagnostics);
-        assert_eq!(required, diagnostics_offset + 40);
+        assert_eq!(required, diagnostics_offset + 52);
 
         let mut too_small = vec![0xaa; required - 1];
         assert_eq!(
@@ -740,18 +755,18 @@ mod tests {
 
         let diagnostic = diagnostics_offset;
         assert_eq!(buffer[diagnostic], Severity::Warning as u8);
-        assert_eq!(u32_at(&buffer, diagnostic + 1), 0); // start
-        assert_eq!(u32_at(&buffer, diagnostic + 5), 1); // end
-        assert_eq!(u32_at(&buffer, diagnostic + 9), 2); // message length
-        assert_eq!(&buffer[diagnostic + 13..diagnostic + 15], "é".as_bytes());
-        assert_eq!(buffer[diagnostic + 15], 1); // has help
-        assert_eq!(u32_at(&buffer, diagnostic + 16), 1); // help length
-        assert_eq!(buffer[diagnostic + 20], b'h');
-        assert_eq!(u32_at(&buffer, diagnostic + 21), 1); // label count
-        assert_eq!(u32_at(&buffer, diagnostic + 25), 1); // label start
-        assert_eq!(u32_at(&buffer, diagnostic + 29), 2); // label end
-        assert_eq!(u32_at(&buffer, diagnostic + 33), 3); // label message length
-        assert_eq!(&buffer[diagnostic + 37..diagnostic + 40], b"abc");
+        assert_eq!(u32_at(&buffer, diagnostic + 4), 0); // start
+        assert_eq!(u32_at(&buffer, diagnostic + 8), 1); // end
+        assert_eq!(u32_at(&buffer, diagnostic + 12), 2); // message length
+        assert_eq!(&buffer[diagnostic + 16..diagnostic + 18], "é".as_bytes());
+        assert_eq!(buffer[diagnostic + 20], 1); // has help
+        assert_eq!(u32_at(&buffer, diagnostic + 24), 1); // help length
+        assert_eq!(buffer[diagnostic + 28], b'h');
+        assert_eq!(u32_at(&buffer, diagnostic + 32), 1); // label count
+        assert_eq!(u32_at(&buffer, diagnostic + 36), 1); // label start
+        assert_eq!(u32_at(&buffer, diagnostic + 40), 2); // label end
+        assert_eq!(u32_at(&buffer, diagnostic + 44), 3); // label message length
+        assert_eq!(&buffer[diagnostic + 48..diagnostic + 51], b"abc");
     }
 
     fn u32_at(buffer: &[u8], offset: usize) -> u32 {
