@@ -111,9 +111,12 @@ export function decodeTs(buffer, source, sourceBuffer) {
   if (byteLength > 0x7fffffff) {
     throw new RangeError("AST buffer exceeds signed 32-bit range");
   }
+  if ((byteOffset & 3) !== 0) {
+    throw new RangeError("AST buffer must be 4-byte aligned");
+  }
   const bytes = new Uint8Array(arrayBuffer, byteOffset, byteLength);
   const _dv = new DataView(arrayBuffer, byteOffset, byteLength);
-  const _i32 = NATIVE_LITTLE_ENDIAN && (byteOffset & 3) === 0
+  const _i32 = NATIVE_LITTLE_ENDIAN
     ? new Int32Array(arrayBuffer, byteOffset, byteLength >> 2)
     : copyLittleEndianI32(_dv);
   const nodeCount = _i32[0];

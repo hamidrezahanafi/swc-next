@@ -16,3 +16,5 @@ export function parseSync(source, options) {
 ```
 
 `decode` selects the JavaScript or TypeScript decoder from the buffer header. `decodeJs` and `decodeTs` are also exported for callers that already know the language.
+
+The input buffer must start at a 4-byte-aligned `byteOffset`. Buffers returned by the SWC Next native and browser bindings satisfy this requirement. Passing an unaligned view throws a `RangeError`.

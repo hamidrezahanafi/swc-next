@@ -4,24 +4,14 @@ import test from "node:test";
 import { decode } from "@swc-next/decoder";
 import { CommentMode, Lang, parseSync, SourceType } from "../src-js/index.js";
 
-test("decoder reads little-endian words from unaligned buffers", () => {
+test("decoder rejects unaligned buffers", () => {
   const backing = new ArrayBuffer(77);
   const buffer = new Uint8Array(backing, 1, 76);
-  const view = new DataView(backing, 1, 76);
-  view.setUint32(0, 1, true); // node count
-  view.setUint32(4, 1, true); // extra-data count
-  view.setUint32(60, 0xffffffff, true); // no hashbang
 
-  const result = decode(buffer, "", new Uint8Array());
-  assert.deepEqual(result.program, {
-    type: "Program",
-    start: 0,
-    end: 0,
-    sourceType: "module",
-    hashbang: null,
-    body: [],
-  });
-  assert.deepEqual(result.comments, []);
+  assert.throws(
+    () => decode(buffer, "", new Uint8Array()),
+    new RangeError("AST buffer must be 4-byte aligned"),
+  );
 });
 
 test("decoder rejects unknown diagnostic severities", () => {
@@ -93,7 +83,8 @@ test("parseSync resolves unambiguous CommonJS wrapper syntax", () => {
 });
 
 test("parseSync exposes flat comments lazily", () => {
-  const source = '#!/usr/bin/env node\nconst emoji = "😀";\n// one 😀\n/* two */';
+  const source =
+    '#!/usr/bin/env node\nconst emoji = "😀";\n// one 😀\n/* two */';
   const result = parseSync(source, { comments: CommentMode.Flat });
   const descriptor = Object.getOwnPropertyDescriptor(result, "comments");
 
@@ -176,7 +167,7 @@ test("parseSync returns an empty diagnostics array for valid input", () => {
 });
 
 test("parseSync reports diagnostics with UTF-16 offsets", () => {
-  const source = '/* 文😀 */ const = 1';
+  const source = "/* 文😀 */ const = 1";
   const result = parseSync(source);
 
   assert.equal(result.diagnostics.length, 1);
@@ -228,25 +219,36 @@ test("parseSync preserves multiple recoverable diagnostics", () => {
   assert.equal(ambient.diagnostics[0].help, undefined);
 });
 
-
 test("ambient implementation recovery preserves enclosing and following declarations", () => {
   for (const container of ["namespace N", 'module "pkg"']) {
     const source = `declare ${container} { function bad() {} function good(): void; } declare function after(): void;`;
-    const result = parseSync(source, { lang: Lang.Ts, sourceType: SourceType.Module });
+    const result = parseSync(source, {
+      lang: Lang.Ts,
+      sourceType: SourceType.Module,
+    });
     assert.equal(result.diagnostics.length, 1);
     assert.equal(result.program.body.length, 2);
     const members = result.program.body[0].body.body;
-    assert.deepEqual(members.map((node) => node.id.name), ["bad", "good"]);
+    assert.deepEqual(
+      members.map((node) => node.id.name),
+      ["bad", "good"],
+    );
     assert.equal(members[0].type, "TSDeclareFunction");
     assert.equal(members[0].body, null);
     assert.equal(result.program.body[1].id.name, "after");
   }
-  const result = parseSync("declare function bad() {} declare function good(): void;", {
-    lang: Lang.Dts,
-    sourceType: SourceType.Module,
-  });
+  const result = parseSync(
+    "declare function bad() {} declare function good(): void;",
+    {
+      lang: Lang.Dts,
+      sourceType: SourceType.Module,
+    },
+  );
   assert.equal(result.diagnostics.length, 1);
-  assert.deepEqual(result.program.body.map((node) => node.id.name), ["bad", "good"]);
+  assert.deepEqual(
+    result.program.body.map((node) => node.id.name),
+    ["bad", "good"],
+  );
   assert.equal(result.program.body[0].declare, true);
   assert.equal(result.program.body[0].body, null);
 });
