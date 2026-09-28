@@ -49,3 +49,5 @@ export function decode(buffer, source, sourceBuffer) {
     ? decodeTs(buffer, source, sourceBuffer)
     : decodeJs(buffer, source, sourceBuffer);
 }
+
+// CI smoke test: exercise codec benchmark path filters.
