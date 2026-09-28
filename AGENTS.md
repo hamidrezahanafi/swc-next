@@ -8,6 +8,8 @@ The JavaScript Benchmarks PR workflow runs when encoder/decoder runtime JS files
 change. It lists benchmark files relative to `npm/core/benches/`
 in its `BENCHMARK_FILES` array and compares instruction counts (Ir) and estimated
 throughput cycles (Ct) with CodSpeed CPU Simulation, without uploading to CodSpeed.
+CodSpeed runs with `GITHUB_ACTIONS` unset and `CODSPEED_SKIP_UPLOAD=true` to use
+local mode without platform authentication.
 Add executable benchmark files using
 `runBenchmark` from `npm/core/benches/utils.js`.
 After building `@swc-next/core`, run

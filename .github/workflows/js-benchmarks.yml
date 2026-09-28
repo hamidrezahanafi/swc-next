@@ -88,7 +88,8 @@ jobs:
           mkdir -p "$profile"
           cp "$BENCHMARK_INPUT_DIR/benchmarks.json" "$profile/"
           # Plugin 5.7.1 disables TurboFan; also disable Node 24's Maglev tier.
-          codspeed run --mode simulation \
+          # Runner 5.2.1 checks GitHub OIDC even when uploads are disabled.
+          env -u GITHUB_ACTIONS codspeed run --mode simulation \
             --profile-folder "$profile" -- \
             node --no-maglev npm/core/benches/run.mjs
           mv "$profile" "$RUNNER_TEMP/js-bench-results/base"
@@ -101,7 +102,7 @@ jobs:
           profile="$RUNNER_TEMP/js-bench-results/current"
           mkdir -p "$profile"
           cp "$BENCHMARK_INPUT_DIR/benchmarks.json" "$profile/"
-          codspeed run --mode simulation \
+          env -u GITHUB_ACTIONS codspeed run --mode simulation \
             --profile-folder "$profile" -- \
             node --no-maglev npm/core/benches/run.mjs
           mv "$profile" "$RUNNER_TEMP/js-bench-results/merge"
