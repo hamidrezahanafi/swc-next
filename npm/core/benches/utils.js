@@ -4,7 +4,6 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deserialize, serialize } from "node:v8";
 import { withCodSpeed } from "@codspeed/tinybench-plugin";
-import { decode, encodeOptions } from "@swc-next/decoder";
 import { Bench } from "tinybench";
 
 export async function runBenchmark(url, prepare, register) {
@@ -55,6 +54,7 @@ export function consume(value) {
 }
 
 export async function prepare() {
+  const { decode, encodeOptions } = await import("@swc-next/decoder");
   const { parseSync } = await import("../src-js/binding.js");
   const cases = [];
   for (const name of [
