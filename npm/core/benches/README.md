@@ -55,8 +55,11 @@ After building the native binding:
 
 ```sh
 pnpm --filter @swc-next/core build --release
-pnpm --filter @swc-next/core bench encoder.bench.js decoder.bench.js
+pnpm --filter @swc-next/core bench:codspeed:decoder
+pnpm --filter @swc-next/core bench:codspeed:encoder
 ```
+
+These two commands run the CodSpeed benchmark cases locally with Tinybench timings.
 
 To collect simulated instruction counts on Linux, from the repository root:
 
@@ -76,4 +79,4 @@ registered case against `benchmarks.json`. Changes are informational; build,
 execution and missing-measurement errors fail the workflow.
 
 `parser.bench.ts` remains a separate, manually run comparison of several
-parser implementations. Run it with `node npm/core/benches/parser.bench.ts`.
+parser implementations. Run it with `pnpm --filter @swc-next/core bench:parser`.
