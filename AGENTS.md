@@ -6,12 +6,13 @@ Run from the workspace root.
 
 The JavaScript Benchmarks PR workflow lists files relative to `npm/core/benches/`
 in its `BENCHMARK_FILES` array and compares instruction counts with CodSpeed CPU
-Simulation, without uploading to CodSpeed. Add cases using the default registration
-function and optional `prepare()` described in `npm/core/benches/README.md`.
+Simulation, without uploading to CodSpeed. Add executable benchmark files using
+`runBenchmark` from `npm/core/benches/utils.js`, as described in the adjacent README.
 After building `@swc-next/core`, run
 `pnpm --filter @swc-next/core bench:codspeed:encoder` or `bench:codspeed:decoder`
 for local Tinybench timings; `bench:parser` compares parser implementations.
-CI prepares inputs separately, uses the same harness and
+The `.bench.js` files also run directly with Node. Environment variables select
+local timings, input preparation, or CodSpeed measurement. CI uses the same harness and
 dependencies for both revisions, and measures only registered callbacks.
 
 ### Rust Development

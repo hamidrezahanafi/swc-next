@@ -28,8 +28,8 @@
   },
   "scripts": {
     "bench:parser": "node benches/parser.bench.ts",
-    "bench:codspeed:decoder": "node benches/run.mjs local decoder.bench.js",
-    "bench:codspeed:encoder": "node benches/run.mjs local encoder.bench.js",
+    "bench:codspeed:decoder": "node benches/decoder.bench.js",
+    "bench:codspeed:encoder": "node benches/encoder.bench.js",
     "build": "napi build --platform --no-js --dts binding.d.ts --output-dir src-js",
     "build:wasm": "cargo run --quiet --locked -p bridge_cli -- build core --output-dir src-js",
     "test": "node --test test/*.test.js",

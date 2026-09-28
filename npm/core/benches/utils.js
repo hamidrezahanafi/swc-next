@@ -1,7 +1,50 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { deserialize, serialize } from "node:v8";
+import { withCodSpeed } from "@codspeed/tinybench-plugin";
 import { decode, encodeOptions } from "@swc-next/decoder";
+import { Bench } from "tinybench";
+
+export async function runBenchmark(url, prepare, register) {
+  const file = relative(import.meta.dirname, fileURLToPath(url)).replaceAll(
+    "\\",
+    "/",
+  );
+  const directory = process.env.BENCHMARK_INPUT_DIR;
+  const simulation = process.env.CODSPEED_ENV !== undefined;
+  assert.ok(!simulation || directory, "CodSpeed requires BENCHMARK_INPUT_DIR");
+  const dataFile = directory && join(directory, `${file}.bin`);
+  const saved = simulation ? deserialize(await readFile(dataFile)) : undefined;
+  const data = simulation ? saved.data : await prepare();
+  let bench = new Bench({
+    name: file,
+    time: 100,
+    warmupTime: 100,
+    throws: true,
+  });
+  if (simulation) bench = withCodSpeed(bench);
+  await register(bench, data);
+  assert.ok(bench.tasks.length > 0, `${file} registered no benchmarks`);
+  const names = bench.tasks.map((task) => `${bench.name}::${task.name}`).sort();
+  assert.equal(new Set(names).size, names.length, "Duplicate benchmark names");
+  if (directory && !simulation) {
+    await mkdir(dirname(dataFile), { recursive: true });
+    await writeFile(dataFile, serialize({ data, names }));
+    return names;
+  }
+  if (simulation) {
+    assert.deepEqual(
+      names,
+      saved.names,
+      "Registered benchmarks changed after preparation",
+    );
+  }
+  await bench.run();
+  if (!simulation) console.table(bench.table());
+  return names;
+}
 
 // Force lazy nodes, arrays and strings. Traversal is part of the measurement.
 export function consume(value) {

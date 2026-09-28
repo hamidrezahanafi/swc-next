@@ -11,7 +11,7 @@ export function parseProfile(text) {
     )?.[1];
     if (!trigger || trigger.startsWith("Metadata:")) continue;
     // The plugin prefixes the URI with the file that called bench.add(). The
-    // remainder is our Bench.name (the discovered file) and the task name.
+    // remainder is our Bench.name (the benchmark file) and the task name.
     const separator = trigger.indexOf("::");
     if (separator === -1) continue;
     const name = trigger.slice(separator + 2);

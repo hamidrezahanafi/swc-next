@@ -75,24 +75,26 @@ jobs:
             .github/scripts/render-js-bench-summary.mjs \
             tasks/benchmark/files
           pnpm --filter @swc-next/core build --release -- --locked
-          node npm/core/benches/run.mjs prepare "$RUNNER_TEMP/js-bench-inputs/base"
+          export BENCHMARK_INPUT_DIR="$RUNNER_TEMP/js-bench-inputs/base"
+          node npm/core/benches/run.mjs
           mkdir -p "$RUNNER_TEMP/js-bench-results/base"
           cp "$RUNNER_TEMP/js-bench-inputs/base/benchmarks.json" "$RUNNER_TEMP/js-bench-results/base/"
           # Plugin 5.7.1 disables TurboFan; also disable Node 24's Maglev tier.
           codspeed run --mode simulation \
             --profile-folder "$RUNNER_TEMP/js-bench-results/base" -- \
-            node --no-maglev npm/core/benches/run.mjs run "$RUNNER_TEMP/js-bench-inputs/base"
+            node --no-maglev npm/core/benches/run.mjs
 
       - name: Measure merge benchmarks
         run: |
           git checkout --detach "$COMPARE_SHA"
           pnpm --filter @swc-next/core build --release -- --locked
-          node npm/core/benches/run.mjs prepare "$RUNNER_TEMP/js-bench-inputs/merge"
+          export BENCHMARK_INPUT_DIR="$RUNNER_TEMP/js-bench-inputs/merge"
+          node npm/core/benches/run.mjs
           mkdir -p "$RUNNER_TEMP/js-bench-results/merge"
           cp "$RUNNER_TEMP/js-bench-inputs/merge/benchmarks.json" "$RUNNER_TEMP/js-bench-results/merge/"
           codspeed run --mode simulation \
             --profile-folder "$RUNNER_TEMP/js-bench-results/merge" -- \
-            node --no-maglev npm/core/benches/run.mjs run "$RUNNER_TEMP/js-bench-inputs/merge"
+            node --no-maglev npm/core/benches/run.mjs
 
       - name: Render benchmark diff
         id: report

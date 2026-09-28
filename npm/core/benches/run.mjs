@@ -1,94 +1,21 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
-import { deserialize, serialize } from "node:v8";
-import { withCodSpeed } from "@codspeed/tinybench-plugin";
-import { Bench } from "tinybench";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
-const [mode = "local", ...args] = process.argv.slice(2);
-assert.ok(
-  ["local", "prepare", "run"].includes(mode),
-  "Expected local, prepare or run",
-);
-const inputDirectory = mode === "local" ? undefined : args.shift();
-assert.ok(
-  mode === "local" || inputDirectory,
-  "prepare/run requires an input directory",
-);
-const files = args.length
-  ? args
-  : JSON.parse(process.env.BENCHMARK_FILES ?? "[]");
-assert.ok(
-  Array.isArray(files) &&
-    files.length > 0 &&
-    files.every(
-      (file) => typeof file === "string" && /\.bench\.(js|ts)$/.test(file),
-    ),
-  "Pass benchmark files as arguments or set the BENCHMARK_FILES JSON array",
-);
-const directory =
-  inputDirectory ?? (await mkdtemp(join(tmpdir(), "swc-next-bench-")));
+const files = JSON.parse(process.env.BENCHMARK_FILES ?? "[]");
+assert.ok(Array.isArray(files) && files.length > 0, "Set BENCHMARK_FILES");
+const directory = process.env.BENCHMARK_INPUT_DIR;
+assert.ok(directory, "Set BENCHMARK_INPUT_DIR");
 
-async function execute(phase) {
-  const names = [];
-  for (const file of files) {
-    const module = await import(
-      pathToFileURL(join(import.meta.dirname, file)).href
-    );
-    assert.equal(
-      typeof module.default,
-      "function",
-      `${file} must export a default registration function`,
-    );
-    const dataFile = join(directory, `${file}.bin`);
-    const data =
-      phase === "prepare"
-        ? await module.prepare?.()
-        : deserialize(await readFile(dataFile));
-    if (phase === "prepare") {
-      await mkdir(dirname(dataFile), { recursive: true });
-      await writeFile(dataFile, serialize(data));
-    }
-    let bench = new Bench({
-      name: file.replaceAll("\\", "/"),
-      time: 100,
-      warmupTime: 100,
-      throws: true,
-    });
-    if (phase === "run") bench = withCodSpeed(bench);
-    await module.default(bench, data);
-    assert.ok(bench.tasks.length > 0, `${file} registered no benchmarks`);
-    names.push(...bench.tasks.map((task) => `${bench.name}::${task.name}`));
-    if (phase === "run") {
-      await bench.run();
-      if (!process.env.CODSPEED_ENV) {
-        console.log(file);
-        console.table(bench.table());
-      }
-    }
-  }
-  assert.equal(new Set(names).size, names.length, "Duplicate benchmark names");
-  const manifest = join(directory, "benchmarks.json");
-  if (phase === "prepare") {
-    await writeFile(manifest, JSON.stringify(names.sort(), null, 2) + "\n");
-  } else {
-    assert.deepEqual(
-      names.sort(),
-      JSON.parse(await readFile(manifest, "utf8")),
-      "Registered benchmarks changed after preparation",
-    );
-  }
+const names = [];
+for (const file of files) {
+  const { default: benchmarks } = await import(new URL(file, import.meta.url));
+  names.push(...benchmarks);
 }
-
-try {
-  if (mode === "local") {
-    await execute("prepare");
-    await execute("run");
-  } else {
-    await execute(mode);
-  }
-} finally {
-  if (!inputDirectory) await rm(directory, { recursive: true, force: true });
+assert.equal(new Set(names).size, names.length, "Duplicate benchmark names");
+if (process.env.CODSPEED_ENV === undefined) {
+  await writeFile(
+    join(directory, "benchmarks.json"),
+    JSON.stringify(names.sort(), null, 2) + "\n",
+  );
 }
