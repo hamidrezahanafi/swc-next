@@ -65,6 +65,7 @@
   },
   "devDependencies": {
     "@babel/parser": "catalog:",
+    "@codspeed/tinybench-plugin": "catalog:",
     "@napi-rs/cli": "catalog:",
     "@swc/core": "catalog:",
     "@types/node": "catalog:",

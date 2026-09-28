@@ -1,0 +1,147 @@
+name: JavaScript Codec Benchmarks
+
+on:
+  pull_request:
+    types: ["opened", "reopened", "synchronize"]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: codec-benchmarks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  benchmarks:
+    name: Compare encoder and decoder instructions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      RUSTUP_TOOLCHAIN: 1.97.1
+      CODSPEED_SKIP_UPLOAD: "true"
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      COMPARE_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Prepare shared build directory
+        run: echo "CARGO_TARGET_DIR=$RUNNER_TEMP/codec-target" >> "$GITHUB_ENV"
+
+      - uses: actions-rust-lang/setup-rust-toolchain@dc354b3df5a8e4db0bff5361fa176da74fcf3151 # v1
+        with:
+          toolchain: 1.97.1
+          cache-save-if: false
+          cache-key: codec-benchmarks
+          cache-workspaces: ". -> ${{ runner.temp }}/codec-target"
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.17.0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24.16.0
+          cache: pnpm
+
+      # Keep the benchmark dependencies identical for both revisions. Workspace
+      # links still resolve encoder/decoder source from the checked-out revision.
+      - run: pnpm install --frozen-lockfile
+
+      - run: node --test .github/scripts/render-codec-summary.test.mjs
+
+      - name: Install CodSpeed runner
+        run: |
+          archive="$RUNNER_TEMP/codspeed.tar.gz"
+          curl --fail --location --silent --show-error \
+            https://github.com/CodSpeedHQ/codspeed/releases/download/v5.2.1/codspeed-runner-x86_64-unknown-linux-musl.tar.gz \
+            --output "$archive"
+          echo "932016a307416fd68359a2c5b9b0a6ff822e884fb2549e2e2724b7076da0c3da  $archive" | sha256sum --check -
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/codspeed-runner-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
+
+      - name: Measure base codecs
+        run: |
+          git checkout --detach "$BASE_SHA"
+          # Use the same harness on both sides, including the PR introducing it.
+          git checkout "$COMPARE_SHA" -- \
+            .github/scripts/codec-bench.mjs \
+            .github/scripts/render-codec-summary.mjs \
+            tasks/benchmark/files/jquery-1.9.1.js \
+            tasks/benchmark/files/effect-schema-ast.ts
+          pnpm --filter @swc-next/core build --release -- --locked
+          node .github/scripts/codec-bench.mjs prepare "$RUNNER_TEMP/codec-inputs/base"
+          mkdir -p "$RUNNER_TEMP/codec-results/base"
+          # Plugin 5.7.1 disables TurboFan; also disable Node 24's Maglev tier.
+          codspeed run --mode simulation \
+            --profile-folder "$RUNNER_TEMP/codec-results/base" -- \
+            node --no-maglev .github/scripts/codec-bench.mjs run "$RUNNER_TEMP/codec-inputs/base"
+
+      - name: Measure merge codecs
+        run: |
+          git checkout --detach "$COMPARE_SHA"
+          pnpm --filter @swc-next/core build --release -- --locked
+          node .github/scripts/codec-bench.mjs prepare "$RUNNER_TEMP/codec-inputs/merge"
+          mkdir -p "$RUNNER_TEMP/codec-results/merge"
+          codspeed run --mode simulation \
+            --profile-folder "$RUNNER_TEMP/codec-results/merge" -- \
+            node --no-maglev .github/scripts/codec-bench.mjs run "$RUNNER_TEMP/codec-inputs/merge"
+
+      - name: Render codec diff
+        id: report
+        if: always() && !cancelled()
+        env:
+          MEASUREMENT_RESULT: ${{ job.status }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/codec-results"
+          report="$RUNNER_TEMP/codec-results/summary.md"
+          if [[ "$MEASUREMENT_RESULT" == success ]] && \
+            node .github/scripts/render-codec-summary.mjs \
+              "$RUNNER_TEMP/codec-results/base" \
+              "$RUNNER_TEMP/codec-results/merge" > "$report"
+          then
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '%s\n' '<!-- codec-benchmark-diff -->' \
+              '## JavaScript codec benchmark diff' '' \
+              '⚠️ Comparison unavailable. See the workflow log.' > "$report"
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Upload profiles and report
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codec-benchmarks-${{ github.event.pull_request.number }}
+          path: ${{ runner.temp }}/codec-results
+          retention-days: 90
+
+      - name: Publish codec diff to pull request
+        if: >-
+          always() && !cancelled() && steps.report.outcome != 'skipped' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.event.pull_request.user.login != 'dependabot[bot]'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          comment="$RUNNER_TEMP/codec-results/summary.md"
+          [[ -s "$comment" ]] || exit 1
+          current_head="$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq '.head.sha')"
+          [[ "$current_head" == "$PR_HEAD_SHA" ]] || exit 0
+          comment_id="$(
+            gh api --paginate --slurp "repos/$GH_REPO/issues/$PR_NUMBER/comments?per_page=100" |
+              jq -r 'flatten | map(select(.user.login == "github-actions[bot]" and (.body | contains("<!-- codec-benchmark-diff -->")))) | first | .id // empty'
+          )"
+          if [[ -n "$comment_id" ]]; then
+            gh api --method PATCH "repos/$GH_REPO/issues/comments/$comment_id" -F body=@"$comment"
+          else
+            gh api --method POST "repos/$GH_REPO/issues/$PR_NUMBER/comments" -F body=@"$comment"
+          fi
