@@ -20,6 +20,8 @@ jobs:
     env:
       RUSTUP_TOOLCHAIN: 1.97.1
       CODSPEED_SKIP_UPLOAD: "true"
+      BENCHMARK_FILES: >-
+        ["encoder.bench.js", "decoder.bench.js"]
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
       COMPARE_SHA: ${{ github.sha }}
     steps:

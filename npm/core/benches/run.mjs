@@ -1,12 +1,5 @@
 import assert from "node:assert/strict";
-import {
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -14,19 +7,27 @@ import { deserialize, serialize } from "node:v8";
 import { withCodSpeed } from "@codspeed/tinybench-plugin";
 import { Bench } from "tinybench";
 
-const [mode = "local", inputDirectory] = process.argv.slice(2);
+const [mode = "local", ...args] = process.argv.slice(2);
 assert.ok(
   ["local", "prepare", "run"].includes(mode),
   "Expected local, prepare or run",
 );
+const inputDirectory = mode === "local" ? undefined : args.shift();
 assert.ok(
   mode === "local" || inputDirectory,
   "prepare/run requires an input directory",
 );
-const files = (await readdir(import.meta.dirname, { recursive: true }))
-  .filter((file) => /\.bench\.(js|ts)$/.test(file))
-  .sort();
-assert.ok(files.length > 0, "No .bench.js or .bench.ts files found");
+const files = args.length
+  ? args
+  : JSON.parse(process.env.BENCHMARK_FILES ?? "[]");
+assert.ok(
+  Array.isArray(files) &&
+    files.length > 0 &&
+    files.every(
+      (file) => typeof file === "string" && /\.bench\.(js|ts)$/.test(file),
+    ),
+  "Pass benchmark files as arguments or set the BENCHMARK_FILES JSON array",
+);
 const directory =
   inputDirectory ?? (await mkdtemp(join(tmpdir(), "swc-next-bench-")));
 

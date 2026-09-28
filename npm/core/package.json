@@ -27,7 +27,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "bench": "node benches/run.mjs",
+    "bench": "node benches/run.mjs local",
     "build": "napi build --platform --no-js --dts binding.d.ts --output-dir src-js",
     "build:wasm": "cargo run --quiet --locked -p bridge_cli -- build core --output-dir src-js",
     "test": "node --test test/*.test.js",

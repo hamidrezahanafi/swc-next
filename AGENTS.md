@@ -4,11 +4,12 @@
 
 Run from the workspace root.
 
-The JavaScript Benchmarks PR workflow discovers `npm/core/benches/**/*.bench.js`
-and `*.bench.ts` and compares instruction counts with CodSpeed CPU Simulation,
-without uploading to CodSpeed. Add cases using the default registration function
-and optional `prepare()` described in `npm/core/benches/README.md`.
-After building `@swc-next/core`, run `pnpm --filter @swc-next/core bench` for local
+The JavaScript Benchmarks PR workflow lists files relative to `npm/core/benches/`
+in its `BENCHMARK_FILES` array and compares instruction counts with CodSpeed CPU
+Simulation, without uploading to CodSpeed. Add cases using the default registration
+function and optional `prepare()` described in `npm/core/benches/README.md`.
+After building `@swc-next/core`, run
+`pnpm --filter @swc-next/core bench encoder.bench.js decoder.bench.js` for local
 Tinybench timings. CI prepares inputs separately, uses the same harness and
 dependencies for both revisions, and measures only registered callbacks.
 

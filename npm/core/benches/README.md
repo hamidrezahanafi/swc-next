@@ -1,8 +1,16 @@
 # JavaScript benchmarks
 
-Add a `.bench.js` or `.bench.ts` file in this directory (subdirectories also work).
-The local runner and PR workflow discover it automatically. No workflow or
-reporter changes are needed when adding a file or a `bench.add()` case.
+The PR workflow explicitly selects files using `BENCHMARK_FILES` in
+`.github/workflows/js-benchmarks.yml`:
+
+```yaml
+BENCHMARK_FILES: >-
+  ["encoder.bench.js", "decoder.bench.js"]
+```
+
+To add a benchmark file, create a `.bench.js` or `.bench.ts` file in this directory
+and append its relative path to that array. To add a case to an existing file,
+add a `bench.add()` call. The reporter needs no changes.
 
 ```js
 import { encodeOptions } from "@swc-next/encoder";
@@ -38,7 +46,8 @@ Registration runs during both preparation and measurement; keep setup inside
 
 `encoder.bench.js` encodes fully materialized ASTs. `decoder.bench.js` decodes
 precomputed native parser buffers and traverses all lazy AST fields. They share
-JS, TS and Unicode inputs from `fixtures.mjs`; parsing is preparation only.
+JS, TS and Unicode inputs from `utils.js`, which also provides the AST traversal
+helper; parsing is preparation only.
 
 ## Running
 
@@ -46,12 +55,13 @@ After building the native binding:
 
 ```sh
 pnpm --filter @swc-next/core build --release
-pnpm --filter @swc-next/core bench
+pnpm --filter @swc-next/core bench encoder.bench.js decoder.bench.js
 ```
 
 To collect simulated instruction counts on Linux, from the repository root:
 
 ```sh
+export BENCHMARK_FILES='["encoder.bench.js", "decoder.bench.js"]'
 node npm/core/benches/run.mjs prepare /tmp/js-bench-inputs
 mkdir -p /tmp/js-bench-results
 cp /tmp/js-bench-inputs/benchmarks.json /tmp/js-bench-results/
@@ -65,5 +75,5 @@ fixtures. It reports instruction counts, saves raw profiles, and verifies every
 registered case against `benchmarks.json`. Changes are informational; build,
 execution and missing-measurement errors fail the workflow.
 
-`compare-parsers.ts` remains a separate, manually run comparison of several
-parser implementations. Run it with `node npm/core/benches/compare-parsers.ts`.
+`parser.bench.ts` remains a separate, manually run comparison of several
+parser implementations. Run it with `node npm/core/benches/parser.bench.ts`.

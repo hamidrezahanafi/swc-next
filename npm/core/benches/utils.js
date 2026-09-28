@@ -3,6 +3,14 @@ import { readFile } from "node:fs/promises";
 import { deserialize, serialize } from "node:v8";
 import { decode, encodeOptions } from "@swc-next/decoder";
 
+// Force lazy nodes, arrays and strings. Traversal is part of the measurement.
+export function consume(value) {
+  if (value === null || typeof value !== "object") return 0;
+  let nodes = typeof value.type === "string" ? 1 : 0;
+  for (const key of Object.keys(value)) nodes += consume(value[key]);
+  return nodes;
+}
+
 export async function prepare() {
   const { parseSync } = await import("../src-js/binding.js");
   const cases = [];
