@@ -36,8 +36,11 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Prepare shared build directory
-        run: echo "CARGO_TARGET_DIR=$RUNNER_TEMP/js-bench-target" >> "$GITHUB_ENV"
+      - name: Prepare shared directories
+        run: |
+          echo "CARGO_TARGET_DIR=$RUNNER_TEMP/js-bench-target" >> "$GITHUB_ENV"
+          # Changing input paths alone can affect instruction counts.
+          echo "BENCHMARK_INPUT_DIR=$RUNNER_TEMP/js-bench-inputs" >> "$GITHUB_ENV"
 
       - uses: actions-rust-lang/setup-rust-toolchain@dc354b3df5a8e4db0bff5361fa176da74fcf3151 # v1
         with:
@@ -78,10 +81,9 @@ jobs:
             .github/scripts/render-js-bench-summary.mjs \
             tasks/benchmark/files
           pnpm --filter @swc-next/core build --release -- --locked
-          export BENCHMARK_INPUT_DIR="$RUNNER_TEMP/js-bench-inputs/base"
           node npm/core/benches/run.mjs
           mkdir -p "$RUNNER_TEMP/js-bench-results/base"
-          cp "$RUNNER_TEMP/js-bench-inputs/base/benchmarks.json" "$RUNNER_TEMP/js-bench-results/base/"
+          cp "$BENCHMARK_INPUT_DIR/benchmarks.json" "$RUNNER_TEMP/js-bench-results/base/"
           # Plugin 5.7.1 disables TurboFan; also disable Node 24's Maglev tier.
           codspeed run --mode simulation \
             --profile-folder "$RUNNER_TEMP/js-bench-results/base" -- \
@@ -91,10 +93,9 @@ jobs:
         run: |
           git checkout --detach "$COMPARE_SHA"
           pnpm --filter @swc-next/core build --release -- --locked
-          export BENCHMARK_INPUT_DIR="$RUNNER_TEMP/js-bench-inputs/merge"
           node npm/core/benches/run.mjs
           mkdir -p "$RUNNER_TEMP/js-bench-results/merge"
-          cp "$RUNNER_TEMP/js-bench-inputs/merge/benchmarks.json" "$RUNNER_TEMP/js-bench-results/merge/"
+          cp "$BENCHMARK_INPUT_DIR/benchmarks.json" "$RUNNER_TEMP/js-bench-results/merge/"
           codspeed run --mode simulation \
             --profile-folder "$RUNNER_TEMP/js-bench-results/merge" -- \
             node --no-maglev npm/core/benches/run.mjs

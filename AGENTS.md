@@ -16,7 +16,8 @@ for local Tinybench timings; `bench:parser` compares parser implementations.
 The `.bench.js` files also run directly with Node. Environment variables select
 local timings, input preparation, or CodSpeed measurement. CI runs each benchmark
 file in a separate Node process, uses the same harness and dependencies for both
-revisions, and measures only registered callbacks.
+revisions, prepares each revision's inputs at the same path, and measures only
+registered callbacks.
 
 ### Rust Development
 
