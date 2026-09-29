@@ -1594,8 +1594,6 @@ const FAST_CLASS: [FastClass; 256] = {
     table
 };
 
-const IDENTIFIER_BATCH_SIZE: usize = 32;
-
 const NOT_ASCII_IDENTIFIER_CONTINUE: [bool; 256] = {
     let mut table = [true; 256];
     let mut byte = b'0' as usize;
@@ -1627,14 +1625,27 @@ fn scan_ascii_identifier_continue(source: &[u8], start: u32) -> u32 {
     debug_assert!((start as usize) <= source.len());
     let mut position = start as usize;
 
-    while source.len() - position >= IDENTIFIER_BATCH_SIZE {
-        let batch = &source[position..position + IDENTIFIER_BATCH_SIZE];
-        for (offset, byte) in batch.iter().enumerate() {
+    // Handle short identifiers before paying for the SIMD classification.
+    if let Some(prefix) = source[position..].first_chunk::<8>() {
+        for (offset, byte) in prefix.iter().enumerate() {
             if NOT_ASCII_IDENTIFIER_CONTINUE[*byte as usize] {
                 return (position + offset) as u32;
             }
         }
-        position += IDENTIFIER_BATCH_SIZE;
+        position += 8;
+    }
+
+    while let Some(chunk) = source[position..].first_chunk::<16>() {
+        let bytes = u8x16::from_array(*chunk);
+        let lower = bytes | u8x16::splat(0x20);
+        let alpha = (lower - u8x16::splat(b'a')).simd_lt(u8x16::splat(26));
+        let digit = (bytes - u8x16::splat(b'0')).simd_lt(u8x16::splat(10));
+        let identifier =
+            alpha | digit | bytes.simd_eq(u8x16::splat(b'_')) | bytes.simd_eq(u8x16::splat(b'$'));
+        if let Some(end) = (!identifier).first_set() {
+            return (position + end) as u32;
+        }
+        position += 16;
     }
     while position < source.len() && !NOT_ASCII_IDENTIFIER_CONTINUE[source[position] as usize] {
         position += 1;
