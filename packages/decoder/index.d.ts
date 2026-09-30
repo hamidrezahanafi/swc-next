@@ -33,3 +33,11 @@ export declare function decodeJs(buffer: Uint8Array, source: string, sourceBuffe
 
 /** Decode a TypeScript buffer produced by an SWC Next parser crate. */
 export declare function decodeTs(buffer: Uint8Array, source: string, sourceBuffer: Uint8Array): DecodeResult;
+
+/** Pack parser options for a native parser binding. */
+export declare function encodeOptions(options?: {
+  sourceType?: "module" | "script" | "commonjs" | "unambiguous" | null;
+  lang?: "js" | "ts" | "jsx" | "tsx" | "dts" | null;
+  preserveParens?: boolean | null;
+  comments?: "none" | "flat" | null;
+} | null): number;

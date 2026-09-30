@@ -15,14 +15,25 @@
     ".": {
       "import": "./index.js",
       "types": "./index.d.ts"
+    },
+    "./lazy": {
+      "types": "./lazy/index.d.ts",
+      "import": "./lazy/index.js"
     }
   },
   "files": [
     "index.d.ts",
     "index.js",
+    "options.js",
     "decode-js.js",
     "decode-ts.js",
-    "README.md"
+    "README.md",
+    "lazy/index.js",
+    "lazy/index.d.ts",
+    "lazy/lazy-common.js",
+    "lazy/node-array.js",
+    "lazy/decode-js.js",
+    "lazy/decode-ts.js"
   ],
   "publishConfig": {
     "access": "public",

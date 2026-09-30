@@ -5,7 +5,7 @@ use swc_core::{
         codegen::{Config, Emitter, text_writer::JsWriter},
         minifier::{
             optimize,
-            option::{ExtraOptions, MinifyOptions},
+            option::{CompressOptions, ExtraOptions, MangleOptions, MinifyOptions},
         },
         parser::{EsSyntax, Parser, StringInput, Syntax, lexer::Lexer},
         transforms::base::{fixer::fixer, resolver},
@@ -14,6 +14,14 @@ use swc_core::{
 };
 
 pub(super) fn minify(source: &str, filename: &str) -> String {
+    minify_source(source, filename, false)
+}
+
+pub(super) fn minify_with_class_names(source: &str, filename: &str) -> String {
+    minify_source(source, filename, true)
+}
+
+fn minify_source(source: &str, filename: &str, keep_class_names: bool) -> String {
     GLOBALS.set(&Globals::new(), || {
         let source_map = Lrc::new(SourceMap::default());
         let source_file =
@@ -44,8 +52,14 @@ pub(super) fn minify(source: &str, filename: &str) -> String {
             None,
             None,
             &MinifyOptions {
-                compress: Some(Default::default()),
-                mangle: Some(Default::default()),
+                compress: Some(CompressOptions {
+                    keep_classnames: keep_class_names,
+                    ..Default::default()
+                }),
+                mangle: Some(MangleOptions {
+                    keep_class_names,
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
             &ExtraOptions {
