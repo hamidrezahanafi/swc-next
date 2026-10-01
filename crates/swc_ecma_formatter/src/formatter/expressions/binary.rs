@@ -6,9 +6,12 @@ use swc_next_ecma_ast::{
 };
 
 use super::parentheses::SourceParentheses;
-use super::{ExpressionContext, ExpressionPosition, Formatter, HeadComments, StatementStart};
+use super::{
+    ExpressionContext, ExpressionPosition, Formatter, HeadComments, StatementStart, TailOwner,
+};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
+use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
 use crate::{FormatError, document::Writer};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -78,7 +81,7 @@ impl BinaryOperatorKind {
         )
     }
 
-    fn flattens(self, child: Self) -> bool {
+    pub(super) fn flattens(self, child: Self) -> bool {
         if self.precedence() != child.precedence() {
             return false;
         }
@@ -136,6 +139,7 @@ enum OperandBoundary<'ast> {
     Constrained {
         constraint: LineConstraint,
         inline: bool,
+        mode: ContentMode,
     },
     Comments {
         before: &'ast [Comment],
@@ -143,6 +147,7 @@ enum OperandBoundary<'ast> {
         operator_start: u32,
         right_start: u32,
         layout: OperandLayout,
+        mode: ContentMode,
     },
 }
 
@@ -236,7 +241,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             context.head_comments = HeadComments::Claimed;
         }
         let chain = self.binary_chain(binary);
-        let inline = chain.ancestors.is_empty() && self.inline_logical(binary);
+        let inline = chain.ancestors.is_empty()
+            && self.inline_logical_operand(binary.operator, binary.right);
         writer.group(false, |writer| {
             let tail = self.format_binary_head(chain.first, context.statement_start, writer)?;
             if inline {
@@ -280,6 +286,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     },
                     statement_start,
                     head_comments: HeadComments::Claimed,
+                    content_mode: self.trailing_content_mode(
+                        Span::new(
+                            first.left.span(self.ast).end,
+                            first.right.span(self.ast).start,
+                        ),
+                        BoundaryPunctuation::None,
+                        false,
+                    ),
+                    tail_owner: TailOwner::Expression,
                 },
                 writer,
             )
@@ -305,17 +320,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .chain(chain.ancestors.into_iter().rev())
             .peekable();
         while let Some(entry) = nodes.next() {
-            let parent = nodes.peek().map(|entry| entry.binary.operator).or(parent);
-            tail = self.format_binary_right(entry, parent, tail, writer)?;
+            let (parent, tail_owner) = match nodes.peek() {
+                Some(next) => (Some(next.binary.operator), TailOwner::FlattenedChain),
+                None => (parent, context.tail_owner),
+            };
+            tail = self.format_binary_right(entry, parent, tail_owner, tail, writer)?;
         }
         Ok(tail)
     }
 
-    fn inline_logical(&self, binary: BinaryLike) -> bool {
-        if !matches!(binary.operator, BinaryOperatorKind::Logical(_)) {
+    fn inline_logical_operand(&self, operator: BinaryOperatorKind, operand: Expr) -> bool {
+        if !matches!(operator, BinaryOperatorKind::Logical(_)) {
             return false;
         }
-        let right = self.expression_content(binary.right).data;
+        let right = self.expression_content(operand).data;
         matches!(right, ExprData::ArrayExpression(array) if !array.elements(self.ast).is_empty())
     }
 
@@ -323,6 +341,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         entry: ChainParent,
         mut parent: Option<BinaryOperatorKind>,
+        tail_owner: TailOwner,
         mut tail: Option<ExpressionTail<'ast>>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
@@ -333,6 +352,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         while let Some((right, boundary)) = self.binary_content(binary.right) {
             if !matches!(binary.operator, BinaryOperatorKind::Logical(_))
                 || binary.operator != right.operator
+                || self.has_suppression
+                    && self.content_mode(self.comments.in_range(Span::new(
+                        left_content_end,
+                        binary.right.span(self.ast).start,
+                    ))) == ContentMode::Verbatim
             {
                 break;
             }
@@ -343,11 +367,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 binary.operator,
                 left_content_end,
                 right.left,
-                false,
+                self.inline_logical_operand(binary.operator, right.left),
                 tail,
                 writer,
             )?;
-            self.format_binary_operand_boundary(boundary, writer)?;
+            let mode = self.format_binary_operand_boundary(boundary, writer)?;
             if let Some((left, boundary)) = self.binary_content(right.left)
                 && left.operator == binary.operator
             {
@@ -359,7 +383,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     ExpressionContext::at(ExpressionPosition::BinaryOperand {
                         operator: binary.operator,
                         side: OperandSide::Right,
-                    }),
+                    })
+                    .with_tail_owner(TailOwner::FlattenedChain),
                     head,
                     writer,
                 )?;
@@ -370,7 +395,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             } else {
                 tail = self.format_expression(
                     right.left,
-                    ExpressionContext::at(ExpressionPosition::Nested),
+                    ExpressionContext::at(ExpressionPosition::Nested)
+                        .with_content_mode(mode)
+                        .with_tail_owner(TailOwner::FlattenedChain),
                     writer,
                 )?;
                 left_content_end = right.left.span(self.ast).end;
@@ -391,19 +418,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 binary.operator,
                 left_content_end,
                 binary.right,
-                self.inline_logical(binary),
+                self.inline_logical_operand(binary.operator, binary.right),
                 tail,
                 writer,
             )?;
             let indents = boundary.indents();
             let write_argument = |writer: &mut Writer<'ast>| {
-                self.format_binary_operand_boundary(boundary, writer)?;
+                let mode = self.format_binary_operand_boundary(boundary, writer)?;
                 self.format_expression(
                     binary.right,
                     ExpressionContext::at(ExpressionPosition::BinaryOperand {
                         operator: binary.operator,
                         side: OperandSide::Right,
-                    }),
+                    })
+                    .with_content_mode(mode)
+                    .with_tail_owner(tail_owner),
                     writer,
                 )
             };
@@ -481,6 +510,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return Ok(OperandBoundary::Constrained {
                 constraint: self.line_constraint(previous, right_start),
                 inline,
+                mode: self.content_mode(after),
             });
         }
         if comments.is_empty() {
@@ -501,6 +531,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         let comments = self.comments.take(comments.len());
         let before_count = comments.partition_point(|comment| comment.span.end <= operator_start);
+        let mode = self.content_mode(&comments[before_count..]);
         let mut trailing_count = 0;
         let mut previous_end = left_end;
         for (index, comment) in comments.iter().enumerate() {
@@ -541,6 +572,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             operator_start,
             right_start,
             layout,
+            mode,
         })
     }
 
@@ -559,9 +591,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &self,
         boundary: OperandBoundary<'ast>,
         writer: &mut Writer<'ast>,
-    ) -> Result<(), FormatError> {
-        let (before, after, operator_start, right_start, layout) = match boundary {
-            OperandBoundary::Constrained { constraint, inline } => {
+    ) -> Result<ContentMode, FormatError> {
+        let (before, after, operator_start, right_start, layout, mode) = match boundary {
+            OperandBoundary::Constrained {
+                constraint,
+                inline,
+                mode,
+            } => {
                 constraint.write(writer, FlatSeparator::Space, |writer| {
                     if inline {
                         writer.space();
@@ -569,15 +605,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         writer.line();
                     }
                 });
-                return Ok(());
+                return Ok(mode);
             }
             OperandBoundary::Inline => {
                 writer.space();
-                return Ok(());
+                return Ok(ContentMode::Formatted);
             }
             OperandBoundary::Break => {
                 writer.line();
-                return Ok(());
+                return Ok(ContentMode::Formatted);
             }
             OperandBoundary::Comments {
                 before,
@@ -585,7 +621,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 operator_start,
                 right_start,
                 layout,
-            } => (before, after, operator_start, right_start, layout),
+                mode,
+            } => (before, after, operator_start, right_start, layout, mode),
         };
         match layout {
             OperandLayout::Inline => writer.space(),
@@ -599,6 +636,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if let Some(last) = after.last() {
             self.comment_gap(last.span.end, right_start, writer);
         }
-        Ok(())
+        Ok(mode)
     }
 }

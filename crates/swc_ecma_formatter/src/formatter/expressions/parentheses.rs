@@ -2,12 +2,13 @@
 
 use swc_next_ecma_ast::{Comment, Expr, ExprData, GetSpan, ParenthesizedExpression, Span};
 
-use super::{ExpressionContext, ExpressionPosition, Formatter, StatementStart};
+use super::{ExpressionContext, ExpressionPosition, Formatter, StatementStart, TailOwner};
 use crate::formatter::comments::{
     CommentBinding, CommentRunLayout, CommentSemantics, ExpressionTail,
 };
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::source::is_source_whitespace;
+use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
 use crate::{FormatError, Semicolons, document::Writer};
 
 #[derive(Clone, Copy)]
@@ -25,6 +26,7 @@ pub(super) struct ExpressionContent {
 enum RetainedParentheses {
     Cast,
     Annotation,
+    Operand,
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -36,10 +38,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 break data;
             };
             let child = parenthesized.expression(self.ast);
-            if !self.parentheses_are_removable(SourceParentheses {
-                outer: parenthesized.span(self.ast),
-                inner: child.span(self.ast),
-            }) {
+            if self
+                .expression_needs_parentheses(self.ast.expr_data(child), ExpressionPosition::Nested)
+                .is_none()
+                || !self.parentheses_are_removable(SourceParentheses {
+                    outer: parenthesized.span(self.ast),
+                    inner: child.span(self.ast),
+                })
+            {
                 break data;
             }
             inner = child;
@@ -135,6 +141,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let span = parenthesized.span(self.ast);
+        let child = parenthesized.expression(self.ast);
+        let child_span = child.span(self.ast);
+        let trailing = Span::new(child_span.end, span.end - 1);
+        let inline_mode = self.trailing_content_mode(trailing, BoundaryPunctuation::None, false);
+        if inline_mode == ContentMode::Verbatim
+            && (matches!(context.position, ExpressionPosition::Statement)
+                || context.tail_owner == TailOwner::FlattenedChain
+                || self.expression_needs_parentheses(self.ast.expr_data(child), context.position)
+                    == Some(true))
+        {
+            self.format_verbatim_expression(
+                Expr::ParenthesizedExpression(parenthesized),
+                context,
+                writer,
+            )?;
+            return Ok(None);
+        }
         if self.parenthesis_has_type_cast(span.start) {
             return self.format_retained_parentheses(
                 parenthesized,
@@ -144,21 +167,36 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             );
         }
         let content = self.expression_content(Expr::ParenthesizedExpression(parenthesized));
-        if content.expression == Expr::ParenthesizedExpression(parenthesized) {
-            let inner_span = parenthesized.expression(self.ast).span(self.ast);
-            let leading = self
-                .comments
-                .in_range(Span::new(span.start, inner_span.start));
-            let trailing = self.comments.in_range(Span::new(inner_span.end, span.end));
-            let unsupported = leading.iter().chain(trailing).any(|&comment| {
+        let head = self
+            .comments
+            .in_range(Span::new(span.start, child_span.start));
+        let tail = self.comments.in_range(trailing);
+        let terminal_mode = self.trailing_content_mode(trailing, BoundaryPunctuation::None, true);
+        let ignored_child = (context.content_mode == ContentMode::Verbatim
+            || inline_mode == ContentMode::Verbatim
+            || self.content_mode(head) == ContentMode::Verbatim
+            || terminal_mode == ContentMode::Verbatim)
+            && head.iter().chain(tail).all(|&comment| {
                 matches!(
                     self.comment_semantics(comment),
-                    CommentSemantics::Suppression
+                    CommentSemantics::Ordinary | CommentSemantics::Suppression
                 )
             });
-            if unsupported {
-                return Err(self.unsupported("semantic parentheses", parenthesized));
-            }
+        if ignored_child
+            && (self.ignored_operand_owns_operation_head(child, context.position)
+                || matches!(context.position, ExpressionPosition::UnaryArgument(_))
+                || self
+                    .expression_needs_parentheses(self.ast.expr_data(child), context.position)
+                    .is_none())
+        {
+            return self.format_retained_parentheses(
+                parenthesized,
+                context.with_content_mode(ContentMode::Verbatim),
+                RetainedParentheses::Operand,
+                writer,
+            );
+        }
+        if !ignored_child && content.expression == Expr::ParenthesizedExpression(parenthesized) {
             return self.format_retained_parentheses(
                 parenthesized,
                 context,
@@ -166,7 +204,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer,
             );
         }
-        let inner = content.expression;
+        let inner = if ignored_child {
+            child
+        } else {
+            content.expression
+        };
         let inner_span = inner.span(self.ast);
         let leading = self
             .comments
@@ -184,6 +226,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             context.statement_start,
             writer,
         )?;
+        context.content_mode = if ignored_child {
+            ContentMode::Verbatim
+        } else {
+            self.content_mode(leading)
+        };
         if matches!(context.position, ExpressionPosition::Statement)
             && let Some(last) = leading.last()
         {
@@ -191,6 +238,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let tail = self.format_expression(inner, context, writer)?;
         self.capture_expression_tail(Span::new(inner_span.end, span.end), tail)
+    }
+
+    /// A leading ignore must stay inside its source pair when removing the pair
+    /// would attach it to the enclosing operation's lexical head instead.
+    fn ignored_operand_owns_operation_head(
+        &self,
+        expression: Expr,
+        position: ExpressionPosition,
+    ) -> bool {
+        match position {
+            ExpressionPosition::BinaryOperand {
+                operator,
+                side: super::binary::OperandSide::Left,
+            } => super::binary::BinaryLike::from_data(self.ast.expr_data(expression), self.ast)
+                .is_none_or(|child| !operator.flattens(child.operator)),
+            _ => false,
+        }
     }
 
     fn format_retained_parentheses(
@@ -224,7 +288,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     self.line_breaks(inner_span.end, comment.span.start) != 0
                 }));
         let leading_layout = match kind {
-            RetainedParentheses::Cast => CommentRunLayout::GroupedLeading(inner_span.start),
+            RetainedParentheses::Cast | RetainedParentheses::Operand => {
+                CommentRunLayout::GroupedLeading(inner_span.start)
+            }
             RetainedParentheses::Annotation => CommentRunLayout::FlatLeading(inner_span.start),
         };
         if context.statement_start != StatementStart::None
@@ -245,7 +311,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.format_comment_run(leading, leading_layout, writer)?;
             let tail = self.format_expression(
                 content.expression,
-                ExpressionContext::at(ExpressionPosition::Nested),
+                ExpressionContext::at(ExpressionPosition::Nested).with_content_mode(
+                    if context.content_mode == ContentMode::Verbatim {
+                        context.content_mode
+                    } else {
+                        self.content_mode(leading)
+                    },
+                ),
                 writer,
             )?;
             let tail = self.capture_expression_tail(Span::new(inner_span.end, span.end), tail)?;

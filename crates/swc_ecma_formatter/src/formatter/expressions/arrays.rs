@@ -7,6 +7,7 @@ use swc_next_ecma_ast::{
 use super::Formatter;
 use crate::formatter::comments::CommentRunLayout;
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
+use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
 use crate::{FormatError, TrailingCommas, document::Writer};
 
 struct ArrayItem {
@@ -86,6 +87,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let elements = array.elements(self.ast);
         let span = array.span(self.ast);
         let content_span = Span::new(span.start + 1, span.end - 1);
+        if self.has_suppression
+            && elements
+                .iter()
+                .all(|id| self.ast.get_node_in_sub_range(id).is_none())
+            && self.content_mode(self.comments.in_range(content_span)) == ContentMode::Verbatim
+        {
+            return self.format_verbatim(span, writer);
+        }
         if elements.is_empty() && self.comments.between(content_span)?.is_empty() {
             writer.text("[]");
             return Ok(());
@@ -277,11 +286,24 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .comments
             .between(Span::new(span.start, argument_span.start))?;
         let leading = self.comments.take(leading.len());
+        let leading_mode = self.content_mode(leading);
+        let mode = if leading_mode == ContentMode::Verbatim || !self.has_suppression {
+            leading_mode
+        } else {
+            self.trailing_content_mode(
+                Span::new(
+                    argument_span.end,
+                    following_argument.map_or(span.end, |node| node.span(ast).start),
+                ),
+                BoundaryPunctuation::Comma,
+                following_argument.is_none(),
+            )
+        };
         self.format_comment_run(leading, CommentRunLayout::Source, writer)?;
         if let Some(last) = leading.last() {
             self.comment_gap(last.span.end, argument_span.start, writer);
         }
-        let tail = self.format_argument(argument, writer)?;
+        let tail = self.format_argument(argument, mode, writer)?;
         let content_end = tail
             .as_ref()
             .map_or(argument_span.end, |tail| tail.source_end);

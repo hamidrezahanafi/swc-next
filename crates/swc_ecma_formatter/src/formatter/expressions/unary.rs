@@ -8,6 +8,7 @@ use swc_next_ecma_ast::{
 use super::{ExpressionContext, ExpressionPosition, Formatter};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::FlatSeparator;
+use crate::formatter::suppression::ContentMode;
 use crate::{FormatError, document::Writer};
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -24,7 +25,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         ) {
             writer.space();
         }
-        let argument = self.expression_content(unary.argument(self.ast)).expression;
+        let content = self.expression_content(unary.argument(self.ast));
+        let argument = content.expression;
         let span = unary.span(self.ast);
         let argument_span = argument.span(self.ast);
         let leading = self.comments.between(Span::new(
@@ -34,6 +36,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let trailing = self
             .comments
             .in_range(Span::new(argument_span.end, span.end));
+        let mode = self.content_mode(leading);
+        let leading_end = match content.parentheses {
+            Some(boundary)
+                if mode == ContentMode::Verbatim
+                    && leading
+                        .last()
+                        .is_some_and(|comment| comment.span.end <= boundary.outer.start) =>
+            {
+                boundary.outer.start
+            }
+            _ => argument_span.start,
+        };
         let position = ExpressionPosition::UnaryArgument(operator);
         if self.diagnostic_range_is_sensitive(span) {
             let operator_end = span.start + operator.as_str().len() as u32;
@@ -49,7 +63,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             };
             self.line_constraint(previous, argument_span.start)
                 .write(writer, flat, |_| {});
-            let tail = self.format_expression(argument, ExpressionContext::at(position), writer)?;
+            let tail = self.format_expression(
+                argument,
+                ExpressionContext::at(position).with_content_mode(mode),
+                writer,
+            )?;
             return self.capture_expression_tail(Span::new(argument_span.end, span.end), tail);
         }
         if leading.is_empty() && trailing.is_empty() {
@@ -63,12 +81,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.comments.claim(leading)?;
                 self.format_comment_run(
                     leading,
-                    CommentRunLayout::GroupedLeading(argument_span.start),
+                    CommentRunLayout::GroupedLeading(leading_end),
                     writer,
                 )?;
                 let tail = self.format_expression(
                     argument,
-                    ExpressionContext::at(ExpressionPosition::ParenthesizedUnaryArgument(operator)),
+                    ExpressionContext::at(ExpressionPosition::ParenthesizedUnaryArgument(operator))
+                        .with_content_mode(mode),
                     writer,
                 )?;
                 self.format_expression_tail(tail, writer)?;
@@ -111,13 +130,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let comments = self
                 .comments
                 .between(Span::new(span.start + 2, target_span.start))?;
+            let mode = self.content_mode(comments);
             let comments = self.comments.take(comments.len());
             self.format_comment_run(
                 comments,
                 CommentRunLayout::Leading(target_span.start),
                 writer,
             )?;
-            writer.text(self.ast.get_utf8(identifier.name(self.ast)));
+            if mode == ContentMode::Verbatim {
+                self.format_verbatim(target_span, writer)?;
+            } else {
+                writer.text(self.ast.get_utf8(identifier.name(self.ast)));
+            }
             self.capture_expression_tail(Span::new(target_span.end, span.end), None)
         } else {
             let leading = self
@@ -129,8 +153,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 CommentRunLayout::Leading(target_span.start),
                 writer,
             )?;
-            writer.text(self.ast.get_utf8(identifier.name(self.ast)));
             let boundary = Span::new(target_span.end, span.end - 2);
+            let mode = self.content_mode(self.comments.in_range(boundary));
+            if mode == ContentMode::Verbatim || self.content_mode(leading) == ContentMode::Verbatim
+            {
+                self.format_verbatim(target_span, writer)?;
+            } else {
+                writer.text(self.ast.get_utf8(identifier.name(self.ast)));
+            }
             let comments = self.comments.between(boundary)?;
             let count = comments
                 .iter()

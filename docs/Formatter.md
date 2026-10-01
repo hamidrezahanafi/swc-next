@@ -65,6 +65,8 @@ unknown source-bound binding are distinct facts.
 Diagnostic directives retain their source line relationships. Their same-line
 and newline constraints take precedence over optional width-dependent breaks.
 
+Verbatim content retains its selected owner's source interval.
+
 A child can return a borrowed pending comment tail when its parent owns the
 following punctuation or layout scope. The cursor remains at that run until
 the owning boundary claims it.

@@ -7,6 +7,7 @@ use super::comments::{CommentRunLayout, ExpressionTail};
 use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::{ExpressionContext, ExpressionPosition, StatementStart};
 use super::literals::StringContext;
+use super::suppression::{BoundaryPunctuation, ContentMode};
 use crate::{FormatError, Semicolons, document::Writer};
 
 pub(super) enum StatementSequenceKind {
@@ -80,6 +81,29 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 previous.map_or(span.start, StatementBoundary::end),
                 statement_span.start,
             ))?;
+            let leading_mode = self.content_mode(leading);
+            let following = statements.peek().map(|next| next.span(self.ast).start);
+            let mode = if leading_mode == ContentMode::Verbatim || !self.has_suppression {
+                leading_mode
+            } else {
+                let content_end = match statement {
+                    StatementItem::Directive(directive) => directive.expression(ast).span(ast).end,
+                    StatementItem::Statement(node) => match ast.stmt_data(node) {
+                        StmtData::ExpressionStatement(expression) => {
+                            expression.expression(ast).span(ast).end
+                        }
+                        StmtData::DebuggerStatement(_) => {
+                            statement_span.start + "debugger".len() as u32
+                        }
+                        _ => statement_span.end,
+                    },
+                };
+                self.trailing_content_mode(
+                    Span::new(content_end, following.unwrap_or(span.end)),
+                    BoundaryPunctuation::Semicolon,
+                    following.is_none(),
+                )
+            };
             let leading = self.comments.take(leading.len());
             let mut statement_start = StatementStart::Pending;
             if let Some(boundary) = previous {
@@ -116,14 +140,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let boundary = match statement {
                 StatementItem::Directive(directive) => {
                     let expression = directive.expression(ast);
-                    self.format_string_literal(expression, StringContext::Directive, writer);
+                    if mode == ContentMode::Verbatim {
+                        self.format_verbatim(expression.span(ast), writer)?;
+                    } else {
+                        self.format_string_literal(expression, StringContext::Directive, writer);
+                    }
                     self.finish_statement(statement_span, expression.span(ast).end, None, writer)?
                 }
                 StatementItem::Statement(statement) => {
-                    self.format_statement(statement, start, writer)?
+                    self.format_statement(statement, start, mode, writer)?
                 }
             };
-            let following = statements.peek().map(|next| next.span(self.ast).start);
             let end = self.format_trailing_comments(
                 Span::new(boundary.end(), following.unwrap_or(span.end)),
                 following.is_some(),
@@ -170,6 +197,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         statement: Stmt,
         start: StatementStart,
+        mode: ContentMode,
         writer: &mut Writer<'ast>,
     ) -> Result<StatementBoundary, FormatError> {
         let (content_end, tail) = match self.ast.stmt_data(statement) {
@@ -178,7 +206,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let tail = self.format_expression(
                     expression,
                     ExpressionContext::at(ExpressionPosition::Statement)
-                        .with_statement_start(start),
+                        .with_statement_start(start)
+                        .with_content_mode(mode),
                     writer,
                 )?;
                 (expression.span(self.ast).end, tail)
@@ -188,8 +217,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 (node.span(self.ast).start + "debugger".len() as u32, None)
             }
             StmtData::BlockStatement(block) => {
-                self.format_block(block, writer)?;
+                if mode == ContentMode::Verbatim {
+                    self.format_verbatim(block.span(self.ast), writer)?;
+                } else {
+                    self.format_block(block, writer)?;
+                }
                 return Ok(StatementBoundary::SourceEnd(block.span(self.ast).end));
+            }
+            _ if mode == ContentMode::Verbatim => {
+                let span = statement.span(self.ast);
+                self.format_verbatim(span, writer)?;
+                return Ok(StatementBoundary::SourceEnd(span.end));
             }
             _ => return Err(self.unsupported("statement", statement)),
         };

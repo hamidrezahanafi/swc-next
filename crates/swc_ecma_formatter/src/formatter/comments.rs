@@ -182,11 +182,7 @@ impl<'ast> CommentCursor<'ast> {
 impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn comment_semantics(&self, comment: Comment) -> CommentSemantics {
         let raw = self.source(comment.span);
-        let value = self
-            .ast
-            .get_utf8(comment.value(self.ast.source().as_bytes()))
-            .trim();
-        if value == "prettier-ignore" {
+        if super::suppression::is_suppression_comment(self.ast, comment) {
             return CommentSemantics::Suppression;
         }
         if self.comment_is_diagnostic_directive(comment) {
@@ -271,20 +267,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(())
     }
 
-    fn check_suppression(&self, comment: Comment) -> Result<(), FormatError> {
-        if self
-            .ast
-            .get_utf8(comment.value(self.ast.source().as_bytes()))
-            .trim()
-            == "prettier-ignore"
-        {
-            return Err(FormatError::unsupported("suppression", None, comment.span));
-        }
-        Ok(())
-    }
-
     fn prepare_comment(&self, comment: Comment) -> Result<PreparedComment<'ast>, FormatError> {
-        self.check_suppression(comment)?;
         let source = self.source(comment.span);
         let (first, rest) = split_line(source);
         let text = match rest {

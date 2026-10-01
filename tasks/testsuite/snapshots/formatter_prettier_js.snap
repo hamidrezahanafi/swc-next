@@ -3,13 +3,13 @@ formatter * prettier 3.9.9 * js
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 794
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 47/1070 (4.39%)
-Snapshot matched: 47/1070
-AST parity: 47/47
-AST mismatched: 0/47
+Passed: 50/1070 (4.67%)
+Snapshot matched: 50/1070
+AST parity: 50/50
+AST mismatched: 0/50
 AST format errors: 0/1070
 Mismatched: 0/1070
-Format errors: 1022/1070
+Format errors: 1019/1070
 Panicked: 0/1070
 Not idempotent: 0/1070
 Ignored files: 298
@@ -592,7 +592,6 @@ Unsupported option sets: 19
 - js/no-semi/blank-lines.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/no-semi/class.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/no-semi/comments.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
-- js/no-semi/debugger-statement.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/no-semi/do-while-statement.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/no-semi/for-in-statement.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/no-semi/for-of-statement.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
@@ -661,7 +660,6 @@ Unsupported option sets: 19
 - js/sequence-break/break.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/sequence-expression/export-default.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/sequence-expression/expression.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/sequence-expression/ignore.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/sequence-expression/ignored.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/sequence-expression/no-semi/expression.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/sequence-expression/parenthesized-trailing-comment-unstable.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent

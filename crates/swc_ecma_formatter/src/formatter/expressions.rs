@@ -11,6 +11,7 @@ use swc_next_ecma_ast::{
 
 use self::binary::{BinaryLike, BinaryOperatorKind, OperandSide};
 use super::literals::StringContext;
+use super::suppression::ContentMode;
 use super::{
     Formatter,
     comments::{CommentRunLayout, ExpressionTail},
@@ -43,11 +44,20 @@ pub(super) enum HeadComments {
     Claimed,
 }
 
+/// Intermediate operands share their trailing comment owner with the flattened chain.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum TailOwner {
+    Expression,
+    FlattenedChain,
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct ExpressionContext {
     position: ExpressionPosition,
     statement_start: StatementStart,
     head_comments: HeadComments,
+    content_mode: ContentMode,
+    tail_owner: TailOwner,
 }
 
 impl ExpressionContext {
@@ -60,11 +70,23 @@ impl ExpressionContext {
                 StatementStart::None
             },
             head_comments: HeadComments::Pending,
+            content_mode: ContentMode::Formatted,
+            tail_owner: TailOwner::Expression,
         }
     }
 
     pub(super) fn with_statement_start(mut self, start: StatementStart) -> Self {
         self.statement_start = start;
+        self
+    }
+
+    pub(super) fn with_content_mode(mut self, mode: ContentMode) -> Self {
+        self.content_mode = mode;
+        self
+    }
+
+    fn with_tail_owner(mut self, owner: TailOwner) -> Self {
+        self.tail_owner = owner;
         self
     }
 }
@@ -77,6 +99,31 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let span = expression.span(self.ast);
+        if context.content_mode == ContentMode::Verbatim {
+            if let ExprData::ParenthesizedExpression(parenthesized) = self.ast.expr_data(expression)
+                && !matches!(context.position, ExpressionPosition::Statement)
+            {
+                let child = parenthesized.expression(self.ast);
+                let child_span = child.span(self.ast);
+                let boundary = parentheses::SourceParentheses {
+                    outer: span,
+                    inner: child_span,
+                };
+                if self.parentheses_are_removable(boundary)
+                    && self
+                        .expression_needs_parentheses(self.ast.expr_data(child), context.position)
+                        == Some(false)
+                {
+                    return self.format_source_parentheses(
+                        parenthesized,
+                        context.with_content_mode(ContentMode::Verbatim),
+                        writer,
+                    );
+                }
+            }
+            self.format_verbatim_expression(expression, context, writer)?;
+            return Ok(None);
+        }
         if self.diagnostic_line_is_sensitive(span.start)
             && self.line_breaks(span.start, span.end) == 0
         {
@@ -84,6 +131,35 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             self.format_expression_content(expression, context, writer)
         }
+    }
+
+    fn format_verbatim_expression(
+        &mut self,
+        expression: Expr,
+        context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        let data = self.ast.expr_data(expression);
+        let span = expression.span(self.ast);
+        let source = self.source(span);
+        let parenthesize = self.expression_needs_parentheses(data, context.position) == Some(true);
+        let starts_update = matches!(data, ExprData::UpdateExpression(update) if update.prefix(self.ast))
+            && (source.starts_with("++") || source.starts_with("--"));
+        if self.options.semicolons == Semicolons::AsNeeded
+            && context.statement_start != StatementStart::None
+            && (parenthesize
+                || !starts_update && source.starts_with(['(', '[', '/', '+', '-', '`']))
+        {
+            writer.text(";");
+        }
+        if parenthesize {
+            writer.text("(");
+        }
+        self.format_verbatim(span, writer)?;
+        if parenthesize {
+            writer.text(")");
+        }
+        Ok(())
     }
 
     fn format_expression_content(
@@ -97,7 +173,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return self.format_source_parentheses(parenthesized, context, writer);
         }
         let binary = BinaryLike::from_data(data, self.ast);
-        let parenthesize = self.expression_needs_parentheses(data, context.position);
+        let parenthesize = self.expression_needs_parentheses(data, context.position) == Some(true);
         if self.options.semicolons != Semicolons::AsNeeded {
             context.statement_start = StatementStart::None;
         }
@@ -119,7 +195,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         operator: binary.operator,
                         side: OperandSide::Left,
                     },
-                );
+                ) == Some(true);
             }
             if asi_guard {
                 context.statement_start = StatementStart::Guard;
@@ -199,8 +275,30 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(tail)
     }
 
-    fn expression_needs_parentheses(&self, data: ExprData, position: ExpressionPosition) -> bool {
-        match (position, data) {
+    /// Unknown grammar keeps source parentheses until its formatting rules are implemented.
+    fn expression_needs_parentheses(
+        &self,
+        data: ExprData,
+        position: ExpressionPosition,
+    ) -> Option<bool> {
+        match data {
+            ExprData::SequenceExpression(_) => return Some(true),
+            ExprData::IdentifierReference(_)
+            | ExprData::StringLiteral(_)
+            | ExprData::BooleanLiteral(_)
+            | ExprData::NullLiteral(_)
+            | ExprData::NumericLiteral(_)
+            | ExprData::BigIntLiteral(_)
+            | ExprData::RegExpLiteral(_)
+            | ExprData::ArrayExpression(_)
+            | ExprData::UnaryExpression(_)
+            | ExprData::UpdateExpression(_)
+            | ExprData::BinaryExpression(_)
+            | ExprData::LogicalExpression(_)
+            | ExprData::ParenthesizedExpression(_) => {}
+            _ => return None,
+        }
+        Some(match (position, data) {
             (
                 ExpressionPosition::UnaryArgument(parent)
                 | ExpressionPosition::ParenthesizedUnaryArgument(parent),
@@ -247,21 +345,26 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             (ExpressionPosition::Statement, ExprData::StringLiteral(_)) => true,
             _ => false,
-        }
+        })
     }
 
     fn format_argument(
         &mut self,
         argument: Argument,
+        mode: ContentMode,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         match self.ast.argument_data(argument) {
             ArgumentData::Expr(expression) => self.format_expression(
                 expression,
-                ExpressionContext::at(ExpressionPosition::Nested),
+                ExpressionContext::at(ExpressionPosition::Nested).with_content_mode(mode),
                 writer,
             ),
             ArgumentData::SpreadElement(spread) => {
+                if mode == ContentMode::Verbatim {
+                    self.format_verbatim(spread.span(self.ast), writer)?;
+                    return Ok(None);
+                }
                 let argument = spread.argument(self.ast);
                 writer.text("...");
                 let comments = self.comments.between(Span::new(
@@ -269,13 +372,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     argument.span(self.ast).start,
                 ))?;
                 let comments = self.comments.take(comments.len());
+                let mode = self.content_mode(comments);
                 self.format_comment_run(comments, CommentRunLayout::Source, writer)?;
                 if let Some(last) = comments.last() {
                     self.comment_gap(last.span.end, argument.span(self.ast).start, writer);
                 }
                 self.format_expression(
                     argument,
-                    ExpressionContext::at(ExpressionPosition::SpreadArgument),
+                    ExpressionContext::at(ExpressionPosition::SpreadArgument)
+                        .with_content_mode(mode),
                     writer,
                 )
             }
