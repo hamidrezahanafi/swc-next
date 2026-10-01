@@ -24,10 +24,19 @@ enum FormatElement<'a> {
     LiteralLine,
     IfBreak(Text<'a>),
     LineSuffix(Text<'a>),
-    StartGroup { expand: bool },
+    StartGroup {
+        expand: bool,
+    },
     EndGroup,
     StartIndent,
     EndIndent,
+    StartFill,
+    EndFill,
+    /// Distance from this opening instruction to its matching EndEntry.
+    StartEntry {
+        end_offset: usize,
+    },
+    EndEntry,
 }
 
 pub(crate) struct Doc<'a> {

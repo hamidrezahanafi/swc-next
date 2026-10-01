@@ -2832,6 +2832,7 @@ dependencies = [
  "swc_next_ecma_ast",
  "swc_next_ecma_parser",
  "unicode-width",
+ "zmij_ecma",
 ]
 
 [[package]]

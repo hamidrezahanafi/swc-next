@@ -46,6 +46,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.text("null");
                 Ok(())
             }
+            ExprData::NumericLiteral(literal) => {
+                self.format_numeric_literal(literal, writer);
+                Ok(())
+            }
+            ExprData::BigIntLiteral(literal) => {
+                self.format_bigint_literal(literal, writer);
+                Ok(())
+            }
             ExprData::RegExpLiteral(literal) => {
                 self.format_regexp_literal(literal, writer);
                 Ok(())

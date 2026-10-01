@@ -36,6 +36,15 @@ impl<'a> Writer<'a> {
         self.elements.push(FormatElement::Text(Text::new(text)));
     }
 
+    /// Copies transient text into storage owned by this formatting call.
+    pub(crate) fn text_copied(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        let text = self.allocator.alloc_str(text);
+        self.elements.push(FormatElement::Text(Text::new(text)));
+    }
+
     pub(crate) fn hard_line(&mut self) {
         self.elements.push(FormatElement::HardLine);
         self.breaks += 1;
@@ -92,6 +101,25 @@ impl<'a> Writer<'a> {
         self.elements.push(FormatElement::StartIndent);
         let result = write(self);
         self.elements.push(FormatElement::EndIndent);
+        result
+    }
+
+    pub(crate) fn fill<T>(&mut self, write: impl FnOnce(&mut Self) -> T) -> T {
+        self.elements.push(FormatElement::StartFill);
+        let result = write(self);
+        self.elements.push(FormatElement::EndFill);
+        result
+    }
+
+    /// Fill entries alternate between content and its following separator.
+    pub(crate) fn fill_entry<T>(&mut self, write: impl FnOnce(&mut Self) -> T) -> T {
+        let start = self.elements.len();
+        self.elements
+            .push(FormatElement::StartEntry { end_offset: 0 });
+        let result = write(self);
+        let end_offset = self.elements.len() - start;
+        self.elements[start] = FormatElement::StartEntry { end_offset };
+        self.elements.push(FormatElement::EndEntry);
         result
     }
 

@@ -46,6 +46,7 @@ Doc construction owns flat instruction buffers. Finishing construction transfers
 the completed instructions to an immutable document.
 
 Group and indentation scopes form a paired layout protocol.
+Fill entry bounds are relative to the entry.
 
 Fit probes use the available width and remaining document without committing
 tentative state to printing. Only the selected layout affects output,

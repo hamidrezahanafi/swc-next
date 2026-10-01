@@ -82,6 +82,77 @@ fn nested_group_document(width: u16) -> String {
     })
 }
 
+fn fill_document(parts: &[&str], width: u16) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    writer.group(false, |writer| {
+        writer.text("[");
+        writer.indent(|writer| {
+            writer.soft_line();
+            writer.fill(|writer| {
+                let mut parts = parts.iter().peekable();
+                let mut first = true;
+                while let Some(part) = parts.next() {
+                    if !first {
+                        writer.fill_entry(|writer| writer.line());
+                    }
+                    writer.fill_entry(|writer| {
+                        writer.text(*part);
+                        if parts.peek().is_some() {
+                            writer.text(",");
+                        } else {
+                            writer.if_break(",");
+                        }
+                    });
+                    first = false;
+                }
+            });
+        });
+        writer.soft_line();
+        writer.text("]");
+    });
+    writer.text(";");
+    writer.finish().print(FormatOptions {
+        line_width: width,
+        ..FormatOptions::prettier()
+    })
+}
+
+fn grouped_fill_document(width: u16) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    writer.group(false, |writer| {
+        writer.text("[");
+        writer.indent(|writer| {
+            writer.soft_line();
+            writer.fill(|writer| {
+                writer.fill_entry(|writer| {
+                    writer.group(false, |writer| {
+                        writer.text("[a");
+                        writer.line();
+                        writer.text("b]");
+                    });
+                    writer.text(",");
+                });
+                writer.fill_entry(|writer| writer.line());
+                writer.fill_entry(|writer| writer.text("x,"));
+                writer.fill_entry(|writer| writer.line());
+                writer.fill_entry(|writer| {
+                    writer.text("y");
+                    writer.if_break(",");
+                });
+            });
+        });
+        writer.soft_line();
+        writer.text("]");
+    });
+    writer.text(";");
+    writer.finish().print(FormatOptions {
+        line_width: width,
+        ..FormatOptions::prettier()
+    })
+}
+
 #[test]
 fn text_fragments() {
     let allocator = Allocator::new();
@@ -309,4 +380,33 @@ fn display_columns() {
     assert_eq!(pair_document("é", "a", 7), "[é, a];");
 
     assert_eq!(pair_document("é", "a", 6), "[\n  é,\n  a,\n];");
+}
+
+#[test]
+fn fill_layout() {
+    assert_eq!(
+        fill_document(&["1", "2", "3", "4", "5", "6"], 20),
+        "[1, 2, 3, 4, 5, 6];"
+    );
+
+    assert_eq!(
+        fill_document(&["1", "2", "3", "4", "5", "6"], 10),
+        "[\n  1, 2, 3,\n  4, 5, 6,\n];"
+    );
+
+    assert_eq!(
+        fill_document(&["1", "2", "3", "4", "5", "6"], 8),
+        "[\n  1, 2,\n  3, 4,\n  5, 6,\n];"
+    );
+
+    assert_eq!(
+        fill_document(&["long_element", "2", "3"], 10),
+        "[\n  long_element,\n  2, 3,\n];"
+    );
+
+    assert_eq!(grouped_fill_document(20), "[[a b], x, y];");
+
+    assert_eq!(grouped_fill_document(10), "[\n  [a b],\n  x, y,\n];");
+
+    assert_eq!(grouped_fill_document(7), "[\n  [a\n  b],\n  x, y,\n];");
 }

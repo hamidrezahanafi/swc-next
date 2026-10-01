@@ -9,6 +9,23 @@ enum Mode {
     Break,
 }
 
+#[derive(Clone, Copy)]
+enum ProbeKind {
+    Group,
+    Fill,
+}
+
+struct FillState {
+    flat: bool,
+    separator: bool,
+    separator_mode: Mode,
+}
+
+struct GroupState {
+    mode: Mode,
+    restore_mode: Mode,
+}
+
 struct Output {
     text: String,
     column: usize,
@@ -26,9 +43,11 @@ pub(super) fn print(elements: &[FormatElement<'_>], options: FormatOptions) -> S
     let mut suffixes = Vec::new();
     let mut indent = 0_usize;
     let mut modes = Vec::new();
+    let mut mode = Mode::Break;
     let mut probe = Vec::new();
+    let mut fills = Vec::new();
+    let mut entries = Vec::new();
     for (index, element) in elements.iter().enumerate() {
-        let mode = modes.last().copied().unwrap_or(Mode::Break);
         match *element {
             FormatElement::Text(text) => output.write(text, options),
             FormatElement::Space => output.pending_space = true,
@@ -45,8 +64,14 @@ pub(super) fn print(elements: &[FormatElement<'_>], options: FormatOptions) -> S
                 flush_suffixes(&mut suffixes, &mut output, options);
                 output.line(0, options);
             }
-            FormatElement::IfBreak(text) if mode == Mode::Break => output.write(text, options),
-            FormatElement::IfBreak(_) => {}
+            FormatElement::IfBreak(text) => {
+                if modes
+                    .last()
+                    .is_none_or(|group: &GroupState| group.mode == Mode::Break)
+                {
+                    output.write(text, options);
+                }
+            }
             FormatElement::LineSuffix(text) => suffixes.push(text),
             FormatElement::StartGroup { expand } => {
                 let flat = !expand
@@ -58,11 +83,20 @@ pub(super) fn print(elements: &[FormatElement<'_>], options: FormatOptions) -> S
                             output.column,
                             output.pending_space,
                             options,
+                            ProbeKind::Group,
                         ));
-                modes.push(if flat { Mode::Flat } else { Mode::Break });
+                let group_mode = if flat { Mode::Flat } else { Mode::Break };
+                modes.push(GroupState {
+                    mode: group_mode,
+                    restore_mode: mode,
+                });
+                mode = group_mode;
             }
             FormatElement::EndGroup => {
-                modes.pop().expect("group scopes must close after opening");
+                mode = modes
+                    .pop()
+                    .expect("group scopes must close after opening")
+                    .restore_mode;
             }
             FormatElement::StartIndent => indent += 1,
             FormatElement::EndIndent => {
@@ -70,11 +104,86 @@ pub(super) fn print(elements: &[FormatElement<'_>], options: FormatOptions) -> S
                     .checked_sub(1)
                     .expect("indent scopes must close after opening");
             }
+            FormatElement::StartFill => fills.push(FillState {
+                flat: mode == Mode::Flat,
+                separator: false,
+                separator_mode: Mode::Flat,
+            }),
+            FormatElement::EndFill => {
+                fills.pop().expect("fill scopes must close after opening");
+            }
+            FormatElement::StartEntry { end_offset } => {
+                let end = index + end_offset;
+                let fill = fills.last_mut().expect("entries belong to an active fill");
+                let entry_mode = if fill.separator {
+                    fill.separator = false;
+                    fill.separator_mode
+                } else {
+                    fill.separator = true;
+                    if fill.flat {
+                        Mode::Flat
+                    } else {
+                        let separator_start = end + 1;
+                        let next_end = match elements.get(separator_start) {
+                            Some(FormatElement::StartEntry { end_offset }) => {
+                                let separator_end = separator_start + end_offset;
+                                let content_start = separator_end + 1;
+                                match elements.get(content_start) {
+                                    Some(FormatElement::StartEntry { end_offset }) => {
+                                        content_start + end_offset
+                                    }
+                                    _ => separator_end,
+                                }
+                            }
+                            _ => end,
+                        };
+                        let pair_fits = fits(
+                            &elements[index + 1..next_end],
+                            &modes,
+                            &mut probe,
+                            output.column,
+                            output.pending_space,
+                            options,
+                            ProbeKind::Fill,
+                        );
+                        if pair_fits {
+                            fill.separator_mode = Mode::Flat;
+                            Mode::Flat
+                        } else {
+                            fill.separator_mode = Mode::Break;
+                            if next_end != end
+                                && fits(
+                                    &elements[index + 1..end],
+                                    &modes,
+                                    &mut probe,
+                                    output.column,
+                                    output.pending_space,
+                                    options,
+                                    ProbeKind::Fill,
+                                )
+                            {
+                                Mode::Flat
+                            } else {
+                                Mode::Break
+                            }
+                        }
+                    }
+                };
+                entries.push(mode);
+                mode = entry_mode;
+            }
+            FormatElement::EndEntry => {
+                mode = entries
+                    .pop()
+                    .expect("fill entries must close after opening");
+            }
         }
     }
     flush_suffixes(&mut suffixes, &mut output, options);
     debug_assert_eq!(indent, 0, "document must close every indent scope");
     debug_assert!(modes.is_empty(), "document must close every group scope");
+    debug_assert!(fills.is_empty(), "document must close every fill scope");
+    debug_assert!(entries.is_empty(), "document must close every fill entry");
     output.text
 }
 
@@ -115,35 +224,42 @@ fn flush_suffixes(suffixes: &mut Vec<Text<'_>>, output: &mut Output, options: Fo
 
 fn fits(
     elements: &[FormatElement<'_>],
-    parents: &[Mode],
+    parents: &[GroupState],
     modes: &mut Vec<Mode>,
     mut column: usize,
     mut pending_space: bool,
     options: FormatOptions,
+    kind: ProbeKind,
 ) -> bool {
     modes.clear();
-    modes.push(Mode::Flat);
+    if matches!(kind, ProbeKind::Group) {
+        modes.push(Mode::Flat);
+    }
     let mut parent_len = parents.len();
+    let mut mode = Mode::Flat;
     for element in elements {
         if column > usize::from(options.line_width) {
             return false;
         }
-        let mode = modes
-            .last()
-            .or_else(|| parents[..parent_len].last())
-            .copied()
-            .unwrap_or(Mode::Break);
         match *element {
             FormatElement::Text(text) | FormatElement::IfBreak(text) => {
-                if matches!(element, FormatElement::Text(_)) || mode == Mode::Break {
-                    column += usize::from(pending_space);
-                    pending_space = false;
-                    let (next_column, multiline) =
-                        text.first_line(column, options.indent_width.value());
-                    column = next_column;
-                    if multiline {
-                        return column <= usize::from(options.line_width);
+                if matches!(element, FormatElement::IfBreak(_)) {
+                    let group_mode = modes
+                        .last()
+                        .copied()
+                        .or_else(|| parents[..parent_len].last().map(|group| group.mode))
+                        .unwrap_or(Mode::Break);
+                    if group_mode != Mode::Break {
+                        continue;
                     }
+                }
+                column += usize::from(pending_space);
+                pending_space = false;
+                let (next_column, multiline) =
+                    text.first_line(column, options.indent_width.value());
+                column = next_column;
+                if multiline {
+                    return column <= usize::from(options.line_width);
                 }
             }
             FormatElement::LineSuffix(_) => {}
@@ -158,7 +274,11 @@ fn fits(
             | FormatElement::HardLine
             | FormatElement::LiteralLine => return true,
             FormatElement::StartGroup { expand } => {
-                modes.push(if expand { Mode::Break } else { mode })
+                if expand && matches!(kind, ProbeKind::Fill) {
+                    return false;
+                }
+                mode = if expand { Mode::Break } else { mode };
+                modes.push(mode);
             }
             FormatElement::EndGroup => {
                 if modes.pop().is_none() {
@@ -166,8 +286,22 @@ fn fits(
                         .checked_sub(1)
                         .expect("fit probe closes an active group scope");
                 }
+                mode = if matches!(kind, ProbeKind::Fill) && modes.is_empty() {
+                    Mode::Flat
+                } else {
+                    modes
+                        .last()
+                        .copied()
+                        .or_else(|| parents[..parent_len].last().map(|group| group.mode))
+                        .unwrap_or(Mode::Break)
+                };
             }
-            FormatElement::StartIndent | FormatElement::EndIndent => {}
+            FormatElement::StartIndent
+            | FormatElement::EndIndent
+            | FormatElement::StartFill
+            | FormatElement::EndFill
+            | FormatElement::StartEntry { .. }
+            | FormatElement::EndEntry => {}
         }
     }
     column <= usize::from(options.line_width)
