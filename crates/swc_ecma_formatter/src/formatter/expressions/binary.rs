@@ -233,6 +233,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if matches!(
             context.position,
             ExpressionPosition::ParenthesizedUnaryArgument(_)
+                | ExpressionPosition::ConditionalTest
+                | ExpressionPosition::ConditionalConsequent
+                | ExpressionPosition::ConditionalAlternate
         ) {
             return writer.group(false, |writer| self.format_binary_enclosed(binary, writer));
         }
@@ -321,7 +324,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .peekable();
         while let Some(entry) = nodes.next() {
             let (parent, tail_owner) = match nodes.peek() {
-                Some(next) => (Some(next.binary.operator), TailOwner::FlattenedChain),
+                Some(next) => (Some(next.binary.operator), TailOwner::ParentOperation),
                 None => (parent, context.tail_owner),
             };
             tail = self.format_binary_right(entry, parent, tail_owner, tail, writer)?;
@@ -384,7 +387,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         operator: binary.operator,
                         side: OperandSide::Right,
                     })
-                    .with_tail_owner(TailOwner::FlattenedChain),
+                    .with_tail_owner(TailOwner::ParentOperation),
                     head,
                     writer,
                 )?;
@@ -397,7 +400,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     right.left,
                     ExpressionContext::at(ExpressionPosition::Nested)
                         .with_content_mode(mode)
-                        .with_tail_owner(TailOwner::FlattenedChain),
+                        .with_tail_owner(TailOwner::ParentOperation),
                     writer,
                 )?;
                 left_content_end = right.left.span(self.ast).end;

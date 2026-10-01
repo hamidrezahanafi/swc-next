@@ -92,6 +92,10 @@ impl<'a> Writer<'a> {
         self.elements.push(FormatElement::IfBreak(Text::new(text)));
     }
 
+    pub(crate) fn if_flat(&mut self, text: &'a str) {
+        self.elements.push(FormatElement::IfFlat(Text::new(text)));
+    }
+
     pub(crate) fn line_suffix(&mut self, text: &'a str) {
         self.elements
             .push(FormatElement::LineSuffix(Text::new(text)));
@@ -142,6 +146,7 @@ impl<'a> Writer<'a> {
         for index in start..self.elements.len() {
             let element = match self.elements[index] {
                 FormatElement::Line => FormatElement::Space,
+                FormatElement::IfFlat(text) => FormatElement::Text(text),
                 element @ (FormatElement::Text(_) | FormatElement::Space) => element,
                 _ => continue,
             };
@@ -157,6 +162,16 @@ impl<'a> Writer<'a> {
         self.elements.push(FormatElement::StartIndent);
         let result = write(self);
         self.elements.push(FormatElement::EndIndent);
+        result
+    }
+
+    pub(crate) fn align<T>(&mut self, width: usize, write: impl FnOnce(&mut Self) -> T) -> T {
+        if width == 0 {
+            return write(self);
+        }
+        self.elements.push(FormatElement::StartAlign { width });
+        let result = write(self);
+        self.elements.push(FormatElement::EndAlign { width });
         result
     }
 

@@ -33,6 +33,47 @@ fn line_document(options: FormatOptions) -> String {
     writer.finish().print(options)
 }
 
+fn aligned_document(options: FormatOptions) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    writer.group(false, |writer| {
+        writer.text("prefix");
+        writer.indent(|writer| {
+            writer.line();
+            writer.if_flat("(");
+            writer.align(2, |writer| {
+                writer.text("first");
+                writer.indent(|writer| {
+                    writer.line();
+                    writer.text("second");
+                });
+            });
+            writer.if_flat(")");
+        });
+    });
+    writer.finish().print(options)
+}
+
+#[test]
+fn aligned_groups() {
+    assert_eq!(
+        aligned_document(FormatOptions::prettier()),
+        "prefix (first second)"
+    );
+
+    let narrow = FormatOptions {
+        line_width: 8,
+        ..FormatOptions::prettier()
+    };
+    assert_eq!(aligned_document(narrow), "prefix\n  first\n      second");
+
+    let tabs = FormatOptions {
+        indent_style: IndentStyle::Tab,
+        ..narrow
+    };
+    assert_eq!(aligned_document(tabs), "prefix\n\tfirst\n\t\t\tsecond");
+}
+
 fn write_pair<'a>(writer: &mut Writer<'a>, first: &'a str, last: &'a str) {
     writer.group(false, |writer| {
         writer.text("[");

@@ -29,19 +29,33 @@ struct GroupState {
 struct Output {
     text: String,
     column: usize,
-    pending_indent: usize,
+    pending_indent: Indentation,
     pending_space: bool,
+}
+
+#[derive(Clone, Copy, Default)]
+struct Indentation {
+    levels: usize,
+    alignment: usize,
+    alignments: usize,
+}
+
+impl Indentation {
+    fn width(self, options: FormatOptions) -> usize {
+        self.levels * usize::from(options.indent_width.value()) + self.alignment
+    }
 }
 
 pub(super) fn print(elements: &[FormatElement<'_>], options: FormatOptions) -> String {
     let mut output = Output {
         text: String::new(),
         column: 0,
-        pending_indent: 0,
+        pending_indent: Indentation::default(),
         pending_space: false,
     };
     let mut suffixes = Vec::new();
-    let mut indent = 0_usize;
+    let mut indent = Indentation::default();
+    let mut indents = Vec::new();
     let mut modes = Vec::new();
     let mut mode = Mode::Break;
     let mut probe = Vec::new();
@@ -62,13 +76,17 @@ pub(super) fn print(elements: &[FormatElement<'_>], options: FormatOptions) -> S
             }
             FormatElement::LiteralLine => {
                 flush_suffixes(&mut suffixes, &mut output, options);
-                output.line(0, options);
+                output.line(Indentation::default(), options);
             }
-            FormatElement::IfBreak(text) => {
-                if modes
+            FormatElement::IfBreak(text) | FormatElement::IfFlat(text) => {
+                let group_mode = modes
                     .last()
-                    .is_none_or(|group: &GroupState| group.mode == Mode::Break)
-                {
+                    .map_or(Mode::Break, |group: &GroupState| group.mode);
+                let active = match element {
+                    FormatElement::IfBreak(_) => group_mode == Mode::Break,
+                    _ => group_mode == Mode::Flat,
+                };
+                if active {
                     output.write(text, options);
                 }
             }
@@ -98,11 +116,33 @@ pub(super) fn print(elements: &[FormatElement<'_>], options: FormatOptions) -> S
                     .expect("group scopes must close after opening")
                     .restore_mode;
             }
-            FormatElement::StartIndent => indent += 1,
+            FormatElement::StartIndent => {
+                indents.push(indent);
+                if options.indent_style == IndentStyle::Tab {
+                    indent.levels += indent.alignments;
+                    indent.alignment = 0;
+                    indent.alignments = 0;
+                }
+                indent.levels += 1;
+            }
             FormatElement::EndIndent => {
-                indent = indent
-                    .checked_sub(1)
+                indent = indents
+                    .pop()
                     .expect("indent scopes must close after opening");
+            }
+            FormatElement::StartAlign { width } => {
+                indent.alignment += width;
+                indent.alignments += 1;
+            }
+            FormatElement::EndAlign { width } => {
+                indent.alignment = indent
+                    .alignment
+                    .checked_sub(width)
+                    .expect("alignment scopes must close after opening");
+                indent.alignments = indent
+                    .alignments
+                    .checked_sub(1)
+                    .expect("alignment scopes must close after opening");
             }
             FormatElement::StartFill => fills.push(FillState {
                 flat: mode == Mode::Flat,
@@ -180,7 +220,12 @@ pub(super) fn print(elements: &[FormatElement<'_>], options: FormatOptions) -> S
         }
     }
     flush_suffixes(&mut suffixes, &mut output, options);
-    debug_assert_eq!(indent, 0, "document must close every indent scope");
+    debug_assert_eq!(indent.levels, 0, "document must close every indent scope");
+    debug_assert!(indents.is_empty(), "document must close every indent scope");
+    debug_assert_eq!(
+        indent.alignment, 0,
+        "document must close every alignment scope"
+    );
     debug_assert!(modes.is_empty(), "document must close every group scope");
     debug_assert!(fills.is_empty(), "document must close every fill scope");
     debug_assert!(entries.is_empty(), "document must close every fill entry");
@@ -190,26 +235,28 @@ pub(super) fn print(elements: &[FormatElement<'_>], options: FormatOptions) -> S
 impl Output {
     fn write(&mut self, text: Text<'_>, options: FormatOptions) {
         let (character, count) = match options.indent_style {
-            IndentStyle::Tab => ('\t', self.pending_indent),
+            IndentStyle::Tab => ('\t', self.pending_indent.levels),
             IndentStyle::Space => (
                 ' ',
-                self.pending_indent * usize::from(options.indent_width.value()),
+                self.pending_indent.levels * usize::from(options.indent_width.value()),
             ),
         };
         self.text.extend(std::iter::repeat_n(character, count));
+        self.text
+            .extend(std::iter::repeat_n(' ', self.pending_indent.alignment));
         if self.pending_space {
             self.text.push(' ');
             self.column += 1;
         }
         self.text.push_str(text.source);
         self.column = text.last_line(self.column, options.indent_width.value());
-        self.pending_indent = 0;
+        self.pending_indent = Indentation::default();
         self.pending_space = false;
     }
 
-    fn line(&mut self, indent: usize, options: FormatOptions) {
+    fn line(&mut self, indent: Indentation, options: FormatOptions) {
         self.text.push_str(options.line_ending.as_str());
-        self.column = indent * usize::from(options.indent_width.value());
+        self.column = indent.width(options);
         self.pending_indent = indent;
         self.pending_space = false;
     }
@@ -242,14 +289,23 @@ fn fits(
             return false;
         }
         match *element {
-            FormatElement::Text(text) | FormatElement::IfBreak(text) => {
-                if matches!(element, FormatElement::IfBreak(_)) {
+            FormatElement::Text(text)
+            | FormatElement::IfBreak(text)
+            | FormatElement::IfFlat(text) => {
+                if matches!(
+                    element,
+                    FormatElement::IfBreak(_) | FormatElement::IfFlat(_)
+                ) {
                     let group_mode = modes
                         .last()
                         .copied()
                         .or_else(|| parents[..parent_len].last().map(|group| group.mode))
                         .unwrap_or(Mode::Break);
-                    if group_mode != Mode::Break {
+                    let active = match element {
+                        FormatElement::IfBreak(_) => group_mode == Mode::Break,
+                        _ => group_mode == Mode::Flat,
+                    };
+                    if !active {
                         continue;
                     }
                 }
@@ -298,6 +354,8 @@ fn fits(
             }
             FormatElement::StartIndent
             | FormatElement::EndIndent
+            | FormatElement::StartAlign { .. }
+            | FormatElement::EndAlign { .. }
             | FormatElement::StartFill
             | FormatElement::EndFill
             | FormatElement::StartEntry { .. }

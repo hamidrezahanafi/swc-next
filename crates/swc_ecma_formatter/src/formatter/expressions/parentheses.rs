@@ -147,7 +147,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let inline_mode = self.trailing_content_mode(trailing, BoundaryPunctuation::None, false);
         if inline_mode == ContentMode::Verbatim
             && (matches!(context.position, ExpressionPosition::Statement)
-                || context.tail_owner == TailOwner::FlattenedChain
+                || context.tail_owner == TailOwner::ParentOperation
                 || self.expression_needs_parentheses(self.ast.expr_data(child), context.position)
                     == Some(true))
         {
@@ -163,6 +163,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 parenthesized,
                 context,
                 RetainedParentheses::Cast,
+                writer,
+            );
+        }
+        if matches!(context.position, ExpressionPosition::ConditionalTest)
+            && matches!(
+                self.ast.expr_data(child),
+                ExprData::ConditionalExpression(_)
+            )
+        {
+            return self.format_retained_parentheses(
+                parenthesized,
+                context,
+                RetainedParentheses::Operand,
                 writer,
             );
         }
@@ -253,6 +266,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 side: super::binary::OperandSide::Left,
             } => super::binary::BinaryLike::from_data(self.ast.expr_data(expression), self.ast)
                 .is_none_or(|child| !operator.flattens(child.operator)),
+            ExpressionPosition::ConditionalTest => true,
             _ => false,
         }
     }
@@ -309,15 +323,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut write_contents = |writer: &mut Writer<'ast>| {
             self.comments.claim(leading)?;
             self.format_comment_run(leading, leading_layout, writer)?;
+            let mode = match context.content_mode {
+                ContentMode::Verbatim => ContentMode::Verbatim,
+                ContentMode::Formatted => self.content_mode(leading),
+            };
+            let position = match (mode, context.position) {
+                (ContentMode::Verbatim, ExpressionPosition::UnaryArgument(operator)) => {
+                    ExpressionPosition::ParenthesizedUnaryArgument(operator)
+                }
+                _ => ExpressionPosition::Nested,
+            };
             let tail = self.format_expression(
                 content.expression,
-                ExpressionContext::at(ExpressionPosition::Nested).with_content_mode(
-                    if context.content_mode == ContentMode::Verbatim {
-                        context.content_mode
-                    } else {
-                        self.content_mode(leading)
-                    },
-                ),
+                ExpressionContext::at(position).with_content_mode(mode),
                 writer,
             )?;
             let tail = self.capture_expression_tail(Span::new(inner_span.end, span.end), tail)?;

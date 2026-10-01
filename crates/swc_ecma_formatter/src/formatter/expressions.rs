@@ -2,6 +2,7 @@
 
 mod arrays;
 mod binary;
+mod conditional;
 mod parentheses;
 mod unary;
 
@@ -29,6 +30,9 @@ pub(super) enum ExpressionPosition {
         side: OperandSide,
     },
     SpreadArgument,
+    ConditionalTest,
+    ConditionalConsequent,
+    ConditionalAlternate,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -44,11 +48,11 @@ pub(super) enum HeadComments {
     Claimed,
 }
 
-/// Intermediate operands share their trailing comment owner with the flattened chain.
+/// A surrounding operation may own the operand's trailing comment boundary.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum TailOwner {
     Expression,
-    FlattenedChain,
+    ParentOperation,
 }
 
 #[derive(Clone, Copy)]
@@ -201,7 +205,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 context.statement_start = StatementStart::Guard;
             }
         }
-        if context.statement_start == StatementStart::Guard && (binary.is_none() || parenthesize) {
+        let conditional = matches!(data, ExprData::ConditionalExpression(_));
+        if context.statement_start == StatementStart::Guard
+            && (binary.is_none() && !conditional || parenthesize)
+        {
             writer.text(";");
             context.statement_start = StatementStart::None;
         }
@@ -227,6 +234,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.text(")");
             }
             return Ok(tail);
+        }
+        if let ExprData::ConditionalExpression(conditional) = data
+            && matches!(context.position, ExpressionPosition::ConditionalTest)
+        {
+            return writer.group(false, |writer| {
+                writer.text("(");
+                writer.indent(|writer| {
+                    writer.soft_line();
+                    let tail = self.format_conditional(conditional, context, writer)?;
+                    self.format_expression_tail(tail, writer)
+                })?;
+                writer.soft_line();
+                writer.text(")");
+                Ok(None)
+            });
         }
         if parenthesize {
             writer.text("(");
@@ -267,6 +289,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ExprData::ArrayExpression(array) => self.format_array(array, writer).map(|()| None),
             ExprData::UnaryExpression(unary) => self.format_unary(unary, writer),
             ExprData::UpdateExpression(update) => self.format_update(update, writer),
+            ExprData::ConditionalExpression(conditional) => {
+                self.format_conditional(conditional, context, writer)
+            }
             _ => Err(self.unsupported("expression", expression)),
         }?;
         if parenthesize {
@@ -295,10 +320,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             | ExprData::UpdateExpression(_)
             | ExprData::BinaryExpression(_)
             | ExprData::LogicalExpression(_)
+            | ExprData::ConditionalExpression(_)
             | ExprData::ParenthesizedExpression(_) => {}
             _ => return None,
         }
         Some(match (position, data) {
+            (
+                ExpressionPosition::UnaryArgument(_)
+                | ExpressionPosition::ParenthesizedUnaryArgument(_)
+                | ExpressionPosition::SpreadArgument
+                | ExpressionPosition::BinaryOperand { .. }
+                | ExpressionPosition::ConditionalTest,
+                ExprData::ConditionalExpression(_),
+            ) => true,
             (
                 ExpressionPosition::UnaryArgument(parent)
                 | ExpressionPosition::ParenthesizedUnaryArgument(parent),

@@ -23,6 +23,7 @@ enum FormatElement<'a> {
     HardLine,
     LiteralLine,
     IfBreak(Text<'a>),
+    IfFlat(Text<'a>),
     LineSuffix(Text<'a>),
     StartGroup {
         expand: bool,
@@ -30,6 +31,12 @@ enum FormatElement<'a> {
     EndGroup,
     StartIndent,
     EndIndent,
+    StartAlign {
+        width: usize,
+    },
+    EndAlign {
+        width: usize,
+    },
     StartFill,
     EndFill,
     /// Distance from this opening instruction to its matching EndEntry.
