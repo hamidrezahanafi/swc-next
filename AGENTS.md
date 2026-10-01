@@ -57,6 +57,7 @@ the parser language.
 | Codegen   | Test262, TypeScript, Babel, local | AST round trip and print idempotence in both parenthesis modes | Same as above                                                    |
 | Resolver  | SWC resolver fixtures             | Name resolution text matches `swc-conformance`                 | Same as above                                                    |
 | Transform | Babel                             | Normalized output matches Babel fixtures                       | `cargo run -p testsuite --bin babel_transform`                   |
+| Formatter | Prettier 3.9.9                    | Output matches Prettier snapshots and is idempotent             | `cargo run -p testsuite --bin formatter_conformance --profile conformance` |
 | ESTree    | Test262, TypeScript               | N-API AST matches `estree-conformance`                         | `pnpm test:conformance`                                          |
 | Codec     | Test262, TypeScript               | JS decode/encode codegen output matches native parse/codegen   | `pnpm test:codec`                                                |
 
@@ -87,6 +88,14 @@ Use a small `input.js`/`.ts`/`.tsx` file.
 | Printed output, minification, escaping, parentheses | `cargo run -p swc_next_ecma_codegen --example codegen -- input.js [--minify] [--ascii-only] [--inline-script] [--preserve-parens]` |
 | Scopes, bindings, semantic diagnostics              | `cargo run -p swc_next_ecma_semantic --example semantic -- input.js`                                                               |
 | Compare/profile Rspack-like pipelines               | `TARGET=<legacy\|next\|oxc> cargo run -p benchmark --release --example rspack_simulator [--features tracy]`                        |
+
+### Formatter Fixtures
+
+Add local inputs under `crates/swc_ecma_formatter/tests/fixtures/<language>/<syntax>/`.
+Tests are discovered automatically; optional `options.json` files select formatting options.
+Run `cargo test -p swc_next_ecma_formatter --locked`. Update snapshots with
+`INSTA_UPDATE=always cargo test -p swc_next_ecma_formatter --test fixtures --locked`,
+then review the `.snap` diffs. See `crates/swc_ecma_formatter/tests/README.md`.
 
 ### Adding Rust Unit Tests
 

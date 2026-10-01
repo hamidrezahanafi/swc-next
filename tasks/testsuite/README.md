@@ -1,21 +1,23 @@
 # Test suite
 
 This package runs the SWC Next parser, semantic analyzer, code generator,
-and transformer against upstream JavaScript and TypeScript test suites. It is a
-conformance and regression harness: each run writes a deterministic summary to
-`snapshots/`, which can be reviewed and committed like any other source change.
+transformer, and formatter against upstream JavaScript and TypeScript test
+suites. It is a conformance and regression harness: each run writes a
+deterministic summary to `snapshots/`, which can be reviewed and committed like
+any other source change.
 
 Run all commands below from the workspace root.
 
 ## Fixtures
 
-The harness expects three upstream repositories under `tasks/testsuite/fixtures`:
+The harnesses use pinned upstream repositories under `tasks/testsuite/fixtures`:
 
 | Directory             | Upstream suite                                                  | Used for                                                |
 | --------------------- | --------------------------------------------------------------- | ------------------------------------------------------- |
 | `fixtures/test262`    | [TC39 Test262](https://github.com/tc39/test262)                 | JavaScript parser and codegen coverage                  |
 | `fixtures/typescript` | [microsoft/TypeScript](https://github.com/microsoft/TypeScript) | TypeScript parser and codegen coverage                  |
 | `fixtures/babel`      | [babel/babel](https://github.com/babel/babel)                   | Babel parser/codegen coverage and transform comparisons |
+| `fixtures/prettier`   | [prettier/prettier](https://github.com/prettier/prettier)       | Formatter output and idempotency                        |
 
 For a fresh checkout, clone the fixtures with:
 
@@ -87,6 +89,36 @@ Fixtures with unsupported plugins, presets, or invalid options are counted as
 skipped. The full run writes
 `tasks/testsuite/snapshots/babel_transform.snap`, including totals and
 per-package diagnostics.
+
+## Formatter conformance
+
+Run the Prettier compatibility matrix:
+
+```sh
+cargo run -p testsuite --bin formatter_conformance --profile conformance
+```
+
+The fixture is pinned to Prettier 3.9.9 at commit
+`cdd17f2288b28b170a76416c72dac56e3ea5daff`. The runner verifies the version,
+reads physical JS/JSX/TS/TSX inputs, discovers options from `runFormatTest`, and
+compares output against committed Jest snapshots. Unsupported options are
+reported explicitly. Shared JSX inputs exercise both parser partitions.
+
+Successful formatting checks output parsing, comment retention, source/AST
+entry-point parity, and second-pass idempotency. These checks do not establish
+full semantic equivalence. Formatting and parser failures remain visible as
+syntax support grows.
+
+Summaries are written to `snapshots/formatter_prettier_{js,typescript}.snap`.
+A normal run can succeed with known mismatches or unsupported syntax; CI checks
+the generated reports against the committed snapshots.
+
+Inspect matching inputs and detailed diffs without changing reports:
+
+```sh
+PRETTIER_FILTER='js/comments/jsx.js' \
+  cargo run -p testsuite --bin formatter_conformance --profile conformance
+```
 
 ## Debug one case
 
