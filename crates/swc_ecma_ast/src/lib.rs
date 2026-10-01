@@ -195,7 +195,10 @@ impl<'a> Ast<'a> {
             let data = node.into_extra_data();
             self.extra_data.push(data);
         }
-        SubRange::new(start, self.next_extra_data_id())
+        SubRange::new(
+            start,
+            (self.next_extra_data_id().index() - start.index()) as u32,
+        )
     }
 
     /// Append pre-encoded extra data and return its starting index.

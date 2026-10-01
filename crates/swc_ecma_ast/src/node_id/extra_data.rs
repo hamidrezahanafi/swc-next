@@ -24,10 +24,7 @@ impl ExtraData {
     #[inline]
     pub(crate) fn from_raw(raw: u64) -> Self {
         Self {
-            sub_range: SubRange::new(
-                ExtraDataId::from_raw(raw as u32),
-                ExtraDataId::from_raw((raw >> 32) as u32),
-            ),
+            sub_range: SubRange::new(ExtraDataId::from_raw(raw as u32), (raw >> 32) as u32),
         }
     }
 
@@ -36,7 +33,7 @@ impl ExtraData {
         // SAFETY: Both range fields accept every u32 bit pattern, and all
         // constructors initialize the full eight-byte slot.
         let range = unsafe { self.sub_range };
-        (range.start.index() as u64) | ((range.end.index() as u64) << 32)
+        (range.start.index() as u64) | ((range.len as u64) << 32)
     }
 }
 
@@ -86,14 +83,14 @@ impl<T> ExtraDataValue for SubRange<T> {
     #[inline]
     fn into_extra_data(self) -> ExtraData {
         ExtraData {
-            sub_range: SubRange::new(self.start, self.end),
+            sub_range: SubRange::new(self.start, self.len),
         }
     }
 
     #[inline]
     unsafe fn from_extra_data(data: &ExtraData) -> Self {
         let range = unsafe { data.sub_range };
-        Self::new(range.start, range.end)
+        Self::new(range.start, range.len)
     }
 }
 
@@ -178,14 +175,11 @@ mod tests {
         let decoded = unsafe { Program::from_extra_data(&data) };
         assert_eq!(decoded.0.index(), 0x1122_3344);
 
-        let range = SubRange::<()>::new(
-            ExtraDataId::from_raw(0x1122_3344),
-            ExtraDataId::from_raw(0x5566_7788),
-        );
+        let range = SubRange::<()>::new(ExtraDataId::from_raw(0x1122_3344), 0x5566_7788);
         let data = range.into_extra_data();
         assert_eq!(data.raw(), 0x5566_7788_1122_3344);
         let decoded = unsafe { SubRange::<()>::from_extra_data(&data) };
         assert_eq!(decoded.start.index(), 0x1122_3344);
-        assert_eq!(decoded.end.index(), 0x5566_7788);
+        assert_eq!(decoded.len(), 0x5566_7788);
     }
 }
