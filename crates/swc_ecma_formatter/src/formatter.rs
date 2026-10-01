@@ -1,6 +1,7 @@
 //! Formatting context and the program entry point.
 
 mod comments;
+mod expressions;
 mod source;
 mod statements;
 

@@ -3,13 +3,13 @@ formatter * prettier 3.9.9 * js
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 794
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 12/1070 (1.12%)
-Snapshot matched: 12/1070
-AST parity: 12/12
-AST mismatched: 0/12
+Passed: 13/1070 (1.21%)
+Snapshot matched: 13/1070
+AST parity: 13/13
+AST mismatched: 0/13
 AST format errors: 0/1070
 Mismatched: 0/1070
-Format errors: 1057/1070
+Format errors: 1056/1070
 Panicked: 0/1070
 Not idempotent: 0/1070
 Ignored files: 298
@@ -45,7 +45,6 @@ Unsupported option sets: 19
 
 # Failed
 
-- js/array-spread/multiple.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/arrays/array-and-tuple.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/arrays/empty.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/arrays/holes-in-args.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent

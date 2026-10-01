@@ -21,6 +21,14 @@ Unsupported syntax returns `FormatError::Unsupported` with its source location.
 Source or an existing program AST enters syntax formatting, which constructs a
 flat document. Printing interprets that document to produce formatted source.
 
+| Layer | Responsibility |
+| --- | --- |
+| Entry points | Parser prerequisites, options, and errors |
+| Syntax formatting | AST syntax, source boundaries, and layout choices |
+| Source and comments | Source ranges and comment ownership |
+| Document construction | Stable text and a syntax-independent layout protocol |
+| Printing | Width, indentation, line endings, and layout selection |
+
 The printer does not interpret AST nodes or recover missing syntax handling.
 Document shape need not match Prettier's internal representation; printed output
 is the compatibility boundary.
@@ -33,6 +41,13 @@ have separate mutable state.
 
 Doc construction owns flat instruction buffers. Finishing construction transfers
 the completed instructions to an immutable document.
+
+Group and indentation scopes form a paired layout protocol.
+
+Fit probes use the available width and remaining document without committing
+tentative state to printing. Only the selected layout affects output,
+indentation, and line suffixes. Layout selection does not change syntax or
+comment ownership.
 
 ## Source and comments
 

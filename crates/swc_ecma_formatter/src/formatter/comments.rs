@@ -110,8 +110,7 @@ impl<'ast> CommentCursor<'ast> {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
-    fn prepare_comment(&self, comment: Comment) -> Result<PreparedComment<'ast>, FormatError> {
-        let source = &self.ast.source()[comment.span.start as usize..comment.span.end as usize];
+    fn check_suppression(&self, comment: Comment) -> Result<(), FormatError> {
         if self
             .ast
             .get_utf8(comment.value(self.ast.source().as_bytes()))
@@ -120,6 +119,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             return Err(FormatError::unsupported("suppression", None, comment.span));
         }
+        Ok(())
+    }
+
+    fn prepare_comment(&self, comment: Comment) -> Result<PreparedComment<'ast>, FormatError> {
+        self.check_suppression(comment)?;
+        let source = self.source(comment.span);
         let (first, rest) = split_line(source);
         let text = match rest {
             None => CommentText::Inline(source.trim_end()),
@@ -136,6 +141,33 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             span: comment.span,
             text,
         })
+    }
+
+    pub(super) fn format_inline_trailing_comments(
+        &self,
+        comments: &[Comment],
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        let mut previous: Option<PreparedComment<'ast>> = None;
+        for &comment in comments {
+            let prepared = self.prepare_comment(comment)?;
+            match comment.kind {
+                CommentKind::Line => writer.line_suffix(self.source(comment.span).trim_end()),
+                CommentKind::Block => {
+                    let nestled = previous.as_ref().is_some_and(|previous| {
+                        previous.span.end == prepared.span.start
+                            && previous.is_alignable()
+                            && prepared.is_alignable()
+                    });
+                    if !nestled {
+                        writer.space();
+                    }
+                    prepared.text.write(writer);
+                }
+            }
+            previous = Some(prepared);
+        }
+        Ok(())
     }
 
     pub(super) fn comment_gap(&self, start: u32, end: u32, writer: &mut Writer<'ast>) {
@@ -211,8 +243,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let comments = self.comments.take(count);
         if let Some(last) = comments.last() {
-            writer.space();
-            self.format_comment_run(comments, CommentRunLayout::Source, writer)?;
+            self.format_inline_trailing_comments(comments, writer)?;
             Ok(last.span.end)
         } else {
             Ok(span.start)

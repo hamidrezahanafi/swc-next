@@ -1,9 +1,10 @@
 //! Basic statement bodies and their enclosing source boundaries.
 
-use swc_next_ecma_ast::{BlockStatement, ExprData, GetSpan, Span, Stmt, StmtData, SubRange};
+use swc_next_ecma_ast::{BlockStatement, GetSpan, Span, Stmt, StmtData, SubRange};
 
 use super::Formatter;
 use super::comments::CommentRunLayout;
+use super::expressions::ExpressionPosition;
 use crate::{FormatError, Semicolons, document::Writer};
 
 pub(super) enum StatementSequenceKind {
@@ -20,9 +21,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         kind: StatementSequenceKind,
         writer: &mut Writer<'ast>,
     ) -> Result<bool, FormatError> {
+        let ast = self.ast;
+        let has_source_statements = !statements.is_empty();
         let mut statements = statements
             .iter()
-            .map(|id| self.ast.get_node_in_sub_range(id))
+            .map(|id| ast.get_node_in_sub_range(id))
+            .filter(|statement| !matches!(ast.stmt_data(*statement), StmtData::EmptyStatement(_)))
             .peekable();
         while let Some(statement) = statements.next() {
             let statement_span = statement.span(self.ast);
@@ -63,6 +67,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let layout = match (previous_end, kind) {
             (None, StatementSequenceKind::Block) => CommentRunLayout::Lines,
+            (None, StatementSequenceKind::Program) if has_source_statements => {
+                CommentRunLayout::Lines
+            }
             _ => CommentRunLayout::Source,
         };
         self.format_comment_run(dangling, layout, writer)?;
@@ -77,12 +84,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let content_end = match self.ast.stmt_data(statement) {
             StmtData::ExpressionStatement(node) => {
                 let expression = node.expression(self.ast);
-                match self.ast.expr_data(expression) {
-                    ExprData::IdentifierReference(identifier) => {
-                        writer.text(self.ast.get_utf8(identifier.name(self.ast)))
-                    }
-                    _ => return Err(self.unsupported("expression", expression)),
-                }
+                self.format_expression(expression, ExpressionPosition::Statement, writer)?;
                 expression.span(self.ast).end
             }
             StmtData::DebuggerStatement(node) => {
@@ -114,7 +116,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let body_span = Span::new(block_span.start + 1, block_span.end - 1);
         let body = block.body(self.ast);
         writer.text("{");
-        if body.is_empty() && self.comments.between(body_span)?.is_empty() {
+        let has_statements = body.iter().any(|id| {
+            let statement = self.ast.get_node_in_sub_range(id);
+            !matches!(self.ast.stmt_data(statement), StmtData::EmptyStatement(_))
+        });
+        if !has_statements && self.comments.between(body_span)?.is_empty() {
             writer.hard_line();
         } else {
             writer.indent(|writer| {

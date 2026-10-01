@@ -6,18 +6,26 @@
 mod printer;
 #[cfg(test)]
 mod tests;
+mod text;
 mod writer;
 
 pub(crate) use writer::Writer;
 
 use crate::FormatOptions;
+use text::Text;
 
 #[derive(Debug, Clone, Copy)]
 enum FormatElement<'a> {
-    Text(&'a str),
+    Text(Text<'a>),
     Space,
+    SoftLine,
+    Line,
     HardLine,
     LiteralLine,
+    IfBreak(Text<'a>),
+    LineSuffix(Text<'a>),
+    StartGroup { expand: bool },
+    EndGroup,
     StartIndent,
     EndIndent,
 }
