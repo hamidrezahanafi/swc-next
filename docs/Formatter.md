@@ -39,6 +39,9 @@ Typed AST handles and borrowed source stay tied to their backing storage.
 Document text remains valid until printing finishes. Construction and printing
 have separate mutable state.
 
+Generated text belongs to one formatting call and outlives document printing.
+It does not retain formatter allocations in the caller's AST.
+
 Doc construction owns flat instruction buffers. Finishing construction transfers
 the completed instructions to an immutable document.
 

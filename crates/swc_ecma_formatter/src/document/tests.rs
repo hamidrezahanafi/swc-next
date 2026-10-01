@@ -1,8 +1,11 @@
+use swc_next_allocator::Allocator;
+
 use super::{Doc, FormatElement, Writer};
 use crate::{FormatOptions, IndentStyle, LineEnding};
 
 fn nested_document(options: FormatOptions) -> String {
-    let mut writer = Writer::new();
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
     writer.text("{");
     writer.indent(|writer| {
         writer.hard_line();
@@ -21,7 +24,8 @@ fn nested_document(options: FormatOptions) -> String {
 }
 
 fn line_document(options: FormatOptions) -> String {
-    let mut writer = Writer::new();
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
     writer.text("first");
     writer.hard_line();
     writer.text("second");
@@ -46,7 +50,8 @@ fn write_pair<'a>(writer: &mut Writer<'a>, first: &'a str, last: &'a str) {
 }
 
 fn pair_document(first: &str, last: &str, width: u16) -> String {
-    let mut writer = Writer::new();
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
     write_pair(&mut writer, first, last);
     writer.text(";");
     writer.finish().print(FormatOptions {
@@ -56,7 +61,8 @@ fn pair_document(first: &str, last: &str, width: u16) -> String {
 }
 
 fn nested_group_document(width: u16) -> String {
-    let mut writer = Writer::new();
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
     writer.group(true, |writer| {
         writer.text("[");
         writer.indent(|writer| {
@@ -78,7 +84,8 @@ fn nested_group_document(width: u16) -> String {
 
 #[test]
 fn text_fragments() {
-    let mut writer = Writer::new();
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
     writer.text("first");
     writer.text("");
     writer.text(" second");
@@ -87,11 +94,28 @@ fn text_fragments() {
         "first second"
     );
 
-    let mut writer = Writer::new();
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
     writer.text("first\r\nsecond");
     assert_eq!(
         writer.finish().print(FormatOptions::prettier()),
         "first\r\nsecond"
+    );
+}
+
+#[test]
+fn generated_text() {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let source = String::from("source");
+    writer.text(source.as_str());
+    writer.text(format!(" {source}"));
+    writer.text(" ");
+    writer.text("x".repeat(32 * 1024));
+    writer.text(String::from(" end"));
+    assert_eq!(
+        writer.finish().print(FormatOptions::prettier()),
+        format!("source source {} end", "x".repeat(32 * 1024))
     );
 }
 
@@ -142,7 +166,8 @@ fn indentation() {
 
 #[test]
 fn pending_whitespace() {
-    let mut writer = Writer::new();
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
     writer.text("first");
     writer.space();
     writer.hard_line();
@@ -183,7 +208,8 @@ fn deep_indentation() {
 
 #[test]
 fn literal_lines() {
-    let mut writer = Writer::new();
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
     writer.text("{");
     writer.indent(|writer| {
         writer.hard_line();
@@ -218,7 +244,8 @@ fn group_continuation() {
 
 #[test]
 fn group_breaks() {
-    let mut writer = Writer::new();
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
     writer.group(false, |writer| {
         writer.text("a");
         writer.line();
@@ -230,7 +257,8 @@ fn group_breaks() {
     });
     assert_eq!(writer.finish().print(FormatOptions::prettier()), "a\nb\nc");
 
-    let mut writer = Writer::new();
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
     writer.group(false, |writer| {
         writer.text("a");
         writer.space();
@@ -248,7 +276,8 @@ fn group_breaks() {
 
 #[test]
 fn line_suffixes() {
-    let mut writer = Writer::new();
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
     writer.group(false, |writer| {
         writer.text("a");
         writer.line_suffix("// comment");
@@ -261,7 +290,8 @@ fn line_suffixes() {
         "a, // comment\nb"
     );
 
-    let mut writer = Writer::new();
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
     writer.text("a");
     writer.line_suffix("// last");
     assert_eq!(

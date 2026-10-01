@@ -19,19 +19,38 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         position: ExpressionPosition,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        match self.ast.expr_data(expression) {
+        let data = self.ast.expr_data(expression);
+        if matches!(position, ExpressionPosition::Statement)
+            && self.options.semicolons == Semicolons::AsNeeded
+            && matches!(
+                data,
+                ExprData::ArrayExpression(_) | ExprData::RegExpLiteral(_)
+            )
+        {
+            writer.text(";");
+        }
+        match data {
             ExprData::IdentifierReference(identifier) => {
                 writer.text(self.ast.get_utf8(identifier.name(self.ast)));
                 Ok(())
             }
-            ExprData::ArrayExpression(array) => {
-                if matches!(position, ExpressionPosition::Statement)
-                    && self.options.semicolons == Semicolons::AsNeeded
-                {
-                    writer.text(";");
-                }
-                self.format_array(array, writer)
+            ExprData::BooleanLiteral(literal) => {
+                writer.text(if literal.value(self.ast) {
+                    "true"
+                } else {
+                    "false"
+                });
+                Ok(())
             }
+            ExprData::NullLiteral(_) => {
+                writer.text("null");
+                Ok(())
+            }
+            ExprData::RegExpLiteral(literal) => {
+                self.format_regexp_literal(literal, writer);
+                Ok(())
+            }
+            ExprData::ArrayExpression(array) => self.format_array(array, writer),
             _ => Err(self.unsupported("expression", expression)),
         }
     }

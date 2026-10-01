@@ -2,6 +2,7 @@
 
 mod comments;
 mod expressions;
+mod literals;
 mod source;
 mod statements;
 
