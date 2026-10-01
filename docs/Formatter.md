@@ -62,6 +62,9 @@ Supported annotations and directives retain their effective target and scope;
 keeping comment text alone is insufficient. A known absent binding and an
 unknown source-bound binding are distinct facts.
 
+Diagnostic directives retain their source line relationships. Their same-line
+and newline constraints take precedence over optional width-dependent breaks.
+
 A child can return a borrowed pending comment tail when its parent owns the
 following punctuation or layout scope. The cursor remains at that run until
 the owning boundary claims it.

@@ -8,6 +8,7 @@ use swc_next_ecma_ast::{
 use super::parentheses::SourceParentheses;
 use super::{ExpressionContext, ExpressionPosition, Formatter, HeadComments, StatementStart};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
+use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::{FormatError, document::Writer};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -132,6 +133,10 @@ enum OperandLayout {
 enum OperandBoundary<'ast> {
     Break,
     Inline,
+    Constrained {
+        constraint: LineConstraint,
+        inline: bool,
+    },
     Comments {
         before: &'ast [Comment],
         after: &'ast [Comment],
@@ -444,6 +449,40 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let boundary = Span::new(left_end, right_start);
         let comments = self.comments.between(boundary)?;
         let operator = operator.as_str();
+        if self.diagnostic_line_is_sensitive(left_end)
+            || self.diagnostic_line_is_sensitive(right_start)
+            || comments
+                .iter()
+                .any(|&comment| self.comment_is_diagnostic_directive(comment))
+        {
+            let Some(operator_start) = self.find_token(boundary, comments, operator) else {
+                return Err(FormatError::unsupported(
+                    "binary operator boundary",
+                    None,
+                    boundary,
+                ));
+            };
+            let comments = self.comments.take(comments.len());
+            let split = comments.partition_point(|comment| comment.span.end <= operator_start);
+            let (before, after) = comments.split_at(split);
+            self.format_comment_run(before, CommentRunLayout::SourceAfter(left_end), writer)?;
+            let previous = before.last().map_or(left_end, |comment| comment.span.end);
+            self.line_constraint(previous, operator_start).write(
+                writer,
+                FlatSeparator::Space,
+                Writer::space,
+            );
+            writer.text(operator);
+            let operator_end = operator_start + operator.len() as u32;
+            self.format_comment_run(after, CommentRunLayout::SourceAfter(operator_end), writer)?;
+            let previous = after
+                .last()
+                .map_or(operator_end, |comment| comment.span.end);
+            return Ok(OperandBoundary::Constrained {
+                constraint: self.line_constraint(previous, right_start),
+                inline,
+            });
+        }
         if comments.is_empty() {
             writer.space();
             writer.text(operator);
@@ -522,6 +561,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let (before, after, operator_start, right_start, layout) = match boundary {
+            OperandBoundary::Constrained { constraint, inline } => {
+                constraint.write(writer, FlatSeparator::Space, |writer| {
+                    if inline {
+                        writer.space();
+                    } else {
+                        writer.line();
+                    }
+                });
+                return Ok(());
+            }
             OperandBoundary::Inline => {
                 writer.space();
                 return Ok(());

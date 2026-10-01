@@ -7,6 +7,7 @@ use swc_next_ecma_ast::{
 
 use super::{ExpressionContext, ExpressionPosition, Formatter};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
+use crate::formatter::diagnostics::FlatSeparator;
 use crate::{FormatError, document::Writer};
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -34,6 +35,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .comments
             .in_range(Span::new(argument_span.end, span.end));
         let position = ExpressionPosition::UnaryArgument(operator);
+        if self.diagnostic_range_is_sensitive(span) {
+            let operator_end = span.start + operator.as_str().len() as u32;
+            self.comments.claim(leading)?;
+            self.format_comment_run(leading, CommentRunLayout::SourceAfter(operator_end), writer)?;
+            let previous = leading
+                .last()
+                .map_or(operator_end, |comment| comment.span.end);
+            let flat = if leading.is_empty() {
+                FlatSeparator::Empty
+            } else {
+                FlatSeparator::Space
+            };
+            self.line_constraint(previous, argument_span.start)
+                .write(writer, flat, |_| {});
+            let tail = self.format_expression(argument, ExpressionContext::at(position), writer)?;
+            return self.capture_expression_tail(Span::new(argument_span.end, span.end), tail);
+        }
         if leading.is_empty() && trailing.is_empty() {
             return self.format_expression(argument, ExpressionContext::at(position), writer);
         }

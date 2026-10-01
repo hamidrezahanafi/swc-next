@@ -410,3 +410,73 @@ fn fill_layout() {
 
     assert_eq!(grouped_fill_document(7), "[\n  [a\n  b],\n  x, y,\n];");
 }
+
+#[test]
+fn flat_scopes() {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    writer.group(false, |writer| {
+        writer.text("before");
+        writer.line();
+        writer.flat(|writer| {
+            writer.group(true, |writer| write_pair(writer, "first", "second"));
+        });
+        writer.line();
+        writer.text("after");
+    });
+    assert_eq!(
+        writer.finish().print(FormatOptions {
+            line_width: 5,
+            ..FormatOptions::prettier()
+        }),
+        "before\n[first, second]\nafter"
+    );
+
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    writer.flat(|writer| {
+        writer.group(false, |writer| {
+            writer.text("first");
+            writer.hard_line();
+            writer.text("second");
+        });
+    });
+    assert_eq!(
+        writer.finish().print(FormatOptions::prettier()),
+        "first\nsecond"
+    );
+
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    writer.flat(|writer| {
+        writer.group(false, |writer| {
+            writer.text("first");
+            writer.line_suffix("// comment");
+            writer.line();
+            writer.text("second");
+        });
+    });
+    assert_eq!(
+        writer.finish().print(FormatOptions::prettier()),
+        "first // comment\nsecond"
+    );
+
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    writer.group(false, |writer| {
+        writer.fill(|writer| {
+            writer.fill_entry(|writer| {
+                writer.flat(|writer| write_pair(writer, "first", "second"));
+            });
+            writer.fill_entry(|writer| writer.line());
+            writer.fill_entry(|writer| writer.text("last"));
+        });
+    });
+    assert_eq!(
+        writer.finish().print(FormatOptions {
+            line_width: 5,
+            ..FormatOptions::prettier()
+        }),
+        "[first, second]\nlast"
+    );
+}

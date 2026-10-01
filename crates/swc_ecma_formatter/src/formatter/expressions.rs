@@ -73,6 +73,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_expression(
         &mut self,
         expression: Expr,
+        context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let span = expression.span(self.ast);
+        if self.diagnostic_line_is_sensitive(span.start)
+            && self.line_breaks(span.start, span.end) == 0
+        {
+            writer.flat(|writer| self.format_expression_content(expression, context, writer))
+        } else {
+            self.format_expression_content(expression, context, writer)
+        }
+    }
+
+    fn format_expression_content(
+        &mut self,
+        expression: Expr,
         mut context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {

@@ -3,6 +3,7 @@
 use swc_next_ecma_ast::{Comment, CommentKind, Span};
 
 use super::Formatter;
+use super::diagnostics::FlatSeparator;
 use super::source::{lines, split_line};
 use crate::{FormatError, document::Writer};
 
@@ -12,7 +13,7 @@ pub(super) enum CommentRunLayout {
     SourceAfter(u32),
     Leading(u32),
     GroupedLeading(u32),
-    FlatLeading,
+    FlatLeading(u32),
     Lines,
 }
 
@@ -188,7 +189,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if value == "prettier-ignore" {
             return CommentSemantics::Suppression;
         }
-        if value.starts_with("@ts-ignore") || value.starts_with("@ts-expect-error") {
+        if self.comment_is_diagnostic_directive(comment) {
             return CommentSemantics::Diagnostic;
         }
         for (offset, marker) in raw.char_indices() {
@@ -349,23 +350,27 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         grouped: bool,
         writer: &mut Writer<'ast>,
     ) {
-        match self.line_breaks(comment.span.end, next_start) {
-            0 if comment.kind == CommentKind::Block => writer.space(),
-            1 if comment.kind == CommentKind::Block
-                && !self.source_position_starts_line(comment.span.start) =>
-            {
-                if grouped {
-                    writer.line();
-                } else {
-                    writer.space();
+        self.line_constraint(comment.span.end, next_start).write(
+            writer,
+            FlatSeparator::Space,
+            |writer| match self.line_breaks(comment.span.end, next_start) {
+                0 if comment.kind == CommentKind::Block => writer.space(),
+                1 if comment.kind == CommentKind::Block
+                    && !self.source_position_starts_line(comment.span.start) =>
+                {
+                    if grouped {
+                        writer.line();
+                    } else {
+                        writer.space();
+                    }
                 }
-            }
-            0 | 1 => writer.hard_line(),
-            _ => {
-                writer.hard_line();
-                writer.hard_line();
-            }
-        }
+                0 | 1 => writer.hard_line(),
+                _ => {
+                    writer.hard_line();
+                    writer.hard_line();
+                }
+            },
+        );
     }
 
     pub(super) fn format_comment_run(
@@ -403,10 +408,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                                 writer,
                             );
                         }
-                        CommentRunLayout::FlatLeading => match previous.kind {
-                            CommentKind::Line => writer.hard_line(),
-                            CommentKind::Block => writer.space(),
-                        },
+                        CommentRunLayout::FlatLeading(_) => self
+                            .line_constraint(previous.span.end, prepared.span.start)
+                            .write(writer, FlatSeparator::Space, |writer| match previous.kind {
+                                CommentKind::Line => writer.hard_line(),
+                                CommentKind::Block => writer.space(),
+                            }),
                         CommentRunLayout::Lines => {
                             writer.hard_line();
                             if self.line_breaks(previous.span.end, prepared.span.start) == 2 {
@@ -434,10 +441,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             (CommentRunLayout::GroupedLeading(next_start), Some(previous)) => {
                 self.leading_comment_gap(&previous, next_start, true, writer)
             }
-            (CommentRunLayout::FlatLeading, Some(previous)) => match previous.kind {
-                CommentKind::Line => writer.hard_line(),
-                CommentKind::Block => writer.space(),
-            },
+            (CommentRunLayout::FlatLeading(next_start), Some(previous)) => self
+                .line_constraint(previous.span.end, next_start)
+                .write(writer, FlatSeparator::Space, |writer| match previous.kind {
+                    CommentKind::Line => writer.hard_line(),
+                    CommentKind::Block => writer.space(),
+                }),
             _ => {}
         }
         Ok(())

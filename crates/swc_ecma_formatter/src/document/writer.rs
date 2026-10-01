@@ -10,6 +10,7 @@ pub(crate) struct Writer<'a> {
     allocator: &'a Allocator,
     elements: Vec<FormatElement<'a>>,
     breaks: usize,
+    flattening: bool,
 }
 
 impl<'a> Writer<'a> {
@@ -18,6 +19,7 @@ impl<'a> Writer<'a> {
             allocator,
             elements: Vec::new(),
             breaks: 0,
+            flattening: false,
         }
     }
 
@@ -113,6 +115,41 @@ impl<'a> Writer<'a> {
         };
         *expand |= self.breaks != breaks;
         self.elements.push(FormatElement::EndGroup);
+        result
+    }
+
+    /// Removes optional layout breaks in one complete scope. Required source
+    /// breaks and line suffixes keep the original document unchanged.
+    pub(crate) fn flat<T>(&mut self, write: impl FnOnce(&mut Self) -> T) -> T {
+        if self.flattening {
+            return write(self);
+        }
+        let start = self.elements.len();
+        let breaks = self.breaks;
+        self.flattening = true;
+        let result = write(self);
+        self.flattening = false;
+        if self.elements[start..].iter().any(|element| match element {
+            FormatElement::HardLine | FormatElement::LiteralLine | FormatElement::LineSuffix(_) => {
+                true
+            }
+            FormatElement::Text(text) => text.source.contains(['\n', '\r', '\u{2028}', '\u{2029}']),
+            _ => false,
+        }) {
+            return result;
+        }
+        let mut output = start;
+        for index in start..self.elements.len() {
+            let element = match self.elements[index] {
+                FormatElement::Line => FormatElement::Space,
+                element @ (FormatElement::Text(_) | FormatElement::Space) => element,
+                _ => continue,
+            };
+            self.elements[output] = element;
+            output += 1;
+        }
+        self.elements.truncate(output);
+        self.breaks = breaks;
         result
     }
 

@@ -1,6 +1,7 @@
 //! Formatting context and the program entry point.
 
 mod comments;
+mod diagnostics;
 mod expressions;
 mod literals;
 mod source;
@@ -16,6 +17,7 @@ pub(crate) struct Formatter<'ast, 'source> {
     ast: &'ast Ast<'source>,
     options: FormatOptions,
     comments: CommentCursor<'ast>,
+    diagnostic_lines: diagnostics::DiagnosticLines,
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -24,6 +26,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ast,
             options,
             comments: CommentCursor::new(ast.comments()),
+            diagnostic_lines: diagnostics::DiagnosticLines::new(ast.source(), ast.comments()),
         }
     }
 
@@ -69,7 +72,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 comment.span,
             ));
         }
-        if has_content {
+        if has_content.has_content {
             writer.hard_line();
         }
         Ok(())

@@ -6,6 +6,7 @@ use super::{ExpressionContext, ExpressionPosition, Formatter, StatementStart};
 use crate::formatter::comments::{
     CommentBinding, CommentRunLayout, CommentSemantics, ExpressionTail,
 };
+use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::source::is_source_whitespace;
 use crate::{FormatError, Semicolons, document::Writer};
 
@@ -152,7 +153,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let unsupported = leading.iter().chain(trailing).any(|&comment| {
                 matches!(
                     self.comment_semantics(comment),
-                    CommentSemantics::Diagnostic | CommentSemantics::Suppression
+                    CommentSemantics::Suppression
                 )
             });
             if unsupported {
@@ -224,13 +225,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }));
         let leading_layout = match kind {
             RetainedParentheses::Cast => CommentRunLayout::GroupedLeading(inner_span.start),
-            RetainedParentheses::Annotation => CommentRunLayout::FlatLeading,
+            RetainedParentheses::Annotation => CommentRunLayout::FlatLeading(inner_span.start),
         };
         if context.statement_start != StatementStart::None
             && self.options.semicolons == Semicolons::AsNeeded
         {
             writer.text(";");
         }
+        let first = leading
+            .first()
+            .map_or(inner_span.start, |comment| comment.span.start);
+        let opening = self.line_constraint(span.start + 1, first);
+        let last = trailing
+            .last()
+            .map_or(inner_span.end, |comment| comment.span.end);
+        let closing = self.line_constraint(last, span.end - 1);
         let mut write_contents = |writer: &mut Writer<'ast>| {
             self.comments.claim(leading)?;
             self.format_comment_run(leading, leading_layout, writer)?;
@@ -248,10 +257,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 write_contents(writer)?;
             } else {
                 writer.indent(|writer| {
-                    writer.soft_line();
+                    opening.write(writer, FlatSeparator::Empty, Writer::soft_line);
                     write_contents(writer)
                 })?;
-                writer.soft_line();
+                closing.write(writer, FlatSeparator::Empty, Writer::soft_line);
             }
             writer.text(")");
             Ok(None)

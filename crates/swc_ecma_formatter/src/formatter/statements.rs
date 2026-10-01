@@ -4,6 +4,7 @@ use swc_next_ecma_ast::{Ast, BlockStatement, Directive, GetSpan, Span, Stmt, Stm
 
 use super::Formatter;
 use super::comments::{CommentRunLayout, ExpressionTail};
+use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::{ExpressionContext, ExpressionPosition, StatementStart};
 use super::literals::StringContext;
 use crate::{FormatError, Semicolons, document::Writer};
@@ -11,6 +12,11 @@ use crate::{FormatError, Semicolons, document::Writer};
 pub(super) enum StatementSequenceKind {
     Program { has_source_items: bool },
     Block,
+}
+
+pub(super) struct StatementSequence {
+    pub(super) has_content: bool,
+    end: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -57,7 +63,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         previous_end: Option<u32>,
         kind: StatementSequenceKind,
         writer: &mut Writer<'ast>,
-    ) -> Result<bool, FormatError> {
+    ) -> Result<StatementSequence, FormatError> {
         let ast = self.ast;
         let mut previous = previous_end.map(StatementBoundary::SourceEnd);
         let mut statements = statements
@@ -75,12 +81,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 statement_span.start,
             ))?;
             let leading = self.comments.take(leading.len());
+            let mut statement_start = StatementStart::Pending;
             if let Some(boundary) = previous {
                 let next_start = leading
                     .first()
                     .map_or(statement_span.start, |comment| comment.span.start);
-                writer.hard_line();
-                if self.line_breaks(boundary.end(), next_start) == 2 {
+                let constraint = self.line_constraint(boundary.end(), next_start);
+                if constraint == LineConstraint::SameLine
+                    && self.options.semicolons == Semicolons::AsNeeded
+                {
+                    writer.text(";");
+                    statement_start = StatementStart::None;
+                }
+                constraint.write(writer, FlatSeparator::Space, Writer::hard_line);
+                if constraint == LineConstraint::Unconstrained
+                    && self.line_breaks(boundary.end(), next_start) == 2
+                {
                     writer.hard_line();
                 }
             }
@@ -88,7 +104,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 leading,
                 statement_span.start,
                 CommentRunLayout::Source,
-                StatementStart::Pending,
+                statement_start,
                 writer,
             )?;
             if let Some(last) = leading.last() {
@@ -141,7 +157,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             _ => CommentRunLayout::Source,
         };
         self.format_comment_run(dangling, layout, writer)?;
-        Ok(previous.is_some() || !dangling.is_empty())
+        Ok(StatementSequence {
+            has_content: previous.is_some() || !dangling.is_empty(),
+            end: dangling.last().map_or_else(
+                || previous.map_or(span.start, StatementBoundary::end),
+                |comment| comment.span.end,
+            ),
+        })
     }
 
     fn format_statement(
@@ -196,7 +218,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             count += 1;
         }
         // Own-line comments before a terminator belong to the sequence boundary.
-        let boundary = if count == comments.len() {
+        let terminator_on_next_line = self.ast.source().as_bytes().get(span.end as usize - 1)
+            == Some(&b';')
+            && self.line_breaks(inline_end, span.end - 1) != 0;
+        let boundary = if count == comments.len() && !terminator_on_next_line {
             StatementBoundary::SourceEnd(span.end)
         } else {
             StatementBoundary::BeforeTerminator {
@@ -220,16 +245,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let block_span = block.span(self.ast);
         let body_span = Span::new(block_span.start + 1, block_span.end - 1);
         let body = block.body(self.ast);
+        let opening = self.opening_line_constraint(body_span);
         writer.text("{");
         let has_statements = body.iter().any(|id| {
             let statement = self.ast.get_node_in_sub_range(id);
             !matches!(self.ast.stmt_data(statement), StmtData::EmptyStatement(_))
         });
         if !has_statements && self.comments.between(body_span)?.is_empty() {
-            writer.hard_line();
+            opening.write(writer, FlatSeparator::Empty, Writer::hard_line);
         } else {
-            writer.indent(|writer| {
-                writer.hard_line();
+            let sequence = writer.indent(|writer| {
+                opening.write(writer, FlatSeparator::Space, Writer::hard_line);
                 self.format_statement_sequence(
                     body.iter()
                         .map(|id| StatementItem::Statement(self.ast.get_node_in_sub_range(id))),
@@ -239,7 +265,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     writer,
                 )
             })?;
-            writer.hard_line();
+            self.line_constraint(sequence.end, body_span.end).write(
+                writer,
+                FlatSeparator::Space,
+                Writer::hard_line,
+            );
         }
         writer.text("}");
         Ok(())
