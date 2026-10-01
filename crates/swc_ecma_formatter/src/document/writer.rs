@@ -23,6 +23,17 @@ impl<'a> Writer<'a> {
         self.elements.push(FormatElement::HardLine);
     }
 
+    pub(crate) fn space(&mut self) {
+        self.elements.push(FormatElement::Space);
+    }
+
+    pub(crate) fn indent<T>(&mut self, write: impl FnOnce(&mut Self) -> T) -> T {
+        self.elements.push(FormatElement::StartIndent);
+        let result = write(self);
+        self.elements.push(FormatElement::EndIndent);
+        result
+    }
+
     pub(crate) fn finish(self) -> Doc<'a> {
         Doc {
             elements: self.elements,

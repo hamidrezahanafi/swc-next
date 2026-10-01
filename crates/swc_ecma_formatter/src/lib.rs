@@ -109,6 +109,6 @@ pub fn format(
 /// Panics if the AST has no root or its root is not a program.
 pub fn format_ast(ast: &Ast<'_>, options: FormatOptions) -> Result<String, FormatError> {
     let mut writer = document::Writer::new();
-    formatter::format_program(ast, &mut writer)?;
+    formatter::Formatter::new(ast, options).format_program(&mut writer)?;
     Ok(writer.finish().print(options))
 }

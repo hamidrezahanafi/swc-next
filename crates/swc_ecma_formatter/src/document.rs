@@ -15,7 +15,10 @@ use crate::FormatOptions;
 #[derive(Debug, Clone, Copy)]
 enum FormatElement<'a> {
     Text(&'a str),
+    Space,
     HardLine,
+    StartIndent,
+    EndIndent,
 }
 
 pub(crate) struct Doc<'a> {

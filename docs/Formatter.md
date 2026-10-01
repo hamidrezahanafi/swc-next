@@ -34,6 +34,11 @@ have separate mutable state.
 Doc construction owns flat instruction buffers. Finishing construction transfers
 the completed instructions to an immutable document.
 
+## Source and comments
+
+Syntax boundaries give each comment a defined owner. Comments are claimed once
+in source order; an unclaimed comment is an explicit formatting error.
+
 ## Verification
 
 Use local fixtures for representative syntax, comments, options, and widths.
