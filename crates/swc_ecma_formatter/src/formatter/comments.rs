@@ -22,6 +22,33 @@ pub(super) struct ExpressionTail<'ast> {
     pub(super) comments: &'ast [Comment],
 }
 
+pub(super) enum CommentSemantics {
+    Ordinary,
+    Suppression,
+    Diagnostic,
+    Optimizer,
+    TypeCast,
+}
+
+/// A syntax owner resolves the source target before relocating comments.
+/// Unknown annotation targets and diagnostic coverage retain the source boundary.
+#[derive(Clone, Copy)]
+pub(super) enum CommentBinding {
+    Unbound,
+    BoundTo(Span),
+    SourceBound,
+}
+
+impl CommentBinding {
+    pub(super) fn allows_relocation(&self, target: Option<Span>) -> bool {
+        match self {
+            Self::Unbound => true,
+            Self::BoundTo(source) => target == Some(*source),
+            Self::SourceBound => false,
+        }
+    }
+}
+
 pub(super) struct CommentCursor<'ast> {
     remaining: &'ast [Comment],
 }
@@ -151,27 +178,54 @@ impl<'ast> CommentCursor<'ast> {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
-    pub(super) fn comment_has_parenthesis_semantics(&self, comment: Comment) -> bool {
+    pub(super) fn comment_semantics(&self, comment: Comment) -> CommentSemantics {
         let raw = self.source(comment.span);
         let value = self
             .ast
             .get_utf8(comment.value(self.ast.source().as_bytes()))
             .trim();
-        if value == "prettier-ignore"
-            || value.starts_with("@ts-ignore")
-            || value.starts_with("@ts-expect-error")
-        {
-            return true;
+        if value == "prettier-ignore" {
+            return CommentSemantics::Suppression;
+        }
+        if value.starts_with("@ts-ignore") || value.starts_with("@ts-expect-error") {
+            return CommentSemantics::Diagnostic;
         }
         for (offset, marker) in raw.char_indices() {
             if matches!(marker, '@' | '#') {
                 let tag = &raw[offset + 1..];
                 if tag.starts_with("__PURE__") || tag.starts_with("__NO_SIDE_EFFECTS__") {
-                    return true;
+                    return CommentSemantics::Optimizer;
                 }
             }
         }
-        self.comment_is_type_cast(comment)
+        if self.comment_is_type_cast(comment) {
+            CommentSemantics::TypeCast
+        } else {
+            CommentSemantics::Ordinary
+        }
+    }
+
+    pub(super) fn comment_run_binding(
+        &self,
+        comments: impl Iterator<Item = Comment>,
+        mut resolve: impl FnMut(Comment) -> CommentBinding,
+    ) -> CommentBinding {
+        let mut source_target = None;
+        for comment in comments {
+            let target = match resolve(comment) {
+                CommentBinding::Unbound => continue,
+                CommentBinding::SourceBound => return CommentBinding::SourceBound,
+                CommentBinding::BoundTo(target) => target,
+            };
+            if source_target.is_some_and(|source| source != target) {
+                return CommentBinding::SourceBound;
+            }
+            source_target = Some(target);
+        }
+        match source_target {
+            Some(target) => CommentBinding::BoundTo(target),
+            None => CommentBinding::Unbound,
+        }
     }
 
     pub(super) fn comment_is_type_cast(&self, comment: Comment) -> bool {
@@ -191,7 +245,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 after
                     .chars()
                     .next()
-                    .is_some_and(|character| character.is_whitespace() || character == '{')
+                    .is_none_or(|character| !character.is_ascii_alphanumeric() && character != '_')
             }) {
                 return true;
             }

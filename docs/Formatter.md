@@ -58,6 +58,10 @@ comment ownership.
 Syntax boundaries give each comment a defined owner. Comments are claimed once
 in source order; an unclaimed comment is an explicit formatting error.
 
+Supported annotations and directives retain their effective target and scope;
+keeping comment text alone is insufficient. A known absent binding and an
+unknown source-bound binding are distinct facts.
+
 A child can return a borrowed pending comment tail when its parent owns the
 following punctuation or layout scope. The cursor remains at that run until
 the owning boundary claims it.

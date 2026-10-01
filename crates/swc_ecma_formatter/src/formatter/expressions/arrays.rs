@@ -131,7 +131,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let ArgumentData::Expr(expression) = self.ast.argument_data(argument) else {
                 return None;
             };
-            let (_, data) = self.unparenthesized_expression(expression);
+            let data = self.expression_content(expression).data;
             let numeric = match data {
                 ExprData::NumericLiteral(_) => true,
                 ExprData::UnaryExpression(unary)
@@ -140,7 +140,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         UnaryOperator::Positive | UnaryOperator::Negate
                     ) =>
                 {
-                    let (_, argument) = self.unparenthesized_expression(unary.argument(self.ast));
+                    let argument = self.expression_content(unary.argument(self.ast)).data;
                     matches!(argument, ExprData::NumericLiteral(_))
                         && self.comments.in_range(unary.span(self.ast)).is_empty()
                 }

@@ -4,7 +4,7 @@ use swc_next_ecma_ast::{Ast, BlockStatement, Directive, GetSpan, Span, Stmt, Stm
 
 use super::Formatter;
 use super::comments::{CommentRunLayout, ExpressionTail};
-use super::expressions::{ExpressionContext, ExpressionPosition};
+use super::expressions::{ExpressionContext, ExpressionPosition, StatementStart};
 use super::literals::StringContext;
 use crate::{FormatError, Semicolons, document::Writer};
 
@@ -84,7 +84,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     writer.hard_line();
                 }
             }
-            self.format_comment_run(leading, CommentRunLayout::Source, writer)?;
+            let start = self.format_expression_leading_comments(
+                leading,
+                statement_span.start,
+                CommentRunLayout::Source,
+                StatementStart::Pending,
+                writer,
+            )?;
             if let Some(last) = leading.last() {
                 let gap_end = previous.map_or(statement_span.start, |boundary| {
                     boundary.comment_gap_end(last.span.end, statement_span.start)
@@ -97,7 +103,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     self.format_string_literal(expression, StringContext::Directive, writer);
                     self.finish_statement(statement_span, expression.span(ast).end, None, writer)?
                 }
-                StatementItem::Statement(statement) => self.format_statement(statement, writer)?,
+                StatementItem::Statement(statement) => {
+                    self.format_statement(statement, start, writer)?
+                }
             };
             let following = statements.peek().map(|next| next.span(self.ast).start);
             let end = self.format_trailing_comments(
@@ -139,6 +147,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn format_statement(
         &mut self,
         statement: Stmt,
+        start: StatementStart,
         writer: &mut Writer<'ast>,
     ) -> Result<StatementBoundary, FormatError> {
         let (content_end, tail) = match self.ast.stmt_data(statement) {
@@ -146,7 +155,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let expression = node.expression(self.ast);
                 let tail = self.format_expression(
                     expression,
-                    ExpressionContext::at(ExpressionPosition::Statement),
+                    ExpressionContext::at(ExpressionPosition::Statement)
+                        .with_statement_start(start),
                     writer,
                 )?;
                 (expression.span(self.ast).end, tail)

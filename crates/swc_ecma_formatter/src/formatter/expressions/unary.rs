@@ -23,7 +23,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         ) {
             writer.space();
         }
-        let (argument, _) = self.unparenthesized_expression(unary.argument(self.ast));
+        let argument = self.expression_content(unary.argument(self.ast)).expression;
         let span = unary.span(self.ast);
         let argument_span = argument.span(self.ast);
         let leading = self.comments.between(Span::new(

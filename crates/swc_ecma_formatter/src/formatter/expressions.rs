@@ -33,7 +33,7 @@ pub(super) enum ExpressionPosition {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum StatementStart {
     None,
-    Expression,
+    Pending,
     Guard,
 }
 
@@ -55,28 +55,21 @@ impl ExpressionContext {
         Self {
             position,
             statement_start: if matches!(position, ExpressionPosition::Statement) {
-                StatementStart::Expression
+                StatementStart::Pending
             } else {
                 StatementStart::None
             },
             head_comments: HeadComments::Pending,
         }
     }
+
+    pub(super) fn with_statement_start(mut self, start: StatementStart) -> Self {
+        self.statement_start = start;
+        self
+    }
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
-    fn unparenthesized_expression(&self, mut expression: Expr) -> (Expr, ExprData) {
-        loop {
-            let data = self.ast.expr_data(expression);
-            match data {
-                ExprData::ParenthesizedExpression(parenthesized) => {
-                    expression = parenthesized.expression(self.ast);
-                }
-                _ => return (expression, data),
-            }
-        }
-    }
-
     pub(super) fn format_expression(
         &mut self,
         expression: Expr,
@@ -92,7 +85,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if self.options.semicolons != Semicolons::AsNeeded {
             context.statement_start = StatementStart::None;
         }
-        if context.statement_start == StatementStart::Expression {
+        if context.statement_start == StatementStart::Pending {
             let mut asi_guard = parenthesize
                 || match data {
                     ExprData::ArrayExpression(_) | ExprData::RegExpLiteral(_) => true,
@@ -103,7 +96,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     _ => false,
                 };
             if let Some(binary) = binary {
-                let (_, left) = self.unparenthesized_expression(binary.left);
+                let left = self.expression_content(binary.left).data;
                 asi_guard |= self.expression_needs_parentheses(
                     left,
                     ExpressionPosition::BinaryOperand {

@@ -4,6 +4,10 @@ use swc_next_ecma_ast::{Comment, Span};
 
 use super::Formatter;
 
+pub(super) fn is_source_whitespace(character: char) -> bool {
+    character.is_whitespace() || character == '\u{feff}'
+}
+
 pub(super) fn split_line(source: &str) -> (&str, Option<&str>) {
     let Some(index) = source.find(['\n', '\r']) else {
         return (source, None);
@@ -35,7 +39,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             Some((index, character)) => &before[index + character.len_utf8()..],
             None => before,
         };
-        line.chars().all(char::is_whitespace)
+        line.chars().all(is_source_whitespace)
     }
 
     pub(super) fn find_comma(&self, span: Span, comments: &[Comment]) -> Option<u32> {

@@ -193,6 +193,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let start = expression.span(self.ast).start;
         loop {
             let content = self.expression_content(expression);
+            if matches!(content.data, ExprData::ParenthesizedExpression(_)) {
+                break;
+            }
             if content
                 .parentheses
                 .is_some_and(|boundary| !self.parentheses_are_removable(boundary))
@@ -307,7 +310,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if !matches!(binary.operator, BinaryOperatorKind::Logical(_)) {
             return false;
         }
-        let (_, right) = self.unparenthesized_expression(binary.right);
+        let right = self.expression_content(binary.right).data;
         matches!(right, ExprData::ArrayExpression(array) if !array.elements(self.ast).is_empty())
     }
 
@@ -371,7 +374,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             binary = right;
         }
         let same_kind = |expression| {
-            let (_, data) = self.unparenthesized_expression(expression);
+            let data = self.expression_content(expression).data;
             BinaryOperatorKind::from_data(data, self.ast)
                 .is_some_and(|child| child.same_kind(binary.operator))
         };
