@@ -2,6 +2,7 @@
 
 mod arrays;
 mod binary;
+mod parentheses;
 mod unary;
 
 use swc_next_ecma_ast::{
@@ -10,7 +11,10 @@ use swc_next_ecma_ast::{
 
 use self::binary::{BinaryLike, BinaryOperatorKind, OperandSide};
 use super::literals::StringContext;
-use super::{Formatter, comments::CommentRunLayout};
+use super::{
+    Formatter,
+    comments::{CommentRunLayout, ExpressionTail},
+};
 use crate::{FormatError, Semicolons, document::Writer};
 
 #[derive(Clone, Copy)]
@@ -26,17 +30,36 @@ pub(super) enum ExpressionPosition {
     SpreadArgument,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum StatementStart {
+    None,
+    Expression,
+    Guard,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum HeadComments {
+    Pending,
+    Claimed,
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct ExpressionContext {
     position: ExpressionPosition,
-    statement_start: bool,
+    statement_start: StatementStart,
+    head_comments: HeadComments,
 }
 
 impl ExpressionContext {
     pub(super) fn at(position: ExpressionPosition) -> Self {
         Self {
             position,
-            statement_start: matches!(position, ExpressionPosition::Statement),
+            statement_start: if matches!(position, ExpressionPosition::Statement) {
+                StatementStart::Expression
+            } else {
+                StatementStart::None
+            },
+            head_comments: HeadComments::Pending,
         }
     }
 }
@@ -59,34 +82,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         expression: Expr,
         mut context: ExpressionContext,
         writer: &mut Writer<'ast>,
-    ) -> Result<(), FormatError> {
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let data = self.ast.expr_data(expression);
-        // Removed source parentheses keep the same immediate grammar relation.
         if let ExprData::ParenthesizedExpression(parenthesized) = data {
-            let inner = parenthesized.expression(self.ast);
-            let span = parenthesized.span(self.ast);
-            let inner_span = inner.span(self.ast);
-            if !self
-                .comments
-                .between(Span::new(span.start, inner_span.start))?
-                .is_empty()
-            {
-                return Err(self.unsupported("parenthesized comments", parenthesized));
-            }
-            self.format_expression(inner, context, writer)?;
-            if !self
-                .comments
-                .between(Span::new(inner_span.end, span.end))?
-                .is_empty()
-            {
-                return Err(self.unsupported("parenthesized comments", parenthesized));
-            }
-            return Ok(());
+            return self.format_source_parentheses(parenthesized, context, writer);
         }
         let binary = BinaryLike::from_data(data, self.ast);
         let parenthesize = self.expression_needs_parentheses(data, context.position);
-        context.statement_start &= self.options.semicolons == Semicolons::AsNeeded;
-        if context.statement_start {
+        if self.options.semicolons != Semicolons::AsNeeded {
+            context.statement_start = StatementStart::None;
+        }
+        if context.statement_start == StatementStart::Expression {
             let mut asi_guard = parenthesize
                 || match data {
                     ExprData::ArrayExpression(_) | ExprData::RegExpLiteral(_) => true,
@@ -107,9 +113,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 );
             }
             if asi_guard {
-                writer.text(";");
-                context.statement_start = false;
+                context.statement_start = StatementStart::Guard;
             }
+        }
+        if context.statement_start == StatementStart::Guard && (binary.is_none() || parenthesize) {
+            writer.text(";");
+            context.statement_start = StatementStart::None;
         }
         if let Some(binary) = binary {
             if parenthesize && matches!(context.position, ExpressionPosition::UnaryArgument(_)) {
@@ -117,33 +126,34 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     writer.text("(");
                     writer.indent(|writer| {
                         writer.soft_line();
-                        self.format_binary_enclosed(binary, writer)
+                        let tail = self.format_binary_enclosed(binary, writer)?;
+                        self.format_expression_tail(tail, writer)
                     })?;
                     writer.soft_line();
                     writer.text(")");
-                    Ok(())
+                    Ok(None)
                 });
             }
             if parenthesize {
                 writer.text("(");
             }
-            self.format_binary(binary, context, writer)?;
+            let tail = self.format_binary(binary, context, writer)?;
             if parenthesize {
                 writer.text(")");
             }
-            return Ok(());
+            return Ok(tail);
         }
         if parenthesize {
             writer.text("(");
         }
-        match data {
+        let tail = match data {
             ExprData::StringLiteral(literal) => {
                 self.format_string_literal(literal, StringContext::Expression, writer);
-                Ok(())
+                Ok(None)
             }
             ExprData::IdentifierReference(identifier) => {
                 writer.text(self.ast.get_utf8(identifier.name(self.ast)));
-                Ok(())
+                Ok(None)
             }
             ExprData::BooleanLiteral(literal) => {
                 writer.text(if literal.value(self.ast) {
@@ -151,25 +161,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 } else {
                     "false"
                 });
-                Ok(())
+                Ok(None)
             }
             ExprData::NullLiteral(_) => {
                 writer.text("null");
-                Ok(())
+                Ok(None)
             }
             ExprData::NumericLiteral(literal) => {
                 self.format_numeric_literal(literal, writer);
-                Ok(())
+                Ok(None)
             }
             ExprData::BigIntLiteral(literal) => {
                 self.format_bigint_literal(literal, writer);
-                Ok(())
+                Ok(None)
             }
             ExprData::RegExpLiteral(literal) => {
                 self.format_regexp_literal(literal, writer);
-                Ok(())
+                Ok(None)
             }
-            ExprData::ArrayExpression(array) => self.format_array(array, writer),
+            ExprData::ArrayExpression(array) => self.format_array(array, writer).map(|()| None),
             ExprData::UnaryExpression(unary) => self.format_unary(unary, writer),
             ExprData::UpdateExpression(update) => self.format_update(update, writer),
             _ => Err(self.unsupported("expression", expression)),
@@ -177,7 +187,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if parenthesize {
             writer.text(")");
         }
-        Ok(())
+        Ok(tail)
     }
 
     fn expression_needs_parentheses(&self, data: ExprData, position: ExpressionPosition) -> bool {
@@ -235,7 +245,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         argument: Argument,
         writer: &mut Writer<'ast>,
-    ) -> Result<(), FormatError> {
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         match self.ast.argument_data(argument) {
             ArgumentData::Expr(expression) => self.format_expression(
                 expression,

@@ -3,7 +3,7 @@
 use swc_next_ecma_ast::{Ast, BlockStatement, Directive, GetSpan, Span, Stmt, StmtData};
 
 use super::Formatter;
-use super::comments::CommentRunLayout;
+use super::comments::{CommentRunLayout, ExpressionTail};
 use super::expressions::{ExpressionContext, ExpressionPosition};
 use super::literals::StringContext;
 use crate::{FormatError, Semicolons, document::Writer};
@@ -95,7 +95,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 StatementItem::Directive(directive) => {
                     let expression = directive.expression(ast);
                     self.format_string_literal(expression, StringContext::Directive, writer);
-                    self.finish_statement(statement_span, expression.span(ast).end, writer)?
+                    self.finish_statement(statement_span, expression.span(ast).end, None, writer)?
                 }
                 StatementItem::Statement(statement) => self.format_statement(statement, writer)?,
             };
@@ -141,19 +141,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         statement: Stmt,
         writer: &mut Writer<'ast>,
     ) -> Result<StatementBoundary, FormatError> {
-        let content_end = match self.ast.stmt_data(statement) {
+        let (content_end, tail) = match self.ast.stmt_data(statement) {
             StmtData::ExpressionStatement(node) => {
                 let expression = node.expression(self.ast);
-                self.format_expression(
+                let tail = self.format_expression(
                     expression,
                     ExpressionContext::at(ExpressionPosition::Statement),
                     writer,
                 )?;
-                expression.span(self.ast).end
+                (expression.span(self.ast).end, tail)
             }
             StmtData::DebuggerStatement(node) => {
                 writer.text("debugger");
-                node.span(self.ast).start + "debugger".len() as u32
+                (node.span(self.ast).start + "debugger".len() as u32, None)
             }
             StmtData::BlockStatement(block) => {
                 self.format_block(block, writer)?;
@@ -161,18 +161,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             _ => return Err(self.unsupported("statement", statement)),
         };
-        self.finish_statement(statement.span(self.ast), content_end, writer)
+        self.finish_statement(statement.span(self.ast), content_end, tail, writer)
     }
 
     fn finish_statement(
         &mut self,
         span: Span,
         content_end: u32,
+        tail: Option<ExpressionTail<'ast>>,
         writer: &mut Writer<'ast>,
     ) -> Result<StatementBoundary, FormatError> {
         if self.options.semicolons == Semicolons::Always {
             writer.text(";");
         }
+        self.format_expression_tail(tail, writer)?;
         let comments = self.comments.between(Span::new(content_end, span.end))?;
         let mut inline_end = content_end;
         let mut count = 0;

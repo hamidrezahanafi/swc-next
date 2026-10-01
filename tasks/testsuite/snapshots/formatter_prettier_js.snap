@@ -3,13 +3,13 @@ formatter * prettier 3.9.9 * js
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 794
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 45/1070 (4.21%)
-Snapshot matched: 45/1070
-AST parity: 45/45
-AST mismatched: 0/45
+Passed: 47/1070 (4.39%)
+Snapshot matched: 47/1070
+AST parity: 47/47
+AST mismatched: 0/47
 AST format errors: 0/1070
 Mismatched: 0/1070
-Format errors: 1024/1070
+Format errors: 1022/1070
 Panicked: 0/1070
 Not idempotent: 0/1070
 Ignored files: 298
@@ -250,7 +250,6 @@ Unsupported option sets: 19
 - js/comments-closure-typecast/satisfies.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/comments-closure-typecast/superclass.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/comments-closure-typecast/ways-to-specify-type.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/comments/15661.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/comments/16398.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/comments/array-and-object.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/comments/arrow.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent

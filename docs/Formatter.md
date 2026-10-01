@@ -58,6 +58,10 @@ comment ownership.
 Syntax boundaries give each comment a defined owner. Comments are claimed once
 in source order; an unclaimed comment is an explicit formatting error.
 
+A child can return a borrowed pending comment tail when its parent owns the
+following punctuation or layout scope. The cursor remains at that run until
+the owning boundary claims it.
+
 ## Grammar and semantic boundaries
 
 Expression contexts carry precedence, operand roles, and statement-start rules.

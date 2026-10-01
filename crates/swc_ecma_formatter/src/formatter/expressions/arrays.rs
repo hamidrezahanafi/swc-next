@@ -227,14 +227,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if let Some(last) = leading.last() {
             self.comment_gap(last.span.end, argument_span.start, writer);
         }
-        self.format_argument(argument, writer)?;
+        let tail = self.format_argument(argument, writer)?;
+        let content_end = tail
+            .as_ref()
+            .map_or(argument_span.end, |tail| tail.source_end);
         let gap = Span::new(
-            argument_span.end,
+            content_end,
             following.map_or(span.end, |node| node.span(ast).start),
         );
         let comments = self.comments.between(gap)?;
         let comma = self.find_comma(gap, comments);
-        let mut inline_end = argument_span.end;
+        let mut inline_end = content_end;
         let mut trailing_count = 0;
         for (index, comment) in comments.iter().enumerate() {
             if self.line_breaks(inline_end, comment.span.start) != 0 {
@@ -252,7 +255,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let trailing = self.comments.take(trailing_count);
         let trailing_end = trailing
             .last()
-            .map_or(argument_span.end, |comment| comment.span.end);
+            .map_or(content_end, |comment| comment.span.end);
         self.format_inline_trailing_comments(trailing, writer)?;
         let mut separator = if comments[trailing_count..]
             .iter()

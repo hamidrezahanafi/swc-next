@@ -10,7 +10,16 @@ use crate::{FormatError, document::Writer};
 pub(super) enum CommentRunLayout {
     Source,
     SourceAfter(u32),
+    Leading(u32),
+    GroupedLeading(u32),
     Lines,
+}
+
+/// A pending run whose parent owns the following punctuation and layout scope.
+/// The cursor stays at this run until that parent claims it.
+pub(super) struct ExpressionTail<'ast> {
+    pub(super) source_end: u32,
+    pub(super) comments: &'ast [Comment],
 }
 
 pub(super) struct CommentCursor<'ast> {
@@ -32,6 +41,7 @@ enum CommentText<'ast> {
 
 struct PreparedComment<'ast> {
     span: Span,
+    kind: CommentKind,
     text: CommentText<'ast>,
 }
 
@@ -141,6 +151,70 @@ impl<'ast> CommentCursor<'ast> {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    pub(super) fn comment_has_parenthesis_semantics(&self, comment: Comment) -> bool {
+        let raw = self.source(comment.span);
+        let value = self
+            .ast
+            .get_utf8(comment.value(self.ast.source().as_bytes()))
+            .trim();
+        if value == "prettier-ignore"
+            || value.starts_with("@ts-ignore")
+            || value.starts_with("@ts-expect-error")
+        {
+            return true;
+        }
+        for (offset, marker) in raw.char_indices() {
+            if matches!(marker, '@' | '#') {
+                let tag = &raw[offset + 1..];
+                if tag.starts_with("__PURE__") || tag.starts_with("__NO_SIDE_EFFECTS__") {
+                    return true;
+                }
+            }
+        }
+        self.comment_is_type_cast(comment)
+    }
+
+    pub(super) fn comment_is_type_cast(&self, comment: Comment) -> bool {
+        let raw = self.source(comment.span);
+        if !raw.starts_with("/**") {
+            return false;
+        }
+        for (offset, marker) in raw.char_indices() {
+            if marker != '@' {
+                continue;
+            }
+            let tag = &raw[offset..];
+            let after = tag
+                .strip_prefix("@type")
+                .or_else(|| tag.strip_prefix("@satisfies"));
+            if after.is_some_and(|after| {
+                after
+                    .chars()
+                    .next()
+                    .is_some_and(|character| character.is_whitespace() || character == '{')
+            }) {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub(super) fn format_expression_tail(
+        &mut self,
+        tail: Option<ExpressionTail<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        if let Some(tail) = tail {
+            self.comments.claim(tail.comments)?;
+            self.format_comment_run(
+                tail.comments,
+                CommentRunLayout::SourceAfter(tail.source_end),
+                writer,
+            )?;
+        }
+        Ok(())
+    }
+
     fn check_suppression(&self, comment: Comment) -> Result<(), FormatError> {
         if self
             .ast
@@ -170,6 +244,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         Ok(PreparedComment {
             span: comment.span,
+            kind: comment.kind,
             text,
         })
     }
@@ -212,6 +287,32 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
+    fn leading_comment_gap(
+        &self,
+        comment: &PreparedComment<'ast>,
+        next_start: u32,
+        grouped: bool,
+        writer: &mut Writer<'ast>,
+    ) {
+        match self.line_breaks(comment.span.end, next_start) {
+            0 if comment.kind == CommentKind::Block => writer.space(),
+            1 if comment.kind == CommentKind::Block
+                && !self.source_position_starts_line(comment.span.start) =>
+            {
+                if grouped {
+                    writer.line();
+                } else {
+                    writer.space();
+                }
+            }
+            0 | 1 => writer.hard_line(),
+            _ => {
+                writer.hard_line();
+                writer.hard_line();
+            }
+        }
+    }
+
     pub(super) fn format_comment_run(
         &self,
         comments: &[Comment],
@@ -239,6 +340,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         CommentRunLayout::Source | CommentRunLayout::SourceAfter(_) => {
                             self.comment_gap(previous.span.end, prepared.span.start, writer);
                         }
+                        CommentRunLayout::Leading(_) | CommentRunLayout::GroupedLeading(_) => {
+                            self.leading_comment_gap(
+                                &previous,
+                                prepared.span.start,
+                                matches!(layout, CommentRunLayout::GroupedLeading(_)),
+                                writer,
+                            );
+                        }
                         CommentRunLayout::Lines => {
                             writer.hard_line();
                             if self.line_breaks(previous.span.end, prepared.span.start) == 2 {
@@ -258,6 +367,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 prepared.text.write(writer);
             }
             previous = Some(prepared);
+        }
+        match (layout, previous) {
+            (CommentRunLayout::Leading(next_start), Some(previous)) => {
+                self.leading_comment_gap(&previous, next_start, false, writer)
+            }
+            (CommentRunLayout::GroupedLeading(next_start), Some(previous)) => {
+                self.leading_comment_gap(&previous, next_start, true, writer)
+            }
+            _ => {}
         }
         Ok(())
     }

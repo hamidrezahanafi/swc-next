@@ -6,7 +6,7 @@ use swc_next_ecma_ast::{
 };
 
 use super::{ExpressionContext, ExpressionPosition, Formatter};
-use crate::formatter::comments::CommentRunLayout;
+use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
 use crate::{FormatError, document::Writer};
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -14,7 +14,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         unary: UnaryExpression,
         writer: &mut Writer<'ast>,
-    ) -> Result<(), FormatError> {
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let operator = unary.operator(self.ast);
         writer.text(operator.as_str());
         if matches!(
@@ -43,15 +43,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.indent(|writer| {
                 writer.soft_line();
                 self.comments.claim(leading)?;
-                self.format_comment_run(leading, CommentRunLayout::Source, writer)?;
-                if let Some(last) = leading.last() {
-                    self.comment_gap(last.span.end, argument_span.start, writer);
-                }
-                self.format_expression(
+                self.format_comment_run(
+                    leading,
+                    CommentRunLayout::GroupedLeading(argument_span.start),
+                    writer,
+                )?;
+                let tail = self.format_expression(
                     argument,
                     ExpressionContext::at(ExpressionPosition::ParenthesizedUnaryArgument(operator)),
                     writer,
                 )?;
+                self.format_expression_tail(tail, writer)?;
                 self.comments.claim(trailing)?;
                 self.format_comment_run(
                     trailing,
@@ -68,7 +70,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.soft_line();
             }
             writer.text(")");
-            Ok(())
+            Ok(None)
         })
     }
 
@@ -76,7 +78,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         update: UpdateExpression,
         writer: &mut Writer<'ast>,
-    ) -> Result<(), FormatError> {
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let target = update.argument(self.ast);
         let SimpleAssignmentTargetData::IdentifierReference(identifier) =
             self.ast.simple_assignment_target_data(target)
@@ -92,23 +94,41 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .comments
                 .between(Span::new(span.start + 2, target_span.start))?;
             let comments = self.comments.take(comments.len());
-            self.format_comment_run(comments, CommentRunLayout::Source, writer)?;
-            if let Some(last) = comments.last() {
-                self.comment_gap(last.span.end, target_span.start, writer);
-            }
+            self.format_comment_run(
+                comments,
+                CommentRunLayout::Leading(target_span.start),
+                writer,
+            )?;
             writer.text(self.ast.get_utf8(identifier.name(self.ast)));
+            self.capture_expression_tail(Span::new(target_span.end, span.end), None)
         } else {
-            writer.text(self.ast.get_utf8(identifier.name(self.ast)));
-            let comments = self
+            let leading = self
                 .comments
-                .between(Span::new(target_span.end, span.end - 2))?;
-            let comments = self.comments.take(comments.len());
-            if !comments.is_empty() {
-                writer.space();
-                self.format_comment_run(comments, CommentRunLayout::Source, writer)?;
-            }
+                .between(Span::new(span.start, target_span.start))?;
+            let leading = self.comments.take(leading.len());
+            self.format_comment_run(
+                leading,
+                CommentRunLayout::Leading(target_span.start),
+                writer,
+            )?;
+            writer.text(self.ast.get_utf8(identifier.name(self.ast)));
+            let boundary = Span::new(target_span.end, span.end - 2);
+            let comments = self.comments.between(boundary)?;
+            let count = comments
+                .iter()
+                .take_while(|comment| {
+                    comment.kind == CommentKind::Block
+                        && self.line_breaks(target_span.end, comment.span.start) == 0
+                        && self.line_breaks(comment.span.start, comment.span.end) == 0
+                })
+                .count();
+            let inline = self.comments.take(count);
+            self.format_inline_trailing_comments(inline, writer)?;
+            let source_end = inline
+                .last()
+                .map_or(target_span.end, |comment| comment.span.end);
             writer.text(operator);
+            self.capture_expression_tail(Span::new(source_end, boundary.end), None)
         }
-        Ok(())
     }
 }
