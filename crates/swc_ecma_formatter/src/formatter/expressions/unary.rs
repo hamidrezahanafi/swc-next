@@ -5,7 +5,7 @@ use swc_next_ecma_ast::{
     UpdateExpression,
 };
 
-use super::{ExpressionPosition, Formatter};
+use super::{ExpressionContext, ExpressionPosition, Formatter};
 use crate::formatter::comments::CommentRunLayout;
 use crate::{FormatError, document::Writer};
 
@@ -35,7 +35,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .in_range(Span::new(argument_span.end, span.end));
         let position = ExpressionPosition::UnaryArgument(operator);
         if leading.is_empty() && trailing.is_empty() {
-            return self.format_expression(argument, position, writer);
+            return self.format_expression(argument, ExpressionContext::at(position), writer);
         }
         // The operator owns one group around boundary comments and its operand.
         writer.group(false, |writer| {
@@ -47,7 +47,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 if let Some(last) = leading.last() {
                     self.comment_gap(last.span.end, argument_span.start, writer);
                 }
-                self.format_expression(argument, position, writer)?;
+                self.format_expression(
+                    argument,
+                    ExpressionContext::at(ExpressionPosition::ParenthesizedUnaryArgument(operator)),
+                    writer,
+                )?;
                 self.comments.claim(trailing)?;
                 self.format_comment_run(
                     trailing,

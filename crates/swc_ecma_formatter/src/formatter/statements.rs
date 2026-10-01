@@ -4,7 +4,7 @@ use swc_next_ecma_ast::{Ast, BlockStatement, Directive, GetSpan, Span, Stmt, Stm
 
 use super::Formatter;
 use super::comments::CommentRunLayout;
-use super::expressions::ExpressionPosition;
+use super::expressions::{ExpressionContext, ExpressionPosition};
 use super::literals::StringContext;
 use crate::{FormatError, Semicolons, document::Writer};
 
@@ -144,7 +144,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let content_end = match self.ast.stmt_data(statement) {
             StmtData::ExpressionStatement(node) => {
                 let expression = node.expression(self.ast);
-                self.format_expression(expression, ExpressionPosition::Statement, writer)?;
+                self.format_expression(
+                    expression,
+                    ExpressionContext::at(ExpressionPosition::Statement),
+                    writer,
+                )?;
                 expression.span(self.ast).end
             }
             StmtData::DebuggerStatement(node) => {

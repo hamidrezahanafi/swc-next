@@ -60,6 +60,10 @@ in source order; an unclaimed comment is an explicit formatting error.
 
 ## Grammar and semantic boundaries
 
+Expression contexts carry precedence, operand roles, and statement-start rules.
+Parenthesis and layout changes must preserve evaluation order, directive status,
+statement boundaries, and semantic comment scopes.
+
 Required token separation and statement guards are decided by syntax formatting
 before printing chooses line breaks or removes optional punctuation.
 
