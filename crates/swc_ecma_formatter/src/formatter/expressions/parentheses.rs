@@ -134,6 +134,38 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }))
     }
 
+    pub(super) fn ignored_parentheses_child(
+        &self,
+        parenthesized: ParenthesizedExpression,
+        mode: ContentMode,
+    ) -> Option<Expr> {
+        if !self.has_suppression {
+            return None;
+        }
+        let span = parenthesized.span(self.ast);
+        let child = parenthesized.expression(self.ast);
+        let child_span = child.span(self.ast);
+        let head = self
+            .comments
+            .in_range(Span::new(span.start, child_span.start));
+        let trailing = Span::new(child_span.end, span.end - 1);
+        let tail = self.comments.in_range(trailing);
+        let ignored = mode == ContentMode::Verbatim
+            || self.content_mode(head) == ContentMode::Verbatim
+            || self.trailing_content_mode(trailing, BoundaryPunctuation::None, false)
+                == ContentMode::Verbatim
+            || self.trailing_content_mode(trailing, BoundaryPunctuation::None, true)
+                == ContentMode::Verbatim;
+        (ignored
+            && head.iter().chain(tail).all(|&comment| {
+                matches!(
+                    self.comment_semantics(comment),
+                    CommentSemantics::Ordinary | CommentSemantics::Suppression
+                )
+            }))
+        .then_some(child)
+    }
+
     pub(super) fn format_source_parentheses(
         &mut self,
         parenthesized: ParenthesizedExpression,
@@ -180,23 +212,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             );
         }
         let content = self.expression_content(Expr::ParenthesizedExpression(parenthesized));
-        let head = self
-            .comments
-            .in_range(Span::new(span.start, child_span.start));
-        let tail = self.comments.in_range(trailing);
-        let terminal_mode = self.trailing_content_mode(trailing, BoundaryPunctuation::None, true);
-        let ignored_child = (context.content_mode == ContentMode::Verbatim
-            || inline_mode == ContentMode::Verbatim
-            || self.content_mode(head) == ContentMode::Verbatim
-            || terminal_mode == ContentMode::Verbatim)
-            && head.iter().chain(tail).all(|&comment| {
-                matches!(
-                    self.comment_semantics(comment),
-                    CommentSemantics::Ordinary | CommentSemantics::Suppression
-                )
-            });
-        if ignored_child
-            && (self.ignored_operand_owns_operation_head(child, context.position)
+        let ignored_child = self.ignored_parentheses_child(parenthesized, context.content_mode);
+        if let Some(ignored) = ignored_child
+            && (self.ignored_operand_owns_operation_head(ignored, context.position)
                 || matches!(context.position, ExpressionPosition::UnaryArgument(_))
                 || self
                     .expression_needs_parentheses(self.ast.expr_data(child), context.position)
@@ -209,7 +227,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer,
             );
         }
-        if !ignored_child && content.expression == Expr::ParenthesizedExpression(parenthesized) {
+        if ignored_child.is_none()
+            && content.expression == Expr::ParenthesizedExpression(parenthesized)
+        {
             return self.format_retained_parentheses(
                 parenthesized,
                 context,
@@ -217,11 +237,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer,
             );
         }
-        let inner = if ignored_child {
-            child
-        } else {
-            content.expression
-        };
+        let inner = ignored_child.unwrap_or(content.expression);
         let inner_span = inner.span(self.ast);
         let leading = self
             .comments
@@ -239,7 +255,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             context.statement_start,
             writer,
         )?;
-        context.content_mode = if ignored_child {
+        context.content_mode = if ignored_child.is_some() {
             ContentMode::Verbatim
         } else {
             self.content_mode(leading)

@@ -1,6 +1,7 @@
 //! Expression dispatch and immediate grammar and statement-start contexts.
 
 mod arrays;
+mod assignment;
 mod binary;
 mod conditional;
 mod parentheses;
@@ -10,6 +11,7 @@ use swc_next_ecma_ast::{
     Argument, ArgumentData, Expr, ExprData, GetSpan, Span, UnaryOperator, UpdateOperator,
 };
 
+use self::assignment::AssignmentParent;
 use self::binary::{BinaryLike, BinaryOperatorKind, OperandSide};
 use super::literals::StringContext;
 use super::suppression::ContentMode;
@@ -33,6 +35,7 @@ pub(super) enum ExpressionPosition {
     ConditionalTest,
     ConditionalConsequent,
     ConditionalAlternate,
+    AssignmentRight(AssignmentParent),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -292,6 +295,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ExprData::ConditionalExpression(conditional) => {
                 self.format_conditional(conditional, context, writer)
             }
+            ExprData::AssignmentExpression(assignment) => {
+                self.format_assignment(assignment, context, writer)
+            }
             _ => Err(self.unsupported("expression", expression)),
         }?;
         if parenthesize {
@@ -321,10 +327,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             | ExprData::BinaryExpression(_)
             | ExprData::LogicalExpression(_)
             | ExprData::ConditionalExpression(_)
+            | ExprData::AssignmentExpression(_)
             | ExprData::ParenthesizedExpression(_) => {}
             _ => return None,
         }
         Some(match (position, data) {
+            (position, ExprData::AssignmentExpression(_)) => !matches!(
+                position,
+                ExpressionPosition::Statement | ExpressionPosition::AssignmentRight(_)
+            ),
             (
                 ExpressionPosition::UnaryArgument(_)
                 | ExpressionPosition::ParenthesizedUnaryArgument(_)

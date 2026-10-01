@@ -44,9 +44,23 @@ impl Indentation {
     fn width(self, options: FormatOptions) -> usize {
         self.levels * usize::from(options.indent_width.value()) + self.alignment
     }
+
+    fn indented(mut self, options: FormatOptions) -> Self {
+        if options.indent_style == IndentStyle::Tab {
+            self.levels += self.alignments;
+            self.alignment = 0;
+            self.alignments = 0;
+        }
+        self.levels += 1;
+        self
+    }
 }
 
-pub(super) fn print(elements: &[FormatElement<'_>], options: FormatOptions) -> String {
+pub(super) fn print(
+    elements: &[FormatElement<'_>],
+    group_count: usize,
+    options: FormatOptions,
+) -> String {
     let mut output = Output {
         text: String::new(),
         column: 0,
@@ -57,6 +71,7 @@ pub(super) fn print(elements: &[FormatElement<'_>], options: FormatOptions) -> S
     let mut indent = Indentation::default();
     let mut indents = Vec::new();
     let mut modes = Vec::new();
+    let mut group_modes = vec![Mode::Flat; group_count];
     let mut mode = Mode::Break;
     let mut probe = Vec::new();
     let mut fills = Vec::new();
@@ -91,7 +106,7 @@ pub(super) fn print(elements: &[FormatElement<'_>], options: FormatOptions) -> S
                 }
             }
             FormatElement::LineSuffix(text) => suffixes.push(text),
-            FormatElement::StartGroup { expand } => {
+            FormatElement::StartGroup { expand, id } => {
                 let flat = !expand
                     && (mode == Mode::Flat
                         || fits(
@@ -104,6 +119,9 @@ pub(super) fn print(elements: &[FormatElement<'_>], options: FormatOptions) -> S
                             ProbeKind::Group,
                         ));
                 let group_mode = if flat { Mode::Flat } else { Mode::Break };
+                if let Some(id) = id {
+                    group_modes[id.0] = group_mode;
+                }
                 modes.push(GroupState {
                     mode: group_mode,
                     restore_mode: mode,
@@ -116,14 +134,16 @@ pub(super) fn print(elements: &[FormatElement<'_>], options: FormatOptions) -> S
                     .expect("group scopes must close after opening")
                     .restore_mode;
             }
+            FormatElement::FlatGroup(id) => group_modes[id.0] = Mode::Flat,
             FormatElement::StartIndent => {
                 indents.push(indent);
-                if options.indent_style == IndentStyle::Tab {
-                    indent.levels += indent.alignments;
-                    indent.alignment = 0;
-                    indent.alignments = 0;
+                indent = indent.indented(options);
+            }
+            FormatElement::StartIndentIfBreak(id) => {
+                indents.push(indent);
+                if group_modes[id.0] == Mode::Break {
+                    indent = indent.indented(options);
                 }
-                indent.levels += 1;
             }
             FormatElement::EndIndent => {
                 indent = indents
@@ -329,7 +349,7 @@ fn fits(
             | FormatElement::Line
             | FormatElement::HardLine
             | FormatElement::LiteralLine => return true,
-            FormatElement::StartGroup { expand } => {
+            FormatElement::StartGroup { expand, .. } => {
                 if expand && matches!(kind, ProbeKind::Fill) {
                     return false;
                 }
@@ -353,6 +373,8 @@ fn fits(
                 };
             }
             FormatElement::StartIndent
+            | FormatElement::FlatGroup(_)
+            | FormatElement::StartIndentIfBreak(_)
             | FormatElement::EndIndent
             | FormatElement::StartAlign { .. }
             | FormatElement::EndAlign { .. }

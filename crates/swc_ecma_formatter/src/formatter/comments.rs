@@ -288,6 +288,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
+    pub(super) fn comment_is_alignable(&self, comment: Comment) -> Result<bool, FormatError> {
+        Ok(self.prepare_comment(comment)?.is_alignable())
+    }
+
     pub(super) fn format_inline_trailing_comments(
         &self,
         comments: &[Comment],

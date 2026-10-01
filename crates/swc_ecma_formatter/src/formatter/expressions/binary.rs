@@ -29,7 +29,7 @@ pub(in crate::formatter) enum OperandSide {
 #[derive(Clone, Copy)]
 pub(super) struct BinaryLike {
     pub(super) left: Expr,
-    right: Expr,
+    pub(super) right: Expr,
     pub(super) operator: BinaryOperatorKind,
 }
 
@@ -230,13 +230,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         mut context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        if matches!(
-            context.position,
+        let parent_indents = match context.position {
             ExpressionPosition::ParenthesizedUnaryArgument(_)
-                | ExpressionPosition::ConditionalTest
-                | ExpressionPosition::ConditionalConsequent
-                | ExpressionPosition::ConditionalAlternate
-        ) {
+            | ExpressionPosition::ConditionalTest
+            | ExpressionPosition::ConditionalConsequent
+            | ExpressionPosition::ConditionalAlternate => true,
+            ExpressionPosition::AssignmentRight(_) => {
+                let inline = self.inline_logical_operand(binary.operator, binary.right);
+                !inline
+                    || !BinaryLike::from_data(self.expression_content(binary.left).data, self.ast)
+                        .is_some_and(|left| binary.operator.flattens(left.operator))
+            }
+            _ => false,
+        };
+        if parent_indents {
             return writer.group(false, |writer| self.format_binary_enclosed(binary, writer));
         }
         if context.head_comments == HeadComments::Pending {
@@ -332,7 +339,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(tail)
     }
 
-    fn inline_logical_operand(&self, operator: BinaryOperatorKind, operand: Expr) -> bool {
+    pub(super) fn inline_logical_operand(
+        &self,
+        operator: BinaryOperatorKind,
+        operand: Expr,
+    ) -> bool {
         if !matches!(operator, BinaryOperatorKind::Logical(_)) {
             return false;
         }

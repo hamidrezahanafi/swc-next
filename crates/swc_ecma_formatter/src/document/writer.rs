@@ -4,13 +4,14 @@ use std::borrow::Cow;
 
 use swc_next_allocator::Allocator;
 
-use super::{Doc, FormatElement, text::Text};
+use super::{Doc, FormatElement, GroupId, text::Text};
 
 pub(crate) struct Writer<'a> {
     allocator: &'a Allocator,
     elements: Vec<FormatElement<'a>>,
     breaks: usize,
     flattening: bool,
+    group_count: usize,
 }
 
 impl<'a> Writer<'a> {
@@ -20,6 +21,7 @@ impl<'a> Writer<'a> {
             elements: Vec::new(),
             breaks: 0,
             flattening: false,
+            group_count: 0,
         }
     }
 
@@ -107,14 +109,31 @@ impl<'a> Writer<'a> {
     }
 
     pub(crate) fn group<T>(&mut self, expand: bool, write: impl FnOnce(&mut Self) -> T) -> T {
+        self.group_with_id(expand, None, write)
+    }
+
+    /// The returned handle refers to a group already written in this document.
+    pub(crate) fn named_group(&mut self, expand: bool, write: impl FnOnce(&mut Self)) -> GroupId {
+        let id = GroupId(self.group_count);
+        self.group_count += 1;
+        self.group_with_id(expand, Some(id), write);
+        id
+    }
+
+    fn group_with_id<T>(
+        &mut self,
+        expand: bool,
+        id: Option<GroupId>,
+        write: impl FnOnce(&mut Self) -> T,
+    ) -> T {
         let start = self.elements.len();
         let breaks = self.breaks;
-        self.elements.push(FormatElement::StartGroup { expand });
+        self.elements.push(FormatElement::StartGroup { expand, id });
         if expand {
             self.breaks += 1;
         }
         let result = write(self);
-        let FormatElement::StartGroup { expand } = &mut self.elements[start] else {
+        let FormatElement::StartGroup { expand, .. } = &mut self.elements[start] else {
             unreachable!("group scope retains its opening instruction");
         };
         *expand |= self.breaks != breaks;
@@ -147,6 +166,8 @@ impl<'a> Writer<'a> {
             let element = match self.elements[index] {
                 FormatElement::Line => FormatElement::Space,
                 FormatElement::IfFlat(text) => FormatElement::Text(text),
+                FormatElement::StartGroup { id: Some(id), .. } => FormatElement::FlatGroup(id),
+                element @ FormatElement::FlatGroup(_) => element,
                 element @ (FormatElement::Text(_) | FormatElement::Space) => element,
                 _ => continue,
             };
@@ -160,6 +181,17 @@ impl<'a> Writer<'a> {
 
     pub(crate) fn indent<T>(&mut self, write: impl FnOnce(&mut Self) -> T) -> T {
         self.elements.push(FormatElement::StartIndent);
+        let result = write(self);
+        self.elements.push(FormatElement::EndIndent);
+        result
+    }
+
+    pub(crate) fn indent_if_break<T>(
+        &mut self,
+        group: GroupId,
+        write: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        self.elements.push(FormatElement::StartIndentIfBreak(group));
         let result = write(self);
         self.elements.push(FormatElement::EndIndent);
         result
@@ -197,6 +229,7 @@ impl<'a> Writer<'a> {
     pub(crate) fn finish(self) -> Doc<'a> {
         Doc {
             elements: self.elements,
+            group_count: self.group_count,
         }
     }
 }

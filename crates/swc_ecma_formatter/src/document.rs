@@ -15,6 +15,9 @@ use crate::FormatOptions;
 use text::Text;
 
 #[derive(Debug, Clone, Copy)]
+pub(crate) struct GroupId(usize);
+
+#[derive(Debug, Clone, Copy)]
 enum FormatElement<'a> {
     Text(Text<'a>),
     Space,
@@ -27,9 +30,12 @@ enum FormatElement<'a> {
     LineSuffix(Text<'a>),
     StartGroup {
         expand: bool,
+        id: Option<GroupId>,
     },
     EndGroup,
+    FlatGroup(GroupId),
     StartIndent,
+    StartIndentIfBreak(GroupId),
     EndIndent,
     StartAlign {
         width: usize,
@@ -48,10 +54,11 @@ enum FormatElement<'a> {
 
 pub(crate) struct Doc<'a> {
     elements: Vec<FormatElement<'a>>,
+    group_count: usize,
 }
 
 impl Doc<'_> {
     pub(crate) fn print(self, options: FormatOptions) -> String {
-        printer::print(&self.elements, options)
+        printer::print(&self.elements, self.group_count, options)
     }
 }

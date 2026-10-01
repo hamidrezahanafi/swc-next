@@ -123,6 +123,97 @@ fn nested_group_document(width: u16) -> String {
     })
 }
 
+fn dependent_document(options: FormatOptions) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    writer.group(false, |writer| {
+        writer.text("target =");
+        let separator = writer.named_group(false, |writer| {
+            writer.indent(Writer::line);
+        });
+        writer.indent_if_break(separator, |writer| write_pair(writer, "first", "second"));
+    });
+    writer.text(";");
+    writer.finish().print(options)
+}
+
+#[test]
+fn dependent_indentation() {
+    assert_eq!(
+        dependent_document(FormatOptions::prettier()),
+        "target = [first, second];"
+    );
+
+    let medium = FormatOptions {
+        line_width: 16,
+        ..FormatOptions::prettier()
+    };
+    assert_eq!(
+        dependent_document(medium),
+        "target = [\n  first,\n  second,\n];"
+    );
+
+    let narrow = FormatOptions {
+        line_width: 8,
+        ..medium
+    };
+    assert_eq!(
+        dependent_document(narrow),
+        "target =\n  [\n    first,\n    second,\n  ];"
+    );
+
+    let tabs = FormatOptions {
+        indent_style: IndentStyle::Tab,
+        ..narrow
+    };
+    assert_eq!(
+        dependent_document(tabs),
+        "target =\n\t[\n\t\tfirst,\n\t\tsecond,\n\t];"
+    );
+}
+
+#[test]
+fn named_group_scopes() {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let first = writer.named_group(true, |writer| {
+        writer.text("first");
+        writer.line();
+        writer.text("second");
+    });
+    writer.hard_line();
+    writer.named_group(false, |writer| writer.text("third"));
+    writer.indent_if_break(first, |writer| {
+        writer.hard_line();
+        writer.text("last");
+    });
+    assert_eq!(
+        writer.finish().print(FormatOptions::prettier()),
+        "first\nsecond\nthird\n  last"
+    );
+
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let group = writer.flat(|writer| {
+        writer.named_group(true, |writer| {
+            writer.text("first");
+            writer.line();
+            writer.text("second");
+        })
+    });
+    writer.indent_if_break(group, |writer| {
+        writer.hard_line();
+        writer.text("last");
+    });
+    assert_eq!(
+        writer.finish().print(FormatOptions {
+            line_width: 8,
+            ..FormatOptions::prettier()
+        }),
+        "first second\nlast"
+    );
+}
+
 fn fill_document(parts: &[&str], width: u16) -> String {
     let allocator = Allocator::new();
     let mut writer = Writer::new(&allocator);
@@ -302,7 +393,10 @@ fn deep_indentation() {
     elements.push(FormatElement::HardLine);
     elements.push(FormatElement::Text(super::text::Text::new("value")));
     elements.extend(std::iter::repeat_n(FormatElement::EndIndent, 1025));
-    let document = Doc { elements };
+    let document = Doc {
+        elements,
+        group_count: 0,
+    };
     let options = FormatOptions {
         indent_width: 64.try_into().unwrap(),
         ..FormatOptions::prettier()
