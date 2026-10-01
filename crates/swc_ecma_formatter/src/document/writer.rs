@@ -45,6 +45,25 @@ impl<'a> Writer<'a> {
         self.elements.push(FormatElement::Text(Text::new(text)));
     }
 
+    /// Literal source lines retain their contents without structural indentation.
+    pub(crate) fn literal_text<'text>(&mut self, text: impl Into<Cow<'text, str>>)
+    where
+        'text: 'a,
+    {
+        let mut text = match text.into() {
+            Cow::Borrowed(text) => text,
+            Cow::Owned(text) => self.allocator.alloc_str(&text),
+        };
+        while let Some(index) = text.find(['\r', '\n']) {
+            self.text(&text[..index]);
+            self.literal_line();
+            let crlf =
+                text.as_bytes()[index] == b'\r' && text.as_bytes().get(index + 1) == Some(&b'\n');
+            text = &text[index + 1 + usize::from(crlf)..];
+        }
+        self.text(text);
+    }
+
     pub(crate) fn hard_line(&mut self) {
         self.elements.push(FormatElement::HardLine);
         self.breaks += 1;

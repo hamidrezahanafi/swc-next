@@ -9,7 +9,7 @@ mod statements;
 use swc_next_ecma_ast::{Ast, GetSpan};
 
 use self::comments::CommentCursor;
-use self::statements::StatementSequenceKind;
+use self::statements::{StatementItem, StatementSequenceKind};
 use crate::{FormatError, FormatOptions, document::Writer};
 
 pub(crate) struct Formatter<'ast, 'source> {
@@ -29,10 +29,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     pub(crate) fn format_program(mut self, writer: &mut Writer<'ast>) -> Result<(), FormatError> {
         let program = self.ast.root_program();
-        if !program.directives(self.ast).is_empty() {
-            return Err(self.unsupported("directives", program));
-        }
-
         if self.ast.source().starts_with('\u{feff}') {
             writer.text("\u{feff}");
         }
@@ -41,13 +37,31 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text("#!");
             writer.text(self.ast.get_utf8(hashbang.value(self.ast)).trim_end());
         }
-        let has_content = self.format_statement_sequence(
-            program.body(self.ast),
-            program.span(self.ast),
-            hashbang.map(|node| node.span(self.ast).end),
-            StatementSequenceKind::Program,
-            writer,
-        )?;
+        let ast = self.ast;
+        let body = program.body(ast);
+        let statements = body
+            .iter()
+            .map(|id| StatementItem::Statement(ast.get_node_in_sub_range(id)));
+        let span = program.span(ast);
+        let previous_end = hashbang.map(|node| node.span(ast).end);
+        let directives = program.directives(ast);
+        let kind = StatementSequenceKind::Program {
+            has_source_items: !body.is_empty() || !directives.is_empty(),
+        };
+        let has_content = if directives.is_empty() {
+            self.format_statement_sequence(statements, span, previous_end, kind, writer)?
+        } else {
+            let directives = directives
+                .iter()
+                .map(|id| StatementItem::Directive(ast.get_node_in_sub_range(id)));
+            self.format_statement_sequence(
+                directives.chain(statements),
+                span,
+                previous_end,
+                kind,
+                writer,
+            )?
+        };
         if let Some(comment) = self.comments.first() {
             return Err(FormatError::unsupported(
                 "comment placement",

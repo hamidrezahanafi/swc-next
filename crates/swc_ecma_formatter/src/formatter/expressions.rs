@@ -4,6 +4,7 @@ mod arrays;
 
 use swc_next_ecma_ast::{Argument, ArgumentData, Expr, ExprData, GetSpan, Span};
 
+use super::literals::StringContext;
 use super::{Formatter, comments::CommentRunLayout};
 use crate::{FormatError, Semicolons, document::Writer};
 
@@ -24,12 +25,47 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && self.options.semicolons == Semicolons::AsNeeded
             && matches!(
                 data,
-                ExprData::ArrayExpression(_) | ExprData::RegExpLiteral(_)
+                ExprData::ArrayExpression(_)
+                    | ExprData::RegExpLiteral(_)
+                    | ExprData::StringLiteral(_)
             )
         {
             writer.text(";");
         }
         match data {
+            ExprData::StringLiteral(literal) => {
+                let statement = matches!(position, ExpressionPosition::Statement);
+                if statement {
+                    // An expression string must not become a directive after printing.
+                    writer.text("(");
+                }
+                self.format_string_literal(literal, StringContext::Expression, writer);
+                if statement {
+                    writer.text(")");
+                }
+                Ok(())
+            }
+            ExprData::ParenthesizedExpression(parenthesized) => {
+                let inner = parenthesized.expression(self.ast);
+                let span = parenthesized.span(self.ast);
+                let inner_span = inner.span(self.ast);
+                if !self
+                    .comments
+                    .between(Span::new(span.start, inner_span.start))?
+                    .is_empty()
+                {
+                    return Err(self.unsupported("parenthesized comments", parenthesized));
+                }
+                self.format_expression(inner, position, writer)?;
+                if !self
+                    .comments
+                    .between(Span::new(inner_span.end, span.end))?
+                    .is_empty()
+                {
+                    return Err(self.unsupported("parenthesized comments", parenthesized));
+                }
+                Ok(())
+            }
             ExprData::IdentifierReference(identifier) => {
                 writer.text(self.ast.get_utf8(identifier.name(self.ast)));
                 Ok(())
