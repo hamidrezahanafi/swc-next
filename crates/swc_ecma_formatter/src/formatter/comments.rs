@@ -12,6 +12,7 @@ pub(super) enum CommentRunLayout {
     SourceAfter(u32),
     Leading(u32),
     GroupedLeading(u32),
+    FlatLeading,
     Lines,
 }
 
@@ -402,6 +403,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                                 writer,
                             );
                         }
+                        CommentRunLayout::FlatLeading => match previous.kind {
+                            CommentKind::Line => writer.hard_line(),
+                            CommentKind::Block => writer.space(),
+                        },
                         CommentRunLayout::Lines => {
                             writer.hard_line();
                             if self.line_breaks(previous.span.end, prepared.span.start) == 2 {
@@ -429,6 +434,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             (CommentRunLayout::GroupedLeading(next_start), Some(previous)) => {
                 self.leading_comment_gap(&previous, next_start, true, writer)
             }
+            (CommentRunLayout::FlatLeading, Some(previous)) => match previous.kind {
+                CommentKind::Line => writer.hard_line(),
+                CommentKind::Block => writer.space(),
+            },
             _ => {}
         }
         Ok(())

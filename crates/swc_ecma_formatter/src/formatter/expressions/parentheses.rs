@@ -1,4 +1,4 @@
-//! Source delimiter ownership and semantic cast boundaries.
+//! Source delimiter ownership and semantic boundaries.
 
 use swc_next_ecma_ast::{Comment, Expr, ExprData, GetSpan, ParenthesizedExpression, Span};
 
@@ -19,6 +19,11 @@ pub(super) struct ExpressionContent {
     pub(super) expression: Expr,
     pub(super) data: ExprData,
     pub(super) parentheses: Option<SourceParentheses>,
+}
+
+enum RetainedParentheses {
+    Cast,
+    Annotation,
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -130,11 +135,35 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let span = parenthesized.span(self.ast);
         if self.parenthesis_has_type_cast(span.start) {
-            return self.format_type_cast(parenthesized, context, writer);
+            return self.format_retained_parentheses(
+                parenthesized,
+                context,
+                RetainedParentheses::Cast,
+                writer,
+            );
         }
         let content = self.expression_content(Expr::ParenthesizedExpression(parenthesized));
         if content.expression == Expr::ParenthesizedExpression(parenthesized) {
-            return Err(self.unsupported("semantic parentheses", parenthesized));
+            let inner_span = parenthesized.expression(self.ast).span(self.ast);
+            let leading = self
+                .comments
+                .in_range(Span::new(span.start, inner_span.start));
+            let trailing = self.comments.in_range(Span::new(inner_span.end, span.end));
+            let unsupported = leading.iter().chain(trailing).any(|&comment| {
+                matches!(
+                    self.comment_semantics(comment),
+                    CommentSemantics::Diagnostic | CommentSemantics::Suppression
+                )
+            });
+            if unsupported {
+                return Err(self.unsupported("semantic parentheses", parenthesized));
+            }
+            return self.format_retained_parentheses(
+                parenthesized,
+                context,
+                RetainedParentheses::Annotation,
+                writer,
+            );
         }
         let inner = content.expression;
         let inner_span = inner.span(self.ast);
@@ -163,10 +192,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.capture_expression_tail(Span::new(inner_span.end, span.end), tail)
     }
 
-    fn format_type_cast(
+    fn format_retained_parentheses(
         &mut self,
         parenthesized: ParenthesizedExpression,
         context: ExpressionContext,
+        kind: RetainedParentheses,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let span = parenthesized.span(self.ast);
@@ -185,12 +215,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             _ => false,
         };
-        let expand = leading
-            .first()
-            .is_some_and(|comment| self.line_breaks(span.start, comment.span.start) != 0)
-            || trailing
+        let expand = matches!(kind, RetainedParentheses::Cast)
+            && (leading
                 .first()
-                .is_some_and(|comment| self.line_breaks(inner_span.end, comment.span.start) != 0);
+                .is_some_and(|comment| self.line_breaks(span.start, comment.span.start) != 0)
+                || trailing.first().is_some_and(|comment| {
+                    self.line_breaks(inner_span.end, comment.span.start) != 0
+                }));
+        let leading_layout = match kind {
+            RetainedParentheses::Cast => CommentRunLayout::GroupedLeading(inner_span.start),
+            RetainedParentheses::Annotation => CommentRunLayout::FlatLeading,
+        };
         if context.statement_start != StatementStart::None
             && self.options.semicolons == Semicolons::AsNeeded
         {
@@ -198,11 +233,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let mut write_contents = |writer: &mut Writer<'ast>| {
             self.comments.claim(leading)?;
-            self.format_comment_run(
-                leading,
-                CommentRunLayout::GroupedLeading(inner_span.start),
-                writer,
-            )?;
+            self.format_comment_run(leading, leading_layout, writer)?;
             let tail = self.format_expression(
                 content.expression,
                 ExpressionContext::at(ExpressionPosition::Nested),
