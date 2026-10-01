@@ -1,19 +1,36 @@
 //! Expression dispatch and syntax context for statement boundaries.
 
 mod arrays;
+mod unary;
 
-use swc_next_ecma_ast::{Argument, ArgumentData, Expr, ExprData, GetSpan, Span};
+use swc_next_ecma_ast::{
+    Argument, ArgumentData, Expr, ExprData, GetSpan, Span, UnaryOperator, UpdateOperator,
+};
 
 use super::literals::StringContext;
 use super::{Formatter, comments::CommentRunLayout};
 use crate::{FormatError, Semicolons, document::Writer};
 
+#[derive(Clone, Copy)]
 pub(super) enum ExpressionPosition {
     Statement,
     Nested,
+    UnaryArgument(UnaryOperator),
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    fn unparenthesized_expression(&self, mut expression: Expr) -> (Expr, ExprData) {
+        loop {
+            let data = self.ast.expr_data(expression);
+            match data {
+                ExprData::ParenthesizedExpression(parenthesized) => {
+                    expression = parenthesized.expression(self.ast);
+                }
+                _ => return (expression, data),
+            }
+        }
+    }
+
     pub(super) fn format_expression(
         &mut self,
         expression: Expr,
@@ -23,14 +40,37 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let data = self.ast.expr_data(expression);
         if matches!(position, ExpressionPosition::Statement)
             && self.options.semicolons == Semicolons::AsNeeded
-            && matches!(
-                data,
+            && match data {
                 ExprData::ArrayExpression(_)
-                    | ExprData::RegExpLiteral(_)
-                    | ExprData::StringLiteral(_)
-            )
+                | ExprData::RegExpLiteral(_)
+                | ExprData::StringLiteral(_) => true,
+                ExprData::UnaryExpression(unary) => matches!(
+                    unary.operator(self.ast),
+                    UnaryOperator::Positive | UnaryOperator::Negate
+                ),
+                _ => false,
+            }
         {
             writer.text(";");
+        }
+        let parenthesize = match (position, data) {
+            (ExpressionPosition::UnaryArgument(parent), ExprData::UnaryExpression(unary)) => {
+                matches!(parent, UnaryOperator::Positive | UnaryOperator::Negate)
+                    && unary.operator(self.ast) == parent
+            }
+            (ExpressionPosition::UnaryArgument(parent), ExprData::UpdateExpression(update)) => {
+                update.prefix(self.ast)
+                    && matches!(
+                        (parent, update.operator(self.ast)),
+                        (UnaryOperator::Positive, UpdateOperator::Increment)
+                            | (UnaryOperator::Negate, UpdateOperator::Decrement)
+                    )
+            }
+            _ => false,
+        };
+        if parenthesize {
+            // Adjacent signs must not merge into a different operator token.
+            writer.text("(");
         }
         match data {
             ExprData::StringLiteral(literal) => {
@@ -95,8 +135,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Ok(())
             }
             ExprData::ArrayExpression(array) => self.format_array(array, writer),
+            ExprData::UnaryExpression(unary) => self.format_unary(unary, writer),
+            ExprData::UpdateExpression(update) => self.format_update(update, writer),
             _ => Err(self.unsupported("expression", expression)),
+        }?;
+        if parenthesize {
+            writer.text(")");
         }
+        Ok(())
     }
 
     fn format_argument(

@@ -1,7 +1,7 @@
 //! Array slots, comment boundaries, and grouped delimiter layout.
 
 use swc_next_ecma_ast::{
-    Argument, ArgumentData, ArrayExpression, CommentKind, ExprData, GetSpan, Span,
+    Argument, ArgumentData, ArrayExpression, CommentKind, ExprData, GetSpan, Span, UnaryOperator,
 };
 
 use super::Formatter;
@@ -131,7 +131,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let ArgumentData::Expr(expression) = self.ast.argument_data(argument) else {
                 return None;
             };
-            if !matches!(self.ast.expr_data(expression), ExprData::NumericLiteral(_)) {
+            let (_, data) = self.unparenthesized_expression(expression);
+            let numeric = match data {
+                ExprData::NumericLiteral(_) => true,
+                ExprData::UnaryExpression(unary)
+                    if matches!(
+                        unary.operator(self.ast),
+                        UnaryOperator::Positive | UnaryOperator::Negate
+                    ) =>
+                {
+                    let (_, argument) = self.unparenthesized_expression(unary.argument(self.ast));
+                    matches!(argument, ExprData::NumericLiteral(_))
+                        && self.comments.in_range(unary.span(self.ast)).is_empty()
+                }
+                _ => false,
+            };
+            if !numeric {
                 return None;
             }
         }

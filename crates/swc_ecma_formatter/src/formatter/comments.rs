@@ -6,8 +6,10 @@ use super::Formatter;
 use super::source::{lines, split_line};
 use crate::{FormatError, document::Writer};
 
+#[derive(Clone, Copy)]
 pub(super) enum CommentRunLayout {
     Source,
+    SourceAfter(u32),
     Lines,
 }
 
@@ -107,6 +109,35 @@ impl<'ast> CommentCursor<'ast> {
         self.remaining = remaining;
         claimed
     }
+
+    /// Prepares a later boundary without consuming comments inside its child.
+    pub(super) fn in_range(&self, span: Span) -> &'ast [Comment] {
+        let first = self
+            .remaining
+            .partition_point(|comment| comment.span.start < span.start);
+        let comments = &self.remaining[first..];
+        let count = comments.partition_point(|comment| comment.span.end <= span.end);
+        &comments[..count]
+    }
+
+    /// A prepared boundary becomes claimable after its preceding child is printed.
+    pub(super) fn claim(&mut self, comments: &'ast [Comment]) -> Result<(), FormatError> {
+        match (self.first(), comments.first()) {
+            (_, None) => Ok(()),
+            (Some(pending), Some(first)) if pending.span == first.span => {
+                self.take(comments.len());
+                Ok(())
+            }
+            (Some(pending), Some(_)) => Err(FormatError::unsupported(
+                "comment placement",
+                None,
+                pending.span,
+            )),
+            (None, Some(_)) => {
+                unreachable!("prepared comment boundary must remain unconsumed")
+            }
+        }
+    }
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -190,13 +221,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut previous: Option<PreparedComment<'ast>> = None;
         for &comment in comments {
             let prepared = self.prepare_comment(comment)?;
+            let line_suffix = match (layout, comment.kind) {
+                (CommentRunLayout::SourceAfter(start), CommentKind::Line) => {
+                    let end = previous
+                        .as_ref()
+                        .map_or(start, |previous| previous.span.end);
+                    self.line_breaks(end, comment.span.start) == 0
+                }
+                _ => false,
+            };
             if let Some(previous) = previous {
                 let nestled = previous.span.end == prepared.span.start
                     && previous.is_alignable()
                     && prepared.is_alignable();
-                if !nestled {
+                if !nestled && !line_suffix {
                     match layout {
-                        CommentRunLayout::Source => {
+                        CommentRunLayout::Source | CommentRunLayout::SourceAfter(_) => {
                             self.comment_gap(previous.span.end, prepared.span.start, writer);
                         }
                         CommentRunLayout::Lines => {
@@ -207,8 +247,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         }
                     }
                 }
+            } else if let CommentRunLayout::SourceAfter(start) = layout
+                && !line_suffix
+            {
+                self.comment_gap(start, prepared.span.start, writer);
             }
-            prepared.text.write(writer);
+            if line_suffix {
+                writer.line_suffix(self.source(comment.span).trim_end());
+            } else {
+                prepared.text.write(writer);
+            }
             previous = Some(prepared);
         }
         Ok(())

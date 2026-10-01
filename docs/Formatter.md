@@ -58,6 +58,11 @@ comment ownership.
 Syntax boundaries give each comment a defined owner. Comments are claimed once
 in source order; an unclaimed comment is an explicit formatting error.
 
+## Grammar and semantic boundaries
+
+Required token separation and statement guards are decided by syntax formatting
+before printing chooses line breaks or removes optional punctuation.
+
 ## Verification
 
 Use local fixtures for representative syntax, comments, options, and widths.
