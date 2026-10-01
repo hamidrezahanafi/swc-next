@@ -16,6 +16,24 @@ nodes. Fragment roots are outside this contract.
 120-column width; `FormatOptions::prettier` selects Prettier defaults.
 Unsupported syntax returns `FormatError::Unsupported` with its source location.
 
+## Responsibilities and data flow
+
+Source or an existing program AST enters syntax formatting, which constructs a
+flat document. Printing interprets that document to produce formatted source.
+
+The printer does not interpret AST nodes or recover missing syntax handling.
+Document shape need not match Prettier's internal representation; printed output
+is the compatibility boundary.
+
+## Ownership and document protocol
+
+Typed AST handles and borrowed source stay tied to their backing storage.
+Document text remains valid until printing finishes. Construction and printing
+have separate mutable state.
+
+Doc construction owns flat instruction buffers. Finishing construction transfers
+the completed instructions to an immutable document.
+
 ## Verification
 
 Use local fixtures for representative syntax, comments, options, and widths.
@@ -27,6 +45,9 @@ behavioral checks.
 The pinned conformance corpus reports output mismatches, unsupported syntax,
 parse errors, panics, and idempotency separately. Unsupported programs remain
 visible while syntax support grows.
+
+Document tests verify layout independently of syntax. Report and snapshot
+changes are reviewed with their implementation.
 
 Performance comparisons use equivalent inputs, options, and builds.
 Formatter-only measurements reuse parsed ASTs; source-to-output measurements
