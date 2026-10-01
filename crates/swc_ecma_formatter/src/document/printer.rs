@@ -32,6 +32,11 @@ pub(super) fn print(elements: &[FormatElement<'_>], options: FormatOptions) -> S
                 pending_indent = indent;
                 pending_space = false;
             }
+            FormatElement::LiteralLine => {
+                output.push_str(options.line_ending.as_str());
+                pending_indent = 0;
+                pending_space = false;
+            }
             FormatElement::StartIndent => indent += 1,
             FormatElement::EndIndent => {
                 indent = indent

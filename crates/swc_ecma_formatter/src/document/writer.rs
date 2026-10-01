@@ -23,6 +23,10 @@ impl<'a> Writer<'a> {
         self.elements.push(FormatElement::HardLine);
     }
 
+    pub(crate) fn literal_line(&mut self) {
+        self.elements.push(FormatElement::LiteralLine);
+    }
+
     pub(crate) fn space(&mut self) {
         self.elements.push(FormatElement::Space);
     }

@@ -17,6 +17,7 @@ enum FormatElement<'a> {
     Text(&'a str),
     Space,
     HardLine,
+    LiteralLine,
     StartIndent,
     EndIndent,
 }

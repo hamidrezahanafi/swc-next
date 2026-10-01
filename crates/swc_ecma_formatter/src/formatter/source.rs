@@ -4,6 +4,26 @@ use swc_next_ecma_ast::Span;
 
 use super::Formatter;
 
+pub(super) fn split_line(source: &str) -> (&str, Option<&str>) {
+    let Some(index) = source.find(['\n', '\r']) else {
+        return (source, None);
+    };
+    let is_crlf =
+        source.as_bytes()[index] == b'\r' && source.as_bytes().get(index + 1) == Some(&b'\n');
+    let end = index + 1 + usize::from(is_crlf);
+    (&source[..index], Some(&source[end..]))
+}
+
+pub(super) fn lines(source: &str) -> impl Iterator<Item = &str> {
+    let mut remaining = Some(source);
+    std::iter::from_fn(move || {
+        let source = remaining?;
+        let (line, rest) = split_line(source);
+        remaining = rest;
+        Some(line)
+    })
+}
+
 impl Formatter<'_, '_> {
     pub(super) fn source(&self, span: Span) -> &str {
         &self.ast.source()[span.start as usize..span.end as usize]

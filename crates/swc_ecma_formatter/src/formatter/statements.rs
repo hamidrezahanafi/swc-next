@@ -3,7 +3,13 @@
 use swc_next_ecma_ast::{BlockStatement, ExprData, GetSpan, Span, Stmt, StmtData, SubRange};
 
 use super::Formatter;
+use super::comments::CommentRunLayout;
 use crate::{FormatError, Semicolons, document::Writer};
+
+pub(super) enum StatementSequenceKind {
+    Program,
+    Block,
+}
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_statement_sequence(
@@ -11,6 +17,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         statements: SubRange<Stmt>,
         span: Span,
         mut previous_end: Option<u32>,
+        kind: StatementSequenceKind,
         writer: &mut Writer<'ast>,
     ) -> Result<bool, FormatError> {
         let mut statements = statements
@@ -33,7 +40,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     writer.hard_line();
                 }
             }
-            self.format_comment_run(leading, writer)?;
+            self.format_comment_run(leading, CommentRunLayout::Source, writer)?;
             if let Some(last) = leading.last() {
                 self.comment_gap(last.span.end, statement_span.start, writer);
             }
@@ -54,7 +61,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             self.comment_gap(end, first.span.start, writer);
         }
-        self.format_comment_run(dangling, writer)?;
+        let layout = match (previous_end, kind) {
+            (None, StatementSequenceKind::Block) => CommentRunLayout::Lines,
+            _ => CommentRunLayout::Source,
+        };
+        self.format_comment_run(dangling, layout, writer)?;
         Ok(previous_end.is_some() || !dangling.is_empty())
     }
 
@@ -91,7 +102,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if let Some(first) = comments.first() {
             self.comment_gap(content_end, first.span.start, writer);
         }
-        self.format_comment_run(comments, writer)
+        self.format_comment_run(comments, CommentRunLayout::Source, writer)
     }
 
     fn format_block(
@@ -108,7 +119,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             writer.indent(|writer| {
                 writer.hard_line();
-                self.format_statement_sequence(body, body_span, None, writer)
+                self.format_statement_sequence(
+                    body,
+                    body_span,
+                    None,
+                    StatementSequenceKind::Block,
+                    writer,
+                )
             })?;
             writer.hard_line();
         }

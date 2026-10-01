@@ -133,3 +133,24 @@ fn deep_indentation() {
             .all(|byte| byte == b' ')
     );
 }
+
+#[test]
+fn literal_lines() {
+    let mut writer = Writer::new();
+    writer.text("{");
+    writer.indent(|writer| {
+        writer.hard_line();
+        writer.text("/* first");
+        writer.space();
+        writer.literal_line();
+        writer.text(" original */");
+        writer.hard_line();
+        writer.text("value;");
+    });
+    writer.hard_line();
+    writer.text("}");
+    assert_eq!(
+        writer.finish().print(FormatOptions::prettier()),
+        "{\n  /* first\n original */\n  value;\n}"
+    );
+}

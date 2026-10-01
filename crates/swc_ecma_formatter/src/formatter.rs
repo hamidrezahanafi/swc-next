@@ -7,6 +7,7 @@ mod statements;
 use swc_next_ecma_ast::{Ast, GetSpan};
 
 use self::comments::CommentCursor;
+use self::statements::StatementSequenceKind;
 use crate::{FormatError, FormatOptions, document::Writer};
 
 pub(crate) struct Formatter<'ast, 'source> {
@@ -42,6 +43,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             program.body(self.ast),
             program.span(self.ast),
             hashbang.map(|node| node.span(self.ast).end),
+            StatementSequenceKind::Program,
             writer,
         )?;
         if let Some(comment) = self.comments.first() {
