@@ -8,7 +8,7 @@ use super::{
 use crate::formatter::comments::{
     CommentBinding, CommentRunLayout, CommentSemantics, ExpressionTail, NodeHead,
 };
-use crate::formatter::diagnostics::FlatSeparator;
+use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::source::is_source_whitespace;
 use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
 use crate::{FormatError, Semicolons, document::Writer};
@@ -148,6 +148,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     pub(super) fn parentheses_are_removable(&self, boundary: SourceParentheses) -> bool {
         let comments = self.ast.comments();
+        if comments.is_empty() {
+            return true;
+        }
+        if self.parentheses_separate_diagnostic_lines(boundary) {
+            return false;
+        }
         let range = |span: Span| {
             let first = comments.partition_point(|comment| comment.span.start < span.start);
             let inside = &comments[first..];
@@ -184,6 +190,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         leading_binding.allows_relocation(Some(boundary.inner))
             && trailing_binding.allows_relocation(None)
             && !self.parenthesis_has_type_cast(boundary.outer.start)
+    }
+
+    fn parentheses_separate_diagnostic_lines(&self, boundary: SourceParentheses) -> bool {
+        if !self.diagnostic_range_is_sensitive(boundary.outer) {
+            return false;
+        }
+        // Delimiters can separate covered tokens from the next source line.
+        let opening = (self.diagnostic_line_is_sensitive(boundary.outer.start)
+            || self.diagnostic_line_is_sensitive(boundary.inner.start))
+            && self.line_breaks(boundary.outer.start, boundary.inner.start) != 0;
+        if opening {
+            return true;
+        }
+        self.diagnostic_line_is_sensitive(boundary.inner.end)
+            && self.line_breaks(boundary.inner.end, boundary.outer.end) != 0
     }
 
     pub(in crate::formatter) fn format_expression_leading_comments(
@@ -301,6 +322,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if let Some(ignored) = ignored_child
             && (self.ignored_operand_owns_operation_head(ignored, context.position)
                 || matches!(context.position, ExpressionPosition::UnaryArgument(_))
+                || self.parentheses_separate_diagnostic_lines(SourceParentheses {
+                    outer: span,
+                    inner: child_span,
+                })
                 || self
                     .expression_needs_parentheses(self.ast.expr_data(child), context.position)
                     .is_none())
@@ -440,7 +465,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         writer.group(expand, |writer| {
             writer.text("(");
-            if hug {
+            if hug
+                && !matches!(opening, LineConstraint::NewLine(_))
+                && !matches!(closing, LineConstraint::NewLine(_))
+            {
                 write_contents(writer)?;
             } else {
                 writer.indent(|writer| {

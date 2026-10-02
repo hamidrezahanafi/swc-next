@@ -368,7 +368,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             1 => writer.hard_line(),
             _ => {
                 writer.hard_line();
-                writer.hard_line();
+                if self.next_line_is_empty(start, end) {
+                    writer.hard_line();
+                }
             }
         }
     }
@@ -397,7 +399,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 0 | 1 => writer.hard_line(),
                 _ => {
                     writer.hard_line();
-                    writer.hard_line();
+                    if self.next_line_is_empty(comment.span.end, next_start) {
+                        writer.hard_line();
+                    }
                 }
             },
         );

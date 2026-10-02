@@ -3,12 +3,12 @@ formatter * prettier 3.9.9 * js
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 794
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 59/1070 (5.51%)
-Snapshot matched: 59/1070
+Passed: 60/1070 (5.61%)
+Snapshot matched: 60/1070
 AST parity: 61/61
 AST mismatched: 0/61
 AST format errors: 0/1070
-Mismatched: 2/1070
+Mismatched: 1/1070
 Format errors: 1008/1070
 Panicked: 0/1070
 Not idempotent: 0/1070
@@ -60,7 +60,6 @@ Unsupported option sets: 19
 - js/arrays/numbers1.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/arrays/numbers2.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/arrays/numbers3.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/arrays/preserve_empty_lines.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/arrow-call/arrow_call.js: 0/3 mismatched, 3/3 format errors, 0/3 panicked, 0/3 not idempotent
 - js/arrow-call/class-property.js: 0/3 mismatched, 3/3 format errors, 0/3 panicked, 0/3 not idempotent
 - js/arrows/array-and-object.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent

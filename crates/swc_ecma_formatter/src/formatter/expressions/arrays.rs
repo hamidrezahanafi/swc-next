@@ -206,16 +206,27 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     };
                     let count = comments.partition_point(|comment| comment.span.end <= comma);
                     let comments = self.comments.take(count);
-                    self.format_comment_run(
-                        comments,
-                        CommentRunLayout::SourceAfter(previous_end),
-                        writer,
-                    )?;
-                    let left = comments
-                        .last()
-                        .map_or(previous_end, |comment| comment.span.end);
-                    if has_slot {
-                        layout.separator(separator, self.line_constraint(left, comma), writer);
+                    match (comments.first(), has_slot) {
+                        (Some(first), has_slot) => {
+                            if has_slot {
+                                self.comment_gap(previous_end, first.span.start, writer);
+                            }
+                            self.format_comment_run(
+                                comments,
+                                CommentRunLayout::Leading(comma),
+                                writer,
+                            )?;
+                        }
+                        (None, true) => layout.separator(
+                            separator,
+                            self.line_constraint(previous_end, comma),
+                            writer,
+                        ),
+                        (None, false) => self.line_constraint(previous_end, comma).write(
+                            writer,
+                            FlatSeparator::Empty,
+                            |_| {},
+                        ),
                     }
                     writer.text(",");
                     previous_end = comma + 1;
@@ -314,6 +325,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let comments = self.comments.between(gap)?;
         let comma = self.find_comma(gap, comments);
         let constrained = self.diagnostic_range_is_sensitive(span);
+        // A directive-covered separator owns the comments on its source side.
+        let protected_comma =
+            comma.filter(|&position| constrained && self.diagnostic_line_is_sensitive(position));
         let trailing_limit = if constrained && following.is_some_and(|item| item.holes != 0) {
             comma
                 .and_then(|comma| self.find_comma(Span::new(comma + 1, gap.end), comments))
@@ -341,12 +355,28 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 trailing_count = index + 1;
             }
         }
-        let trailing = self.comments.take(trailing_count);
+        let boundary_count = protected_comma.map_or(trailing_count, |comma| {
+            comments
+                .partition_point(|comment| comment.span.end <= comma)
+                .max(trailing_count)
+        });
+        let boundary = self.comments.take(boundary_count);
+        let (trailing, before_comma) = boundary.split_at(trailing_count);
         let trailing_end = trailing
             .last()
             .map_or(content_end, |comment| comment.span.end);
         self.format_inline_trailing_comments(trailing, writer)?;
-        let mut separator = if comments[trailing_count..]
+        if !before_comma.is_empty() {
+            self.format_comment_run(
+                before_comma,
+                CommentRunLayout::SourceAfter(trailing_end),
+                writer,
+            )?;
+        }
+        let boundary_end = boundary
+            .last()
+            .map_or(content_end, |comment| comment.span.end);
+        let mut separator = if comments[boundary_count..]
             .iter()
             .any(|comment| comment.kind == CommentKind::Line)
         {
@@ -354,9 +384,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             Separator::Line
         };
-        if has_more {
+        let required_comma = has_more || protected_comma.is_some();
+        if required_comma {
             if let Some(comma) = comma
-                && let Some(last) = trailing.last()
+                && let Some(last) = boundary.last()
                 && last.span.end <= comma
             {
                 self.line_constraint(last.span.end, comma).write(
@@ -369,9 +400,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             if let Some(comma) = comma {
                 let after_separator = Span::new(comma + 1, gap.end);
                 let next_start = comments
-                    .get(trailing_count)
+                    .get(boundary_count)
                     .map_or(gap.end, |comment| comment.span.start);
-                let start = after_separator.start.max(trailing_end);
+                let start = after_separator.start.max(boundary_end);
                 if start < next_start && self.next_line_is_empty(start, next_start) {
                     separator = Separator::EmptyLine;
                 }
@@ -379,8 +410,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else if self.options.trailing_commas != TrailingCommas::None {
             writer.if_break(",");
         }
-        let mut end = trailing_end;
-        if has_more
+        let mut end = boundary_end;
+        if required_comma
             && let Some(comma) = comma
             && constrained
             && self
@@ -391,11 +422,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             end = end.max(comma + 1);
         }
         if following.is_none() || !constrained && following_argument.is_none() {
-            let own_line = self.comments.between(Span::new(trailing_end, span.end))?;
+            let own_line = self.comments.between(Span::new(end, span.end))?;
             let own_line = self.comments.take(own_line.len());
             if let Some(first) = own_line.first() {
                 writer.hard_line();
-                if self.line_breaks(trailing_end, first.span.start) == 2 {
+                if self.line_breaks(end, first.span.start) == 2 {
                     writer.hard_line();
                 }
                 self.format_comment_run(own_line, CommentRunLayout::Lines, writer)?;
