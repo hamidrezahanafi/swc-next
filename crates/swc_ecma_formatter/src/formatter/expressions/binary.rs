@@ -305,6 +305,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         false,
                     ),
                     tail_owner: TailOwner::Expression,
+                    parentheses_owner: super::ParenthesesOwner::Expression,
                 },
                 writer,
             )

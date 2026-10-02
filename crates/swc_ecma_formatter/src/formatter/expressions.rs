@@ -5,6 +5,7 @@ mod assignment;
 mod binary;
 mod conditional;
 mod parentheses;
+mod sequence;
 mod unary;
 
 use swc_next_ecma_ast::{
@@ -58,6 +59,12 @@ pub(super) enum TailOwner {
     ParentOperation,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ParenthesesOwner {
+    Expression,
+    Parent,
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct ExpressionContext {
     position: ExpressionPosition,
@@ -65,6 +72,7 @@ pub(super) struct ExpressionContext {
     head_comments: HeadComments,
     content_mode: ContentMode,
     tail_owner: TailOwner,
+    parentheses_owner: ParenthesesOwner,
 }
 
 impl ExpressionContext {
@@ -79,11 +87,18 @@ impl ExpressionContext {
             head_comments: HeadComments::Pending,
             content_mode: ContentMode::Formatted,
             tail_owner: TailOwner::Expression,
+            parentheses_owner: ParenthesesOwner::Expression,
         }
     }
 
     pub(super) fn with_statement_start(mut self, start: StatementStart) -> Self {
         self.statement_start = start;
+        self
+    }
+
+    fn inside_parentheses(mut self) -> Self {
+        self.parentheses_owner = ParenthesesOwner::Parent;
+        self.statement_start = StatementStart::None;
         self
     }
 
@@ -149,7 +164,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let data = self.ast.expr_data(expression);
         let span = expression.span(self.ast);
         let source = self.source(span);
-        let parenthesize = self.expression_needs_parentheses(data, context.position) == Some(true);
+        let parenthesize = context.parentheses_owner == ParenthesesOwner::Expression
+            && self.expression_needs_parentheses(data, context.position) == Some(true);
         let starts_update = matches!(data, ExprData::UpdateExpression(update) if update.prefix(self.ast))
             && (source.starts_with("++") || source.starts_with("--"));
         if self.options.semicolons == Semicolons::AsNeeded
@@ -179,8 +195,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if let ExprData::ParenthesizedExpression(parenthesized) = data {
             return self.format_source_parentheses(parenthesized, context, writer);
         }
+        if let ExprData::SequenceExpression(sequence) = data {
+            return self.format_sequence(sequence, context, writer);
+        }
         let binary = BinaryLike::from_data(data, self.ast);
-        let parenthesize = self.expression_needs_parentheses(data, context.position) == Some(true);
+        let parenthesize = context.parentheses_owner == ParenthesesOwner::Expression
+            && self.expression_needs_parentheses(data, context.position) == Some(true);
         if self.options.semicolons != Semicolons::AsNeeded {
             context.statement_start = StatementStart::None;
         }

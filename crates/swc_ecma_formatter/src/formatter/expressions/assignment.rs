@@ -8,7 +8,7 @@ use swc_next_ecma_ast::{
 use super::binary::BinaryLike;
 use super::parentheses::ExpressionContent;
 use super::{ExpressionContext, ExpressionPosition, Formatter};
-use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
+use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::suppression::ContentMode;
 use crate::{FormatError, document::Writer};
@@ -41,6 +41,26 @@ struct AssignmentBoundary<'ast> {
     after_operator: LineConstraint,
     own_line: bool,
     mode: ContentMode,
+}
+
+impl<'ast> AssignmentBoundary<'ast> {
+    fn right_head(&self) -> NodeHead<'ast> {
+        let source_gap = self.own_line
+            || self
+                .leading
+                .iter()
+                .any(|comment| comment.kind == CommentKind::Line);
+        NodeHead {
+            comments: self.leading,
+            content_start: self.right_start,
+            layout: if source_gap {
+                CommentRunLayout::Source
+            } else {
+                CommentRunLayout::FlatLeading(self.right_start)
+            },
+            gap_end: source_gap.then_some(self.right_start),
+        }
+    }
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -119,25 +139,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     }
                 }
                 self.comments.claim(boundary.leading)?;
-                let source_gap = boundary.own_line
-                    || boundary
-                        .leading
-                        .iter()
-                        .any(|comment| comment.kind == CommentKind::Line);
-                if source_gap {
-                    self.format_comment_run(boundary.leading, CommentRunLayout::Source, writer)?;
-                    if let Some(last) = boundary.leading.last() {
-                        self.comment_gap(last.span.end, boundary.right_start, writer);
-                    }
-                } else {
-                    self.format_comment_run(
-                        boundary.leading,
-                        CommentRunLayout::FlatLeading(boundary.right_start),
-                        writer,
-                    )?;
-                }
-                self.format_expression(
+                self.format_expression_with_leading_comments(
                     right,
+                    boundary.right_head(),
                     ExpressionContext::at(ExpressionPosition::AssignmentRight(parent))
                         .with_content_mode(boundary.mode)
                         .with_tail_owner(context.tail_owner),

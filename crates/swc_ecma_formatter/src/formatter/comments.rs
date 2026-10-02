@@ -17,6 +17,14 @@ pub(super) enum CommentRunLayout {
     Lines,
 }
 
+/// A claimed leading run and the source gap owned by its node.
+pub(super) struct NodeHead<'ast> {
+    pub(super) comments: &'ast [Comment],
+    pub(super) content_start: u32,
+    pub(super) layout: CommentRunLayout,
+    pub(super) gap_end: Option<u32>,
+}
+
 /// A pending run whose parent owns the following punctuation and layout scope.
 /// The cursor stays at this run until that parent claims it.
 pub(super) struct ExpressionTail<'ast> {
@@ -180,6 +188,41 @@ impl<'ast> CommentCursor<'ast> {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    pub(super) fn split_separator_comments(
+        &self,
+        comments: &'ast [Comment],
+        before_separator: usize,
+        source_end: u32,
+        content_start: u32,
+    ) -> (&'ast [Comment], &'ast [Comment]) {
+        let mut trailing_count = 0;
+        let mut previous_end = source_end;
+        for (index, comment) in comments.iter().enumerate() {
+            if index >= before_separator
+                && matches!(self.comment_semantics(*comment), CommentSemantics::TypeCast)
+            {
+                break;
+            }
+            if self.line_breaks(previous_end, comment.span.start) != 0 {
+                break;
+            }
+            previous_end = comment.span.end;
+            let next_start = comments
+                .get(index + 1)
+                .map_or(content_start, |next| next.span.start);
+            if index < before_separator {
+                trailing_count = index + 1;
+            }
+            if comment.kind == CommentKind::Line
+                || self.line_breaks(comment.span.end, next_start) != 0
+            {
+                trailing_count = index + 1;
+                break;
+            }
+        }
+        comments.split_at(trailing_count)
+    }
+
     pub(super) fn comment_semantics(&self, comment: Comment) -> CommentSemantics {
         let raw = self.source(comment.span);
         if super::suppression::is_suppression_comment(self.ast, comment) {

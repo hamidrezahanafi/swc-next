@@ -3,7 +3,7 @@
 use swc_next_ecma_ast::{Ast, BlockStatement, Directive, GetSpan, Span, Stmt, StmtData};
 
 use super::Formatter;
-use super::comments::{CommentRunLayout, ExpressionTail};
+use super::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::{ExpressionContext, ExpressionPosition, StatementStart};
 use super::literals::StringContext;
@@ -124,21 +124,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     writer.hard_line();
                 }
             }
-            let start = self.format_expression_leading_comments(
-                leading,
-                statement_span.start,
-                CommentRunLayout::Source,
-                statement_start,
-                writer,
-            )?;
-            if let Some(last) = leading.last() {
-                let gap_end = previous.map_or(statement_span.start, |boundary| {
-                    boundary.comment_gap_end(last.span.end, statement_span.start)
-                });
-                self.comment_gap(last.span.end, gap_end, writer);
-            }
+            let head = NodeHead {
+                comments: leading,
+                content_start: statement_span.start,
+                layout: CommentRunLayout::Source,
+                gap_end: leading.last().map(|last| {
+                    previous.map_or(statement_span.start, |boundary| {
+                        boundary.comment_gap_end(last.span.end, statement_span.start)
+                    })
+                }),
+            };
             let boundary = match statement {
                 StatementItem::Directive(directive) => {
+                    self.format_node_head(head, statement_start, writer)?;
                     let expression = directive.expression(ast);
                     if mode == ContentMode::Verbatim {
                         self.format_verbatim(expression.span(ast), writer)?;
@@ -148,7 +146,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     self.finish_statement(statement_span, expression.span(ast).end, None, writer)?
                 }
                 StatementItem::Statement(statement) => {
-                    self.format_statement(statement, start, mode, writer)?
+                    self.format_statement(statement, statement_start, mode, head, writer)?
                 }
             };
             let end = self.format_trailing_comments(
@@ -198,23 +196,37 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         statement: Stmt,
         start: StatementStart,
         mode: ContentMode,
+        head: NodeHead<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<StatementBoundary, FormatError> {
-        let (content_end, tail) = match self.ast.stmt_data(statement) {
-            StmtData::ExpressionStatement(node) => {
-                let expression = node.expression(self.ast);
-                let tail = self.format_expression(
-                    expression,
-                    ExpressionContext::at(ExpressionPosition::Statement)
-                        .with_statement_start(start)
-                        .with_content_mode(mode),
-                    writer,
-                )?;
-                (expression.span(self.ast).end, tail)
-            }
+        let data = self.ast.stmt_data(statement);
+        if let StmtData::ExpressionStatement(node) = data {
+            let expression = node.expression(self.ast);
+            let tail = self.format_expression_with_leading_comments(
+                expression,
+                head,
+                ExpressionContext::at(ExpressionPosition::Statement)
+                    .with_statement_start(start)
+                    .with_content_mode(mode),
+                writer,
+            )?;
+            return self.finish_statement(
+                statement.span(self.ast),
+                expression.span(self.ast).end,
+                tail,
+                writer,
+            );
+        }
+        self.format_node_head(head, start, writer)?;
+        match data {
             StmtData::DebuggerStatement(node) => {
                 writer.text("debugger");
-                (node.span(self.ast).start + "debugger".len() as u32, None)
+                self.finish_statement(
+                    statement.span(self.ast),
+                    node.span(self.ast).start + "debugger".len() as u32,
+                    None,
+                    writer,
+                )
             }
             StmtData::BlockStatement(block) => {
                 if mode == ContentMode::Verbatim {
@@ -222,16 +234,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 } else {
                     self.format_block(block, writer)?;
                 }
-                return Ok(StatementBoundary::SourceEnd(block.span(self.ast).end));
+                Ok(StatementBoundary::SourceEnd(block.span(self.ast).end))
             }
             _ if mode == ContentMode::Verbatim => {
                 let span = statement.span(self.ast);
                 self.format_verbatim(span, writer)?;
-                return Ok(StatementBoundary::SourceEnd(span.end));
+                Ok(StatementBoundary::SourceEnd(span.end))
             }
-            _ => return Err(self.unsupported("statement", statement)),
-        };
-        self.finish_statement(statement.span(self.ast), content_end, tail, writer)
+            _ => Err(self.unsupported("statement", statement)),
+        }
     }
 
     fn finish_statement(

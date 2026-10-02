@@ -6,7 +6,7 @@ use swc_next_ecma_ast::{
 };
 
 use super::{ExpressionContext, ExpressionPosition, Formatter};
-use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
+use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::suppression::ContentMode;
 use crate::{FormatError, document::Writer};
@@ -79,13 +79,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.indent(|writer| {
                 writer.soft_line();
                 self.comments.claim(leading)?;
-                self.format_comment_run(
-                    leading,
-                    CommentRunLayout::GroupedLeading(leading_end),
-                    writer,
-                )?;
-                let tail = self.format_expression(
+                let tail = self.format_expression_with_leading_comments(
                     argument,
+                    NodeHead {
+                        comments: leading,
+                        content_start: argument_span.start,
+                        layout: CommentRunLayout::GroupedLeading(leading_end),
+                        gap_end: None,
+                    },
                     ExpressionContext::at(ExpressionPosition::ParenthesizedUnaryArgument(operator))
                         .with_content_mode(mode),
                     writer,

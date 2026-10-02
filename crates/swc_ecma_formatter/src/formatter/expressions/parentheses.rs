@@ -2,9 +2,11 @@
 
 use swc_next_ecma_ast::{Comment, Expr, ExprData, GetSpan, ParenthesizedExpression, Span};
 
-use super::{ExpressionContext, ExpressionPosition, Formatter, StatementStart, TailOwner};
+use super::{
+    ExpressionContext, ExpressionPosition, Formatter, ParenthesesOwner, StatementStart, TailOwner,
+};
 use crate::formatter::comments::{
-    CommentBinding, CommentRunLayout, CommentSemantics, ExpressionTail,
+    CommentBinding, CommentRunLayout, CommentSemantics, ExpressionTail, NodeHead,
 };
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::source::is_source_whitespace;
@@ -30,6 +32,89 @@ enum RetainedParentheses {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    pub(in crate::formatter) fn format_expression_with_leading_comments(
+        &mut self,
+        expression: Expr,
+        head: NodeHead<'ast>,
+        mut context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let enclose_comments = !head.comments.is_empty()
+            && context.parentheses_owner == ParenthesesOwner::Expression
+            && head.comments.iter().any(|&comment| {
+                matches!(self.comment_semantics(comment), CommentSemantics::TypeCast)
+            })
+            && self.expression_needs_parentheses(
+                self.expression_content(expression).data,
+                context.position,
+            ) == Some(true);
+        if !enclose_comments {
+            context.statement_start =
+                self.format_node_head(head, context.statement_start, writer)?;
+            return self.format_expression(expression, context, writer);
+        }
+        self.format_parenthesized_expression(expression, head, context, writer)
+    }
+
+    pub(in crate::formatter) fn format_node_head(
+        &self,
+        head: NodeHead<'ast>,
+        start: StatementStart,
+        writer: &mut Writer<'ast>,
+    ) -> Result<StatementStart, FormatError> {
+        let start = self.format_expression_leading_comments(
+            head.comments,
+            head.content_start,
+            head.layout,
+            start,
+            writer,
+        )?;
+        if let Some(end) = head.gap_end
+            && let Some(last) = head.comments.last()
+        {
+            self.comment_gap(last.span.end, end, writer);
+        }
+        Ok(start)
+    }
+
+    pub(super) fn format_parenthesized_expression(
+        &mut self,
+        expression: Expr,
+        head: NodeHead<'ast>,
+        context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        if context.statement_start != StatementStart::None
+            && self.options.semicolons == Semicolons::AsNeeded
+        {
+            writer.text(";");
+        }
+        // Keep leading tags with their source targets inside the added parentheses.
+        writer.group(false, |writer| {
+            writer.text("(");
+            writer.indent(|writer| {
+                writer.soft_line();
+                self.format_comment_run(
+                    head.comments,
+                    CommentRunLayout::FlatLeading(head.content_start),
+                    writer,
+                )?;
+                let tail = self.format_expression(
+                    expression,
+                    ExpressionContext::at(ExpressionPosition::Nested)
+                        .with_content_mode(context.content_mode)
+                        .with_tail_owner(context.tail_owner)
+                        .inside_parentheses(),
+                    writer,
+                )?;
+                self.format_expression_tail(tail, writer)
+            })?;
+            writer.soft_line();
+            writer.text(")");
+            Ok(None)
+        })
+    }
+
     pub(super) fn expression_content(&self, expression: Expr) -> ExpressionContent {
         let mut inner = expression;
         let data = loop {
@@ -248,24 +333,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             CommentRunLayout::Leading(inner_span.start)
         };
-        context.statement_start = self.format_expression_leading_comments(
-            leading,
-            inner_span.start,
-            layout,
-            context.statement_start,
-            writer,
-        )?;
         context.content_mode = if ignored_child.is_some() {
             ContentMode::Verbatim
         } else {
             self.content_mode(leading)
         };
-        if matches!(context.position, ExpressionPosition::Statement)
-            && let Some(last) = leading.last()
-        {
-            self.comment_gap(last.span.end, inner_span.start, writer);
-        }
-        let tail = self.format_expression(inner, context, writer)?;
+        let tail = self.format_expression_with_leading_comments(
+            inner,
+            NodeHead {
+                comments: leading,
+                content_start: inner_span.start,
+                layout,
+                gap_end: matches!(context.position, ExpressionPosition::Statement)
+                    .then_some(inner_span.start),
+            },
+            context,
+            writer,
+        )?;
         self.capture_expression_tail(Span::new(inner_span.end, span.end), tail)
     }
 
@@ -343,17 +427,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ContentMode::Verbatim => ContentMode::Verbatim,
                 ContentMode::Formatted => self.content_mode(leading),
             };
-            let position = match (mode, context.position) {
+            let context = match (mode, context.position) {
                 (ContentMode::Verbatim, ExpressionPosition::UnaryArgument(operator)) => {
-                    ExpressionPosition::ParenthesizedUnaryArgument(operator)
+                    ExpressionContext::at(ExpressionPosition::ParenthesizedUnaryArgument(operator))
                 }
-                _ => ExpressionPosition::Nested,
-            };
-            let tail = self.format_expression(
-                content.expression,
-                ExpressionContext::at(position).with_content_mode(mode),
-                writer,
-            )?;
+                _ => ExpressionContext::at(ExpressionPosition::Nested).inside_parentheses(),
+            }
+            .with_content_mode(mode);
+            let tail = self.format_expression(content.expression, context, writer)?;
             let tail = self.capture_expression_tail(Span::new(inner_span.end, span.end), tail)?;
             self.format_expression_tail(tail, writer)
         };

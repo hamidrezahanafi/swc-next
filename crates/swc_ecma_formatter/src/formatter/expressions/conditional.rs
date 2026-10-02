@@ -1,11 +1,9 @@
 //! Conditional positions, aligned branches, and prepared operator boundaries.
 
-use swc_next_ecma_ast::{
-    Comment, CommentKind, ConditionalExpression, Expr, ExprData, GetSpan, Span,
-};
+use swc_next_ecma_ast::{Comment, ConditionalExpression, Expr, ExprData, GetSpan, Span};
 
 use super::{ExpressionContext, ExpressionPosition, Formatter, StatementStart, TailOwner};
-use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
+use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::suppression::ContentMode;
 use crate::{FormatError, IndentStyle, document::Writer};
@@ -156,25 +154,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 after_operator: self.line_constraint(operator_start + 1, end),
             });
         }
-        let mut trailing_count = 0;
-        let mut previous_end = start;
-        for (index, comment) in comments.iter().enumerate() {
-            if self.line_breaks(previous_end, comment.span.start) != 0 {
-                break;
-            }
-            previous_end = comment.span.end;
-            let next_start = comments.get(index + 1).map_or(end, |next| next.span.start);
-            if index < before_count {
-                trailing_count = index + 1;
-            }
-            if comment.kind == CommentKind::Line
-                || self.line_breaks(comment.span.end, next_start) != 0
-            {
-                trailing_count = index + 1;
-                break;
-            }
-        }
-        let (trailing, leading) = comments.split_at(trailing_count);
+        let (trailing, leading) = self.split_separator_comments(comments, before_count, start, end);
         Ok(ConditionalBoundary {
             operator,
             source_end: start,
@@ -229,20 +209,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let indent_style = self.options.indent_style;
         let write = |writer: &mut Writer<'ast>| {
-            self.format_comment_run(boundary.leading, CommentRunLayout::Source, writer)?;
-            if let Some(last) = boundary.leading.last() {
-                self.comment_gap(
-                    last.span.end,
-                    content.expression.span(self.ast).start,
-                    writer,
-                );
-            } else {
+            if boundary.leading.is_empty() {
                 boundary
                     .after_operator
                     .write(writer, FlatSeparator::Empty, |_| {});
             }
-            let mut tail = self.format_expression(
+            let mut tail = self.format_expression_with_leading_comments(
                 expression,
+                NodeHead {
+                    comments: boundary.leading,
+                    content_start: content.expression.span(self.ast).start,
+                    layout: CommentRunLayout::Source,
+                    gap_end: Some(content.expression.span(self.ast).start),
+                },
                 ExpressionContext::at(position)
                     .with_content_mode(mode)
                     .with_tail_owner(TailOwner::ParentOperation),
