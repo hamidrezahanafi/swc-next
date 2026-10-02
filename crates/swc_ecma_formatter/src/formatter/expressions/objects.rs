@@ -2,7 +2,7 @@
 
 use swc_next_ecma_ast::{
     Argument, Comment, CommentKind, ExprData, GetSpan, ObjectExpression, ObjectProperty,
-    ObjectPropertyKindData, PropertyKeyData, PropertyKind, Span,
+    ObjectPropertyKindData, PropertyKey, PropertyKeyData, PropertyKind, Span,
 };
 
 use super::{ExpressionContext, ExpressionPosition, Formatter};
@@ -451,21 +451,32 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         key_end: u32,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
+        let computed = property
+            .computed(self.ast)
+            .then_some(Span::new(property.span(self.ast).start, key_end));
+        self.format_property_key(property.key(self.ast), computed, writer)
+    }
+
+    pub(in crate::formatter) fn format_property_key(
+        &mut self,
+        key: PropertyKey,
+        computed: Option<Span>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
         let ast = self.ast;
-        let key = property.key(ast);
         let key_span = key.span(ast);
-        if property.computed(ast) {
+        if let Some(computed) = computed {
             let PropertyKeyData::Expr(expression) = ast.property_key_data(key) else {
                 return Err(self.unsupported("computed object key", key));
             };
-            let closing = key_end - 1;
+            let closing = computed.end - 1;
             writer.group(false, |writer| {
                 writer.text("[");
                 writer.indent(|writer| {
                     writer.soft_line();
                     let leading = self
                         .comments
-                        .between(Span::new(property.span(ast).start + 1, key_span.start))?;
+                        .between(Span::new(computed.start + 1, key_span.start))?;
                     let leading = self.comments.take(leading.len());
                     let tail = self.format_expression_with_leading_comments(
                         expression,

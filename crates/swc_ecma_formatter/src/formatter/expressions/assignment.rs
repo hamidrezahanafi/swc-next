@@ -26,19 +26,19 @@ enum AssignmentLayout {
     ChainTail,
 }
 
-struct AssignmentBoundary<'ast> {
-    before: &'ast [Comment],
-    moved: &'ast [Comment],
-    operator_line: &'ast [Comment],
-    leading: &'ast [Comment],
-    left_end: u32,
-    operator_span: Span,
-    right_start: u32,
-    layout_start: u32,
-    before_operator: LineConstraint,
-    after_operator: LineConstraint,
-    own_line: bool,
-    mode: ContentMode,
+pub(in crate::formatter) struct AssignmentBoundary<'ast> {
+    pub(in crate::formatter) before: &'ast [Comment],
+    pub(in crate::formatter) moved: &'ast [Comment],
+    pub(in crate::formatter) operator_line: &'ast [Comment],
+    pub(in crate::formatter) leading: &'ast [Comment],
+    pub(in crate::formatter) left_end: u32,
+    pub(in crate::formatter) operator_span: Span,
+    pub(in crate::formatter) right_start: u32,
+    pub(in crate::formatter) layout_start: u32,
+    pub(in crate::formatter) before_operator: LineConstraint,
+    pub(in crate::formatter) after_operator: LineConstraint,
+    pub(in crate::formatter) own_line: bool,
+    pub(in crate::formatter) mode: ContentMode,
 }
 
 impl<'ast> AssignmentBoundary<'ast> {
@@ -199,7 +199,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    fn assignment_boundary(
+    pub(in crate::formatter) fn assignment_boundary(
         &self,
         left_end: u32,
         content: &ExpressionContent,
@@ -364,7 +364,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         AssignmentLayout::Fluid
     }
 
-    pub(super) fn assignment_right_breaks_after_operator(&self, mut data: ExprData) -> bool {
+    pub(in crate::formatter) fn assignment_right_breaks_after_operator(
+        &self,
+        mut data: ExprData,
+    ) -> bool {
         match data {
             ExprData::AssignmentExpression(assignment) => {
                 return matches!(

@@ -1,8 +1,8 @@
 //! Expression dispatch and immediate grammar and statement-start contexts.
 
-mod arguments;
+pub(super) mod arguments;
 mod arrays;
-mod assignment;
+pub(super) mod assignment;
 mod binary;
 mod calls;
 mod conditional;

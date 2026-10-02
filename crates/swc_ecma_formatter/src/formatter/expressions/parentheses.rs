@@ -21,9 +21,9 @@ pub(super) struct SourceParentheses {
     pub(super) inner: Span,
 }
 
-pub(super) struct ExpressionContent {
-    pub(super) expression: Expr,
-    pub(super) data: ExprData,
+pub(in crate::formatter) struct ExpressionContent {
+    pub(in crate::formatter) expression: Expr,
+    pub(in crate::formatter) data: ExprData,
     pub(super) parentheses: Option<SourceParentheses>,
 }
 
@@ -118,7 +118,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    pub(super) fn expression_content(&self, expression: Expr) -> ExpressionContent {
+    pub(in crate::formatter) fn expression_content(&self, expression: Expr) -> ExpressionContent {
         let mut inner = expression;
         let data = loop {
             let data = self.ast.expr_data(inner);
