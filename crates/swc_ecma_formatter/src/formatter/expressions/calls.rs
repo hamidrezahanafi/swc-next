@@ -36,17 +36,28 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let Some(opening) = self.find_token(gap, boundary_comments, "(") else {
             return Err(self.unsupported("call opening boundary", call));
         };
-        let first_mode = if self.has_suppression && first.is_some() {
-            let prefix = self.comments.in_range(Span::new(callee_span.end, opening));
+        let prefix_span = Span::new(callee_span.end, opening);
+        let prefix = self.comments.in_range(prefix_span);
+        let prefix_belongs_to_arguments = first.is_some()
+            && !prefix.is_empty()
+            && prefix.iter().all(|&comment| {
+                comment.kind == CommentKind::Block
+                    && matches!(
+                        self.comment_semantics(comment),
+                        CommentSemantics::Ordinary | CommentSemantics::Suppression
+                    )
+            })
+            && !self.diagnostic_range_is_sensitive(Span::new(callee_span.end, opening + 1));
+        let first_mode = if !prefix_belongs_to_arguments && first.is_some() {
             self.first_argument_prefix_mode(prefix)
         } else {
             ContentMode::Formatted
         };
-        let mode = self.trailing_content_mode(
-            Span::new(callee_span.end, opening),
-            BoundaryPunctuation::None,
-            false,
-        );
+        let mode = if prefix_belongs_to_arguments {
+            ContentMode::Formatted
+        } else {
+            self.trailing_content_mode(prefix_span, BoundaryPunctuation::None, false)
+        };
         let tail = self.format_expression(
             callee,
             ExpressionContext::at(ExpressionPosition::CallCallee)
@@ -59,29 +70,43 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .as_ref()
             .map_or(callee_span.end, |tail| tail.source_end);
         let before = self.comments.between(Span::new(source_end, opening))?;
-        let move_inside = first.is_some()
-            && !before.is_empty()
-            && before.iter().all(|&comment| {
-                comment.kind == CommentKind::Block
-                    && matches!(self.comment_semantics(comment), CommentSemantics::Ordinary)
+        let move_tail = first.is_some()
+            && (prefix.is_empty() || prefix_belongs_to_arguments)
+            && tail.as_ref().is_some_and(|tail| {
+                tail.comments.iter().all(|&comment| {
+                    comment.kind == CommentKind::Block
+                        && matches!(self.comment_semantics(comment), CommentSemantics::Ordinary)
+                })
             })
             && !self.diagnostic_range_is_sensitive(Span::new(source_end, opening + 1));
-        let content_start = if move_inside {
+        let outside_count = if move_tail {
+            0
+        } else if prefix_belongs_to_arguments {
+            tail.as_ref().map_or(0, |tail| tail.comments.len())
+        } else {
+            before.len()
+        };
+        let (outside, inside) = before.split_at(outside_count);
+        self.comments.claim(outside)?;
+        self.format_comment_run(outside, CommentRunLayout::SourceAfter(source_end), writer)?;
+        let end = outside
+            .last()
+            .map_or(source_end, |comment| comment.span.end);
+        if outside
+            .last()
+            .is_some_and(|comment| comment.kind == CommentKind::Line)
+        {
+            writer.hard_line();
+        } else {
+            self.line_constraint(end, opening)
+                .write(writer, FlatSeparator::Empty, |_| {});
+        }
+        let content_start = if inside.is_empty() {
+            opening + 1
+        } else if move_tail {
             source_end
         } else {
-            self.comments.claim(before)?;
-            self.format_comment_run(before, CommentRunLayout::SourceAfter(source_end), writer)?;
-            let end = before.last().map_or(source_end, |comment| comment.span.end);
-            if before
-                .last()
-                .is_some_and(|comment| comment.kind == CommentKind::Line)
-            {
-                writer.hard_line();
-            } else {
-                self.line_constraint(end, opening)
-                    .write(writer, FlatSeparator::Empty, |_| {});
-            }
-            opening + 1
+            callee_span.end
         };
         let content = Span::new(content_start, span.end - 1);
         if first.is_none()
