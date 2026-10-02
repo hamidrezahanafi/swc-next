@@ -1,4 +1,4 @@
-//! Return/throw operand boundaries prepared before their keyword is emitted.
+//! Restricted operand boundaries prepared before their keyword is emitted.
 
 use swc_next_ecma_ast::{
     AssignmentTargetData, Comment, CommentKind, Expr, ExprData, GetSpan,
@@ -20,6 +20,12 @@ enum ArgumentEnvelope {
     Required,
 }
 
+#[derive(Clone, Copy)]
+enum RestrictedGrammar {
+    ReturnOrThrow,
+    Yield,
+}
+
 /// The first lexical owner and its removable source-prefix comment run.
 struct RestrictedHead<'ast> {
     expression: Expr,
@@ -32,6 +38,7 @@ pub(super) struct RestrictedArgument<'ast> {
     keyword_end: u32,
     mode: ContentMode,
     envelope: ArgumentEnvelope,
+    grammar: RestrictedGrammar,
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -39,6 +46,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &self,
         keyword_end: u32,
         argument: Expr,
+    ) -> Result<RestrictedArgument<'ast>, FormatError> {
+        self.prepare_restricted_operand(keyword_end, argument, RestrictedGrammar::ReturnOrThrow)
+    }
+
+    pub(super) fn prepare_yield_argument(
+        &self,
+        keyword_end: u32,
+        argument: Expr,
+    ) -> Result<RestrictedArgument<'ast>, FormatError> {
+        self.prepare_restricted_operand(keyword_end, argument, RestrictedGrammar::Yield)
+    }
+
+    fn prepare_restricted_operand(
+        &self,
+        keyword_end: u32,
+        argument: Expr,
+        grammar: RestrictedGrammar,
     ) -> Result<RestrictedArgument<'ast>, FormatError> {
         let span = argument.span(self.ast);
         let leading = self.comments.between(Span::new(keyword_end, span.start))?;
@@ -66,15 +90,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             if leading_requires_envelope || lexical_head.is_some() {
                 ArgumentEnvelope::Required
-            } else if matches!(
-                self.expression_content(argument).data,
-                ExprData::BinaryExpression(_)
-                    | ExprData::LogicalExpression(_)
-                    | ExprData::SequenceExpression(_)
-            ) {
-                ArgumentEnvelope::Breakable
             } else {
-                ArgumentEnvelope::Inline
+                match self.expression_content(argument).data {
+                    ExprData::BinaryExpression(_) | ExprData::LogicalExpression(_) => {
+                        ArgumentEnvelope::Breakable
+                    }
+                    ExprData::SequenceExpression(_)
+                        if matches!(grammar, RestrictedGrammar::ReturnOrThrow) =>
+                    {
+                        ArgumentEnvelope::Breakable
+                    }
+                    _ => ArgumentEnvelope::Inline,
+                }
             }
         };
         Ok(RestrictedArgument {
@@ -83,6 +110,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             keyword_end,
             mode,
             envelope,
+            grammar,
         })
     }
 
@@ -97,6 +125,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             keyword_end,
             mode,
             envelope,
+            grammar,
         } = prepared;
         let content_start = head.expression.span(self.ast).start;
         let first = head
@@ -105,6 +134,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .map_or(content_start, |comment| comment.span.start);
         self.line_constraint(keyword_end, first)
             .write(writer, FlatSeparator::Space, Writer::space);
+        let position = match grammar {
+            RestrictedGrammar::ReturnOrThrow => ExpressionPosition::RestrictedArgument,
+            RestrictedGrammar::Yield => ExpressionPosition::YieldArgument,
+        };
         let write_argument = |formatter: &mut Self, writer: &mut Writer<'ast>| {
             formatter.comments.claim(head.comments)?;
             formatter.format_expression_with_leading_comments(
@@ -115,7 +148,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     layout: CommentRunLayout::FlatLeading(content_start),
                     gap_end: None,
                 },
-                ExpressionContext::at(ExpressionPosition::RestrictedArgument)
+                ExpressionContext::at(position)
                     .with_content_mode(mode)
                     .with_tail_owner(TailOwner::ParentOperation),
                 writer,

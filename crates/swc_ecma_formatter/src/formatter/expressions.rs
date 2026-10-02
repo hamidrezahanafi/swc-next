@@ -12,6 +12,7 @@ mod members;
 pub(super) mod objects;
 pub(super) mod parentheses;
 mod sequence;
+mod suspension;
 mod targets;
 mod unary;
 
@@ -46,6 +47,8 @@ pub(super) enum ExpressionPosition {
     NewCallee,
     ArrowBody,
     RestrictedArgument,
+    YieldArgument,
+    AwaitArgument,
     MemberAssignmentObject,
     ConditionalTest,
     ConditionalConsequent,
@@ -394,6 +397,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ExprData::NewExpression(constructor) => self.format_new(constructor, writer),
             ExprData::Function(function) => self.format_function(function, writer).map(|()| None),
             ExprData::ArrowFunctionExpression(arrow) => self.format_arrow(arrow, context, writer),
+            ExprData::AwaitExpression(await_expression) => {
+                self.format_await(await_expression, writer)
+            }
+            ExprData::YieldExpression(yield_expression) => {
+                self.format_yield(yield_expression, writer)
+            }
+            ExprData::MetaProperty(meta) => self.format_meta_property(meta, writer).map(|()| None),
             ExprData::UnaryExpression(unary) => self.format_unary(unary, writer),
             ExprData::UpdateExpression(update) => self.format_update(update, context, writer),
             ExprData::ConditionalExpression(conditional) => {
@@ -424,6 +434,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     position,
                     ExpressionPosition::UnaryArgument(_)
                         | ExpressionPosition::ParenthesizedUnaryArgument(_)
+                        | ExpressionPosition::AwaitArgument
                         | ExpressionPosition::BinaryOperand { .. }
                         | ExpressionPosition::MemberObject
                         | ExpressionPosition::MemberAssignmentObject
@@ -431,6 +442,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         | ExpressionPosition::NewCallee
                         | ExpressionPosition::ConditionalTest
                 ));
+            }
+            ExprData::AwaitExpression(_) | ExprData::YieldExpression(_) => {
+                let low_precedence_parent = matches!(
+                    position,
+                    ExpressionPosition::UnaryArgument(_)
+                        | ExpressionPosition::ParenthesizedUnaryArgument(_)
+                        | ExpressionPosition::BinaryOperand { .. }
+                        | ExpressionPosition::SpreadArgument
+                        | ExpressionPosition::MemberObject
+                        | ExpressionPosition::MemberAssignmentObject
+                        | ExpressionPosition::CallCallee
+                        | ExpressionPosition::NewCallee
+                        | ExpressionPosition::ConditionalTest
+                );
+                let awaited_yield = matches!(data, ExprData::YieldExpression(_))
+                    && matches!(position, ExpressionPosition::AwaitArgument);
+                return Some(low_precedence_parent || awaited_yield);
             }
             ExprData::NewExpression(constructor) => {
                 if mode == ContentMode::Formatted
@@ -452,6 +480,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             ExprData::IdentifierReference(_)
             | ExprData::Function(_)
+            | ExprData::MetaProperty(_)
             | ExprData::ThisExpression(_)
             | ExprData::StringLiteral(_)
             | ExprData::BooleanLiteral(_)
@@ -503,6 +532,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             (
                 ExpressionPosition::UnaryArgument(_)
                 | ExpressionPosition::ParenthesizedUnaryArgument(_)
+                | ExpressionPosition::AwaitArgument
                 | ExpressionPosition::SpreadArgument
                 | ExpressionPosition::BinaryOperand { .. }
                 | ExpressionPosition::ConditionalTest,
@@ -529,7 +559,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     )
             }
             (
-                ExpressionPosition::UnaryArgument(_) | ExpressionPosition::SpreadArgument,
+                ExpressionPosition::UnaryArgument(_)
+                | ExpressionPosition::AwaitArgument
+                | ExpressionPosition::SpreadArgument,
                 ExprData::BinaryExpression(_) | ExprData::LogicalExpression(_),
             ) => true,
             (ExpressionPosition::BinaryOperand { operator, side }, _) => {

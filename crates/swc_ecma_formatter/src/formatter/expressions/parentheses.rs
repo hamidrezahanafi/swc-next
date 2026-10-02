@@ -377,6 +377,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         | ExpressionPosition::NewCallee
                         | ExpressionPosition::ArrowBody
                         | ExpressionPosition::RestrictedArgument
+                        | ExpressionPosition::YieldArgument
+                        | ExpressionPosition::AwaitArgument
                 )
                 || context.expression_start == ExpressionStart::ArrowBody
                 || self.parentheses_separate_diagnostic_lines(SourceParentheses {

@@ -16,11 +16,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        if arrow.r#async(self.ast)
-            || arrow.type_parameters(self.ast).is_some()
-            || arrow.return_type(self.ast).is_some()
-        {
-            return Err(self.unsupported("async or typed arrow", arrow));
+        if arrow.type_parameters(self.ast).is_some() || arrow.return_type(self.ast).is_some() {
+            return Err(self.unsupported("typed arrow", arrow));
         }
         let body = self.ast.arrow_function_body_data(arrow.body(self.ast));
         let params = arrow.params(self.ast);
@@ -69,11 +66,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let hug_body = hugs_shape && !body_starts_line;
         if context.expression_start.is_statement()
             && self.options.semicolons == Semicolons::AsNeeded
+            && !arrow.r#async(self.ast)
             && parameters.starts_with_parenthesis()
         {
             writer.text(";");
         }
         writer.group(false, |writer| {
+            if arrow.r#async(self.ast) {
+                writer.text("async");
+                self.format_source_token_gap(
+                    arrow.span(self.ast).start + 5,
+                    parameter_span.start,
+                    true,
+                    writer,
+                )?;
+            }
             self.format_source_parameters(parameters, writer)?;
             self.comments.claim(before)?;
             self.format_comment_run(
