@@ -5,12 +5,13 @@ use std::borrow::Cow;
 use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
 
 use super::{
-    Alternatives, Doc, FlatFragment, FormatElement, Fragment, GroupId, RecordedGroup, text::Text,
+    Alternatives, Doc, FlatFragment, FormatElement, Fragment, FragmentCapabilities, GroupId,
+    NeutralFragment, RecordedGroup, text::Text,
 };
 
 pub(crate) struct Writer<'a> {
     allocator: &'a Allocator,
-    elements: Vec<FormatElement<'a>>,
+    elements: ArenaVec<'a, FormatElement<'a>>,
     breaks: usize,
     flattening: bool,
     group_count: usize,
@@ -21,7 +22,7 @@ impl<'a> Writer<'a> {
     pub(crate) fn new(allocator: &'a Allocator) -> Self {
         Self {
             allocator,
-            elements: Vec::new(),
+            elements: ArenaVec::new_in(allocator),
             breaks: 0,
             flattening: false,
             group_count: 0,
@@ -239,13 +240,17 @@ impl<'a> Writer<'a> {
         child.group_count = self.group_count;
         let value = write(&mut child)?;
         self.group_count = child.group_count;
-        let flat = child.elements.iter().all(|element| element.permits_flat());
-        let mut elements = ArenaVec::with_capacity_in(child.elements.len(), self.allocator);
-        elements.extend_from_slice(&child.elements);
+        let capabilities = if child.breaks != 0 || child.conditional_lines {
+            FragmentCapabilities::from_flat(
+                child.elements.iter().all(|element| element.permits_flat()),
+            )
+        } else {
+            FragmentCapabilities::classify(&child.elements)
+        };
         let fragment = Fragment {
-            elements: elements.into_bump_slice(),
+            elements: child.elements.into_bump_slice(),
             breaks: child.breaks != 0,
-            flat,
+            capabilities,
             conditional_lines: child.conditional_lines,
         };
         Ok((fragment, value))
@@ -281,6 +286,16 @@ impl<'a> Writer<'a> {
         self.elements.push(FormatElement::FlatFragment(fragment));
     }
 
+    pub(crate) fn write_neutral_fragment(
+        &mut self,
+        NeutralFragment(fragment): NeutralFragment<'a>,
+    ) {
+        self.breaks += usize::from(fragment.breaks);
+        self.conditional_lines |= fragment.conditional_lines;
+        self.elements
+            .push(FormatElement::FlatFragment(FlatFragment(fragment)));
+    }
+
     pub(crate) fn write_alternatives(
         &mut self,
         normal: Fragment<'a>,
@@ -309,7 +324,7 @@ impl<'a> Writer<'a> {
 
     pub(crate) fn finish(self) -> Doc<'a> {
         Doc {
-            elements: self.elements,
+            elements: self.elements.into_bump_slice(),
             group_count: self.group_count,
             conditional_lines: self.conditional_lines,
         }

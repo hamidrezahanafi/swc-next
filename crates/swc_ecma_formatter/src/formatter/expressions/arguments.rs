@@ -1,7 +1,7 @@
 //! Shared source-ordered argument slots and comma/comment boundaries.
 
 use super::callbacks::SelectedCallback;
-use super::{AccessKind, Formatter};
+use super::{AccessKind, ExpressionContext, ExpressionPosition, Formatter, TailOwner};
 use crate::formatter::comments::{CommentRunLayout, CommentSemantics, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::source::is_source_whitespace;
@@ -340,15 +340,43 @@ pub(super) struct SourceArguments<'ast> {
     pub(super) test_callback: Option<SelectedCallback>,
 }
 
-enum ArgumentPrefix<'ast> {
-    Outside(&'ast [Comment]),
-    Arguments(&'ast [Comment]),
-}
-
 #[derive(Clone, Copy)]
 struct SourceFirstArgument {
     node: Argument,
     mode: ContentMode,
+}
+
+impl SourceArguments<'_> {
+    pub(super) fn access(&self) -> AccessKind {
+        match self.prefix {
+            SourceArgumentPrefix::Direct(_) => AccessKind::Ordinary,
+            SourceArgumentPrefix::Optional { .. } => AccessKind::Optional,
+        }
+    }
+
+    pub(super) fn has_outside_prefix(&self) -> bool {
+        match &self.prefix {
+            SourceArgumentPrefix::Direct(prefix) => {
+                !prefix.belongs_to_arguments() && !prefix.comments().is_empty()
+            }
+            SourceArgumentPrefix::Optional { before, after, .. } => {
+                !before.is_empty() || !after.belongs_to_arguments() && !after.comments().is_empty()
+            }
+        }
+    }
+
+    pub(super) fn callee_context(&self, context: ExpressionContext) -> ExpressionContext {
+        ExpressionContext::at(ExpressionPosition::CallCallee(self.access()))
+            .with_expression_start(context.expression_start)
+            .with_tail_owner(TailOwner::ParentOperation)
+            .with_content_mode(self.callee_mode)
+            .with_member_chain_layout(context.member_chain_layout)
+    }
+}
+
+enum ArgumentPrefix<'ast> {
+    Outside(&'ast [Comment]),
+    Arguments(&'ast [Comment]),
 }
 
 impl<'ast> ArgumentPrefix<'ast> {
@@ -453,6 +481,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             prefix,
             callee_mode,
             test_callback: None,
+        })
+    }
+
+    pub(super) fn source_arguments_have_function(&self, list: &SourceArguments<'ast>) -> bool {
+        list.arguments.iter().any(|id| {
+            let argument = self.ast.get_node_in_sub_range(id);
+            match self.ast.argument_data(argument) {
+                ArgumentData::Expr(expression) => matches!(
+                    self.expression_content(expression).data,
+                    ExprData::Function(_) | ExprData::ArrowFunctionExpression(_)
+                ),
+                ArgumentData::SpreadElement(_) => false,
+            }
         })
     }
 
@@ -627,11 +668,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
         };
         let content = Span::new(content_start, delimiters.end - 1);
-        if first.is_none()
-            && self.content_mode(self.comments.in_range(content)) == ContentMode::Verbatim
-        {
-            self.format_verbatim(Span::new(opening, delimiters.end), writer)?;
-            return Ok(None);
+        if first.is_none() {
+            let comments = self.comments.in_range(content);
+            if self.content_mode(comments) == ContentMode::Verbatim {
+                self.format_verbatim(Span::new(opening, delimiters.end), writer)?;
+                return Ok(None);
+            }
+            if comments.is_empty() {
+                writer.text("(");
+                self.format_argument_dangling(content, writer)?;
+                writer.text(")");
+                return Ok(None);
+            }
         }
         let hugged = arguments.len() == 1
             && self.comments.in_range(content).is_empty()

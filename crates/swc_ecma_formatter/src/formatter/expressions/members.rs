@@ -59,6 +59,124 @@ enum MemberContent {
     },
 }
 
+pub(super) enum PreparedMember {
+    Verbatim(MemberExpression),
+    Formatted(SourceMember),
+}
+
+pub(super) struct SourceMember {
+    pub(super) object: Expr,
+    property_span: Span,
+    punctuation: MemberPunctuation,
+    pub(super) access: AccessKind,
+    pub(super) receiver_mode: ContentMode,
+    key_mode: ContentMode,
+}
+
+pub(super) struct MemberBoundary<'ast> {
+    before: &'ast [Comment],
+    after: &'ast [Comment],
+    source_end: u32,
+    pub(super) constraint: LineConstraint,
+    pub(super) mandatory_line: bool,
+    pub(super) empty_line: bool,
+    pub(super) has_comments: bool,
+}
+
+impl MemberBoundary<'_> {
+    pub(super) fn has_before_comments(&self) -> bool {
+        !self.before.is_empty()
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum MemberLookupOwner {
+    InlineContext,
+    Receiver,
+    Expression,
+}
+
+impl MemberLookupOwner {
+    pub(super) fn from_context(context: ExpressionContext) -> Self {
+        if matches!(context.position, ExpressionPosition::MemberAssignmentObject)
+            || context.member_layout == MemberLayout::Tight
+        {
+            Self::InlineContext
+        } else if matches!(context.position, ExpressionPosition::MemberObject(_)) {
+            Self::Receiver
+        } else {
+            Self::Expression
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum MemberLookupLayout {
+    Inline,
+    Grouped,
+}
+
+impl MemberLookupLayout {
+    pub(super) fn write<'ast>(
+        self,
+        mandatory_line: bool,
+        constraint: LineConstraint,
+        writer: &mut Writer<'ast>,
+        access: impl FnOnce(&mut Writer<'ast>) -> Result<(), FormatError>,
+    ) -> Result<(), FormatError> {
+        let write = |writer: &mut Writer<'ast>| {
+            if mandatory_line {
+                writer.hard_line();
+            } else {
+                constraint.write(writer, FlatSeparator::Empty, |writer| {
+                    if matches!(self, Self::Grouped) {
+                        writer.soft_line();
+                    }
+                });
+            }
+            access(writer)
+        };
+        match self {
+            Self::Inline => write(writer),
+            Self::Grouped => writer.group(false, |writer| writer.indent(write)),
+        }
+    }
+}
+
+impl SourceMember {
+    pub(super) fn is_computed(&self) -> bool {
+        matches!(self.punctuation, MemberPunctuation::Computed { .. })
+    }
+
+    pub(super) fn key(&self) -> Option<Expr> {
+        match self.punctuation {
+            MemberPunctuation::Computed { key, .. } => Some(key),
+            MemberPunctuation::Static { .. } => None,
+        }
+    }
+
+    pub(super) fn name(&self) -> Option<IdentifierName> {
+        match self.punctuation {
+            MemberPunctuation::Static { key, .. } => Some(key),
+            MemberPunctuation::Computed { .. } => None,
+        }
+    }
+
+    pub(super) fn receiver_context(&self, context: ExpressionContext) -> ExpressionContext {
+        let position = if matches!(context.position, ExpressionPosition::MemberAssignmentObject) {
+            ExpressionPosition::MemberAssignmentObject
+        } else {
+            ExpressionPosition::MemberObject(self.access)
+        };
+        ExpressionContext::at(position)
+            .with_expression_start(context.expression_start)
+            .with_tail_owner(TailOwner::ParentOperation)
+            .with_content_mode(self.receiver_mode)
+            .with_member_layout(context.member_layout)
+            .with_member_chain_layout(context.member_chain_layout)
+    }
+}
+
 impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_member(
         &mut self,
@@ -66,6 +184,50 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let PreparedMember::Formatted(member) = self.source_member(member)? else {
+            return self.format_expression(
+                Expr::MemberExpression(member),
+                context.with_content_mode(ContentMode::Verbatim),
+                writer,
+            );
+        };
+        let tail =
+            self.format_expression(member.object, member.receiver_context(context), writer)?;
+        let boundary = self.format_member_boundary(&member, tail, writer)?;
+        let layout = self.member_lookup_layout(&member, MemberLookupOwner::from_context(context));
+        layout.write(
+            boundary.mandatory_line,
+            boundary.constraint,
+            writer,
+            |writer| self.format_member_access(&member, boundary, writer),
+        )?;
+        Ok(None)
+    }
+
+    pub(super) fn member_lookup_layout(
+        &self,
+        member: &SourceMember,
+        owner: MemberLookupOwner,
+    ) -> MemberLookupLayout {
+        if matches!(owner, MemberLookupOwner::InlineContext) || member.is_computed() {
+            return MemberLookupLayout::Inline;
+        }
+        let simple = matches!(owner, MemberLookupOwner::Expression)
+            && matches!(
+                self.expression_content(member.object).data,
+                ExprData::IdentifierReference(_)
+            );
+        if simple {
+            MemberLookupLayout::Inline
+        } else {
+            MemberLookupLayout::Grouped
+        }
+    }
+
+    pub(super) fn source_member(
+        &self,
+        member: MemberExpression,
+    ) -> Result<PreparedMember, FormatError> {
         let access = if member.optional(self.ast) {
             AccessKind::Optional
         } else {
@@ -85,7 +247,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let property_span = property.span(self.ast);
         let gap = Span::new(object_span.end, property_span.start);
         let comments = self.comments.in_range(gap);
-        let computed = matches!(key, MemberKey::Computed(_));
         let mut punctuation = match key {
             MemberKey::Computed(expression) => {
                 let optional = if access == AccessKind::Optional {
@@ -129,7 +290,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
             }
         };
-        let operator = punctuation.operator();
         let key_boundary = match punctuation {
             MemberPunctuation::Computed { brackets, .. } => brackets.start,
             MemberPunctuation::Static { operator, .. } => operator.start,
@@ -140,16 +300,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             comments
         };
         let content = self.member_content(key, key_boundary, property_span.start, content_comments);
-        let MemberContent::Formatted {
-            receiver,
-            key: mut key_mode,
-        } = content
-        else {
-            return self.format_expression(
-                Expr::MemberExpression(member),
-                context.with_content_mode(ContentMode::Verbatim),
-                writer,
-            );
+        let MemberContent::Formatted { receiver, mut key } = content else {
+            return Ok(PreparedMember::Verbatim(member));
         };
         if self.has_suppression
             && let MemberPunctuation::Computed {
@@ -167,35 +319,48 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     count => LineConstraint::NewLine(count),
                 };
             }
-            if key_mode != ContentMode::Verbatim {
-                key_mode = self.trailing_content_mode(
+            if key != ContentMode::Verbatim {
+                key = self.trailing_content_mode(
                     Span::new(property_span.end, brackets.end - 1),
                     BoundaryPunctuation::None,
                     true,
                 );
             }
         }
-        let target = matches!(context.position, ExpressionPosition::MemberAssignmentObject);
-        let position = if target {
-            ExpressionPosition::MemberAssignmentObject
-        } else {
-            ExpressionPosition::MemberObject(access)
-        };
-        let tail = self.format_expression(
+        Ok(PreparedMember::Formatted(SourceMember {
             object,
-            ExpressionContext::at(position)
-                .with_expression_start(context.expression_start)
-                .with_tail_owner(TailOwner::ParentOperation)
-                .with_content_mode(receiver)
-                .with_member_layout(context.member_layout),
-            writer,
-        )?;
+            property_span,
+            punctuation,
+            access,
+            receiver_mode: receiver,
+            key_mode: key,
+        }))
+    }
+
+    pub(super) fn format_member_boundary(
+        &mut self,
+        member: &SourceMember,
+        tail: Option<ExpressionTail<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<MemberBoundary<'ast>, FormatError> {
+        let boundary = self.prepare_member_boundary(member, tail)?;
+        self.format_member_trailing(&boundary, writer)?;
+        Ok(boundary)
+    }
+
+    pub(super) fn prepare_member_boundary(
+        &self,
+        member: &SourceMember,
+        tail: Option<ExpressionTail<'ast>>,
+    ) -> Result<MemberBoundary<'ast>, FormatError> {
+        let operator = member.punctuation.operator();
+        let computed = member.is_computed();
         let source_end = tail
             .as_ref()
-            .map_or(object_span.end, |tail| tail.source_end);
+            .map_or(member.object.span(self.ast).end, |tail| tail.source_end);
         let comments = self
             .comments
-            .between(Span::new(source_end, property_span.start))?;
+            .between(Span::new(source_end, member.property_span.start))?;
         let split = comments.partition_point(|comment| comment.span.end <= operator.start);
         let move_lines = !computed
             && comments[split..]
@@ -204,128 +369,132 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && comments.iter().all(|&comment| {
                 matches!(self.comment_semantics(comment), CommentSemantics::Ordinary)
             })
-            && !self.diagnostic_range_is_sensitive(Span::new(source_end, property_span.start));
+            && !self
+                .diagnostic_range_is_sensitive(Span::new(source_end, member.property_span.start));
         let (before, after) = comments.split_at(if move_lines { comments.len() } else { split });
-        self.comments.claim(before)?;
-        self.format_comment_run(before, CommentRunLayout::SourceAfter(source_end), writer)?;
         let previous_end = before.last().map_or(source_end, |comment| comment.span.end);
         let mandatory_line = before
             .last()
             .is_some_and(|comment| comment.kind == CommentKind::Line);
-        let simple = matches!(
-            self.expression_content(object).data,
-            ExprData::IdentifierReference(_)
-        ) && !matches!(context.position, ExpressionPosition::MemberObject(_));
-        let inline = target || context.member_layout == MemberLayout::Tight || computed || simple;
-        let breakable = !inline;
-        let mut suffix = |writer: &mut Writer<'ast>| {
-            if mandatory_line {
-                writer.hard_line();
-            } else {
-                self.line_constraint(
-                    previous_end,
-                    if move_lines {
-                        property_span.start
-                    } else {
-                        operator.start
-                    },
-                )
-                .write(writer, FlatSeparator::Empty, |writer| {
-                    if breakable {
-                        writer.soft_line();
-                    }
-                });
-            }
-            match &punctuation {
-                MemberPunctuation::Computed {
-                    key: expression,
-                    optional,
-                    brackets,
-                    opening,
-                } => {
-                    if let Some(optional) = optional {
-                        writer.text("?.");
-                        let before_bracket_count =
-                            after.partition_point(|comment| comment.span.end <= brackets.start);
-                        let before_bracket = &after[..before_bracket_count];
-                        self.comments.claim(before_bracket)?;
-                        self.format_comment_run(
-                            before_bracket,
-                            CommentRunLayout::SourceAfter(optional.end),
-                            writer,
-                        )?;
-                        let end = before_bracket
-                            .last()
-                            .map_or(optional.end, |comment| comment.span.end);
-                        if before_bracket
-                            .last()
-                            .is_some_and(|comment| comment.kind == CommentKind::Line)
-                        {
-                            writer.hard_line();
-                        } else {
-                            let separator = if before_bracket.is_empty() {
-                                FlatSeparator::Empty
-                            } else {
-                                FlatSeparator::Space
-                            };
-                            self.line_constraint(end, brackets.start).write(
-                                writer,
-                                separator,
-                                |writer| {
-                                    if !before_bracket.is_empty() {
-                                        writer.space();
-                                    }
-                                },
-                            );
-                        }
-                    }
-                    self.format_member_key(*expression, *brackets, key_mode, *opening, writer)
-                }
-                MemberPunctuation::Static {
-                    key: identifier,
-                    operator,
-                    key_gap,
-                } => {
-                    writer.text(if access == AccessKind::Optional {
-                        "?."
-                    } else {
-                        "."
-                    });
-                    if let Some(gap) = key_gap {
-                        self.format_member_source_gap(*gap, writer)?;
-                    } else {
-                        self.comments.claim(after)?;
-                        let next = after
-                            .first()
-                            .map_or(property_span.start, |comment| comment.span.start);
-                        self.line_constraint(operator.end, next).write(
-                            writer,
-                            FlatSeparator::Empty,
-                            |_| {},
-                        );
-                        // The dot and key share one tight run; source-only breaks must
-                        // not change a block comment's layout on the next pass.
-                        self.format_comment_run(
-                            after,
-                            CommentRunLayout::FlatLeading(property_span.start),
-                            writer,
-                        )?;
-                    }
-                    if key_mode == ContentMode::Verbatim {
-                        self.format_verbatim(property_span, writer)?;
-                    } else {
-                        writer.text(self.ast.get_utf8(identifier.name(self.ast)));
-                    }
-                    Ok(())
-                }
-            }
-        };
-        if !breakable || mandatory_line && simple {
-            suffix(writer)?;
+        let next_start = if move_lines {
+            member.property_span.start
         } else {
-            writer.group(false, |writer| writer.indent(suffix))?;
+            operator.start
+        };
+        Ok(MemberBoundary {
+            before,
+            after,
+            source_end,
+            constraint: self.line_constraint(previous_end, next_start),
+            mandatory_line,
+            empty_line: self.next_line_is_empty(previous_end, next_start),
+            has_comments: !comments.is_empty(),
+        })
+    }
+
+    pub(super) fn format_member_trailing(
+        &mut self,
+        boundary: &MemberBoundary<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        self.comments.claim(boundary.before)?;
+        self.format_comment_run(
+            boundary.before,
+            CommentRunLayout::SourceAfter(boundary.source_end),
+            writer,
+        )
+    }
+
+    pub(super) fn format_member_access(
+        &mut self,
+        member: &SourceMember,
+        boundary: MemberBoundary<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        let after = boundary.after;
+        match &member.punctuation {
+            MemberPunctuation::Computed {
+                key: expression,
+                optional,
+                brackets,
+                opening,
+            } => {
+                if let Some(optional) = optional {
+                    writer.text("?.");
+                    let before_bracket_count =
+                        after.partition_point(|comment| comment.span.end <= brackets.start);
+                    let before_bracket = &after[..before_bracket_count];
+                    self.comments.claim(before_bracket)?;
+                    self.format_comment_run(
+                        before_bracket,
+                        CommentRunLayout::SourceAfter(optional.end),
+                        writer,
+                    )?;
+                    let end = before_bracket
+                        .last()
+                        .map_or(optional.end, |comment| comment.span.end);
+                    if before_bracket
+                        .last()
+                        .is_some_and(|comment| comment.kind == CommentKind::Line)
+                    {
+                        writer.hard_line();
+                    } else {
+                        let separator = if before_bracket.is_empty() {
+                            FlatSeparator::Empty
+                        } else {
+                            FlatSeparator::Space
+                        };
+                        self.line_constraint(end, brackets.start).write(
+                            writer,
+                            separator,
+                            |writer| {
+                                if !before_bracket.is_empty() {
+                                    writer.space();
+                                }
+                            },
+                        );
+                    }
+                }
+                self.format_member_key(*expression, *brackets, member.key_mode, *opening, writer)
+            }
+            MemberPunctuation::Static {
+                key: identifier,
+                operator,
+                key_gap,
+            } => {
+                writer.text(if member.access == AccessKind::Optional {
+                    "?."
+                } else {
+                    "."
+                });
+                if let Some(gap) = key_gap {
+                    self.format_member_source_gap(*gap, writer)?;
+                } else {
+                    self.comments.claim(after)?;
+                    let next = after
+                        .first()
+                        .map_or(member.property_span.start, |comment| comment.span.start);
+                    self.line_constraint(operator.end, next).write(
+                        writer,
+                        FlatSeparator::Empty,
+                        |_| {},
+                    );
+                    // The dot and key share one tight run; source-only breaks must
+                    // not change a block comment's layout on the next pass.
+                    self.format_comment_run(
+                        after,
+                        CommentRunLayout::FlatLeading(member.property_span.start),
+                        writer,
+                    )?;
+                }
+                if member.key_mode == ContentMode::Verbatim {
+                    self.format_verbatim(member.property_span, writer)?;
+                } else {
+                    writer.text(self.ast.get_utf8(identifier.name(self.ast)));
+                }
+                Ok(())
+            }
         }
-        Ok(None)
     }
 
     /// Parentheses do not make a new member comment owner. Include only trivia

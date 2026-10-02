@@ -1,7 +1,7 @@
 //! Flat documents containing borrowed text and explicit line breaks.
 //!
-//! Construction owns a growable instruction buffer. Finishing transfers that
-//! buffer to an immutable document; source text remains borrowed from its owner.
+//! Construction owns a growable instruction buffer in the formatting arena.
+//! Finishing seals an immutable slice; source text remains borrowed from its owner.
 
 mod printer;
 #[cfg(test)]
@@ -62,7 +62,7 @@ enum FormatElement<'a> {
 pub(crate) struct Fragment<'a> {
     elements: &'a [FormatElement<'a>],
     breaks: bool,
-    flat: bool,
+    capabilities: FragmentCapabilities,
     conditional_lines: bool,
 }
 
@@ -73,7 +73,74 @@ pub(crate) struct RecordedGroup<'a> {
 
 impl<'a> Fragment<'a> {
     pub(crate) fn try_flat(self) -> Option<FlatFragment<'a>> {
-        self.flat.then_some(FlatFragment(self))
+        self.capabilities
+            .permits_flat()
+            .then_some(FlatFragment(self))
+    }
+
+    pub(crate) fn try_neutral(self) -> Option<NeutralFragment<'a>> {
+        matches!(self.capabilities, FragmentCapabilities::Neutral).then_some(NeutralFragment(self))
+    }
+}
+
+/// A flat view whose complete scope cannot observe layout mode.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct NeutralFragment<'a>(Fragment<'a>);
+
+#[derive(Debug, Clone, Copy)]
+enum FragmentCapabilities {
+    General,
+    FlatEligible,
+    Neutral,
+}
+
+impl FragmentCapabilities {
+    fn from_flat(flat: bool) -> Self {
+        if flat {
+            Self::FlatEligible
+        } else {
+            Self::General
+        }
+    }
+
+    fn permits_flat(self) -> bool {
+        !matches!(self, Self::General)
+    }
+
+    /// Fresh Writer records contain complete, balanced scopes. Once neutrality
+    /// is ruled out, the same iterator resumes the existing flat-only scan.
+    fn classify(elements: &[FormatElement<'_>]) -> Self {
+        let mut elements = elements.iter().copied();
+        while let Some(element) = elements.next() {
+            let flat = match element {
+                FormatElement::Text(text) => {
+                    if !text.is_single_line() {
+                        return Self::General;
+                    }
+                    continue;
+                }
+                FormatElement::Space
+                | FormatElement::StartGroup {
+                    expand: false,
+                    id: None,
+                }
+                | FormatElement::EndGroup => continue,
+                FormatElement::Fragment(fragment) => match fragment.capabilities {
+                    Self::Neutral => continue,
+                    Self::General => return Self::General,
+                    Self::FlatEligible => true,
+                },
+                FormatElement::FlatFragment(fragment)
+                    if matches!(fragment.0.capabilities, Self::Neutral) =>
+                {
+                    continue;
+                }
+                FormatElement::FlatFragment(_) => true,
+                element => element.permits_flat(),
+            };
+            return Self::from_flat(flat && elements.all(FormatElement::permits_flat));
+        }
+        Self::Neutral
     }
 }
 
@@ -98,8 +165,8 @@ impl FormatElement<'_> {
         match self {
             Self::HardLine | Self::LiteralLine | Self::LineSuffix(_) | Self::BreakParent => false,
             Self::Text(text) => text.is_single_line(),
-            Self::Fragment(fragment) => fragment.flat,
-            Self::Alternatives(alternatives) => alternatives.first().flat,
+            Self::Fragment(fragment) => fragment.capabilities.permits_flat(),
+            Self::Alternatives(alternatives) => alternatives.first().capabilities.permits_flat(),
             _ => true,
         }
     }
@@ -124,7 +191,7 @@ impl FormatElement<'_> {
 }
 
 pub(crate) struct Doc<'a> {
-    elements: Vec<FormatElement<'a>>,
+    elements: &'a [FormatElement<'a>],
     group_count: usize,
     conditional_lines: bool,
 }
@@ -132,7 +199,7 @@ pub(crate) struct Doc<'a> {
 impl Doc<'_> {
     pub(crate) fn print(self, options: FormatOptions) -> String {
         printer::print(
-            &self.elements,
+            self.elements,
             self.group_count,
             self.conditional_lines,
             options,

@@ -7,6 +7,7 @@ pub(super) mod assignment;
 mod binary;
 mod callbacks;
 mod calls;
+mod chains;
 mod conditional;
 mod constructors;
 mod members;
@@ -23,6 +24,7 @@ use swc_next_ecma_ast::{
 
 use self::assignment::AssignmentParent;
 use self::binary::{BinaryLike, BinaryOperatorKind, OperandSide};
+use self::chains::FluentChainEligibility;
 use super::literals::StringContext;
 use super::suppression::ContentMode;
 use super::{
@@ -102,6 +104,13 @@ enum MemberLayout {
     Tight,
 }
 
+/// Assignment and update target spines retain member-owned lookup groups.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MemberChainLayout {
+    Fluent,
+    Local,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum OperandIndent {
     Expression,
@@ -137,6 +146,7 @@ pub(super) struct ExpressionContext {
     tail_owner: TailOwner,
     parentheses_owner: ParenthesesOwner,
     member_layout: MemberLayout,
+    member_chain_layout: MemberChainLayout,
     arrow_layout: arrows::ArrowLayout,
     operand_indent: OperandIndent,
 }
@@ -162,6 +172,7 @@ impl ExpressionContext {
             tail_owner: TailOwner::Expression,
             parentheses_owner: ParenthesesOwner::Expression,
             member_layout: MemberLayout::Normal,
+            member_chain_layout: MemberChainLayout::Fluent,
             operand_indent: OperandIndent::Expression,
             arrow_layout: match position {
                 ExpressionPosition::CallCallee(_) | ExpressionPosition::NewCallee => {
@@ -207,6 +218,11 @@ impl ExpressionContext {
         self
     }
 
+    fn with_member_chain_layout(mut self, layout: MemberChainLayout) -> Self {
+        self.member_chain_layout = layout;
+        self
+    }
+
     pub(super) fn with_tail_owner(mut self, owner: TailOwner) -> Self {
         self.tail_owner = owner;
         self
@@ -248,8 +264,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.format_verbatim_expression(expression, context, writer)?;
             return Ok(None);
         }
-        self.expression_layout(expression).write(writer, |writer| {
-            self.format_expression_content(expression, context, writer)
+        let layout = self.expression_layout(expression);
+        layout.write(writer, |writer| {
+            self.format_expression_content(expression, context, layout, writer)
         })
     }
 
@@ -303,6 +320,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         expression: Expr,
         mut context: ExpressionContext,
+        layout: ExpressionLayout,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let data = self.ast.expr_data(expression);
@@ -462,8 +480,38 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             ExprData::ArrayExpression(array) => self.format_array(array, writer).map(|()| None),
             ExprData::ObjectExpression(object) => self.format_object(object, writer).map(|()| None),
-            ExprData::MemberExpression(member) => self.format_member(member, context, writer),
-            ExprData::CallExpression(call) => self.format_call(call, context, writer),
+            ExprData::MemberExpression(member) => {
+                let eligibility = if context.member_chain_layout == MemberChainLayout::Local {
+                    FluentChainEligibility::Unqualified
+                } else {
+                    self.fluent_chain_eligibility(data, context, layout)
+                };
+                match eligibility {
+                    FluentChainEligibility::Fluent => {
+                        self.format_fluent_chain(expression, context, writer)
+                    }
+                    FluentChainEligibility::MemberOnly => self.format_member(
+                        member,
+                        context.with_member_chain_layout(MemberChainLayout::Local),
+                        writer,
+                    ),
+                    FluentChainEligibility::Unqualified => {
+                        self.format_member(member, context, writer)
+                    }
+                }
+            }
+            ExprData::CallExpression(call) => {
+                if !chains::atomic_chain_head(self.ast.expr_data(call.callee(self.ast)))
+                    && matches!(
+                        self.fluent_chain_eligibility(data, context, layout),
+                        FluentChainEligibility::Fluent
+                    )
+                {
+                    self.format_fluent_chain(expression, context, writer)
+                } else {
+                    self.format_call(call, context, writer)
+                }
+            }
             ExprData::ChainExpression(chain) => {
                 let mut child_context = context;
                 child_context.position = ExpressionPosition::Nested;

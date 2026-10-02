@@ -110,6 +110,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     ExpressionContext::at(ExpressionPosition::Nested)
                         .with_content_mode(context.content_mode)
                         .with_tail_owner(context.tail_owner)
+                        .with_member_chain_layout(context.member_chain_layout)
                         .inside_parentheses(),
                     writer,
                 )?;
@@ -119,6 +120,40 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text(")");
             Ok(None)
         })
+    }
+
+    /// Collection may cross only a source wrapper whose immediate consumer can
+    /// remove it without changing scope, comments, directives, or content mode.
+    pub(super) fn chain_parentheses_operand(
+        &self,
+        parenthesized: ParenthesizedExpression,
+        context: ExpressionContext,
+    ) -> Option<Expr> {
+        let child = parenthesized.expression(self.ast);
+        let boundary = SourceParentheses {
+            outer: parenthesized.span(self.ast),
+            inner: child.span(self.ast),
+        };
+        if context.content_mode != ContentMode::Formatted
+            || !self
+                .comments
+                .in_range(Span::new(boundary.outer.start, boundary.inner.start))
+                .is_empty()
+            || !self
+                .comments
+                .in_range(Span::new(boundary.inner.end, boundary.outer.end))
+                .is_empty()
+            || self.diagnostic_range_is_sensitive(boundary.outer)
+            || !self.parentheses_are_removable(boundary)
+            || self.expression_needs_parentheses(
+                self.ast.expr_data(child),
+                context.position,
+                context.content_mode,
+            ) != Some(false)
+        {
+            return None;
+        }
+        Some(child)
     }
 
     pub(in crate::formatter) fn expression_content(&self, expression: Expr) -> ExpressionContent {
@@ -592,7 +627,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
                 _ => ExpressionContext::at(ExpressionPosition::Nested).inside_parentheses(),
             }
-            .with_content_mode(mode);
+            .with_content_mode(mode)
+            .with_member_chain_layout(context.member_chain_layout);
             let tail = content(self, context, writer)?;
             let tail = self.capture_expression_tail(Span::new(inner_span.end, span.end), tail)?;
             self.format_expression_tail(tail, writer)
@@ -625,6 +661,29 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     pub(super) fn parenthesis_has_type_cast(&self, start: u32) -> bool {
         self.source_type_cast(start).is_some()
+    }
+
+    /// A removable source envelope can contain the cast that owns its head.
+    /// Resolve that target from immutable source trivia before printing the head,
+    /// even when a surrounding owner has already claimed the leading run.
+    pub(super) fn source_cast_head(&self, mut expression: Expr) -> Option<ParenthesizedExpression> {
+        if self.ast.comments().is_empty() {
+            return None;
+        }
+        loop {
+            expression = match self.ast.expr_data(expression) {
+                ExprData::ParenthesizedExpression(parenthesized) => {
+                    if self.parenthesis_has_type_cast(parenthesized.span(self.ast).start) {
+                        return Some(parenthesized);
+                    }
+                    parenthesized.expression(self.ast)
+                }
+                ExprData::MemberExpression(member) => member.object(self.ast),
+                ExprData::CallExpression(call) => call.callee(self.ast),
+                ExprData::ChainExpression(chain) => chain.expression(self.ast),
+                _ => return None,
+            };
+        }
     }
 
     fn source_type_cast(&self, start: u32) -> Option<Comment> {

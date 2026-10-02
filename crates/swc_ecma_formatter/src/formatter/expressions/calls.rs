@@ -2,7 +2,8 @@
 
 use swc_next_ecma_ast::{CallExpression, Expr, ExprData, GetSpan, PropertyKeyData};
 
-use super::{AccessKind, ExpressionContext, ExpressionPosition, Formatter, TailOwner};
+use super::arguments::SourceArguments;
+use super::{AccessKind, ExpressionContext, Formatter};
 use crate::formatter::comments::ExpressionTail;
 use crate::{FormatError, document::Writer};
 
@@ -22,6 +23,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let arguments = self.source_call(call)?;
+        let tail =
+            self.format_expression(arguments.callee, arguments.callee_context(context), writer)?;
+        self.format_source_arguments(arguments, tail, writer)
+    }
+
+    pub(super) fn source_call(
+        &self,
+        call: CallExpression,
+    ) -> Result<SourceArguments<'ast>, FormatError> {
         let ast = self.ast;
         if call.type_arguments(ast).is_some() {
             return Err(self.unsupported("call suffix", call));
@@ -36,16 +47,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .source_arguments(call.arguments(ast), callee, call.span(ast).end, access)
             .ok_or_else(|| self.unsupported("call opening boundary", call))?;
         arguments.test_callback = self.test_call_callback(call);
-        let tail = self.format_expression(
-            arguments.callee,
-            ExpressionContext::at(ExpressionPosition::CallCallee(access))
-                .with_expression_start(context.expression_start)
-                .with_tail_owner(TailOwner::ParentOperation)
-                .with_content_mode(arguments.callee_mode),
-            writer,
-        )?;
-        self.format_source_arguments(arguments, tail, writer)
+        Ok(arguments)
     }
+
     pub(super) fn is_test_callee(&self, expression: Expr) -> bool {
         self.test_callee(expression).is_some()
     }

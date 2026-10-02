@@ -6,7 +6,7 @@ use swc_next_ecma_ast::{
 };
 
 use super::parentheses::SourceParentheses;
-use super::{ExpressionContext, ExpressionStart, Formatter, TailOwner};
+use super::{ExpressionContext, ExpressionStart, Formatter, MemberChainLayout, TailOwner};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
 use crate::formatter::source::is_source_whitespace;
 use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
@@ -252,6 +252,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.format_verbatim(target.span, writer)?;
             return Ok(None);
         }
+        let context = context.with_member_chain_layout(MemberChainLayout::Local);
         self.format_target_layers(target.target, &target.layers, context, writer)
     }
 

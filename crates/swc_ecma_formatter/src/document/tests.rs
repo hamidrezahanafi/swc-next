@@ -394,7 +394,7 @@ fn deep_indentation() {
     elements.push(FormatElement::Text(super::text::Text::new("value")));
     elements.extend(std::iter::repeat_n(FormatElement::EndIndent, 1025));
     let document = Doc {
-        elements,
+        elements: &elements,
         group_count: 0,
         conditional_lines: false,
     };
@@ -691,6 +691,175 @@ fn record<'a>(writer: &mut Writer<'a>, write: impl FnOnce(&mut Writer<'a>)) -> s
         })
         .unwrap()
         .0
+}
+
+#[test]
+fn fragment_capabilities() {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let atom = record(&mut writer, |writer| {
+        writer.group(false, |writer| {
+            writer.text("宽\tvalue");
+            writer.space();
+            writer.text("tail");
+        });
+    });
+    assert!(atom.try_neutral().is_some());
+    assert!(atom.try_flat().is_some());
+
+    let nested = record(&mut writer, |writer| {
+        writer.write_fragment(atom);
+        writer.write_flat_fragment(atom.try_flat().unwrap());
+    });
+    assert!(nested.try_neutral().is_some());
+
+    let conditional = record(&mut writer, |writer| {
+        writer.text("value");
+        writer.if_break(",");
+        writer.if_flat(".");
+    });
+    assert!(conditional.try_neutral().is_none());
+    assert!(conditional.try_flat().is_some());
+
+    let flat_conditional = record(&mut writer, |writer| {
+        writer.write_flat_fragment(conditional.try_flat().unwrap());
+    });
+    assert!(flat_conditional.try_neutral().is_none());
+    assert!(flat_conditional.try_flat().is_some());
+
+    let named = record(&mut writer, |writer| {
+        writer.named_group(false, |writer| writer.text("value"));
+    });
+    assert!(named.try_neutral().is_none());
+    assert!(named.try_flat().is_some());
+
+    let expanded = record(&mut writer, |writer| {
+        writer.group(true, |writer| writer.text("value"));
+    });
+    assert!(expanded.try_neutral().is_none());
+    assert!(expanded.try_flat().is_some());
+
+    let mandatory = record(&mut writer, |writer| {
+        writer.text("first");
+        writer.hard_line();
+        writer.text("last");
+    });
+    assert!(mandatory.try_neutral().is_none());
+    assert!(mandatory.try_flat().is_none());
+
+    let multiline = record(&mut writer, |writer| writer.text("first\u{2028}last"));
+    assert!(multiline.try_neutral().is_none());
+    assert!(multiline.try_flat().is_none());
+
+    let choices = record(&mut writer, |writer| {
+        writer.write_alternatives(atom, &[atom], expanded);
+    });
+    assert!(choices.try_neutral().is_none());
+    assert!(choices.try_flat().is_some());
+
+    let flattened = record(&mut writer, |writer| {
+        writer.flat(|writer| {
+            writer.group(true, |writer| {
+                writer.text("value");
+                writer.if_break(",");
+                writer.if_flat(".");
+            });
+        });
+    });
+    assert!(flattened.try_neutral().is_some());
+}
+
+fn neutral_continuation(width: u16, neutral: bool) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let fragment = record(&mut writer, |writer| {
+        writer.group(false, |writer| writer.text("abc"));
+    });
+    writer.group(false, |writer| {
+        if neutral {
+            writer.write_neutral_fragment(fragment.try_neutral().unwrap());
+        } else {
+            writer.write_fragment(fragment);
+        }
+        writer.line();
+        writer.if_flat("flat");
+        writer.if_break("broken");
+    });
+    writer.finish().print(FormatOptions {
+        line_width: width,
+        ..FormatOptions::prettier()
+    })
+}
+
+fn neutral_named_scope(neutral: bool) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let fragment = record(&mut writer, |writer| {
+        writer.group(false, |writer| writer.text("宽\tz"));
+    });
+    let group = writer.named_group(true, |writer| {
+        writer.text(">");
+        if neutral {
+            writer.write_neutral_fragment(fragment.try_neutral().unwrap());
+        } else {
+            writer.write_fragment(fragment);
+        }
+        writer.line();
+        writer.if_flat("flat");
+        writer.if_break("broken");
+    });
+    writer.soft_line_if_break(group);
+    writer.text("after");
+    writer.finish().print(FormatOptions::prettier())
+}
+
+fn neutral_fill(width: u16, neutral: bool) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let fragment = record(&mut writer, |writer| {
+        writer.group(false, |writer| writer.text("abc"));
+    });
+    writer.group(false, |writer| {
+        writer.fill(|writer| {
+            writer.fill_entry(|writer| {
+                if neutral {
+                    writer.write_neutral_fragment(fragment.try_neutral().unwrap());
+                } else {
+                    writer.write_fragment(fragment);
+                }
+            });
+            writer.fill_entry(Writer::line);
+            writer.fill_entry(|writer| writer.text("xy"));
+        });
+    });
+    writer.finish().print(FormatOptions {
+        line_width: width,
+        ..FormatOptions::prettier()
+    })
+}
+
+#[test]
+fn neutral_replay() {
+    assert_eq!(neutral_continuation(8, false), "abc flat");
+    assert_eq!(
+        neutral_continuation(8, true),
+        neutral_continuation(8, false)
+    );
+
+    assert_eq!(neutral_continuation(7, false), "abc\nbroken");
+    assert_eq!(
+        neutral_continuation(7, true),
+        neutral_continuation(7, false)
+    );
+
+    assert_eq!(neutral_named_scope(false), ">宽\tz\nbroken\nafter");
+    assert_eq!(neutral_named_scope(true), neutral_named_scope(false));
+
+    assert_eq!(neutral_fill(6, false), "abc xy");
+    assert_eq!(neutral_fill(6, true), neutral_fill(6, false));
+
+    assert_eq!(neutral_fill(5, false), "abc\nxy");
+    assert_eq!(neutral_fill(5, true), neutral_fill(5, false));
 }
 
 fn retained_pair(width: u16) -> String {
