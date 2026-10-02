@@ -285,6 +285,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.text(self.ast.get_utf8(identifier.name(self.ast)));
                 Ok(None)
             }
+            ExprData::ThisExpression(_) => {
+                writer.text("this");
+                Ok(None)
+            }
             ExprData::BooleanLiteral(literal) => {
                 writer.text(if literal.value(self.ast) {
                     "true"
@@ -335,6 +339,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         match data {
             ExprData::SequenceExpression(_) => return Some(true),
             ExprData::IdentifierReference(_)
+            | ExprData::ThisExpression(_)
             | ExprData::StringLiteral(_)
             | ExprData::BooleanLiteral(_)
             | ExprData::NullLiteral(_)
