@@ -2,7 +2,9 @@
 
 use swc_next_ecma_ast::{ExprData, GetSpan, NewExpression, Span};
 
-use super::{ExpressionContext, ExpressionPosition, Formatter, MemberLayout, TailOwner};
+use super::{
+    AccessKind, ExpressionContext, ExpressionPosition, Formatter, MemberLayout, TailOwner,
+};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::suppression::ContentMode;
@@ -24,8 +26,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             None
         } else {
             Some(
-                self.source_arguments(constructor.arguments(self.ast), callee_span.end, span.end)
-                    .ok_or_else(|| self.unsupported("constructor opening boundary", constructor))?,
+                self.source_arguments(
+                    constructor.arguments(self.ast),
+                    callee,
+                    span.end,
+                    AccessKind::Ordinary,
+                )
+                .ok_or_else(|| self.unsupported("constructor opening boundary", constructor))?,
             )
         };
         let keyword_end = span.start + 3;

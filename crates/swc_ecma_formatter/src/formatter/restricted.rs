@@ -222,6 +222,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ExprData::MemberExpression(member) => member.object(self.ast),
                 ExprData::CallExpression(call) => call.callee(self.ast),
                 ExprData::TaggedTemplateExpression(tagged) => tagged.tag(self.ast),
+                ExprData::ChainExpression(chain) => chain.expression(self.ast),
                 ExprData::ConditionalExpression(conditional) => conditional.test(self.ast),
                 ExprData::SequenceExpression(sequence) => {
                     let Some(first) = sequence.expressions(self.ast).iter().next() else {

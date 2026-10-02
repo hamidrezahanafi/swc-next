@@ -193,6 +193,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let expression = match content.data {
                 ExprData::MemberExpression(member) => member.object(self.ast),
                 ExprData::CallExpression(call) => call.callee(self.ast),
+                ExprData::ChainExpression(chain) => chain.expression(self.ast),
                 _ => return content,
             };
             content = self.expression_content(expression);

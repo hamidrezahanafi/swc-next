@@ -31,6 +31,12 @@ use super::{
 };
 use crate::{FormatError, Semicolons, document::Writer};
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum AccessKind {
+    Ordinary,
+    Optional,
+}
+
 #[derive(Clone, Copy)]
 pub(super) enum ExpressionPosition {
     Statement,
@@ -43,8 +49,8 @@ pub(super) enum ExpressionPosition {
     },
     SpreadArgument,
     PropertyValue,
-    MemberObject,
-    CallCallee,
+    MemberObject(AccessKind),
+    CallCallee(AccessKind),
     NewCallee,
     ArrowBody,
     RestrictedArgument,
@@ -158,7 +164,7 @@ impl ExpressionContext {
             member_layout: MemberLayout::Normal,
             operand_indent: OperandIndent::Expression,
             arrow_layout: match position {
-                ExpressionPosition::CallCallee | ExpressionPosition::NewCallee => {
+                ExpressionPosition::CallCallee(_) | ExpressionPosition::NewCallee => {
                     arrows::ArrowLayout::Callee
                 }
                 ExpressionPosition::AssignmentRight(_) => {
@@ -353,9 +359,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 && matches!(
                     context.position,
                     ExpressionPosition::UnaryArgument(_)
-                        | ExpressionPosition::MemberObject
+                        | ExpressionPosition::MemberObject(_)
                         | ExpressionPosition::MemberAssignmentObject
-                        | ExpressionPosition::CallCallee
+                        | ExpressionPosition::CallCallee(_)
                         | ExpressionPosition::NewCallee
                 )
             {
@@ -384,9 +390,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && parenthesize
             && matches!(
                 context.position,
-                ExpressionPosition::MemberObject
+                ExpressionPosition::MemberObject(_)
                     | ExpressionPosition::MemberAssignmentObject
-                    | ExpressionPosition::CallCallee
+                    | ExpressionPosition::CallCallee(_)
                     | ExpressionPosition::NewCallee
             )
         {
@@ -458,6 +464,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ExprData::ObjectExpression(object) => self.format_object(object, writer).map(|()| None),
             ExprData::MemberExpression(member) => self.format_member(member, context, writer),
             ExprData::CallExpression(call) => self.format_call(call, context, writer),
+            ExprData::ChainExpression(chain) => {
+                let mut child_context = context;
+                child_context.position = ExpressionPosition::Nested;
+                if parenthesize {
+                    child_context = child_context.inside_parentheses();
+                }
+                self.format_expression(chain.expression(self.ast), child_context, writer)
+            }
             ExprData::NewExpression(constructor) => self.format_new(constructor, writer),
             ExprData::Function(function) => self.format_function(function, writer).map(|()| None),
             ExprData::ArrowFunctionExpression(arrow) => self.format_arrow(arrow, context, writer),
@@ -500,9 +514,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         | ExpressionPosition::ParenthesizedUnaryArgument(_)
                         | ExpressionPosition::AwaitArgument
                         | ExpressionPosition::BinaryOperand { .. }
-                        | ExpressionPosition::MemberObject
+                        | ExpressionPosition::MemberObject(_)
                         | ExpressionPosition::MemberAssignmentObject
-                        | ExpressionPosition::CallCallee
+                        | ExpressionPosition::CallCallee(_)
                         | ExpressionPosition::NewCallee
                         | ExpressionPosition::ConditionalTest
                 ));
@@ -514,9 +528,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         | ExpressionPosition::ParenthesizedUnaryArgument(_)
                         | ExpressionPosition::BinaryOperand { .. }
                         | ExpressionPosition::SpreadArgument
-                        | ExpressionPosition::MemberObject
+                        | ExpressionPosition::MemberObject(_)
                         | ExpressionPosition::MemberAssignmentObject
-                        | ExpressionPosition::CallCallee
+                        | ExpressionPosition::CallCallee(_)
                         | ExpressionPosition::NewCallee
                         | ExpressionPosition::ConditionalTest
                 );
@@ -524,12 +538,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     && matches!(position, ExpressionPosition::AwaitArgument);
                 return Some(low_precedence_parent || awaited_yield);
             }
+            ExprData::ChainExpression(_) => {
+                return Some(matches!(
+                    position,
+                    ExpressionPosition::MemberObject(AccessKind::Ordinary)
+                        | ExpressionPosition::CallCallee(AccessKind::Ordinary)
+                        | ExpressionPosition::MemberAssignmentObject
+                        | ExpressionPosition::NewCallee
+                ));
+            }
             ExprData::NewExpression(constructor) => {
                 if mode == ContentMode::Formatted
                     || !matches!(
                         position,
-                        ExpressionPosition::CallCallee
-                            | ExpressionPosition::MemberObject
+                        ExpressionPosition::CallCallee(_)
+                            | ExpressionPosition::MemberObject(_)
                             | ExpressionPosition::MemberAssignmentObject
                             | ExpressionPosition::NewCallee
                     )
@@ -573,7 +596,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Some(match (position, data) {
             (ExpressionPosition::NewCallee, ExprData::Function(_)) => true,
             (
-                ExpressionPosition::MemberObject | ExpressionPosition::MemberAssignmentObject,
+                ExpressionPosition::MemberObject(_) | ExpressionPosition::MemberAssignmentObject,
                 ExprData::NumericLiteral(_)
                 | ExprData::UnaryExpression(_)
                 | ExprData::UpdateExpression(_)
@@ -582,7 +605,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 | ExprData::ConditionalExpression(_),
             ) => true,
             (
-                ExpressionPosition::CallCallee | ExpressionPosition::NewCallee,
+                ExpressionPosition::CallCallee(_) | ExpressionPosition::NewCallee,
                 ExprData::UnaryExpression(_)
                 | ExprData::UpdateExpression(_)
                 | ExprData::BinaryExpression(_)

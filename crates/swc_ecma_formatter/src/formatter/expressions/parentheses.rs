@@ -374,9 +374,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 || matches!(
                     context.position,
                     ExpressionPosition::UnaryArgument(_)
-                        | ExpressionPosition::MemberObject
+                        | ExpressionPosition::MemberObject(_)
                         | ExpressionPosition::MemberAssignmentObject
-                        | ExpressionPosition::CallCallee
+                        | ExpressionPosition::CallCallee(_)
                         | ExpressionPosition::NewCallee
                         | ExpressionPosition::ArrowBody
                         | ExpressionPosition::RestrictedArgument

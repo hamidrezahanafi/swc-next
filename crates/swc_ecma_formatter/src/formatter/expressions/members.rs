@@ -5,7 +5,9 @@ use swc_next_ecma_ast::{
     PropertyKeyData, Span,
 };
 
-use super::{ExpressionContext, ExpressionPosition, Formatter, MemberLayout, TailOwner};
+use super::{
+    AccessKind, ExpressionContext, ExpressionPosition, Formatter, MemberLayout, TailOwner,
+};
 use crate::formatter::comments::{CommentRunLayout, CommentSemantics, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::source::is_source_whitespace;
@@ -16,6 +18,37 @@ use crate::{FormatError, document::Writer};
 enum MemberKey {
     Static(IdentifierName),
     Computed(Expr),
+}
+
+enum MemberPunctuation {
+    Static {
+        key: IdentifierName,
+        operator: Span,
+        key_gap: Option<Span>,
+    },
+    Computed {
+        key: Expr,
+        optional: Option<Span>,
+        brackets: Span,
+        opening: LineConstraint,
+    },
+}
+
+impl MemberPunctuation {
+    fn operator(&self) -> Span {
+        match *self {
+            Self::Static { operator, .. } => operator,
+            Self::Computed {
+                optional: Some(operator),
+                ..
+            } => operator,
+            Self::Computed {
+                optional: None,
+                brackets,
+                ..
+            } => Span::new(brackets.start, brackets.start + 1),
+        }
+    }
 }
 
 enum MemberContent {
@@ -33,9 +66,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        if member.optional(self.ast) {
-            return Err(self.unsupported("optional member", member));
-        }
+        let access = if member.optional(self.ast) {
+            AccessKind::Optional
+        } else {
+            AccessKind::Ordinary
+        };
         let property = member.property(self.ast);
         let key = match (
             member.computed(self.ast),
@@ -50,16 +85,61 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let property_span = property.span(self.ast);
         let gap = Span::new(object_span.end, property_span.start);
         let comments = self.comments.in_range(gap);
-        let token = if member.computed(self.ast) { "[" } else { "." };
-        let Some(operator) = self.find_token(gap, comments, token) else {
-            return Err(self.unsupported("member operator boundary", member));
+        let computed = matches!(key, MemberKey::Computed(_));
+        let mut punctuation = match key {
+            MemberKey::Computed(expression) => {
+                let optional = if access == AccessKind::Optional {
+                    let start = self
+                        .find_token(gap, comments, "?.")
+                        .ok_or_else(|| self.unsupported("member optional boundary", member))?;
+                    Some(Span::new(start, start + 2))
+                } else {
+                    None
+                };
+                let opening_gap = Span::new(optional.map_or(gap.start, |span| span.end), gap.end);
+                let opening = self
+                    .find_token(opening_gap, comments, "[")
+                    .ok_or_else(|| self.unsupported("member opening boundary", member))?;
+                MemberPunctuation::Computed {
+                    key: expression,
+                    optional,
+                    brackets: Span::new(opening, member.span(self.ast).end),
+                    opening: LineConstraint::Unconstrained,
+                }
+            }
+            MemberKey::Static(identifier) => {
+                let token = if access == AccessKind::Optional {
+                    "?."
+                } else {
+                    "."
+                };
+                let start = self
+                    .find_token(gap, comments, token)
+                    .ok_or_else(|| self.unsupported("member operator boundary", member))?;
+                MemberPunctuation::Static {
+                    key: identifier,
+                    operator: Span::new(start, start + token.len() as u32),
+                    key_gap: (self.has_suppression
+                        && self.content_mode(
+                            &comments[comments.partition_point(|comment| {
+                                comment.span.end <= start + token.len() as u32
+                            })..],
+                        ) == ContentMode::Verbatim)
+                        .then_some(Span::new(start + token.len() as u32, property_span.start)),
+                }
+            }
+        };
+        let operator = punctuation.operator();
+        let key_boundary = match punctuation {
+            MemberPunctuation::Computed { brackets, .. } => brackets.start,
+            MemberPunctuation::Static { operator, .. } => operator.start,
         };
         let content_comments = if self.has_suppression {
             self.member_receiver_comments(object, property_span.start, comments)
         } else {
             comments
         };
-        let content = self.member_content(key, operator, property_span.start, content_comments);
+        let content = self.member_content(key, key_boundary, property_span.start, content_comments);
         let MemberContent::Formatted {
             receiver,
             key: mut key_mode,
@@ -71,39 +151,36 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer,
             );
         };
-        let target = matches!(context.position, ExpressionPosition::MemberAssignmentObject);
-        let position = if target {
-            ExpressionPosition::MemberAssignmentObject
-        } else {
-            ExpressionPosition::MemberObject
-        };
-        let mut opening = LineConstraint::Unconstrained;
-        if self.has_suppression && matches!(key, MemberKey::Computed(_)) {
-            let after_opening =
-                &comments[comments.partition_point(|comment| comment.span.end <= operator + 1)..];
+        if self.has_suppression
+            && let MemberPunctuation::Computed {
+                brackets, opening, ..
+            } = &mut punctuation
+        {
+            let after_opening = &comments
+                [comments.partition_point(|comment| comment.span.end <= brackets.start + 1)..];
             if self.content_mode(after_opening) == ContentMode::Verbatim {
                 let first = after_opening
                     .first()
                     .map_or(property_span.start, |comment| comment.span.start);
-                opening = match self.line_breaks(operator + 1, first) {
+                *opening = match self.line_breaks(brackets.start + 1, first) {
                     0 => LineConstraint::SameLine,
                     count => LineConstraint::NewLine(count),
                 };
             }
             if key_mode != ContentMode::Verbatim {
                 key_mode = self.trailing_content_mode(
-                    Span::new(property_span.end, member.span(self.ast).end - 1),
+                    Span::new(property_span.end, brackets.end - 1),
                     BoundaryPunctuation::None,
                     true,
                 );
             }
         }
-        let key_gap = (self.has_suppression
-            && matches!(key, MemberKey::Static(_))
-            && self.content_mode(
-                &comments[comments.partition_point(|comment| comment.span.end <= operator + 1)..],
-            ) == ContentMode::Verbatim)
-            .then_some(Span::new(operator + 1, property_span.start));
+        let target = matches!(context.position, ExpressionPosition::MemberAssignmentObject);
+        let position = if target {
+            ExpressionPosition::MemberAssignmentObject
+        } else {
+            ExpressionPosition::MemberObject(access)
+        };
         let tail = self.format_expression(
             object,
             ExpressionContext::at(position)
@@ -119,8 +196,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let comments = self
             .comments
             .between(Span::new(source_end, property_span.start))?;
-        let split = comments.partition_point(|comment| comment.span.end <= operator);
-        let move_lines = !member.computed(self.ast)
+        let split = comments.partition_point(|comment| comment.span.end <= operator.start);
+        let move_lines = !computed
             && comments[split..]
                 .iter()
                 .any(|comment| comment.kind == CommentKind::Line)
@@ -138,11 +215,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let simple = matches!(
             self.expression_content(object).data,
             ExprData::IdentifierReference(_)
-        ) && !matches!(context.position, ExpressionPosition::MemberObject);
-        let inline = target
-            || context.member_layout == MemberLayout::Tight
-            || member.computed(self.ast)
-            || simple;
+        ) && !matches!(context.position, ExpressionPosition::MemberObject(_));
+        let inline = target || context.member_layout == MemberLayout::Tight || computed || simple;
         let breakable = !inline;
         let mut suffix = |writer: &mut Writer<'ast>| {
             if mandatory_line {
@@ -153,7 +227,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     if move_lines {
                         property_span.start
                     } else {
-                        operator
+                        operator.start
                     },
                 )
                 .write(writer, FlatSeparator::Empty, |writer| {
@@ -162,24 +236,69 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     }
                 });
             }
-            match key {
-                MemberKey::Computed(expression) => self.format_member_key(
-                    expression,
-                    Span::new(operator, member.span(self.ast).end),
-                    key_mode,
+            match &punctuation {
+                MemberPunctuation::Computed {
+                    key: expression,
+                    optional,
+                    brackets,
                     opening,
-                    writer,
-                ),
-                MemberKey::Static(identifier) => {
-                    writer.text(".");
+                } => {
+                    if let Some(optional) = optional {
+                        writer.text("?.");
+                        let before_bracket_count =
+                            after.partition_point(|comment| comment.span.end <= brackets.start);
+                        let before_bracket = &after[..before_bracket_count];
+                        self.comments.claim(before_bracket)?;
+                        self.format_comment_run(
+                            before_bracket,
+                            CommentRunLayout::SourceAfter(optional.end),
+                            writer,
+                        )?;
+                        let end = before_bracket
+                            .last()
+                            .map_or(optional.end, |comment| comment.span.end);
+                        if before_bracket
+                            .last()
+                            .is_some_and(|comment| comment.kind == CommentKind::Line)
+                        {
+                            writer.hard_line();
+                        } else {
+                            let separator = if before_bracket.is_empty() {
+                                FlatSeparator::Empty
+                            } else {
+                                FlatSeparator::Space
+                            };
+                            self.line_constraint(end, brackets.start).write(
+                                writer,
+                                separator,
+                                |writer| {
+                                    if !before_bracket.is_empty() {
+                                        writer.space();
+                                    }
+                                },
+                            );
+                        }
+                    }
+                    self.format_member_key(*expression, *brackets, key_mode, *opening, writer)
+                }
+                MemberPunctuation::Static {
+                    key: identifier,
+                    operator,
+                    key_gap,
+                } => {
+                    writer.text(if access == AccessKind::Optional {
+                        "?."
+                    } else {
+                        "."
+                    });
                     if let Some(gap) = key_gap {
-                        self.format_member_source_gap(gap, writer)?;
+                        self.format_member_source_gap(*gap, writer)?;
                     } else {
                         self.comments.claim(after)?;
                         let next = after
                             .first()
                             .map_or(property_span.start, |comment| comment.span.start);
-                        self.line_constraint(operator + 1, next).write(
+                        self.line_constraint(operator.end, next).write(
                             writer,
                             FlatSeparator::Empty,
                             |_| {},
