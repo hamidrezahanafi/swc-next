@@ -28,7 +28,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let tail = self.format_expression(
             callee,
             ExpressionContext::at(ExpressionPosition::CallCallee)
-                .with_statement_start(context.statement_start)
+                .with_expression_start(context.expression_start)
                 .with_tail_owner(TailOwner::ParentOperation)
                 .with_content_mode(arguments.callee_mode),
             writer,

@@ -42,7 +42,7 @@ pub(in crate::formatter) struct AssignmentBoundary<'ast> {
 }
 
 impl<'ast> AssignmentBoundary<'ast> {
-    fn right_head(&self) -> NodeHead<'ast> {
+    pub(in crate::formatter) fn right_head(&self) -> NodeHead<'ast> {
         let source_gap = self.own_line
             || self
                 .leading
@@ -90,7 +90,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let tail = self.format_source_target(
                 &target,
                 ExpressionContext::at(ExpressionPosition::MemberAssignmentObject)
-                    .with_statement_start(context.statement_start),
+                    .with_expression_start(context.expression_start),
                 writer,
             )?;
             self.format_expression_tail(tail, writer)?;

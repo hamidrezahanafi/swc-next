@@ -5,7 +5,7 @@ use swc_next_ecma_ast::{
 };
 
 use super::{
-    ExpressionContext, ExpressionPosition, Formatter, ParenthesesOwner, StatementStart, TailOwner,
+    ExpressionContext, ExpressionPosition, ExpressionStart, Formatter, ParenthesesOwner, TailOwner,
 };
 use crate::formatter::comments::{
     CommentBinding, CommentRunLayout, CommentSemantics, ExpressionTail, NodeHead,
@@ -52,8 +52,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 context.content_mode,
             ) == Some(true);
         if !enclose_comments {
-            context.statement_start =
-                self.format_node_head(head, context.statement_start, writer)?;
+            context.expression_start =
+                self.format_node_head(head, context.expression_start, writer)?;
             return self.format_expression(expression, context, writer);
         }
         self.format_parenthesized_expression(expression, head, context, writer)
@@ -62,9 +62,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(in crate::formatter) fn format_node_head(
         &self,
         head: NodeHead<'ast>,
-        start: StatementStart,
+        start: ExpressionStart,
         writer: &mut Writer<'ast>,
-    ) -> Result<StatementStart, FormatError> {
+    ) -> Result<ExpressionStart, FormatError> {
         let start = self.format_expression_leading_comments(
             head.comments,
             head.content_start,
@@ -87,7 +87,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        if context.statement_start != StatementStart::None
+        if context.expression_start.is_statement()
             && self.options.semicolons == Semicolons::AsNeeded
         {
             writer.text(";");
@@ -219,16 +219,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         comments: &[Comment],
         next_start: u32,
         layout: CommentRunLayout,
-        mut start: StatementStart,
+        mut start: ExpressionStart,
         writer: &mut Writer<'ast>,
-    ) -> Result<StatementStart, FormatError> {
-        if start != StatementStart::None
+    ) -> Result<ExpressionStart, FormatError> {
+        if start.is_statement()
             && self.options.semicolons == Semicolons::AsNeeded
             && !comments.is_empty()
             && self.parenthesis_has_type_cast(next_start)
         {
             writer.text(";");
-            start = StatementStart::None;
+            start = ExpressionStart::None;
         }
         self.format_comment_run(comments, layout, writer)?;
         Ok(start)
@@ -372,7 +372,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         | ExpressionPosition::MemberAssignmentObject
                         | ExpressionPosition::CallCallee
                         | ExpressionPosition::NewCallee
+                        | ExpressionPosition::ArrowBody
                 )
+                || context.expression_start == ExpressionStart::ArrowBody
                 || self.parentheses_separate_diagnostic_lines(SourceParentheses {
                     outer: span,
                     inner: child_span,
@@ -551,7 +553,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             RetainedParentheses::Annotation => CommentRunLayout::FlatLeading(inner_span.start),
         };
-        if context.statement_start != StatementStart::None
+        if context.expression_start.is_statement()
             && self.options.semicolons == Semicolons::AsNeeded
         {
             writer.text(";");

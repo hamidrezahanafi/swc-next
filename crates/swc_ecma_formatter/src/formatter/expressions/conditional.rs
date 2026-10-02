@@ -2,7 +2,7 @@
 
 use swc_next_ecma_ast::{Comment, ConditionalExpression, Expr, ExprData, GetSpan, Span};
 
-use super::{ExpressionContext, ExpressionPosition, Formatter, StatementStart, TailOwner};
+use super::{ExpressionContext, ExpressionPosition, ExpressionStart, Formatter, TailOwner};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::suppression::ContentMode;
@@ -42,7 +42,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             _ => ConditionalLayout::Root,
         };
         let mut write = |writer: &mut Writer<'ast>| {
-            self.format_conditional_contents(conditional, context.statement_start, layout, writer)
+            self.format_conditional_contents(conditional, context.expression_start, layout, writer)
         };
         match layout {
             ConditionalLayout::Root | ConditionalLayout::Test => writer.group(false, write),
@@ -53,7 +53,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn format_conditional_contents(
         &mut self,
         conditional: ConditionalExpression,
-        statement_start: StatementStart,
+        expression_start: ExpressionStart,
         layout: ConditionalLayout,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
@@ -66,7 +66,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let tail = self.format_expression(
                 test,
                 ExpressionContext::at(ExpressionPosition::ConditionalTest)
-                    .with_statement_start(statement_start)
+                    .with_expression_start(expression_start)
                     .with_content_mode(question.previous_mode),
                 writer,
             )?;

@@ -2,13 +2,20 @@
 
 use swc_next_ecma_ast::{Ast, Comment, Span};
 
-use super::{Formatter, source::is_source_whitespace};
+use super::{Formatter, comments::CommentSemantics, source::is_source_whitespace};
 use crate::{FormatError, document::Writer};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum ContentMode {
     Formatted,
     Verbatim,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum SuppressionPosition {
+    OwnLine,
+    EndOfLine,
+    Inline,
 }
 
 #[derive(Clone, Copy)]
@@ -25,6 +32,45 @@ pub(super) fn is_suppression_comment(ast: &Ast<'_>, comment: Comment) -> bool {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    pub(super) fn suppression_position(
+        &self,
+        comments: &[Comment],
+        following_start: u32,
+    ) -> Option<SuppressionPosition> {
+        if !self.has_suppression {
+            return None;
+        }
+        let index = comments.iter().position(|&comment| {
+            matches!(
+                self.comment_semantics(comment),
+                CommentSemantics::Suppression
+            )
+        })?;
+        let mut first = index;
+        while first > 0
+            && self.line_breaks(comments[first - 1].span.end, comments[first].span.start) == 0
+        {
+            first -= 1;
+        }
+        if self.source_position_starts_line(comments[first].span.start) {
+            return Some(SuppressionPosition::OwnLine);
+        }
+        let mut last = index;
+        while last + 1 < comments.len()
+            && self.line_breaks(comments[last].span.end, comments[last + 1].span.start) == 0
+        {
+            last += 1;
+        }
+        let following = comments
+            .get(last + 1)
+            .map_or(following_start, |comment| comment.span.start);
+        if self.line_breaks(comments[last].span.end, following) != 0 {
+            Some(SuppressionPosition::EndOfLine)
+        } else {
+            Some(SuppressionPosition::Inline)
+        }
+    }
+
     pub(super) fn content_mode(&self, comments: &[Comment]) -> ContentMode {
         if self.has_suppression
             && comments

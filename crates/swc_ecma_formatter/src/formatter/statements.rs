@@ -5,7 +5,7 @@ use swc_next_ecma_ast::{Ast, BlockStatement, Directive, GetSpan, Span, Stmt, Stm
 use super::Formatter;
 use super::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use super::diagnostics::{FlatSeparator, LineConstraint};
-use super::expressions::{ExpressionContext, ExpressionPosition, StatementStart};
+use super::expressions::{ExpressionContext, ExpressionPosition, ExpressionStart};
 use super::literals::StringContext;
 use super::suppression::{BoundaryPunctuation, ContentMode};
 use crate::{FormatError, Semicolons, document::Writer};
@@ -105,7 +105,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 )
             };
             let leading = self.comments.take(leading.len());
-            let mut statement_start = StatementStart::Pending;
+            let mut expression_start = ExpressionStart::StatementPending;
             if let Some(boundary) = previous {
                 let next_start = leading
                     .first()
@@ -115,7 +115,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     && self.options.semicolons == Semicolons::AsNeeded
                 {
                     writer.text(";");
-                    statement_start = StatementStart::None;
+                    expression_start = ExpressionStart::None;
                 }
                 constraint.write(writer, FlatSeparator::Space, Writer::hard_line);
                 if constraint == LineConstraint::Unconstrained
@@ -136,7 +136,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             };
             let boundary = match statement {
                 StatementItem::Directive(directive) => {
-                    self.format_node_head(head, statement_start, writer)?;
+                    self.format_node_head(head, expression_start, writer)?;
                     let expression = directive.expression(ast);
                     if mode == ContentMode::Verbatim {
                         self.format_verbatim(expression.span(ast), writer)?;
@@ -146,7 +146,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     self.finish_statement(statement_span, expression.span(ast).end, None, writer)?
                 }
                 StatementItem::Statement(statement) => {
-                    self.format_statement(statement, statement_start, mode, head, writer)?
+                    self.format_statement(statement, expression_start, mode, head, writer)?
                 }
             };
             let end = self.format_trailing_comments(
@@ -194,7 +194,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn format_statement(
         &mut self,
         statement: Stmt,
-        start: StatementStart,
+        start: ExpressionStart,
         mode: ContentMode,
         head: NodeHead<'ast>,
         writer: &mut Writer<'ast>,
@@ -206,7 +206,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 expression,
                 head,
                 ExpressionContext::at(ExpressionPosition::Statement)
-                    .with_statement_start(start)
+                    .with_expression_start(start)
                     .with_content_mode(mode),
                 writer,
             )?;

@@ -2,13 +2,14 @@
 
 pub(super) mod arguments;
 mod arrays;
+mod arrows;
 pub(super) mod assignment;
 mod binary;
 mod calls;
 mod conditional;
 mod constructors;
 mod members;
-mod objects;
+pub(super) mod objects;
 mod parentheses;
 mod sequence;
 mod targets;
@@ -43,6 +44,7 @@ pub(super) enum ExpressionPosition {
     MemberObject,
     CallCallee,
     NewCallee,
+    ArrowBody,
     MemberAssignmentObject,
     ConditionalTest,
     ConditionalConsequent,
@@ -51,10 +53,17 @@ pub(super) enum ExpressionPosition {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum StatementStart {
+pub(super) enum ExpressionStart {
     None,
-    Pending,
-    Guard,
+    StatementPending,
+    StatementGuard,
+    ArrowBody,
+}
+
+impl ExpressionStart {
+    fn is_statement(self) -> bool {
+        matches!(self, Self::StatementPending | Self::StatementGuard)
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -85,7 +94,7 @@ enum MemberLayout {
 #[derive(Clone, Copy)]
 pub(super) struct ExpressionContext {
     position: ExpressionPosition,
-    statement_start: StatementStart,
+    expression_start: ExpressionStart,
     head_comments: HeadComments,
     content_mode: ContentMode,
     tail_owner: TailOwner,
@@ -97,10 +106,10 @@ impl ExpressionContext {
     pub(super) fn at(position: ExpressionPosition) -> Self {
         Self {
             position,
-            statement_start: if matches!(position, ExpressionPosition::Statement) {
-                StatementStart::Pending
-            } else {
-                StatementStart::None
+            expression_start: match position {
+                ExpressionPosition::Statement => ExpressionStart::StatementPending,
+                ExpressionPosition::ArrowBody => ExpressionStart::ArrowBody,
+                _ => ExpressionStart::None,
             },
             head_comments: HeadComments::Pending,
             content_mode: ContentMode::Formatted,
@@ -110,14 +119,14 @@ impl ExpressionContext {
         }
     }
 
-    pub(super) fn with_statement_start(mut self, start: StatementStart) -> Self {
-        self.statement_start = start;
+    pub(super) fn with_expression_start(mut self, start: ExpressionStart) -> Self {
+        self.expression_start = start;
         self
     }
 
     fn inside_parentheses(mut self) -> Self {
         self.parentheses_owner = ParenthesesOwner::Parent;
-        self.statement_start = StatementStart::None;
+        self.expression_start = ExpressionStart::None;
         self
     }
 
@@ -194,11 +203,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && (self.expression_needs_parentheses(data, context.position, context.content_mode)
                 == Some(true)
                 || matches!(data, ExprData::ObjectExpression(_))
-                    && context.statement_start != StatementStart::None);
+                    && context.expression_start != ExpressionStart::None);
         let starts_update = matches!(data, ExprData::UpdateExpression(update) if update.prefix(self.ast))
             && (source.starts_with("++") || source.starts_with("--"));
         if self.options.semicolons == Semicolons::AsNeeded
-            && context.statement_start != StatementStart::None
+            && context.expression_start.is_statement()
             && (parenthesize
                 || !starts_update && source.starts_with(['(', '[', '/', '+', '-', '`']))
         {
@@ -232,8 +241,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && (self.expression_needs_parentheses(data, context.position, context.content_mode)
                 == Some(true)
                 || matches!(data, ExprData::ObjectExpression(_))
-                    && context.statement_start != StatementStart::None);
-        if context.statement_start == StatementStart::Pending
+                    && context.expression_start != ExpressionStart::None);
+        if context.expression_start == ExpressionStart::StatementPending
             && self.options.semicolons == Semicolons::AsNeeded
         {
             let mut asi_guard = parenthesize
@@ -257,15 +266,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ) == Some(true);
             }
             if asi_guard {
-                context.statement_start = StatementStart::Guard;
+                context.expression_start = ExpressionStart::StatementGuard;
             }
         }
         let conditional = matches!(data, ExprData::ConditionalExpression(_));
-        if context.statement_start == StatementStart::Guard
+        if context.expression_start == ExpressionStart::StatementGuard
             && (binary.is_none() && !conditional || parenthesize)
         {
             writer.text(";");
-            context.statement_start = StatementStart::None;
+            context.expression_start = ExpressionStart::None;
         }
         if let Some(binary) = binary {
             if parenthesize
@@ -378,6 +387,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ExprData::MemberExpression(member) => self.format_member(member, context, writer),
             ExprData::CallExpression(call) => self.format_call(call, context, writer),
             ExprData::NewExpression(constructor) => self.format_new(constructor, writer),
+            ExprData::ArrowFunctionExpression(arrow) => self.format_arrow(arrow, context, writer),
             ExprData::UnaryExpression(unary) => self.format_unary(unary, writer),
             ExprData::UpdateExpression(update) => self.format_update(update, context, writer),
             ExprData::ConditionalExpression(conditional) => {
@@ -403,6 +413,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Option<bool> {
         match data {
             ExprData::SequenceExpression(_) => return Some(true),
+            ExprData::ArrowFunctionExpression(_) => {
+                return Some(matches!(
+                    position,
+                    ExpressionPosition::UnaryArgument(_)
+                        | ExpressionPosition::ParenthesizedUnaryArgument(_)
+                        | ExpressionPosition::BinaryOperand { .. }
+                        | ExpressionPosition::MemberObject
+                        | ExpressionPosition::MemberAssignmentObject
+                        | ExpressionPosition::CallCallee
+                        | ExpressionPosition::NewCallee
+                        | ExpressionPosition::ConditionalTest
+                ));
+            }
             ExprData::NewExpression(constructor) => {
                 if mode == ContentMode::Formatted
                     || !matches!(

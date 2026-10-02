@@ -8,7 +8,7 @@ use swc_next_ecma_ast::{
 use super::{ExpressionContext, ExpressionPosition, Formatter};
 use crate::formatter::comments::{CommentRunLayout, CommentSemantics, ExpressionTail, NodeHead};
 use crate::formatter::literals::StringContext;
-use crate::formatter::suppression::ContentMode;
+use crate::formatter::suppression::{ContentMode, SuppressionPosition};
 use crate::{FormatError, QuoteProperties, TrailingCommas, document::Writer};
 
 struct ObjectBoundary<'ast> {
@@ -20,7 +20,7 @@ struct ObjectBoundary<'ast> {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum PropertySuppression {
+pub(in crate::formatter) enum PropertySuppression {
     None,
     Value,
     Property,
@@ -331,7 +331,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let colon = Span::new(colon_start, colon_start + 1);
         let count = comments.partition_point(|comment| comment.span.end <= colon.start);
         let (before, after) = comments.split_at(count);
-        let suppression = self.object_property_suppression(after, value_start);
+        let suppression = self.property_suppression(before, after, colon, value_start);
         let ordinary_before = before
             .iter()
             .all(|&comment| matches!(self.comment_semantics(comment), CommentSemantics::Ordinary));
@@ -392,44 +392,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    fn object_property_suppression(
+    pub(in crate::formatter) fn property_suppression(
         &self,
-        comments: &[Comment],
+        before: &[Comment],
+        after: &[Comment],
+        colon: Span,
         value_start: u32,
     ) -> PropertySuppression {
-        if !self.has_suppression {
-            return PropertySuppression::None;
-        }
-        let Some(index) = comments.iter().position(|&comment| {
-            matches!(
-                self.comment_semantics(comment),
-                CommentSemantics::Suppression
-            )
-        }) else {
-            return PropertySuppression::None;
-        };
-        let mut first = index;
-        while first > 0
-            && self.line_breaks(comments[first - 1].span.end, comments[first].span.start) == 0
-        {
-            first -= 1;
-        }
-        if self.source_position_starts_line(comments[first].span.start) {
-            return PropertySuppression::Value;
-        }
-        let mut last = index;
-        while last + 1 < comments.len()
-            && self.line_breaks(comments[last].span.end, comments[last + 1].span.start) == 0
-        {
-            last += 1;
-        }
-        let following = comments
-            .get(last + 1)
-            .map_or(value_start, |comment| comment.span.start);
-        if self.line_breaks(comments[last].span.end, following) != 0 {
-            PropertySuppression::Property
-        } else {
-            PropertySuppression::Value
+        let before = self.suppression_position(before, colon.start);
+        let after = self.suppression_position(after, value_start);
+        match (before, after) {
+            (Some(SuppressionPosition::EndOfLine), _)
+            | (_, Some(SuppressionPosition::EndOfLine)) => PropertySuppression::Property,
+            (Some(SuppressionPosition::OwnLine), _)
+            | (_, Some(SuppressionPosition::OwnLine | SuppressionPosition::Inline)) => {
+                PropertySuppression::Value
+            }
+            _ => PropertySuppression::None,
         }
     }
 

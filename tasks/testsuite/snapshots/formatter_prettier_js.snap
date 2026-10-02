@@ -3,13 +3,13 @@ formatter * prettier 3.9.9 * js
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 794
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 110/1070 (10.28%)
-Snapshot matched: 110/1070
-AST parity: 129/129
-AST mismatched: 0/129
+Passed: 113/1070 (10.56%)
+Snapshot matched: 113/1070
+AST parity: 137/137
+AST mismatched: 0/137
 AST format errors: 0/1070
-Mismatched: 19/1070
-Format errors: 940/1070
+Mismatched: 24/1070
+Format errors: 932/1070
 Panicked: 0/1070
 Not idempotent: 0/1070
 Ignored files: 298
@@ -66,7 +66,6 @@ Unsupported option sets: 19
 - js/arrows/chain-as-arg.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/chain-in-logical-expression.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/comment.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
-- js/arrows/comments/comment-before-arrow.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/arrows/curried.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/currying-2.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/currying-3.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
@@ -75,14 +74,14 @@ Unsupported option sets: 19
 - js/arrows/issue-10814.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/issue-1389-curry.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/issue-14563.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
-- js/arrows/issue-14702.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
+- js/arrows/issue-14702.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/issue-17421.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/issue-4166-curry.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/long-call-no-args.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/long-contents.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/parens.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
-- js/arrows/parenthesized-body/issue-18776.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/arrows/parenthesized-body/issue-19261.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
+- js/arrows/parenthesized-body/issue-18776.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- js/arrows/parenthesized-body/issue-19261.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/arrows/semi/semi.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/assignment-comments/call.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/assignment-comments/call2.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -484,7 +483,6 @@ Unsupported option sets: 19
 - js/import/long-module-name/import-source.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/import/multiple_standalones.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/import/same-local-and-imported.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
-- js/in/arrow-function-invalid.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/in/arrow-function.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/invalid-code/duplicate_bindings.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/label/block-statement-and-regexp.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -500,7 +498,6 @@ Unsupported option sets: 19
 - js/last-argument-expansion/function-body-in-mode-break.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/last-argument-expansion/function-expression-issue-2239.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/last-argument-expansion/function-expression.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/last-argument-expansion/issue-10708.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/last-argument-expansion/issue-7518.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/last-argument-expansion/jsx.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/last-argument-expansion/number-only-array.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -541,7 +538,7 @@ Unsupported option sets: 19
 - js/method-chain/short-names.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/method-chain/simple-args.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/method-chain/square_0.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/method-chain/test.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
+- js/method-chain/test.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/method-chain/this.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/module-string-names/module-string-names-export.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/module-string-names/module-string-names-import.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent

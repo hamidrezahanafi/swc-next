@@ -7,7 +7,7 @@ use swc_next_ecma_ast::{
 
 use super::parentheses::SourceParentheses;
 use super::{
-    ExpressionContext, ExpressionPosition, Formatter, HeadComments, StatementStart, TailOwner,
+    ExpressionContext, ExpressionPosition, ExpressionStart, Formatter, HeadComments, TailOwner,
 };
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
@@ -254,8 +254,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let inline = chain.ancestors.is_empty()
             && self.inline_logical_operand(binary.operator, binary.right);
         writer.group(false, |writer| {
-            let tail = self.format_binary_head(chain.first, context.statement_start, writer)?;
-            if inline {
+            let tail = self.format_binary_head(chain.first, context.expression_start, writer)?;
+            if inline || matches!(context.position, ExpressionPosition::ArrowBody) {
                 self.format_binary_continuation(chain, context, tail, writer)
             } else {
                 writer
@@ -271,7 +271,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let chain = self.binary_chain(binary);
         self.format_binary_head_comments(binary.left, writer)?;
-        let tail = self.format_binary_head(chain.first, StatementStart::None, writer)?;
+        let tail = self.format_binary_head(chain.first, ExpressionStart::None, writer)?;
         self.format_binary_continuation(
             chain,
             ExpressionContext::at(ExpressionPosition::Nested),
@@ -283,7 +283,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn format_binary_head(
         &mut self,
         first: BinaryLike,
-        statement_start: StatementStart,
+        expression_start: ExpressionStart,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         writer.group(false, |writer| {
@@ -294,7 +294,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         operator: first.operator,
                         side: OperandSide::Left,
                     },
-                    statement_start,
+                    expression_start,
                     head_comments: HeadComments::Claimed,
                     content_mode: self.trailing_content_mode(
                         Span::new(
@@ -397,7 +397,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             {
                 let chain = self.binary_chain(left);
                 self.format_binary_head_comments(left.left, writer)?;
-                let head = self.format_binary_head(chain.first, StatementStart::None, writer)?;
+                let head = self.format_binary_head(chain.first, ExpressionStart::None, writer)?;
                 tail = self.format_binary_continuation(
                     chain,
                     ExpressionContext::at(ExpressionPosition::BinaryOperand {

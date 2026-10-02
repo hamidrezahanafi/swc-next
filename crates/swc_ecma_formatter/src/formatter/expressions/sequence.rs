@@ -2,9 +2,7 @@
 
 use swc_next_ecma_ast::{Comment, Expr, GetSpan, SequenceExpression, Span};
 
-use super::{
-    ExpressionContext, ExpressionPosition, Formatter, ParenthesesOwner, StatementStart, TailOwner,
-};
+use super::{ExpressionContext, ExpressionPosition, Formatter, ParenthesesOwner, TailOwner};
 use crate::formatter::comments::{CommentRunLayout, CommentSemantics, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
@@ -61,58 +59,73 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer,
             );
         }
-        let start = self.format_node_head(head, context.statement_start, writer)?;
-        if self.options.semicolons == Semicolons::AsNeeded && start != StatementStart::None {
+        let start = self.format_node_head(head, context.expression_start, writer)?;
+        if self.options.semicolons == Semicolons::AsNeeded && start.is_statement() {
             writer.text(";");
         }
         let parenthesize = context.parentheses_owner == ParenthesesOwner::Expression;
         if parenthesize {
             writer.text("(");
         }
+        let arrow_body = matches!(context.position, ExpressionPosition::ArrowBody) && parenthesize;
         let tail = writer.group(false, |writer| {
-            let boundary = expressions
-                .next()
-                .map(|next| self.sequence_boundary(first, next))
-                .transpose()?;
-            let tail = self.format_sequence_item(
-                first,
-                &[],
-                first_start,
-                boundary.as_ref(),
-                context.tail_owner,
-                writer,
-            )?;
-            let Some(mut boundary) = boundary else {
-                return Ok(tail);
-            };
-            self.format_sequence_trailing(&mut boundary, tail, writer)?;
-            let mut write_rest = |writer: &mut Writer<'ast>| loop {
-                boundary
-                    .after_comma
-                    .write(writer, FlatSeparator::Space, Writer::line);
-                let following = expressions
+            let mut write_items = |writer: &mut Writer<'ast>| {
+                if arrow_body {
+                    writer.soft_line();
+                }
+                let boundary = expressions
                     .next()
-                    .map(|next| self.sequence_boundary(boundary.next, next))
+                    .map(|next| self.sequence_boundary(first, next))
                     .transpose()?;
                 let tail = self.format_sequence_item(
-                    boundary.next,
-                    boundary.leading,
-                    boundary.next_start,
-                    following.as_ref(),
+                    first,
+                    &[],
+                    first_start,
+                    boundary.as_ref(),
                     context.tail_owner,
                     writer,
                 )?;
-                let Some(mut following) = following else {
-                    break Ok(tail);
+                let Some(mut boundary) = boundary else {
+                    return Ok(tail);
                 };
-                self.format_sequence_trailing(&mut following, tail, writer)?;
-                boundary = following;
+                self.format_sequence_trailing(&mut boundary, tail, writer)?;
+                let mut write_rest = |writer: &mut Writer<'ast>| loop {
+                    boundary
+                        .after_comma
+                        .write(writer, FlatSeparator::Space, Writer::line);
+                    let following = expressions
+                        .next()
+                        .map(|next| self.sequence_boundary(boundary.next, next))
+                        .transpose()?;
+                    let tail = self.format_sequence_item(
+                        boundary.next,
+                        boundary.leading,
+                        boundary.next_start,
+                        following.as_ref(),
+                        context.tail_owner,
+                        writer,
+                    )?;
+                    let Some(mut following) = following else {
+                        break Ok(tail);
+                    };
+                    self.format_sequence_trailing(&mut following, tail, writer)?;
+                    boundary = following;
+                };
+                if matches!(context.position, ExpressionPosition::Statement) {
+                    writer.indent(write_rest)
+                } else {
+                    write_rest(writer)
+                }
             };
-            if matches!(context.position, ExpressionPosition::Statement) {
-                writer.indent(write_rest)
+            let tail = if arrow_body {
+                writer.indent(write_items)?
             } else {
-                write_rest(writer)
+                write_items(writer)?
+            };
+            if arrow_body {
+                writer.soft_line();
             }
+            Ok(tail)
         })?;
         if parenthesize {
             writer.text(")");

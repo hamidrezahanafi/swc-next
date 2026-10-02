@@ -6,7 +6,7 @@ use swc_next_ecma_ast::{
 };
 
 use super::parentheses::SourceParentheses;
-use super::{ExpressionContext, Formatter, StatementStart, TailOwner};
+use super::{ExpressionContext, ExpressionStart, Formatter, TailOwner};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
 use crate::formatter::source::is_source_whitespace;
 use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
@@ -241,12 +241,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let verbatim = context.content_mode == ContentMode::Verbatim && !target.layers.is_empty();
         if !target.layers.is_empty()
-            && context.statement_start != StatementStart::None
+            && context.expression_start.is_statement()
             && self.options.semicolons == Semicolons::AsNeeded
         {
             // Prepare the statement guard before any removed-layer comments.
             writer.text(";");
-            context.statement_start = StatementStart::None;
+            context.expression_start = ExpressionStart::None;
         }
         if verbatim {
             self.format_verbatim(target.span, writer)?;
@@ -295,11 +295,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         .comments
                         .between(Span::new(boundary.outer.start, boundary.inner.start))?;
                     self.comments.claim(leading)?;
-                    context.statement_start = self.format_expression_leading_comments(
+                    context.expression_start = self.format_expression_leading_comments(
                         leading,
                         boundary.inner.start,
                         CommentRunLayout::FlatLeading(boundary.inner.start),
-                        context.statement_start,
+                        context.expression_start,
                         writer,
                     )?;
                     layers = remaining;

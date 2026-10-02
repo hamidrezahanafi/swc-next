@@ -9,20 +9,13 @@ use super::{ExpressionContext, ExpressionPosition, Formatter, MemberLayout, Tail
 use crate::formatter::comments::{CommentRunLayout, CommentSemantics, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::source::is_source_whitespace;
-use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
+use crate::formatter::suppression::{BoundaryPunctuation, ContentMode, SuppressionPosition};
 use crate::{FormatError, document::Writer};
 
 #[derive(Clone, Copy)]
 enum MemberKey {
     Static(IdentifierName),
     Computed(Expr),
-}
-
-#[derive(Clone, Copy)]
-enum MemberSuppressionPosition {
-    OwnLine,
-    EndOfLine,
-    Inline,
 }
 
 enum MemberContent {
@@ -114,7 +107,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let tail = self.format_expression(
             object,
             ExpressionContext::at(position)
-                .with_statement_start(context.statement_start)
+                .with_expression_start(context.expression_start)
                 .with_tail_owner(TailOwner::ParentOperation)
                 .with_content_mode(receiver)
                 .with_member_layout(context.member_layout),
@@ -252,7 +245,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         for (run, position) in self.member_suppressed_comment_runs(comments, key_start) {
             match position {
-                MemberSuppressionPosition::OwnLine => {
+                SuppressionPosition::OwnLine => {
                     let identifier = match key {
                         MemberKey::Static(_) => true,
                         MemberKey::Computed(expression) => {
@@ -264,8 +257,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     }
                     key_mode = ContentMode::Verbatim;
                 }
-                MemberSuppressionPosition::EndOfLine => receiver = ContentMode::Verbatim,
-                MemberSuppressionPosition::Inline => {
+                SuppressionPosition::EndOfLine => receiver = ContentMode::Verbatim,
+                SuppressionPosition::Inline => {
                     if run
                         .last()
                         .is_some_and(|comment| comment.span.end <= key_boundary)
@@ -289,7 +282,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &'a self,
         comments: &'a [Comment],
         following_start: u32,
-    ) -> impl Iterator<Item = (&'a [Comment], MemberSuppressionPosition)> + 'a {
+    ) -> impl Iterator<Item = (&'a [Comment], SuppressionPosition)> + 'a {
         let comments = if self.has_suppression { comments } else { &[] };
         let mut runs = comments
             .chunk_by(|left, right| {
@@ -313,11 +306,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .and_then(|next| next.first())
                     .map_or(following_start, |comment| comment.span.start);
                 let position = if self.source_position_starts_line(first.span.start) {
-                    MemberSuppressionPosition::OwnLine
+                    SuppressionPosition::OwnLine
                 } else if self.member_comment_run_ends_line(*last, following) {
-                    MemberSuppressionPosition::EndOfLine
+                    SuppressionPosition::EndOfLine
                 } else {
-                    MemberSuppressionPosition::Inline
+                    SuppressionPosition::Inline
                 };
                 return Some((run, position));
             }

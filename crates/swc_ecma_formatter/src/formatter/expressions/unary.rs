@@ -144,7 +144,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let tail = self.format_source_target(
                 &target,
                 context
-                    .with_statement_start(super::StatementStart::None)
+                    .with_expression_start(super::ExpressionStart::None)
                     .with_content_mode(mode),
                 writer,
             )?;
