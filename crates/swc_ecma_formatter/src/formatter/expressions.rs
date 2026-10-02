@@ -8,6 +8,7 @@ mod members;
 mod objects;
 mod parentheses;
 mod sequence;
+mod targets;
 mod unary;
 
 use swc_next_ecma_ast::{
@@ -37,6 +38,7 @@ pub(super) enum ExpressionPosition {
     SpreadArgument,
     PropertyValue,
     MemberObject,
+    MemberAssignmentObject,
     ConditionalTest,
     ConditionalConsequent,
     ConditionalAlternate,
@@ -246,7 +248,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             if parenthesize
                 && matches!(
                     context.position,
-                    ExpressionPosition::UnaryArgument(_) | ExpressionPosition::MemberObject
+                    ExpressionPosition::UnaryArgument(_)
+                        | ExpressionPosition::MemberObject
+                        | ExpressionPosition::MemberAssignmentObject
                 )
             {
                 return writer.group(false, |writer| {
@@ -272,7 +276,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         if let ExprData::ConditionalExpression(conditional) = data
             && parenthesize
-            && matches!(context.position, ExpressionPosition::MemberObject)
+            && matches!(
+                context.position,
+                ExpressionPosition::MemberObject | ExpressionPosition::MemberAssignmentObject
+            )
         {
             return writer.group(false, |writer| {
                 writer.text("(");
@@ -342,7 +349,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ExprData::ObjectExpression(object) => self.format_object(object, writer).map(|()| None),
             ExprData::MemberExpression(member) => self.format_member(member, context, writer),
             ExprData::UnaryExpression(unary) => self.format_unary(unary, writer),
-            ExprData::UpdateExpression(update) => self.format_update(update, writer),
+            ExprData::UpdateExpression(update) => self.format_update(update, context, writer),
             ExprData::ConditionalExpression(conditional) => {
                 self.format_conditional(conditional, context, writer)
             }
@@ -387,7 +394,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         Some(match (position, data) {
             (
-                ExpressionPosition::MemberObject,
+                ExpressionPosition::MemberObject | ExpressionPosition::MemberAssignmentObject,
                 ExprData::NumericLiteral(_)
                 | ExprData::UnaryExpression(_)
                 | ExprData::UpdateExpression(_)

@@ -7,41 +7,55 @@ source: crates/swc_ecma_formatter/tests/fixtures/mod.rs
 ---------- Options ----------
 {}
 ---------- Output ----------
-item++;
-/* after */
+(
+  item
+  /* after */
+)++;
 
 ---------- Options ----------
 {"semi":false}
 ---------- Output ----------
-item++
-/* after */
+;(
+  item
+  /* after */
+)++
 
 ---------- Options ----------
 {"printWidth":20}
 ---------- Output ----------
-item++;
-/* after */
+(
+  item
+  /* after */
+)++;
 
 ---------- Options ----------
 {"printWidth":10}
 ---------- Output ----------
-item++;
-/* after */
+(
+  item
+  /* after */
+)++;
 
 ---------- Options ----------
 {"printWidth":20,"tabWidth":4,"useTabs":true}
 ---------- Output ----------
-item++;
-/* after */
+(
+	item
+	/* after */
+)++;
 
 ---------- Options ----------
 {"endOfLine":"crlf"}
 ---------- Output ----------
-item++;
-/* after */
+(
+  item
+  /* after */
+)++;
 
 ---------- Options ----------
 {"singleQuote":true}
 ---------- Output ----------
-item++;
-/* after */
+(
+  item
+  /* after */
+)++;

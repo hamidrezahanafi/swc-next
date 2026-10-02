@@ -78,6 +78,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer,
             );
         };
+        let target = matches!(context.position, ExpressionPosition::MemberAssignmentObject);
+        let position = if target {
+            ExpressionPosition::MemberAssignmentObject
+        } else {
+            ExpressionPosition::MemberObject
+        };
         let mut opening = LineConstraint::Unconstrained;
         if self.has_suppression && matches!(key, MemberKey::Computed(_)) {
             let after_opening =
@@ -107,7 +113,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .then_some(Span::new(operator + 1, property_span.start));
         let tail = self.format_expression(
             object,
-            ExpressionContext::at(ExpressionPosition::MemberObject)
+            ExpressionContext::at(position)
                 .with_statement_start(context.statement_start)
                 .with_tail_owner(TailOwner::ParentOperation)
                 .with_content_mode(receiver),
@@ -139,7 +145,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.expression_content(object).data,
             ExprData::IdentifierReference(_)
         ) && !matches!(context.position, ExpressionPosition::MemberObject);
-        let inline = member.computed(self.ast) || simple;
+        let inline = target || member.computed(self.ast) || simple;
         let breakable = !inline;
         let mut suffix = |writer: &mut Writer<'ast>| {
             if mandatory_line {

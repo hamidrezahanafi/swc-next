@@ -1,8 +1,7 @@
 //! Prefix and postfix operators with explicitly owned operand boundaries.
 
 use swc_next_ecma_ast::{
-    CommentKind, GetSpan, SimpleAssignmentTargetData, Span, UnaryExpression, UnaryOperator,
-    UpdateExpression,
+    CommentKind, GetSpan, Span, UnaryExpression, UnaryOperator, UpdateExpression,
 };
 
 use super::{ExpressionContext, ExpressionPosition, Formatter};
@@ -115,35 +114,41 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(in crate::formatter) fn format_update(
         &mut self,
         update: UpdateExpression,
+        context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        let target = update.argument(self.ast);
-        let SimpleAssignmentTargetData::IdentifierReference(identifier) =
-            self.ast.simple_assignment_target_data(target)
-        else {
-            return Err(self.unsupported("update target", target));
-        };
+        let target = self.update_source_target(update)?;
         let span = update.span(self.ast);
-        let target_span = target.span(self.ast);
-        let operator = update.operator(self.ast).as_str();
+        let target_span = target.span;
+        let operator = target.operator();
         if update.prefix(self.ast) {
             writer.text(operator);
             let comments = self
                 .comments
-                .between(Span::new(span.start + 2, target_span.start))?;
+                .between(Span::new(target.operator_span.end, target_span.start))?;
             let mode = self.content_mode(comments);
-            let comments = self.comments.take(comments.len());
+            self.comments.claim(comments)?;
+            let next = comments
+                .first()
+                .map_or(target_span.start, |comment| comment.span.start);
+            self.line_constraint(target.operator_span.end, next).write(
+                writer,
+                FlatSeparator::Empty,
+                |_| {},
+            );
             self.format_comment_run(
                 comments,
-                CommentRunLayout::Leading(target_span.start),
+                CommentRunLayout::FlatLeading(target_span.start),
                 writer,
             )?;
-            if mode == ContentMode::Verbatim {
-                self.format_verbatim(target_span, writer)?;
-            } else {
-                writer.text(self.ast.get_utf8(identifier.name(self.ast)));
-            }
-            self.capture_expression_tail(Span::new(target_span.end, span.end), None)
+            let tail = self.format_source_target(
+                &target,
+                context
+                    .with_statement_start(super::StatementStart::None)
+                    .with_content_mode(mode),
+                writer,
+            )?;
+            self.capture_expression_tail(Span::new(target_span.end, span.end), tail)
         } else {
             let leading = self
                 .comments
@@ -154,28 +159,31 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 CommentRunLayout::Leading(target_span.start),
                 writer,
             )?;
-            let boundary = Span::new(target_span.end, span.end - 2);
+            let boundary = Span::new(target_span.end, target.operator_span.start);
             let mode = self.content_mode(self.comments.in_range(boundary));
-            if mode == ContentMode::Verbatim || self.content_mode(leading) == ContentMode::Verbatim
-            {
-                self.format_verbatim(target_span, writer)?;
+            let mode = if self.content_mode(leading) == ContentMode::Verbatim {
+                ContentMode::Verbatim
             } else {
-                writer.text(self.ast.get_utf8(identifier.name(self.ast)));
-            }
+                mode
+            };
+            let tail =
+                self.format_source_target(&target, context.with_content_mode(mode), writer)?;
+            let source_end = tail
+                .as_ref()
+                .map_or(target_span.end, |tail| tail.source_end);
+            let boundary = Span::new(source_end, target.operator_span.start);
             let comments = self.comments.between(boundary)?;
             let count = comments
                 .iter()
                 .take_while(|comment| {
                     comment.kind == CommentKind::Block
-                        && self.line_breaks(target_span.end, comment.span.start) == 0
+                        && self.line_breaks(source_end, comment.span.start) == 0
                         && self.line_breaks(comment.span.start, comment.span.end) == 0
                 })
                 .count();
             let inline = self.comments.take(count);
             self.format_inline_trailing_comments(inline, writer)?;
-            let source_end = inline
-                .last()
-                .map_or(target_span.end, |comment| comment.span.end);
+            let source_end = inline.last().map_or(source_end, |comment| comment.span.end);
             writer.text(operator);
             self.capture_expression_tail(Span::new(source_end, boundary.end), None)
         }

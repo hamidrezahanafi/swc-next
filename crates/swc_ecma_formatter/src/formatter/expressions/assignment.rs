@@ -1,9 +1,6 @@
 //! Assignment layouts and borrowed operator boundaries prepared before printing.
 
-use swc_next_ecma_ast::{
-    AssignmentExpression, AssignmentTargetData, Comment, CommentKind, ExprData, GetSpan,
-    SimpleAssignmentTargetData, Span,
-};
+use swc_next_ecma_ast::{AssignmentExpression, Comment, CommentKind, ExprData, GetSpan, Span};
 
 use super::binary::BinaryLike;
 use super::parentheses::ExpressionContent;
@@ -70,34 +67,30 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        let left = assignment.left(self.ast);
-        let AssignmentTargetData::SimpleAssignmentTarget(left) =
-            self.ast.assignment_target_data(left)
-        else {
-            return Err(self.unsupported("assignment target", left));
-        };
-        let SimpleAssignmentTargetData::IdentifierReference(identifier) =
-            self.ast.simple_assignment_target_data(left)
-        else {
-            return Err(self.unsupported("assignment target", left));
-        };
+        let target = self.assignment_source_target(assignment)?;
         let right = assignment.right(self.ast);
         let content = self.expression_content(right);
-        let operator = assignment.operator(self.ast).as_str();
-        let boundary = self.assignment_boundary(left.span(self.ast).end, &content, operator)?;
+        let operator = target.operator();
+        let boundary = self.assignment_boundary(target.span.end, &content, target.operator_span)?;
         let layout = self.assignment_layout(content.data, context.position, &boundary);
         let mut write = |writer: &mut Writer<'ast>| {
             let leading = self.comments.between(Span::new(
                 assignment.span(self.ast).start,
-                identifier.span(self.ast).start,
+                target.span.start,
             ))?;
             self.comments.claim(leading)?;
             self.format_comment_run(
                 leading,
-                CommentRunLayout::Leading(identifier.span(self.ast).start),
+                CommentRunLayout::Leading(target.span.start),
                 writer,
             )?;
-            writer.text(self.ast.get_utf8(identifier.name(self.ast)));
+            let tail = self.format_source_target(
+                &target,
+                ExpressionContext::at(ExpressionPosition::MemberAssignmentObject)
+                    .with_statement_start(context.statement_start),
+                writer,
+            )?;
+            self.format_expression_tail(tail, writer)?;
             self.comments.claim(boundary.before)?;
             self.format_comment_run(
                 boundary.before,
@@ -196,7 +189,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &self,
         left_end: u32,
         content: &ExpressionContent,
-        operator: &'static str,
+        operator_span: Span,
     ) -> Result<AssignmentBoundary<'ast>, FormatError> {
         let right_start = content.expression.span(self.ast).start;
         let span = Span::new(left_end, right_start);
@@ -207,7 +200,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             operator_line: &[],
             leading: &[],
             left_end,
-            operator_span: Span::new(left_end, left_end),
+            operator_span,
             right_start,
             before_operator: LineConstraint::Unconstrained,
             after_operator: LineConstraint::Unconstrained,
@@ -231,14 +224,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if comments.is_empty() && !sensitive {
             return Ok(boundary);
         }
-        let Some(operator_start) = self.find_token(span, comments, operator) else {
-            return Err(FormatError::unsupported(
-                "assignment operator boundary",
-                None,
-                span,
-            ));
-        };
-        boundary.operator_span = Span::new(operator_start, operator_start + operator.len() as u32);
+        let operator_start = operator_span.start;
         let before_count = comments.partition_point(|comment| comment.span.end <= operator_start);
         let (before, after) = comments.split_at(before_count);
         let hugs_comments = matches!(
@@ -300,6 +286,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let next = after.first().map_or(right_start, |first| first.span.start);
             boundary.before_operator = self.line_constraint(previous, operator_start);
             boundary.after_operator = self.line_constraint(boundary.operator_span.end, next);
+        }
+        if let Some((last, previous)) = boundary.before.split_last()
+            && last.kind == CommentKind::Line
+            && self.line_breaks(
+                previous.last().map_or(left_end, |comment| comment.span.end),
+                last.span.start,
+            ) != 0
+            && boundary.before_operator == LineConstraint::Unconstrained
+        {
+            // Own-line comments are emitted directly, unlike deferred line suffixes.
+            boundary.before_operator = LineConstraint::NewLine(1);
         }
         Ok(boundary)
     }

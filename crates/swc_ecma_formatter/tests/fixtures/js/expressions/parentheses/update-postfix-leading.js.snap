@@ -6,34 +6,40 @@ source: crates/swc_ecma_formatter/tests/fixtures/mod.rs
 ---------- Options ----------
 {}
 ---------- Output ----------
-/* before */ item++;
+(/* before */ item)++;
 
 ---------- Options ----------
 {"semi":false}
 ---------- Output ----------
-/* before */ item++
+;(/* before */ item)++
 
 ---------- Options ----------
 {"printWidth":20}
 ---------- Output ----------
-/* before */ item++;
+(
+  /* before */ item
+)++;
 
 ---------- Options ----------
 {"printWidth":10}
 ---------- Output ----------
-/* before */ item++;
+(
+  /* before */ item
+)++;
 
 ---------- Options ----------
 {"printWidth":20,"tabWidth":4,"useTabs":true}
 ---------- Output ----------
-/* before */ item++;
+(
+	/* before */ item
+)++;
 
 ---------- Options ----------
 {"endOfLine":"crlf"}
 ---------- Output ----------
-/* before */ item++;
+(/* before */ item)++;
 
 ---------- Options ----------
 {"singleQuote":true}
 ---------- Output ----------
-/* before */ item++;
+(/* before */ item)++;
