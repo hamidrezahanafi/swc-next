@@ -6,7 +6,7 @@ use swc_next_ecma_ast::{
 };
 
 use super::{ExpressionContext, ExpressionPosition, Formatter};
-use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
+use crate::formatter::comments::{CommentRunLayout, CommentSemantics, ExpressionTail, NodeHead};
 use crate::formatter::literals::StringContext;
 use crate::formatter::suppression::ContentMode;
 use crate::{FormatError, QuoteProperties, TrailingCommas, document::Writer};
@@ -17,6 +17,19 @@ struct ObjectBoundary<'ast> {
     leading: &'ast [Comment],
     trailing_end: u32,
     separator: Span,
+}
+
+struct ObjectPropertyBoundary<'ast> {
+    before: &'ast [Comment],
+    moved: &'ast [Comment],
+    operator_line: &'ast [Comment],
+    operator_line_start: u32,
+    leading: &'ast [Comment],
+    key_end: u32,
+    colon: Span,
+    value_start: u32,
+    line_before_colon: bool,
+    line_after_colon: bool,
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -210,48 +223,72 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 return Err(self.unsupported("object property suppression boundary", property));
             }
         }
+        let key_end = self.object_key_end(property)?;
+        if property.shorthand(ast) {
+            self.format_object_key(property, key_end, writer)?;
+            return Ok(None);
+        }
+        let boundary = self.object_property_boundary(property, key_end)?;
+        let value = property.value(ast);
+        let data = self.expression_content(value).data;
+        let break_after =
+            boundary.line_after_colon || self.assignment_right_breaks_after_operator(data);
         writer.group(false, |writer| {
-            let key_end = self.format_object_key(property, writer)?;
-            if property.shorthand(ast) {
-                return Ok(None);
+            self.format_object_key(property, boundary.key_end, writer)?;
+            self.comments.claim(boundary.before)?;
+            self.format_comment_run(
+                boundary.before,
+                CommentRunLayout::SourceAfter(boundary.key_end),
+                writer,
+            )?;
+            if boundary.line_before_colon {
+                writer.hard_line();
             }
-            let value = property.value(ast);
-            let value_start = value.span(ast).start;
-            let gap = Span::new(key_end, value_start);
-            let comments = self.comments.between(gap)?;
-            let Some(colon) = self.find_token(gap, comments, ":") else {
-                return Err(self.unsupported("object property colon", property));
-            };
-            let count = comments.partition_point(|comment| comment.span.end <= colon);
-            let before = self.comments.take(count);
-            self.format_comment_run(before, CommentRunLayout::SourceAfter(key_end), writer)?;
             writer.text(":");
-            let leading = self.comments.between(Span::new(colon + 1, value_start))?;
-            let leading = self.comments.take(leading.len());
-            let own_line = leading.first().is_some_and(|comment| {
-                comment.kind == CommentKind::Line
-                    || self.line_breaks(colon + 1, comment.span.start) != 0
-            });
-            let data = self.expression_content(value).data;
-            let break_after = own_line || self.assignment_right_breaks_after_operator(data);
+            self.comments.claim(boundary.operator_line)?;
+            self.format_comment_run(
+                boundary.operator_line,
+                CommentRunLayout::SourceAfter(boundary.operator_line_start),
+                writer,
+            )?;
             let mut write_value = |writer: &mut Writer<'ast>| {
+                self.comments.claim(boundary.moved)?;
+                self.format_comment_run(boundary.moved, CommentRunLayout::Source, writer)?;
+                if let Some(last) = boundary.moved.last() {
+                    let next = boundary
+                        .leading
+                        .first()
+                        .map_or(boundary.value_start, |comment| comment.span.start);
+                    let before = self.line_breaks(last.span.end, boundary.colon.start);
+                    let after = self.line_breaks(boundary.colon.end, next);
+                    // Moving the colon does not introduce an empty source line.
+                    match before.max(after) {
+                        0 => writer.space(),
+                        1 => writer.hard_line(),
+                        _ => {
+                            writer.hard_line();
+                            writer.hard_line();
+                        }
+                    }
+                }
+                self.comments.claim(boundary.leading)?;
                 self.format_expression_with_leading_comments(
                     value,
                     NodeHead {
-                        comments: leading,
-                        content_start: value_start,
-                        layout: CommentRunLayout::Leading(value_start),
+                        comments: boundary.leading,
+                        content_start: boundary.value_start,
+                        layout: CommentRunLayout::Leading(boundary.value_start),
                         gap_end: None,
                     },
                     ExpressionContext::at(ExpressionPosition::PropertyValue)
-                        .with_content_mode(self.content_mode(leading)),
+                        .with_content_mode(self.content_mode(boundary.leading)),
                     writer,
                 )
             };
             if break_after {
                 writer.group(false, |writer| {
                     writer.indent(|writer| {
-                        if own_line {
+                        if boundary.line_after_colon {
                             writer.hard_line();
                         } else {
                             writer.line();
@@ -272,11 +309,97 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
+    fn object_property_boundary(
+        &self,
+        property: ObjectProperty,
+        key_end: u32,
+    ) -> Result<ObjectPropertyBoundary<'ast>, FormatError> {
+        let value_start = property.value(self.ast).span(self.ast).start;
+        let gap = Span::new(key_end, value_start);
+        let comments = self.comments.in_range(gap);
+        let Some(colon_start) = self.find_token(gap, comments, ":") else {
+            return Err(self.unsupported("object property colon", property));
+        };
+        let colon = Span::new(colon_start, colon_start + 1);
+        let count = comments.partition_point(|comment| comment.span.end <= colon.start);
+        let (before, after) = comments.split_at(count);
+        let ordinary_before = before
+            .iter()
+            .all(|&comment| matches!(self.comment_semantics(comment), CommentSemantics::Ordinary));
+        let promoted = ordinary_before
+            && before.first().is_some_and(|first| {
+                self.line_breaks(key_end, first.span.start) != 0
+                    || before.last().is_some_and(|last| {
+                        self.line_breaks(last.span.start, last.span.end) != 0
+                            && self.line_breaks(last.span.end, colon.start) != 0
+                    })
+            });
+        let (before, moved) = if promoted {
+            (&[][..], before)
+        } else {
+            (before, &[][..])
+        };
+        let line_before_colon = before
+            .last()
+            .is_some_and(|comment| comment.kind == CommentKind::Line);
+        let mut count = 0;
+        let mut previous = colon.end;
+        for (index, comment) in after.iter().enumerate() {
+            if promoted || self.line_breaks(previous, comment.span.start) != 0 {
+                break;
+            }
+            if comment.kind == CommentKind::Line {
+                count = index + 1;
+                break;
+            }
+            previous = comment.span.end;
+        }
+        let (operator_line, leading) = after.split_at(count);
+        let (before, operator_line, operator_line_start, leading) =
+            if ordinary_before && line_before_colon {
+                (&[][..], before, key_end, after)
+            } else {
+                (before, operator_line, colon.end, leading)
+            };
+        let line_before_colon = line_before_colon && !ordinary_before;
+        let line_after_colon = promoted
+            || !operator_line.is_empty()
+            || leading.first().is_some_and(|comment| {
+                comment.kind == CommentKind::Line
+                    || self.line_breaks(colon.end, comment.span.start) != 0
+            });
+        Ok(ObjectPropertyBoundary {
+            before,
+            moved,
+            operator_line,
+            operator_line_start,
+            leading,
+            key_end,
+            colon,
+            value_start,
+            line_before_colon,
+            line_after_colon,
+        })
+    }
+
+    fn object_key_end(&self, property: ObjectProperty) -> Result<u32, FormatError> {
+        let key_end = property.key(self.ast).span(self.ast).end;
+        if !property.computed(self.ast) {
+            return Ok(key_end);
+        }
+        let gap = Span::new(key_end, property.value(self.ast).span(self.ast).start);
+        let comments = self.comments.in_range(gap);
+        self.find_token(gap, comments, "]")
+            .map(|closing| closing + 1)
+            .ok_or_else(|| self.unsupported("computed object key boundary", property))
+    }
+
     fn format_object_key(
         &mut self,
         property: ObjectProperty,
+        key_end: u32,
         writer: &mut Writer<'ast>,
-    ) -> Result<u32, FormatError> {
+    ) -> Result<(), FormatError> {
         let ast = self.ast;
         let key = property.key(ast);
         let key_span = key.span(ast);
@@ -284,11 +407,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let PropertyKeyData::Expr(expression) = ast.property_key_data(key) else {
                 return Err(self.unsupported("computed object key", key));
             };
-            let gap = Span::new(key_span.end, property.value(ast).span(ast).start);
-            let comments = self.comments.in_range(gap);
-            let Some(closing) = self.find_token(gap, comments, "]") else {
-                return Err(self.unsupported("computed object key boundary", property));
-            };
+            let closing = key_end - 1;
             writer.group(false, |writer| {
                 writer.text("[");
                 writer.indent(|writer| {
@@ -317,7 +436,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.text("]");
                 Ok(())
             })?;
-            return Ok(closing + 1);
+            return Ok(());
         }
         match ast.property_key_data(key) {
             PropertyKeyData::IdentifierName(identifier) => {
@@ -341,7 +460,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 _ => return Err(self.unsupported("object property key", key)),
             },
         }
-        Ok(key_span.end)
+        Ok(())
     }
 }
 
