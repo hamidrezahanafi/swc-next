@@ -321,7 +321,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let ignored_child = self.ignored_parentheses_child(parenthesized, context.content_mode);
         if let Some(ignored) = ignored_child
             && (self.ignored_operand_owns_operation_head(ignored, context.position)
-                || matches!(context.position, ExpressionPosition::UnaryArgument(_))
+                || matches!(
+                    context.position,
+                    ExpressionPosition::UnaryArgument(_) | ExpressionPosition::MemberObject
+                )
                 || self.parentheses_separate_diagnostic_lines(SourceParentheses {
                     outer: span,
                     inner: child_span,
@@ -488,7 +491,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    fn parenthesis_has_type_cast(&self, start: u32) -> bool {
+    pub(super) fn parenthesis_has_type_cast(&self, start: u32) -> bool {
         self.source_type_cast(start).is_some()
     }
 

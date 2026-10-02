@@ -4,6 +4,7 @@ mod arrays;
 mod assignment;
 mod binary;
 mod conditional;
+mod members;
 mod objects;
 mod parentheses;
 mod sequence;
@@ -35,6 +36,7 @@ pub(super) enum ExpressionPosition {
     },
     SpreadArgument,
     PropertyValue,
+    MemberObject,
     ConditionalTest,
     ConditionalConsequent,
     ConditionalAlternate,
@@ -241,7 +243,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             context.statement_start = StatementStart::None;
         }
         if let Some(binary) = binary {
-            if parenthesize && matches!(context.position, ExpressionPosition::UnaryArgument(_)) {
+            if parenthesize
+                && matches!(
+                    context.position,
+                    ExpressionPosition::UnaryArgument(_) | ExpressionPosition::MemberObject
+                )
+            {
                 return writer.group(false, |writer| {
                     writer.text("(");
                     writer.indent(|writer| {
@@ -262,6 +269,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.text(")");
             }
             return Ok(tail);
+        }
+        if let ExprData::ConditionalExpression(conditional) = data
+            && parenthesize
+            && matches!(context.position, ExpressionPosition::MemberObject)
+        {
+            return writer.group(false, |writer| {
+                writer.text("(");
+                let tail = self.format_conditional(conditional, context, writer)?;
+                self.format_expression_tail(tail, writer)?;
+                writer.soft_line();
+                writer.text(")");
+                Ok(None)
+            });
         }
         if let ExprData::ConditionalExpression(conditional) = data
             && matches!(context.position, ExpressionPosition::ConditionalTest)
@@ -320,6 +340,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             ExprData::ArrayExpression(array) => self.format_array(array, writer).map(|()| None),
             ExprData::ObjectExpression(object) => self.format_object(object, writer).map(|()| None),
+            ExprData::MemberExpression(member) => self.format_member(member, context, writer),
             ExprData::UnaryExpression(unary) => self.format_unary(unary, writer),
             ExprData::UpdateExpression(update) => self.format_update(update, writer),
             ExprData::ConditionalExpression(conditional) => {
@@ -354,6 +375,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             | ExprData::RegExpLiteral(_)
             | ExprData::ArrayExpression(_)
             | ExprData::ObjectExpression(_)
+            | ExprData::MemberExpression(_)
             | ExprData::UnaryExpression(_)
             | ExprData::UpdateExpression(_)
             | ExprData::BinaryExpression(_)
@@ -364,6 +386,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             _ => return None,
         }
         Some(match (position, data) {
+            (
+                ExpressionPosition::MemberObject,
+                ExprData::NumericLiteral(_)
+                | ExprData::UnaryExpression(_)
+                | ExprData::UpdateExpression(_)
+                | ExprData::BinaryExpression(_)
+                | ExprData::LogicalExpression(_)
+                | ExprData::ConditionalExpression(_),
+            ) => true,
             (position, ExprData::AssignmentExpression(_)) => !matches!(
                 position,
                 ExpressionPosition::Statement | ExpressionPosition::AssignmentRight(_)
