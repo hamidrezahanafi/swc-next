@@ -14,6 +14,8 @@ struct SequenceBoundary<'ast> {
     next: Expr,
     next_start: u32,
     source_end: u32,
+    comments: &'ast [Comment],
+    comma: Option<u32>,
     trailing: &'ast [Comment],
     leading: &'ast [Comment],
     previous_mode: ContentMode,
@@ -83,7 +85,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let Some(mut boundary) = boundary else {
                 return Ok(tail);
             };
-            self.format_sequence_trailing(&boundary, tail, writer)?;
+            self.format_sequence_trailing(&mut boundary, tail, writer)?;
             let mut write_rest = |writer: &mut Writer<'ast>| loop {
                 boundary
                     .after_comma
@@ -100,10 +102,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     context.tail_owner,
                     writer,
                 )?;
-                let Some(following) = following else {
+                let Some(mut following) = following else {
                     break Ok(tail);
                 };
-                self.format_sequence_trailing(&following, tail, writer)?;
+                self.format_sequence_trailing(&mut following, tail, writer)?;
                 boundary = following;
             };
             if matches!(context.position, ExpressionPosition::Statement) {
@@ -166,22 +168,54 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .span(self.ast)
             .start;
         let span = Span::new(start, end);
-        let comments = self.comments.in_range(span);
-        let mut boundary = SequenceBoundary {
+        // Retain the borrowed run while the previous operand consumes its own
+        // comments. Its returned tail determines the remaining suffix.
+        let comments = self
+            .comments
+            .in_range(Span::new(previous.span(self.ast).start, end));
+        let comma = if comments.is_empty() && !self.diagnostic_range_is_sensitive(span) {
+            None
+        } else {
+            let outside = comments.partition_point(|comment| comment.span.end <= start);
+            let Some(comma) = self.find_comma(span, &comments[outside..]) else {
+                return Err(FormatError::unsupported(
+                    "sequence separator boundary",
+                    None,
+                    span,
+                ));
+            };
+            Some(comma)
+        };
+        Ok(SequenceBoundary {
             next,
             next_start: end,
             source_end: start,
+            comments,
+            comma,
             trailing: &[],
             leading: &[],
             previous_mode: self.trailing_content_mode(span, BoundaryPunctuation::Comma, false),
             before_comma: LineConstraint::Unconstrained,
             after_comma: LineConstraint::Unconstrained,
-        };
+        })
+    }
+
+    fn prepare_sequence_comments(
+        &self,
+        boundary: &mut SequenceBoundary<'ast>,
+        span: Span,
+    ) -> Result<(), FormatError> {
+        let count = boundary
+            .comments
+            .partition_point(|comment| comment.span.end <= span.start);
+        let comments = &boundary.comments[count..];
+        let start = span.start;
+        let end = span.end;
         let sensitive = self.diagnostic_range_is_sensitive(span);
         if comments.is_empty() && !sensitive {
-            return Ok(boundary);
+            return Ok(());
         }
-        let Some(comma) = self.find_comma(span, comments) else {
+        let Some(comma) = boundary.comma else {
             return Err(FormatError::unsupported(
                 "sequence separator boundary",
                 None,
@@ -206,16 +240,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             boundary.before_comma = self.line_constraint(last, comma);
             boundary.after_comma = self.line_constraint(comma + 1, next);
         }
-        Ok(boundary)
+        Ok(())
     }
 
     fn format_sequence_trailing(
         &mut self,
-        boundary: &SequenceBoundary<'ast>,
+        boundary: &mut SequenceBoundary<'ast>,
         tail: Option<ExpressionTail<'ast>>,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        self.format_expression_tail(tail, writer)?;
+        if let Some(tail) = tail {
+            boundary.source_end = tail.source_end;
+        }
+        self.prepare_sequence_comments(
+            boundary,
+            Span::new(boundary.source_end, boundary.next_start),
+        )?;
         self.comments.claim(boundary.trailing)?;
         self.format_comment_run(
             boundary.trailing,

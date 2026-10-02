@@ -34,6 +34,7 @@ struct AssignmentBoundary<'ast> {
     left_end: u32,
     operator_span: Span,
     right_start: u32,
+    layout_start: u32,
     before_operator: LineConstraint,
     after_operator: LineConstraint,
     own_line: bool,
@@ -53,9 +54,9 @@ impl<'ast> AssignmentBoundary<'ast> {
             layout: if source_gap {
                 CommentRunLayout::Source
             } else {
-                CommentRunLayout::FlatLeading(self.right_start)
+                CommentRunLayout::FlatLeading(self.layout_start)
             },
-            gap_end: source_gap.then_some(self.right_start),
+            gap_end: source_gap.then_some(self.layout_start),
         }
     }
 }
@@ -70,9 +71,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let target = self.assignment_source_target(assignment)?;
         let right = assignment.right(self.ast);
         let content = self.expression_content(right);
+        let data = content.data;
+        let head = self.assignment_expression_head(content);
         let operator = target.operator();
-        let boundary = self.assignment_boundary(target.span.end, &content, target.operator_span)?;
-        let layout = self.assignment_layout(content.data, context.position, &boundary);
+        let boundary = self.assignment_boundary(target.span.end, &head, target.operator_span)?;
+        let layout = self.assignment_layout(data, context.position, &boundary);
         let mut write = |writer: &mut Writer<'ast>| {
             let leading = self.comments.between(Span::new(
                 assignment.span(self.ast).start,
@@ -118,7 +121,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     let next = boundary
                         .leading
                         .first()
-                        .map_or(boundary.right_start, |comment| comment.span.start);
+                        .map_or(boundary.layout_start, |comment| comment.span.start);
                     let before = self.line_breaks(last.span.end, boundary.operator_span.start);
                     let after = self.line_breaks(boundary.operator_span.end, next);
                     // The displaced operator occupied a source line, not an empty line.
@@ -185,6 +188,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
+    fn assignment_expression_head(&self, mut content: ExpressionContent) -> ExpressionContent {
+        loop {
+            let expression = match content.data {
+                ExprData::MemberExpression(member) => member.object(self.ast),
+                ExprData::CallExpression(call) => call.callee(self.ast),
+                _ => return content,
+            };
+            content = self.expression_content(expression);
+        }
+    }
+
     fn assignment_boundary(
         &self,
         left_end: u32,
@@ -202,6 +216,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             left_end,
             operator_span,
             right_start,
+            layout_start: right_start,
             before_operator: LineConstraint::Unconstrained,
             after_operator: LineConstraint::Unconstrained,
             own_line: false,
@@ -265,6 +280,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let (operator_line, leading) = after.split_at(line_count);
         boundary.operator_line = operator_line;
         boundary.leading = leading;
+        if let Some(parentheses) = content.parentheses
+            && leading
+                .last()
+                .is_none_or(|comment| comment.span.end <= parentheses.outer.start)
+        {
+            // A delimiter before the head owns its inner source line breaks.
+            boundary.layout_start = parentheses.outer.start;
+        }
         boundary.mode = if promoted && self.content_mode(before) == ContentMode::Verbatim {
             ContentMode::Verbatim
         } else {

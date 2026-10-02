@@ -3,9 +3,10 @@
 use super::Formatter;
 use crate::formatter::comments::CommentRunLayout;
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
+use crate::formatter::source::is_source_whitespace;
 use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
 use crate::{FormatError, document::Writer};
-use swc_next_ecma_ast::{Argument, CommentKind, GetSpan, Span};
+use swc_next_ecma_ast::{Argument, Comment, CommentKind, GetSpan, Span};
 
 #[derive(Clone, Copy)]
 pub(super) enum FollowingArgument {
@@ -70,11 +71,54 @@ impl ArgumentLayout {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    pub(super) fn first_argument_prefix_mode(&self, comments: &[Comment]) -> ContentMode {
+        if !self.has_suppression {
+            return ContentMode::Formatted;
+        }
+        let mut runs = comments.chunk_by(|left, right| {
+            self.source(Span::new(left.span.end, right.span.start))
+                .chars()
+                .all(|character| {
+                    is_source_whitespace(character)
+                        && !matches!(character, '\n' | '\r' | '\u{2028}' | '\u{2029}')
+                })
+        });
+        let own_line = runs.any(|run| {
+            run.first()
+                .is_some_and(|first| self.source_position_starts_line(first.span.start))
+                && self.content_mode(run) == ContentMode::Verbatim
+        });
+        if own_line {
+            ContentMode::Verbatim
+        } else {
+            ContentMode::Formatted
+        }
+    }
+
     pub(super) fn format_argument_item(
         &mut self,
         argument: Argument,
         following: FollowingArgument,
         span: Span,
+        trailing_comma: bool,
+        writer: &mut Writer<'ast>,
+    ) -> Result<ItemBoundary, FormatError> {
+        self.format_argument_item_with_mode(
+            argument,
+            following,
+            span,
+            ContentMode::Formatted,
+            trailing_comma,
+            writer,
+        )
+    }
+
+    pub(super) fn format_argument_item_with_mode(
+        &mut self,
+        argument: Argument,
+        following: FollowingArgument,
+        span: Span,
+        leading_mode: ContentMode,
         trailing_comma: bool,
         writer: &mut Writer<'ast>,
     ) -> Result<ItemBoundary, FormatError> {
@@ -90,7 +134,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .comments
             .between(Span::new(span.start, argument_span.start))?;
         let leading = self.comments.take(leading.len());
-        let leading_mode = self.content_mode(leading);
+        let leading_mode = if leading_mode == ContentMode::Verbatim {
+            leading_mode
+        } else {
+            self.content_mode(leading)
+        };
         let mode = if leading_mode == ContentMode::Verbatim || !self.has_suppression {
             leading_mode
         } else {

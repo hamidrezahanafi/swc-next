@@ -328,6 +328,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     ExpressionPosition::UnaryArgument(_)
                         | ExpressionPosition::MemberObject
                         | ExpressionPosition::MemberAssignmentObject
+                        | ExpressionPosition::CallCallee
                 )
                 || self.parentheses_separate_diagnostic_lines(SourceParentheses {
                     outer: span,
