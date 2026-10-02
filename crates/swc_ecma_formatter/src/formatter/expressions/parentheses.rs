@@ -253,25 +253,48 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let span = parenthesized.span(self.ast);
         let child = parenthesized.expression(self.ast);
         let child_span = child.span(self.ast);
+        let mode = self.parentheses_content_mode(
+            SourceParentheses {
+                outer: span,
+                inner: child_span,
+            },
+            mode,
+        );
+        if mode != ContentMode::Verbatim {
+            return None;
+        }
         let head = self
             .comments
             .in_range(Span::new(span.start, child_span.start));
         let trailing = Span::new(child_span.end, span.end - 1);
         let tail = self.comments.in_range(trailing);
-        let ignored = mode == ContentMode::Verbatim
-            || self.content_mode(head) == ContentMode::Verbatim
-            || self.trailing_content_mode(trailing, BoundaryPunctuation::None, false)
-                == ContentMode::Verbatim
-            || self.trailing_content_mode(trailing, BoundaryPunctuation::None, true)
-                == ContentMode::Verbatim;
-        (ignored
-            && head.iter().chain(tail).all(|&comment| {
+        head.iter()
+            .chain(tail)
+            .all(|&comment| {
                 matches!(
                     self.comment_semantics(comment),
                     CommentSemantics::Ordinary | CommentSemantics::Suppression
                 )
-            }))
-        .then_some(child)
+            })
+            .then_some(child)
+    }
+
+    fn parentheses_content_mode(
+        &self,
+        boundary: SourceParentheses,
+        mode: ContentMode,
+    ) -> ContentMode {
+        if mode == ContentMode::Verbatim || !self.has_suppression {
+            return mode;
+        }
+        let leading = self
+            .comments
+            .in_range(Span::new(boundary.outer.start, boundary.inner.start));
+        if self.content_mode(leading) == ContentMode::Verbatim {
+            return ContentMode::Verbatim;
+        }
+        let trailing = Span::new(boundary.inner.end, boundary.outer.end - 1);
+        self.trailing_content_mode(trailing, BoundaryPunctuation::None, true)
     }
 
     pub(super) fn format_source_parentheses(
@@ -298,6 +321,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             )?;
             return Ok(None);
         }
+        context.content_mode = self.parentheses_content_mode(
+            SourceParentheses {
+                outer: span,
+                inner: child_span,
+            },
+            context.content_mode,
+        );
         if self.parenthesis_has_type_cast(span.start) {
             return self.format_retained_parentheses(
                 parenthesized,
@@ -320,7 +350,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             );
         }
         let content = self.expression_content(Expr::ParenthesizedExpression(parenthesized));
-        let ignored_child = self.ignored_parentheses_child(parenthesized, context.content_mode);
+        let ignored_child = if context.content_mode == ContentMode::Verbatim {
+            self.ignored_parentheses_child(parenthesized, context.content_mode)
+        } else {
+            None
+        };
         if let Some(ignored) = ignored_child
             && (self.ignored_operand_owns_operation_head(ignored, context.position)
                 || matches!(
@@ -412,13 +446,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let span = parenthesized.span(self.ast);
-        let content = self.expression_content(parenthesized.expression(self.ast));
-        let inner_span = content.expression.span(self.ast);
+        let child = parenthesized.expression(self.ast);
+        let (inner, data) = match context.content_mode {
+            ContentMode::Verbatim => (child, self.ast.expr_data(child)),
+            ContentMode::Formatted => {
+                let content = self.expression_content(child);
+                (content.expression, content.data)
+            }
+        };
+        let inner_span = inner.span(self.ast);
         let leading = self
             .comments
             .between(Span::new(span.start, inner_span.start))?;
         let trailing = self.comments.in_range(Span::new(inner_span.end, span.end));
-        let hug = match content.data {
+        let hug = match data {
             ExprData::ArrayExpression(array) => {
                 leading.is_empty()
                     && trailing.is_empty()
@@ -442,9 +483,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             kind,
             hug,
             writer,
-            |formatter, context, writer| {
-                formatter.format_expression(content.expression, context, writer)
-            },
+            |formatter, context, writer| formatter.format_expression(inner, context, writer),
         )
     }
 
