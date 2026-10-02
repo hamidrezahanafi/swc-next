@@ -5,7 +5,7 @@ use swc_next_ecma_ast::{
     PropertyKeyData, Span,
 };
 
-use super::{ExpressionContext, ExpressionPosition, Formatter, TailOwner};
+use super::{ExpressionContext, ExpressionPosition, Formatter, MemberLayout, TailOwner};
 use crate::formatter::comments::{CommentRunLayout, CommentSemantics, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::source::is_source_whitespace;
@@ -116,7 +116,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ExpressionContext::at(position)
                 .with_statement_start(context.statement_start)
                 .with_tail_owner(TailOwner::ParentOperation)
-                .with_content_mode(receiver),
+                .with_content_mode(receiver)
+                .with_member_layout(context.member_layout),
             writer,
         )?;
         let source_end = tail
@@ -145,7 +146,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.expression_content(object).data,
             ExprData::IdentifierReference(_)
         ) && !matches!(context.position, ExpressionPosition::MemberObject);
-        let inline = target || member.computed(self.ast) || simple;
+        let inline = target
+            || context.member_layout == MemberLayout::Tight
+            || member.computed(self.ast)
+            || simple;
         let breakable = !inline;
         let mut suffix = |writer: &mut Writer<'ast>| {
             if mandatory_line {

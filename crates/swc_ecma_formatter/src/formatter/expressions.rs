@@ -6,6 +6,7 @@ mod assignment;
 mod binary;
 mod calls;
 mod conditional;
+mod constructors;
 mod members;
 mod objects;
 mod parentheses;
@@ -41,6 +42,7 @@ pub(super) enum ExpressionPosition {
     PropertyValue,
     MemberObject,
     CallCallee,
+    NewCallee,
     MemberAssignmentObject,
     ConditionalTest,
     ConditionalConsequent,
@@ -74,6 +76,12 @@ enum ParenthesesOwner {
     Parent,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MemberLayout {
+    Normal,
+    Tight,
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct ExpressionContext {
     position: ExpressionPosition,
@@ -82,6 +90,7 @@ pub(super) struct ExpressionContext {
     content_mode: ContentMode,
     tail_owner: TailOwner,
     parentheses_owner: ParenthesesOwner,
+    member_layout: MemberLayout,
 }
 
 impl ExpressionContext {
@@ -97,6 +106,7 @@ impl ExpressionContext {
             content_mode: ContentMode::Formatted,
             tail_owner: TailOwner::Expression,
             parentheses_owner: ParenthesesOwner::Expression,
+            member_layout: MemberLayout::Normal,
         }
     }
 
@@ -113,6 +123,11 @@ impl ExpressionContext {
 
     pub(super) fn with_content_mode(mut self, mode: ContentMode) -> Self {
         self.content_mode = mode;
+        self
+    }
+
+    fn with_member_layout(mut self, layout: MemberLayout) -> Self {
+        self.member_layout = layout;
         self
     }
 
@@ -141,9 +156,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     inner: child_span,
                 };
                 if self.parentheses_are_removable(boundary)
-                    && self
-                        .expression_needs_parentheses(self.ast.expr_data(child), context.position)
-                        == Some(false)
+                    && self.expression_needs_parentheses(
+                        self.ast.expr_data(child),
+                        context.position,
+                        ContentMode::Verbatim,
+                    ) == Some(false)
                 {
                     return self.format_source_parentheses(
                         parenthesized,
@@ -174,7 +191,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let span = expression.span(self.ast);
         let source = self.source(span);
         let parenthesize = context.parentheses_owner == ParenthesesOwner::Expression
-            && (self.expression_needs_parentheses(data, context.position) == Some(true)
+            && (self.expression_needs_parentheses(data, context.position, context.content_mode)
+                == Some(true)
                 || matches!(data, ExprData::ObjectExpression(_))
                     && context.statement_start != StatementStart::None);
         let starts_update = matches!(data, ExprData::UpdateExpression(update) if update.prefix(self.ast))
@@ -211,7 +229,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let binary = BinaryLike::from_data(data, self.ast);
         let parenthesize = context.parentheses_owner == ParenthesesOwner::Expression
-            && (self.expression_needs_parentheses(data, context.position) == Some(true)
+            && (self.expression_needs_parentheses(data, context.position, context.content_mode)
+                == Some(true)
                 || matches!(data, ExprData::ObjectExpression(_))
                     && context.statement_start != StatementStart::None);
         if context.statement_start == StatementStart::Pending
@@ -234,6 +253,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         operator: binary.operator,
                         side: OperandSide::Left,
                     },
+                    ContentMode::Formatted,
                 ) == Some(true);
             }
             if asi_guard {
@@ -255,6 +275,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         | ExpressionPosition::MemberObject
                         | ExpressionPosition::MemberAssignmentObject
                         | ExpressionPosition::CallCallee
+                        | ExpressionPosition::NewCallee
                 )
             {
                 return writer.group(false, |writer| {
@@ -285,6 +306,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ExpressionPosition::MemberObject
                     | ExpressionPosition::MemberAssignmentObject
                     | ExpressionPosition::CallCallee
+                    | ExpressionPosition::NewCallee
             )
         {
             return writer.group(false, |writer| {
@@ -355,6 +377,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ExprData::ObjectExpression(object) => self.format_object(object, writer).map(|()| None),
             ExprData::MemberExpression(member) => self.format_member(member, context, writer),
             ExprData::CallExpression(call) => self.format_call(call, context, writer),
+            ExprData::NewExpression(constructor) => self.format_new(constructor, writer),
             ExprData::UnaryExpression(unary) => self.format_unary(unary, writer),
             ExprData::UpdateExpression(update) => self.format_update(update, context, writer),
             ExprData::ConditionalExpression(conditional) => {
@@ -376,9 +399,28 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &self,
         data: ExprData,
         position: ExpressionPosition,
+        mode: ContentMode,
     ) -> Option<bool> {
         match data {
             ExprData::SequenceExpression(_) => return Some(true),
+            ExprData::NewExpression(constructor) => {
+                if mode == ContentMode::Formatted
+                    || !matches!(
+                        position,
+                        ExpressionPosition::CallCallee
+                            | ExpressionPosition::MemberObject
+                            | ExpressionPosition::MemberAssignmentObject
+                            | ExpressionPosition::NewCallee
+                    )
+                {
+                    return Some(false);
+                }
+                let suffix_end = constructor.type_arguments(self.ast).map_or_else(
+                    || constructor.callee(self.ast).span(self.ast).end,
+                    |arguments| arguments.span(self.ast).end,
+                );
+                return Some(constructor.span(self.ast).end == suffix_end);
+            }
             ExprData::IdentifierReference(_)
             | ExprData::ThisExpression(_)
             | ExprData::StringLiteral(_)
@@ -400,6 +442,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             | ExprData::ParenthesizedExpression(_) => {}
             _ => return None,
         }
+        if matches!(position, ExpressionPosition::NewCallee)
+            && self.new_callee_contains_call(data, mode)
+        {
+            return Some(true);
+        }
         Some(match (position, data) {
             (
                 ExpressionPosition::MemberObject | ExpressionPosition::MemberAssignmentObject,
@@ -411,7 +458,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 | ExprData::ConditionalExpression(_),
             ) => true,
             (
-                ExpressionPosition::CallCallee,
+                ExpressionPosition::CallCallee | ExpressionPosition::NewCallee,
                 ExprData::UnaryExpression(_)
                 | ExprData::UpdateExpression(_)
                 | ExprData::BinaryExpression(_)

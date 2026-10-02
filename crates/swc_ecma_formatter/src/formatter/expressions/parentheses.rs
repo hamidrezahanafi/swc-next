@@ -49,6 +49,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && self.expression_needs_parentheses(
                 self.expression_content(expression).data,
                 context.position,
+                context.content_mode,
             ) == Some(true);
         if !enclose_comments {
             context.statement_start =
@@ -126,7 +127,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             };
             let child = parenthesized.expression(self.ast);
             if self
-                .expression_needs_parentheses(self.ast.expr_data(child), ExpressionPosition::Nested)
+                .expression_needs_parentheses(
+                    self.ast.expr_data(child),
+                    ExpressionPosition::Nested,
+                    ContentMode::Formatted,
+                )
                 .is_none()
                 || !self.parentheses_are_removable(SourceParentheses {
                     outer: parenthesized.span(self.ast),
@@ -311,8 +316,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if inline_mode == ContentMode::Verbatim
             && (matches!(context.position, ExpressionPosition::Statement)
                 || context.tail_owner == TailOwner::ParentOperation
-                || self.expression_needs_parentheses(self.ast.expr_data(child), context.position)
-                    == Some(true))
+                || self.expression_needs_parentheses(
+                    self.ast.expr_data(child),
+                    context.position,
+                    ContentMode::Verbatim,
+                ) == Some(true))
         {
             self.format_verbatim_expression(
                 Expr::ParenthesizedExpression(parenthesized),
@@ -363,13 +371,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         | ExpressionPosition::MemberObject
                         | ExpressionPosition::MemberAssignmentObject
                         | ExpressionPosition::CallCallee
+                        | ExpressionPosition::NewCallee
                 )
                 || self.parentheses_separate_diagnostic_lines(SourceParentheses {
                     outer: span,
                     inner: child_span,
                 })
                 || self
-                    .expression_needs_parentheses(self.ast.expr_data(child), context.position)
+                    .expression_needs_parentheses(
+                        self.ast.expr_data(child),
+                        context.position,
+                        ContentMode::Verbatim,
+                    )
                     .is_none())
         {
             return self.format_retained_parentheses(
