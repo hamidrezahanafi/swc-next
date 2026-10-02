@@ -427,8 +427,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text(",");
             if let Some(comma) = comma {
                 let after_separator = Span::new(comma + 1, gap.end);
+                // The source gap after the comma is independent of comment ownership.
+                let after_comma = comments.partition_point(|comment| comment.span.start <= comma);
                 let next_start = comments
-                    .get(boundary_count)
+                    .get(boundary_count.max(after_comma))
                     .map_or(gap.end, |comment| comment.span.start);
                 let start = after_separator.start.max(boundary_end);
                 if start < next_start && self.next_line_is_empty(start, next_start) {
