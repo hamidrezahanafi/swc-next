@@ -41,6 +41,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         mut context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        if !head.comments.is_empty() {
+            context.arrow_layout = context.arrow_layout.with_leading_comments();
+        }
         let enclose_comments = !head.comments.is_empty()
             && context.parentheses_owner == ParenthesesOwner::Expression
             && head.comments.iter().any(|&comment| {

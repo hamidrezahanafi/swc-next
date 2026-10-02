@@ -5,6 +5,7 @@ mod arrays;
 mod arrows;
 pub(super) mod assignment;
 mod binary;
+mod callbacks;
 mod calls;
 mod conditional;
 mod constructors;
@@ -95,6 +96,32 @@ enum MemberLayout {
     Tight,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum OperandIndent {
+    Expression,
+    Parent,
+}
+
+/// Optional breaks for a complete expression belong to its actual source line.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ExpressionLayout {
+    Normal,
+    Flat,
+}
+
+impl ExpressionLayout {
+    pub(super) fn write<'a, T>(
+        self,
+        writer: &mut Writer<'a>,
+        write: impl FnOnce(&mut Writer<'a>) -> T,
+    ) -> T {
+        match self {
+            Self::Normal => write(writer),
+            Self::Flat => writer.flat(write),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct ExpressionContext {
     position: ExpressionPosition,
@@ -104,9 +131,18 @@ pub(super) struct ExpressionContext {
     tail_owner: TailOwner,
     parentheses_owner: ParenthesesOwner,
     member_layout: MemberLayout,
+    arrow_layout: arrows::ArrowLayout,
+    operand_indent: OperandIndent,
 }
 
 impl ExpressionContext {
+    pub(super) fn binding_initializer() -> Self {
+        Self::at(ExpressionPosition::AssignmentRight(
+            AssignmentParent::Nested,
+        ))
+        .with_arrow_layout(arrows::ArrowLayout::Ordinary)
+    }
+
     pub(super) fn at(position: ExpressionPosition) -> Self {
         Self {
             position,
@@ -120,7 +156,28 @@ impl ExpressionContext {
             tail_owner: TailOwner::Expression,
             parentheses_owner: ParenthesesOwner::Expression,
             member_layout: MemberLayout::Normal,
+            operand_indent: OperandIndent::Expression,
+            arrow_layout: match position {
+                ExpressionPosition::CallCallee | ExpressionPosition::NewCallee => {
+                    arrows::ArrowLayout::Callee
+                }
+                ExpressionPosition::AssignmentRight(_) => {
+                    arrows::ArrowLayout::Assignment(arrows::ArrowHeadGap::Expression)
+                }
+                ExpressionPosition::BinaryOperand { .. } => arrows::ArrowLayout::Argument,
+                _ => arrows::ArrowLayout::Ordinary,
+            },
         }
+    }
+
+    pub(super) fn with_operand_indent(mut self, owner: OperandIndent) -> Self {
+        self.operand_indent = owner;
+        self
+    }
+
+    fn with_arrow_layout(mut self, layout: arrows::ArrowLayout) -> Self {
+        self.arrow_layout = layout;
+        self
     }
 
     pub(super) fn with_expression_start(mut self, start: ExpressionStart) -> Self {
@@ -185,12 +242,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.format_verbatim_expression(expression, context, writer)?;
             return Ok(None);
         }
+        self.expression_layout(expression).write(writer, |writer| {
+            self.format_expression_content(expression, context, writer)
+        })
+    }
+
+    fn expression_layout(&self, expression: Expr) -> ExpressionLayout {
+        let span = expression.span(self.ast);
         if self.diagnostic_line_is_sensitive(span.start)
             && self.line_breaks(span.start, span.end) == 0
         {
-            writer.flat(|writer| self.format_expression_content(expression, context, writer))
+            ExpressionLayout::Flat
         } else {
-            self.format_expression_content(expression, context, writer)
+            ExpressionLayout::Normal
         }
     }
 
@@ -601,7 +665,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         match self.ast.argument_data(argument) {
             ArgumentData::Expr(expression) => self.format_expression(
                 expression,
-                ExpressionContext::at(ExpressionPosition::Nested).with_content_mode(mode),
+                ExpressionContext::at(ExpressionPosition::Nested)
+                    .with_content_mode(mode)
+                    .with_arrow_layout(arrows::ArrowLayout::Argument),
                 writer,
             ),
             ArgumentData::SpreadElement(spread) => {

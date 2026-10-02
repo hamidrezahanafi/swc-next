@@ -11,8 +11,9 @@ enum Mode {
 
 #[derive(Clone, Copy)]
 enum ProbeKind {
-    Group,
+    Group(Option<super::GroupId>),
     Fill,
+    Candidate,
 }
 
 struct FillState {
@@ -21,9 +22,114 @@ struct FillState {
     separator_mode: Mode,
 }
 
+#[derive(Clone, Copy)]
 struct GroupState {
     mode: Mode,
     restore_mode: Mode,
+}
+
+/// Fill entry distances remain valid when a retained scope starts within its backing slice.
+#[derive(Clone, Copy)]
+struct Frame<'a> {
+    elements: &'a [FormatElement<'a>],
+    index: usize,
+    end: usize,
+    flat: bool,
+    restore_mode: Option<Mode>,
+}
+
+impl<'a> Frame<'a> {
+    fn new(elements: &'a [FormatElement<'a>]) -> Self {
+        Self {
+            elements,
+            index: 0,
+            end: elements.len(),
+            flat: false,
+            restore_mode: None,
+        }
+    }
+
+    fn next(&mut self) -> Option<(usize, FormatElement<'a>)> {
+        while self.index < self.end {
+            let index = self.index;
+            self.index += 1;
+            let element = self.elements[index];
+            if self.flat {
+                if let Some(element) = element.flattened() {
+                    return Some((index, element));
+                }
+            } else {
+                return Some((index, element));
+            }
+        }
+        None
+    }
+}
+
+struct Cursor<'a> {
+    current: Frame<'a>,
+    suspended: Vec<Frame<'a>>,
+}
+
+impl<'a> Cursor<'a> {
+    fn enter(&mut self, elements: &'a [FormatElement<'a>], flat: bool, restore_mode: Option<Mode>) {
+        self.suspended.push(self.current);
+        self.current = Frame {
+            flat,
+            restore_mode,
+            ..Frame::new(elements)
+        };
+    }
+
+    fn next(&mut self, mode: &mut Mode) -> Option<(usize, FormatElement<'a>)> {
+        loop {
+            if let Some(element) = self.current.next() {
+                return Some(element);
+            }
+            if let Some(restore) = self.current.restore_mode {
+                *mode = restore;
+            }
+            self.current = self.suspended.pop()?;
+        }
+    }
+}
+
+/// A probe borrows the untouched print continuation. Only new frames go in the
+/// scratch stack; crossing a retained scope never clones the pending queue.
+struct ProbeCursor<'a, 'scratch> {
+    current: Frame<'a>,
+    frames: &'scratch mut Vec<Frame<'a>>,
+    parents: &'scratch [Frame<'a>],
+    parent_len: usize,
+}
+
+impl<'a> ProbeCursor<'a, '_> {
+    fn enter(&mut self, elements: &'a [FormatElement<'a>], flat: bool, restore_mode: Option<Mode>) {
+        self.frames.push(self.current);
+        self.current = Frame {
+            flat,
+            restore_mode,
+            ..Frame::new(elements)
+        };
+    }
+
+    fn next(&mut self, mode: &mut Mode) -> Option<FormatElement<'a>> {
+        loop {
+            if let Some((_, element)) = self.current.next() {
+                return Some(element);
+            }
+            if let Some(restore) = self.current.restore_mode {
+                *mode = restore;
+            }
+            if let Some(frame) = self.frames.pop() {
+                self.current = frame;
+            } else {
+                let index = self.parent_len.checked_sub(1)?;
+                self.parent_len = index;
+                self.current = self.parents[index];
+            }
+        }
+    }
 }
 
 struct Output {
@@ -59,6 +165,7 @@ impl Indentation {
 pub(super) fn print(
     elements: &[FormatElement<'_>],
     group_count: usize,
+    conditional_lines: bool,
     options: FormatOptions,
 ) -> String {
     let mut output = Output {
@@ -73,11 +180,53 @@ pub(super) fn print(
     let mut modes = Vec::new();
     let mut group_modes = vec![Mode::Flat; group_count];
     let mut mode = Mode::Break;
-    let mut probe = Vec::new();
+    let mut probe = Probe {
+        track_groups: conditional_lines,
+        ..Probe::default()
+    };
+    let mut cursor = Cursor {
+        current: Frame::new(elements),
+        suspended: Vec::new(),
+    };
     let mut fills = Vec::new();
     let mut entries = Vec::new();
-    for (index, element) in elements.iter().enumerate() {
-        match *element {
+    while let Some((index, element)) = cursor.next(&mut mode) {
+        match element {
+            FormatElement::Fragment(fragment) => cursor.enter(fragment.elements, false, None),
+            FormatElement::FlatFragment(fragment) => cursor.enter(fragment.0.elements, true, None),
+            FormatElement::Alternatives(alternatives) => {
+                let selected = alternatives.preferred.iter().find(|fragment| {
+                    probe.fits(
+                        ProbeRequest {
+                            current: Frame {
+                                restore_mode: Some(mode),
+                                ..Frame::new(fragment.elements)
+                            },
+                            pending: &cursor.suspended,
+                            continuation: Some(cursor.current),
+                            kind: ProbeKind::Candidate,
+                        },
+                        &modes,
+                        &output,
+                        options,
+                        mode,
+                        &group_modes,
+                    )
+                });
+                let (fragment, selected_mode) = selected
+                    .map_or((alternatives.fallback, Mode::Break), |fragment| {
+                        (*fragment, Mode::Flat)
+                    });
+                cursor.enter(fragment.elements, false, Some(mode));
+                mode = selected_mode;
+            }
+            FormatElement::SoftLineIfBreak(id) => {
+                if group_modes[id.0] == Mode::Break && mode == Mode::Break {
+                    flush_suffixes(&mut suffixes, &mut output, options);
+                    output.line(indent, options);
+                }
+            }
+            FormatElement::BreakParent => {}
             FormatElement::Text(text) => output.write(text, options),
             FormatElement::Space => output.pending_space = true,
             FormatElement::SoftLine | FormatElement::Line if mode == Mode::Flat => {
@@ -109,14 +258,18 @@ pub(super) fn print(
             FormatElement::StartGroup { expand, id } => {
                 let flat = !expand
                     && (mode == Mode::Flat
-                        || fits(
-                            &elements[index + 1..],
+                        || probe.fits(
+                            ProbeRequest {
+                                current: cursor.current,
+                                pending: &cursor.suspended,
+                                continuation: None,
+                                kind: ProbeKind::Group(id),
+                            },
                             &modes,
-                            &mut probe,
-                            output.column,
-                            output.pending_space,
+                            &output,
                             options,
-                            ProbeKind::Group,
+                            mode,
+                            &group_modes,
                         ));
                 let group_mode = if flat { Mode::Flat } else { Mode::Break };
                 if let Some(id) = id {
@@ -184,11 +337,11 @@ pub(super) fn print(
                         Mode::Flat
                     } else {
                         let separator_start = end + 1;
-                        let next_end = match elements.get(separator_start) {
+                        let next_end = match cursor.current.elements.get(separator_start) {
                             Some(FormatElement::StartEntry { end_offset }) => {
                                 let separator_end = separator_start + end_offset;
                                 let content_start = separator_end + 1;
-                                match elements.get(content_start) {
+                                match cursor.current.elements.get(content_start) {
                                     Some(FormatElement::StartEntry { end_offset }) => {
                                         content_start + end_offset
                                     }
@@ -197,14 +350,23 @@ pub(super) fn print(
                             }
                             _ => end,
                         };
-                        let pair_fits = fits(
-                            &elements[index + 1..next_end],
+                        let pair_fits = probe.fits(
+                            ProbeRequest {
+                                current: Frame {
+                                    index: index + 1,
+                                    end: next_end,
+                                    restore_mode: None,
+                                    ..cursor.current
+                                },
+                                pending: &[],
+                                continuation: None,
+                                kind: ProbeKind::Fill,
+                            },
                             &modes,
-                            &mut probe,
-                            output.column,
-                            output.pending_space,
+                            &output,
                             options,
-                            ProbeKind::Fill,
+                            mode,
+                            &group_modes,
                         );
                         if pair_fits {
                             fill.separator_mode = Mode::Flat;
@@ -212,14 +374,23 @@ pub(super) fn print(
                         } else {
                             fill.separator_mode = Mode::Break;
                             if next_end != end
-                                && fits(
-                                    &elements[index + 1..end],
+                                && probe.fits(
+                                    ProbeRequest {
+                                        current: Frame {
+                                            index: index + 1,
+                                            end,
+                                            restore_mode: None,
+                                            ..cursor.current
+                                        },
+                                        pending: &[],
+                                        continuation: None,
+                                        kind: ProbeKind::Fill,
+                                    },
                                     &modes,
-                                    &mut probe,
-                                    output.column,
-                                    output.pending_space,
+                                    &output,
                                     options,
-                                    ProbeKind::Fill,
+                                    mode,
+                                    &group_modes,
                                 )
                             {
                                 Mode::Flat
@@ -289,100 +460,186 @@ fn flush_suffixes(suffixes: &mut Vec<Text<'_>>, output: &mut Output, options: Fo
     }
 }
 
-fn fits(
-    elements: &[FormatElement<'_>],
-    parents: &[GroupState],
-    modes: &mut Vec<Mode>,
-    mut column: usize,
-    mut pending_space: bool,
-    options: FormatOptions,
+struct ProbeRequest<'a, 'pending> {
+    current: Frame<'a>,
+    pending: &'pending [Frame<'a>],
+    continuation: Option<Frame<'a>>,
     kind: ProbeKind,
-) -> bool {
-    modes.clear();
-    if matches!(kind, ProbeKind::Group) {
-        modes.push(Mode::Flat);
-    }
-    let mut parent_len = parents.len();
-    let mut mode = Mode::Flat;
-    for element in elements {
-        if column > usize::from(options.line_width) {
-            return false;
+}
+
+#[derive(Default)]
+struct Probe<'a> {
+    track_groups: bool,
+    group_writes: Vec<(super::GroupId, Mode)>,
+    modes: Vec<GroupState>,
+    frames: Vec<Frame<'a>>,
+}
+
+impl<'a> Probe<'a> {
+    fn fits(
+        &mut self,
+        request: ProbeRequest<'a, '_>,
+        parents: &[GroupState],
+        output: &Output,
+        options: FormatOptions,
+        incoming_mode: Mode,
+        committed_groups: &[Mode],
+    ) -> bool {
+        let ProbeRequest {
+            current,
+            pending: pending_frames,
+            continuation,
+            kind,
+        } = request;
+        let Self {
+            track_groups,
+            group_writes,
+            modes,
+            frames,
+        } = self;
+        group_writes.clear();
+        let mut column = output.column;
+        let mut pending_space = output.pending_space;
+        modes.clear();
+        frames.clear();
+        if let Some(continuation) = continuation {
+            frames.push(continuation);
         }
-        match *element {
-            FormatElement::Text(text)
-            | FormatElement::IfBreak(text)
-            | FormatElement::IfFlat(text) => {
-                if matches!(
-                    element,
-                    FormatElement::IfBreak(_) | FormatElement::IfFlat(_)
-                ) {
-                    let group_mode = modes
-                        .last()
-                        .copied()
-                        .or_else(|| parents[..parent_len].last().map(|group| group.mode))
-                        .unwrap_or(Mode::Break);
-                    let active = match element {
-                        FormatElement::IfBreak(_) => group_mode == Mode::Break,
-                        _ => group_mode == Mode::Flat,
-                    };
-                    if !active {
-                        continue;
+        let mut cursor = ProbeCursor {
+            current,
+            frames,
+            parents: pending_frames,
+            parent_len: pending_frames.len(),
+        };
+        if let ProbeKind::Group(id) = kind {
+            if *track_groups && let Some(id) = id {
+                group_writes.push((id, Mode::Flat));
+            }
+            modes.push(GroupState {
+                mode: Mode::Flat,
+                restore_mode: incoming_mode,
+            });
+        }
+        let mut parent_len = parents.len();
+        let mut mode = Mode::Flat;
+        while let Some(element) = cursor.next(&mut mode) {
+            if column > usize::from(options.line_width) {
+                return false;
+            }
+            match element {
+                FormatElement::Text(text)
+                | FormatElement::IfBreak(text)
+                | FormatElement::IfFlat(text) => {
+                    if matches!(
+                        element,
+                        FormatElement::IfBreak(_) | FormatElement::IfFlat(_)
+                    ) {
+                        let group_mode = modes
+                            .last()
+                            .map(|group| group.mode)
+                            .or_else(|| parents[..parent_len].last().map(|group| group.mode))
+                            .unwrap_or(Mode::Break);
+                        let active = match element {
+                            FormatElement::IfBreak(_) => group_mode == Mode::Break,
+                            _ => group_mode == Mode::Flat,
+                        };
+                        if !active {
+                            continue;
+                        }
+                    }
+                    column += usize::from(pending_space);
+                    pending_space = false;
+                    let (next_column, multiline) =
+                        text.first_line(column, options.indent_width.value());
+                    column = next_column;
+                    if multiline {
+                        return column <= usize::from(options.line_width);
                     }
                 }
-                column += usize::from(pending_space);
-                pending_space = false;
-                let (next_column, multiline) =
-                    text.first_line(column, options.indent_width.value());
-                column = next_column;
-                if multiline {
-                    return column <= usize::from(options.line_width);
+                FormatElement::LineSuffix(_) => {}
+                FormatElement::Space => pending_space = true,
+                FormatElement::SoftLine | FormatElement::Line if mode == Mode::Flat => {
+                    if matches!(element, FormatElement::Line) {
+                        pending_space = true;
+                    }
                 }
-            }
-            FormatElement::LineSuffix(_) => {}
-            FormatElement::Space => pending_space = true,
-            FormatElement::SoftLine | FormatElement::Line if mode == Mode::Flat => {
-                if matches!(element, FormatElement::Line) {
-                    pending_space = true;
+                FormatElement::SoftLine
+                | FormatElement::Line
+                | FormatElement::HardLine
+                | FormatElement::LiteralLine => return true,
+                FormatElement::StartGroup { expand, id } => {
+                    if expand && matches!(kind, ProbeKind::Fill) {
+                        return false;
+                    }
+                    let group_mode = if expand { Mode::Break } else { mode };
+                    modes.push(GroupState {
+                        mode: group_mode,
+                        restore_mode: mode,
+                    });
+                    mode = group_mode;
+                    if *track_groups && let Some(id) = id {
+                        group_writes.push((id, group_mode));
+                    }
                 }
-            }
-            FormatElement::SoftLine
-            | FormatElement::Line
-            | FormatElement::HardLine
-            | FormatElement::LiteralLine => return true,
-            FormatElement::StartGroup { expand, .. } => {
-                if expand && matches!(kind, ProbeKind::Fill) {
-                    return false;
+                FormatElement::EndGroup => {
+                    if let Some(group) = modes.pop() {
+                        mode = group.restore_mode;
+                    } else {
+                        parent_len = parent_len
+                            .checked_sub(1)
+                            .expect("fit probe closes an active group scope");
+                        mode = parents[parent_len].restore_mode;
+                    }
+                    if matches!(kind, ProbeKind::Fill) && modes.is_empty() {
+                        mode = Mode::Flat;
+                    }
                 }
-                mode = if expand { Mode::Break } else { mode };
-                modes.push(mode);
-            }
-            FormatElement::EndGroup => {
-                if modes.pop().is_none() {
-                    parent_len = parent_len
-                        .checked_sub(1)
-                        .expect("fit probe closes an active group scope");
+                FormatElement::Fragment(fragment) => cursor.enter(fragment.elements, false, None),
+                FormatElement::FlatFragment(fragment) => {
+                    cursor.enter(fragment.0.elements, true, None)
                 }
-                mode = if matches!(kind, ProbeKind::Fill) && modes.is_empty() {
-                    Mode::Flat
-                } else {
-                    modes
-                        .last()
-                        .copied()
-                        .or_else(|| parents[..parent_len].last().map(|group| group.mode))
-                        .unwrap_or(Mode::Break)
-                };
+                FormatElement::Alternatives(alternatives) => {
+                    let fragment = if mode == Mode::Flat {
+                        alternatives.first()
+                    } else {
+                        alternatives.fallback
+                    };
+                    cursor.enter(fragment.elements, false, Some(mode));
+                }
+                FormatElement::SoftLineIfBreak(id) => {
+                    if mode == Mode::Flat {
+                        continue;
+                    }
+                    let named = group_writes
+                        .iter()
+                        .rev()
+                        .find(|(written, _)| written.0 == id.0)
+                        .map_or(committed_groups[id.0], |(_, mode)| *mode);
+                    if named == Mode::Break {
+                        return true;
+                    }
+                }
+                FormatElement::FlatGroup(id) => {
+                    if *track_groups {
+                        group_writes.push((id, Mode::Flat));
+                    }
+                }
+                FormatElement::BreakParent => {
+                    if mode == Mode::Flat {
+                        return false;
+                    }
+                }
+                FormatElement::StartIndent
+                | FormatElement::StartIndentIfBreak(_)
+                | FormatElement::EndIndent
+                | FormatElement::StartAlign { .. }
+                | FormatElement::EndAlign { .. }
+                | FormatElement::StartFill
+                | FormatElement::EndFill
+                | FormatElement::StartEntry { .. }
+                | FormatElement::EndEntry => {}
             }
-            FormatElement::StartIndent
-            | FormatElement::FlatGroup(_)
-            | FormatElement::StartIndentIfBreak(_)
-            | FormatElement::EndIndent
-            | FormatElement::StartAlign { .. }
-            | FormatElement::EndAlign { .. }
-            | FormatElement::StartFill
-            | FormatElement::EndFill
-            | FormatElement::StartEntry { .. }
-            | FormatElement::EndEntry => {}
         }
+        column <= usize::from(options.line_width)
     }
-    column <= usize::from(options.line_width)
 }

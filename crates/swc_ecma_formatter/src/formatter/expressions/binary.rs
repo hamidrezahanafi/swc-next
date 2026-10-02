@@ -230,21 +230,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         mut context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        let parent_indents = match context.position {
-            ExpressionPosition::RestrictedArgument
-            | ExpressionPosition::YieldArgument
-            | ExpressionPosition::ParenthesizedUnaryArgument(_)
-            | ExpressionPosition::ConditionalTest
-            | ExpressionPosition::ConditionalConsequent
-            | ExpressionPosition::ConditionalAlternate => true,
-            ExpressionPosition::AssignmentRight(_) | ExpressionPosition::PropertyValue => {
-                let inline = self.inline_logical_operand(binary.operator, binary.right);
-                !inline
-                    || !BinaryLike::from_data(self.expression_content(binary.left).data, self.ast)
+        let parent_indents = context.operand_indent == super::OperandIndent::Parent
+            || match context.position {
+                ExpressionPosition::ParenthesizedUnaryArgument(_)
+                | ExpressionPosition::ConditionalTest
+                | ExpressionPosition::ConditionalConsequent
+                | ExpressionPosition::ConditionalAlternate => true,
+                ExpressionPosition::AssignmentRight(_) | ExpressionPosition::PropertyValue => {
+                    let inline = self.inline_logical_operand(binary.operator, binary.right);
+                    !inline
+                        || !BinaryLike::from_data(
+                            self.expression_content(binary.left).data,
+                            self.ast,
+                        )
                         .is_some_and(|left| binary.operator.flattens(left.operator))
-            }
-            _ => false,
-        };
+                }
+                _ => false,
+            };
         if parent_indents {
             return writer.group(false, |writer| self.format_binary_enclosed(binary, writer));
         }
@@ -309,6 +311,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     tail_owner: TailOwner::Expression,
                     parentheses_owner: super::ParenthesesOwner::Expression,
                     member_layout: super::MemberLayout::Normal,
+                    arrow_layout: super::arrows::ArrowLayout::Argument,
+                    operand_indent: super::OperandIndent::Expression,
                 },
                 writer,
             )

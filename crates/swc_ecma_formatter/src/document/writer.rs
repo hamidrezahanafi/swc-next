@@ -2,9 +2,11 @@
 
 use std::borrow::Cow;
 
-use swc_next_allocator::Allocator;
+use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
 
-use super::{Doc, FormatElement, GroupId, text::Text};
+use super::{
+    Alternatives, Doc, FlatFragment, FormatElement, Fragment, GroupId, RecordedGroup, text::Text,
+};
 
 pub(crate) struct Writer<'a> {
     allocator: &'a Allocator,
@@ -12,6 +14,7 @@ pub(crate) struct Writer<'a> {
     breaks: usize,
     flattening: bool,
     group_count: usize,
+    conditional_lines: bool,
 }
 
 impl<'a> Writer<'a> {
@@ -22,6 +25,7 @@ impl<'a> Writer<'a> {
             breaks: 0,
             flattening: false,
             group_count: 0,
+            conditional_lines: false,
         }
     }
 
@@ -86,6 +90,11 @@ impl<'a> Writer<'a> {
         self.elements.push(FormatElement::SoftLine);
     }
 
+    pub(crate) fn soft_line_if_break(&mut self, group: GroupId) {
+        self.conditional_lines = true;
+        self.elements.push(FormatElement::SoftLineIfBreak(group));
+    }
+
     pub(crate) fn line(&mut self) {
         self.elements.push(FormatElement::Line);
     }
@@ -105,6 +114,7 @@ impl<'a> Writer<'a> {
     }
 
     pub(crate) fn break_parent(&mut self) {
+        self.elements.push(FormatElement::BreakParent);
         self.breaks += 1;
     }
 
@@ -149,33 +159,27 @@ impl<'a> Writer<'a> {
         }
         let start = self.elements.len();
         let breaks = self.breaks;
+        let conditional_lines = self.conditional_lines;
         self.flattening = true;
         let result = write(self);
         self.flattening = false;
-        if self.elements[start..].iter().any(|element| match element {
-            FormatElement::HardLine | FormatElement::LiteralLine | FormatElement::LineSuffix(_) => {
-                true
-            }
-            FormatElement::Text(text) => text.source.contains(['\n', '\r', '\u{2028}', '\u{2029}']),
-            _ => false,
-        }) {
+        if self.elements[start..]
+            .iter()
+            .any(|element| !element.permits_flat())
+        {
             return result;
         }
         let mut output = start;
         for index in start..self.elements.len() {
-            let element = match self.elements[index] {
-                FormatElement::Line => FormatElement::Space,
-                FormatElement::IfFlat(text) => FormatElement::Text(text),
-                FormatElement::StartGroup { id: Some(id), .. } => FormatElement::FlatGroup(id),
-                element @ FormatElement::FlatGroup(_) => element,
-                element @ (FormatElement::Text(_) | FormatElement::Space) => element,
-                _ => continue,
+            let Some(element) = self.elements[index].flattened() else {
+                continue;
             };
             self.elements[output] = element;
             output += 1;
         }
         self.elements.truncate(output);
         self.breaks = breaks;
+        self.conditional_lines = conditional_lines;
         result
     }
 
@@ -226,10 +230,88 @@ impl<'a> Writer<'a> {
         result
     }
 
+    /// Syntax is consumed once; only completed documents are retained.
+    pub(crate) fn record_with_value<T, E>(
+        &mut self,
+        write: impl FnOnce(&mut Self) -> Result<T, E>,
+    ) -> Result<(Fragment<'a>, T), E> {
+        let mut child = Self::new(self.allocator);
+        child.group_count = self.group_count;
+        let value = write(&mut child)?;
+        self.group_count = child.group_count;
+        let flat = child.elements.iter().all(|element| element.permits_flat());
+        let mut elements = ArenaVec::with_capacity_in(child.elements.len(), self.allocator);
+        elements.extend_from_slice(&child.elements);
+        let fragment = Fragment {
+            elements: elements.into_bump_slice(),
+            breaks: child.breaks != 0,
+            flat,
+            conditional_lines: child.conditional_lines,
+        };
+        Ok((fragment, value))
+    }
+
+    pub(crate) fn record_group_with_value<T, E>(
+        &mut self,
+        write: impl FnOnce(&mut Self) -> Result<T, E>,
+    ) -> Result<(RecordedGroup<'a>, T), E> {
+        let (grouped, value) = self.record_with_value(|writer| writer.group(false, write))?;
+        let [
+            FormatElement::StartGroup { id: None, .. },
+            elements @ ..,
+            FormatElement::EndGroup,
+        ] = grouped.elements
+        else {
+            unreachable!("recorded group retains its complete anonymous outer scope");
+        };
+        let contents = Fragment {
+            elements,
+            ..grouped
+        };
+        Ok((RecordedGroup { grouped, contents }, value))
+    }
+
+    pub(crate) fn write_fragment(&mut self, fragment: Fragment<'a>) {
+        self.breaks += usize::from(fragment.breaks);
+        self.conditional_lines |= fragment.conditional_lines;
+        self.elements.push(FormatElement::Fragment(fragment));
+    }
+
+    pub(crate) fn write_flat_fragment(&mut self, fragment: FlatFragment<'a>) {
+        self.elements.push(FormatElement::FlatFragment(fragment));
+    }
+
+    pub(crate) fn write_alternatives(
+        &mut self,
+        normal: Fragment<'a>,
+        preferred: &[Fragment<'a>],
+        fallback: Fragment<'a>,
+    ) {
+        if preferred.is_empty() {
+            self.write_fragment(fallback);
+            return;
+        }
+        // The normal layout owns outward expansion. Optional display variants
+        // retain their own groups without expanding the parent.
+        self.breaks += usize::from(normal.breaks);
+        self.conditional_lines |= normal.conditional_lines
+            || fallback.conditional_lines
+            || preferred.iter().any(|fragment| fragment.conditional_lines);
+        let mut choices = ArenaVec::with_capacity_in(preferred.len(), self.allocator);
+        choices.extend_from_slice(preferred);
+        let alternatives = self.allocator.alloc(Alternatives {
+            preferred: choices.into_bump_slice(),
+            fallback,
+        });
+        self.elements
+            .push(FormatElement::Alternatives(alternatives));
+    }
+
     pub(crate) fn finish(self) -> Doc<'a> {
         Doc {
             elements: self.elements,
             group_count: self.group_count,
+            conditional_lines: self.conditional_lines,
         }
     }
 }

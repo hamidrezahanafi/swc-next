@@ -207,6 +207,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         }
                     };
                     if has_previous {
+                        if matches!(separator, Separator::EmptyLine) {
+                            writer.break_parent();
+                        }
                         let next = self
                             .comments
                             .between(Span::new(end, parameter.span(ast).start))?
@@ -238,6 +241,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
                 if let Some(rest) = rest {
                     if has_previous {
+                        if matches!(separator, Separator::EmptyLine) {
+                            writer.break_parent();
+                        }
                         let next = self
                             .comments
                             .between(Span::new(end, rest.span(ast).start))?

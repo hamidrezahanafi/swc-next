@@ -8,10 +8,10 @@ use swc_next_ecma_ast::{
 use super::Formatter;
 use super::comments::{CommentRunLayout, ExpressionTail};
 use super::diagnostics::{FlatSeparator, LineConstraint};
+use super::expressions::ExpressionContext;
 use super::expressions::arguments::{ArgumentLayout, FollowingItem, Separator};
-use super::expressions::assignment::{AssignmentBoundary, AssignmentParent};
+use super::expressions::assignment::AssignmentBoundary;
 use super::expressions::objects::PropertySuppression;
-use super::expressions::{ExpressionContext, ExpressionPosition};
 use super::suppression::{ContentMode, SuppressionPosition};
 use crate::{FormatError, TrailingCommas, document::Writer};
 
@@ -196,9 +196,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_verbatim(gap, writer)?;
                 return self.format_expression(
                     right,
-                    ExpressionContext::at(ExpressionPosition::AssignmentRight(
-                        AssignmentParent::Nested,
-                    )),
+                    ExpressionContext::binding_initializer(),
                     writer,
                 );
             }
@@ -262,10 +260,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_expression_with_leading_comments(
                     right,
                     boundary.right_head(),
-                    ExpressionContext::at(ExpressionPosition::AssignmentRight(
-                        AssignmentParent::Nested,
-                    ))
-                    .with_content_mode(boundary.mode),
+                    ExpressionContext::binding_initializer().with_content_mode(boundary.mode),
                     writer,
                 )
             };

@@ -1,6 +1,7 @@
 //! Shared source-ordered argument slots and comma/comment boundaries.
 
 use super::Formatter;
+use super::callbacks::SelectedCallback;
 use crate::formatter::comments::{CommentRunLayout, CommentSemantics, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::source::is_source_whitespace;
@@ -55,6 +56,7 @@ pub(in crate::formatter) enum Separator {
     OwnLineComment,
 }
 
+#[derive(Clone, Copy)]
 pub(in crate::formatter) struct ItemBoundary {
     pub(in crate::formatter) end: u32,
     pub(in crate::formatter) separator: Separator,
@@ -130,25 +132,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         trailing_comma: bool,
         writer: &mut Writer<'ast>,
     ) -> Result<ItemBoundary, FormatError> {
-        self.format_argument_item_with_mode(
-            argument,
-            following,
-            span,
-            ContentMode::Formatted,
-            trailing_comma,
-            writer,
-        )
-    }
-
-    pub(super) fn format_argument_item_with_mode(
-        &mut self,
-        argument: Argument,
-        following: FollowingArgument,
-        span: Span,
-        leading_mode: ContentMode,
-        trailing_comma: bool,
-        writer: &mut Writer<'ast>,
-    ) -> Result<ItemBoundary, FormatError> {
         let following = match following {
             FollowingArgument::Argument(argument) => FollowingItem::Node(argument.span(self.ast)),
             FollowingArgument::Elision(argument) => {
@@ -156,16 +139,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             FollowingArgument::End => FollowingItem::End,
         };
-        let mut item = self.prepare_delimited_item(
+        let item = self.prepare_delimited_item(
             argument.span(self.ast),
             following,
             span,
             trailing_comma,
             writer,
         )?;
-        if leading_mode == ContentMode::Verbatim {
-            item.mode = leading_mode;
-        }
         let tail = self.format_argument(argument, item.mode, writer)?;
         self.finish_delimited_item(item, tail, writer)
     }
@@ -357,6 +337,7 @@ pub(super) struct SourceArguments<'ast> {
     prefix: &'ast [Comment],
     prefix_belongs_to_arguments: bool,
     pub(super) callee_mode: ContentMode,
+    pub(super) test_callback: Option<SelectedCallback>,
 }
 
 #[derive(Clone, Copy)]
@@ -411,6 +392,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             prefix,
             prefix_belongs_to_arguments,
             callee_mode: mode,
+            test_callback: None,
         })
     }
 
@@ -444,6 +426,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             callee_end,
             prefix,
             prefix_belongs_to_arguments,
+            test_callback,
             ..
         } = list;
         let first_mode = first.map_or(ContentMode::Formatted, |argument| argument.mode);
@@ -514,6 +497,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Some(empty)
             })
             .any(|empty| empty);
+        if let Some(selected) = test_callback.or_else(|| self.select_callback(arguments)) {
+            return self.format_callback_arguments(
+                arguments, content, first_mode, expand, selected, writer,
+            );
+        }
         writer.group(expand, |writer| {
             writer.text("(");
             let mut write_items = |writer: &mut Writer<'ast>| {
@@ -528,52 +516,24 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .iter()
                     .map(|id| ast.get_node_in_sub_range(id))
                     .peekable();
-                let mut end = content.start;
-                let mut separator = Separator::Line;
-                let mut has_argument = false;
+                let mut previous = None;
                 while let Some(argument) = arguments.next() {
-                    if has_argument {
-                        let next_start = self
-                            .comments
-                            .between(Span::new(end, argument.span(ast).start))?
-                            .first()
-                            .map_or(argument.span(ast).start, |comment| comment.span.start);
-                        ArgumentLayout::Lines.separator(
-                            separator,
-                            self.line_constraint(end, next_start),
-                            writer,
-                        );
-                    }
-                    let following = arguments
-                        .peek()
-                        .copied()
-                        .map_or(FollowingArgument::End, FollowingArgument::Argument);
-                    let boundary = self.format_argument_item_with_mode(
+                    let mut item = self.prepare_argument_slot(
                         argument,
-                        following,
-                        Span::new(end, content.end),
-                        if has_argument {
-                            ContentMode::Formatted
-                        } else {
-                            first_mode
-                        },
+                        arguments.peek().copied(),
+                        previous,
+                        content,
                         !hugged && self.options.trailing_commas == TrailingCommas::All,
                         writer,
                     )?;
-                    end = boundary.end;
-                    separator = boundary.separator;
-                    has_argument = true;
+                    if previous.is_none() && first_mode == ContentMode::Verbatim {
+                        item.mode = first_mode;
+                    }
+                    let tail = self.format_argument(argument, item.mode, writer)?;
+                    previous = Some(self.finish_delimited_item(item, tail, writer)?);
                 }
-                let dangling = self.comments.between(Span::new(end, content.end))?;
-                self.comments.claim(dangling)?;
-                if dangling
-                    .iter()
-                    .any(|comment| comment.kind == CommentKind::Line)
-                {
-                    writer.break_parent();
-                }
-                self.format_comment_run(dangling, CommentRunLayout::Lines, writer)?;
-                Ok::<_, FormatError>(dangling.last().map_or(end, |comment| comment.span.end))
+                let end = previous.map_or(content.start, |boundary| boundary.end);
+                self.format_argument_dangling(Span::new(end, content.end), writer)
             };
             let end = if hugged {
                 write_items(writer)?
@@ -590,5 +550,58 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text(")");
             Ok(None)
         })
+    }
+    pub(super) fn prepare_argument_slot(
+        &mut self,
+        argument: Argument,
+        following: Option<Argument>,
+        previous: Option<ItemBoundary>,
+        content: Span,
+        trailing_comma: bool,
+        writer: &mut Writer<'ast>,
+    ) -> Result<PreparedItem, FormatError> {
+        let span = argument.span(self.ast);
+        let end = previous.map_or(content.start, |boundary| boundary.end);
+        if let Some(previous) = previous {
+            let next = self
+                .comments
+                .between(Span::new(end, span.start))?
+                .first()
+                .map_or(span.start, |comment| comment.span.start);
+            ArgumentLayout::Lines.separator(
+                previous.separator,
+                self.line_constraint(end, next),
+                writer,
+            );
+        }
+        let following = following.map_or(FollowingItem::End, |argument| {
+            FollowingItem::Node(argument.span(self.ast))
+        });
+        self.prepare_delimited_item(
+            span,
+            following,
+            Span::new(end, content.end),
+            trailing_comma,
+            writer,
+        )
+    }
+
+    pub(super) fn format_argument_dangling(
+        &mut self,
+        span: Span,
+        writer: &mut Writer<'ast>,
+    ) -> Result<u32, FormatError> {
+        let dangling = self.comments.between(span)?;
+        self.comments.claim(dangling)?;
+        if dangling
+            .iter()
+            .any(|comment| comment.kind == CommentKind::Line)
+        {
+            writer.break_parent();
+        }
+        self.format_comment_run(dangling, CommentRunLayout::Lines, writer)?;
+        Ok(dangling
+            .last()
+            .map_or(span.start, |comment| comment.span.end))
     }
 }

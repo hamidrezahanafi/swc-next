@@ -9,7 +9,7 @@ use super::Formatter;
 use super::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use super::diagnostics::FlatSeparator;
 use super::expressions::parentheses::SourceParentheses;
-use super::expressions::{ExpressionContext, ExpressionPosition, TailOwner};
+use super::expressions::{ExpressionContext, ExpressionPosition, OperandIndent, TailOwner};
 use super::suppression::ContentMode;
 use crate::{FormatError, document::Writer};
 
@@ -138,6 +138,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             RestrictedGrammar::ReturnOrThrow => ExpressionPosition::RestrictedArgument,
             RestrictedGrammar::Yield => ExpressionPosition::YieldArgument,
         };
+        let indent = match envelope {
+            ArgumentEnvelope::Inline => OperandIndent::Expression,
+            ArgumentEnvelope::Breakable | ArgumentEnvelope::Required => OperandIndent::Parent,
+        };
         let write_argument = |formatter: &mut Self, writer: &mut Writer<'ast>| {
             formatter.comments.claim(head.comments)?;
             formatter.format_expression_with_leading_comments(
@@ -149,6 +153,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     gap_end: None,
                 },
                 ExpressionContext::at(position)
+                    .with_operand_indent(indent)
                     .with_content_mode(mode)
                     .with_tail_owner(TailOwner::ParentOperation),
                 writer,
