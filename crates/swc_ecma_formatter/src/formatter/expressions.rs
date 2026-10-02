@@ -10,7 +10,7 @@ mod conditional;
 mod constructors;
 mod members;
 pub(super) mod objects;
-mod parentheses;
+pub(super) mod parentheses;
 mod sequence;
 mod targets;
 mod unary;
@@ -45,6 +45,7 @@ pub(super) enum ExpressionPosition {
     CallCallee,
     NewCallee,
     ArrowBody,
+    RestrictedArgument,
     MemberAssignmentObject,
     ConditionalTest,
     ConditionalConsequent,
@@ -140,7 +141,7 @@ impl ExpressionContext {
         self
     }
 
-    fn with_tail_owner(mut self, owner: TailOwner) -> Self {
+    pub(super) fn with_tail_owner(mut self, owner: TailOwner) -> Self {
         self.tail_owner = owner;
         self
     }
@@ -203,7 +204,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && (self.expression_needs_parentheses(data, context.position, context.content_mode)
                 == Some(true)
                 || matches!(data, ExprData::ObjectExpression(_))
-                    && context.expression_start != ExpressionStart::None);
+                    && context.expression_start != ExpressionStart::None
+                || matches!(data, ExprData::Function(_))
+                    && context.expression_start.is_statement());
         let starts_update = matches!(data, ExprData::UpdateExpression(update) if update.prefix(self.ast))
             && (source.starts_with("++") || source.starts_with("--"));
         if self.options.semicolons == Semicolons::AsNeeded
@@ -241,7 +244,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && (self.expression_needs_parentheses(data, context.position, context.content_mode)
                 == Some(true)
                 || matches!(data, ExprData::ObjectExpression(_))
-                    && context.expression_start != ExpressionStart::None);
+                    && context.expression_start != ExpressionStart::None
+                || matches!(data, ExprData::Function(_))
+                    && context.expression_start.is_statement());
         if context.expression_start == ExpressionStart::StatementPending
             && self.options.semicolons == Semicolons::AsNeeded
         {
@@ -387,6 +392,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ExprData::MemberExpression(member) => self.format_member(member, context, writer),
             ExprData::CallExpression(call) => self.format_call(call, context, writer),
             ExprData::NewExpression(constructor) => self.format_new(constructor, writer),
+            ExprData::Function(function) => self.format_function(function, writer).map(|()| None),
             ExprData::ArrowFunctionExpression(arrow) => self.format_arrow(arrow, context, writer),
             ExprData::UnaryExpression(unary) => self.format_unary(unary, writer),
             ExprData::UpdateExpression(update) => self.format_update(update, context, writer),
@@ -445,6 +451,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 return Some(constructor.span(self.ast).end == suffix_end);
             }
             ExprData::IdentifierReference(_)
+            | ExprData::Function(_)
             | ExprData::ThisExpression(_)
             | ExprData::StringLiteral(_)
             | ExprData::BooleanLiteral(_)
@@ -471,6 +478,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return Some(true);
         }
         Some(match (position, data) {
+            (ExpressionPosition::NewCallee, ExprData::Function(_)) => true,
             (
                 ExpressionPosition::MemberObject | ExpressionPosition::MemberAssignmentObject,
                 ExprData::NumericLiteral(_)
@@ -546,7 +554,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             (
                 ExpressionPosition::Statement,
-                ExprData::StringLiteral(_) | ExprData::ObjectExpression(_),
+                ExprData::StringLiteral(_) | ExprData::ObjectExpression(_) | ExprData::Function(_),
             ) => true,
             _ => false,
         })

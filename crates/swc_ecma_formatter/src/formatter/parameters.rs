@@ -12,6 +12,11 @@ use super::expressions::arguments::{ArgumentLayout, FollowingItem, Separator};
 use super::suppression::ContentMode;
 use crate::{ArrowParentheses, FormatError, TrailingCommas, document::Writer};
 
+enum ParameterRole {
+    Arrow { has_trailing_comments: bool },
+    Function,
+}
+
 enum ParameterSource {
     Parenthesized(Span),
     Bare(FormalParameter),
@@ -38,6 +43,26 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         node: FormalParameters,
         has_trailing_comments: bool,
     ) -> Result<SourceParameters, FormatError> {
+        self.source_parameters(
+            node,
+            ParameterRole::Arrow {
+                has_trailing_comments,
+            },
+        )
+    }
+
+    pub(super) fn source_function_parameters(
+        &self,
+        node: FormalParameters,
+    ) -> Result<SourceParameters, FormatError> {
+        self.source_parameters(node, ParameterRole::Function)
+    }
+
+    fn source_parameters(
+        &self,
+        node: FormalParameters,
+        role: ParameterRole,
+    ) -> Result<SourceParameters, FormatError> {
         let ast = self.ast;
         let span = node.span(ast);
         let items = node.items(ast);
@@ -51,7 +76,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         let source = if self.source(span).starts_with('(') && self.source(span).ends_with(')') {
             ParameterSource::Parenthesized(span)
-        } else if let Some(parameter) = first
+        } else if matches!(role, ParameterRole::Arrow { .. })
+            && let Some(parameter) = first
             && items.len() == 1
             && node.rest(ast).is_none()
             && parameter.span(ast) == span
@@ -69,8 +95,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             Some(parameter) if items.len() == 1 && node.rest(ast).is_none() => Some(parameter),
             _ => None,
         };
-        let omit_parentheses = !has_trailing_comments
-            && self.options.arrow_parentheses == ArrowParentheses::AsNeeded
+        let omit_parentheses = matches!(
+            role,
+            ParameterRole::Arrow {
+                has_trailing_comments: false
+            }
+        ) && self.options.arrow_parentheses == ArrowParentheses::AsNeeded
             && single.is_some_and(|parameter| {
                 matches!(
                     ast.formal_parameter_pattern_data(parameter.pattern(ast)),

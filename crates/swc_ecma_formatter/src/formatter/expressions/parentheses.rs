@@ -16,9 +16,9 @@ use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
 use crate::{FormatError, Semicolons, document::Writer};
 
 #[derive(Clone, Copy)]
-pub(super) struct SourceParentheses {
-    pub(super) outer: Span,
-    pub(super) inner: Span,
+pub(in crate::formatter) struct SourceParentheses {
+    pub(in crate::formatter) outer: Span,
+    pub(in crate::formatter) inner: Span,
 }
 
 pub(in crate::formatter) struct ExpressionContent {
@@ -153,7 +153,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    pub(super) fn parentheses_are_removable(&self, boundary: SourceParentheses) -> bool {
+    pub(in crate::formatter) fn parentheses_are_removable(
+        &self,
+        boundary: SourceParentheses,
+    ) -> bool {
         let comments = self.ast.comments();
         if comments.is_empty() {
             return true;
@@ -373,6 +376,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         | ExpressionPosition::CallCallee
                         | ExpressionPosition::NewCallee
                         | ExpressionPosition::ArrowBody
+                        | ExpressionPosition::RestrictedArgument
                 )
                 || context.expression_start == ExpressionStart::ArrowBody
                 || self.parentheses_separate_diagnostic_lines(SourceParentheses {

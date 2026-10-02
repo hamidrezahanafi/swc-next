@@ -22,14 +22,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             return Err(self.unsupported("async or typed arrow", arrow));
         }
-        let ArrowFunctionBodyData::Expr(body) =
-            self.ast.arrow_function_body_data(arrow.body(self.ast))
-        else {
-            return Err(self.unsupported("arrow block body", arrow));
-        };
+        let body = self.ast.arrow_function_body_data(arrow.body(self.ast));
         let params = arrow.params(self.ast);
         let parameter_span = params.span(self.ast);
-        let body_span = body.span(self.ast);
+        let body_span = arrow.body(self.ast).span(self.ast);
         let gap = Span::new(parameter_span.end, body_span.start);
         let comments = self.comments.in_range(gap);
         let Some(operator) = self.find_token(gap, comments, "=>") else {
@@ -39,21 +35,38 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             comments.split_at(comments.partition_point(|comment| comment.span.end <= operator));
         let parameters = self.source_arrow_parameters(params, !before.is_empty())?;
         let mode = self.content_mode(leading);
-        let body_content = self.expression_content(body);
-        let head_comments = self.comments.in_range(Span::new(
-            operator + 2,
-            body_content.expression.span(self.ast).start,
-        ));
-        let line_comment = head_comments
-            .iter()
-            .any(|comment| comment.kind == CommentKind::Line);
-        let hug_body = matches!(
-            body_content.data,
-            ExprData::ArrayExpression(_)
-                | ExprData::ObjectExpression(_)
-                | ExprData::SequenceExpression(_)
-                | ExprData::ArrowFunctionExpression(_)
-        ) && !line_comment;
+        let (head_end, hugs_shape, leading_layout) = match body {
+            ArrowFunctionBodyData::Expr(expression) => {
+                let content = self.expression_content(expression);
+                (
+                    content.expression.span(self.ast).start,
+                    matches!(
+                        content.data,
+                        ExprData::ArrayExpression(_)
+                            | ExprData::ObjectExpression(_)
+                            | ExprData::SequenceExpression(_)
+                            | ExprData::ArrowFunctionExpression(_)
+                    ),
+                    CommentRunLayout::GroupedLeading(body_span.start),
+                )
+            }
+            ArrowFunctionBodyData::FunctionBody(_) => (
+                body_span.start,
+                true,
+                CommentRunLayout::FlatLeading(body_span.start),
+            ),
+        };
+        let head_comments = self.comments.in_range(Span::new(operator + 2, head_end));
+        let body_starts_line = head_comments.iter().enumerate().any(|(index, comment)| {
+            let next_start = head_comments
+                .get(index + 1)
+                .map_or(head_end, |next| next.span.start);
+            comment.kind == CommentKind::Line
+                || (matches!(leading_layout, CommentRunLayout::GroupedLeading(_))
+                    && self.source_position_starts_line(comment.span.start)
+                    && self.line_breaks(comment.span.end, next_start) != 0)
+        });
+        let hug_body = hugs_shape && !body_starts_line;
         if context.expression_start.is_statement()
             && self.options.semicolons == Semicolons::AsNeeded
             && parameters.starts_with_parenthesis()
@@ -85,7 +98,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     writer,
                     FlatSeparator::Space,
                     |writer| {
-                        if line_comment {
+                        if body_starts_line {
                             writer.hard_line();
                         } else if hug_body {
                             writer.space();
@@ -95,19 +108,27 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     },
                 );
                 self.comments.claim(leading)?;
-                self.format_expression_with_leading_comments(
-                    body,
-                    NodeHead {
-                        comments: leading,
-                        content_start: body_span.start,
-                        layout: CommentRunLayout::GroupedLeading(body_span.start),
-                        gap_end: None,
-                    },
-                    ExpressionContext::at(ExpressionPosition::ArrowBody)
-                        .with_content_mode(mode)
-                        .with_tail_owner(TailOwner::ParentOperation),
-                    writer,
-                )
+                match body {
+                    ArrowFunctionBodyData::Expr(expression) => self
+                        .format_expression_with_leading_comments(
+                            expression,
+                            NodeHead {
+                                comments: leading,
+                                content_start: body_span.start,
+                                layout: leading_layout,
+                                gap_end: None,
+                            },
+                            ExpressionContext::at(ExpressionPosition::ArrowBody)
+                                .with_content_mode(mode)
+                                .with_tail_owner(TailOwner::ParentOperation),
+                            writer,
+                        ),
+                    ArrowFunctionBodyData::FunctionBody(body) => {
+                        self.format_comment_run(leading, leading_layout, writer)?;
+                        self.format_function_body(body, mode, writer)?;
+                        Ok(None)
+                    }
+                }
             };
             if hug_body {
                 write_body(writer)

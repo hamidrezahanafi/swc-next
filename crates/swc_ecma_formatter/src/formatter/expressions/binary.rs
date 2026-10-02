@@ -231,7 +231,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let parent_indents = match context.position {
-            ExpressionPosition::ParenthesizedUnaryArgument(_)
+            ExpressionPosition::RestrictedArgument
+            | ExpressionPosition::ParenthesizedUnaryArgument(_)
             | ExpressionPosition::ConditionalTest
             | ExpressionPosition::ConditionalConsequent
             | ExpressionPosition::ConditionalAlternate => true,

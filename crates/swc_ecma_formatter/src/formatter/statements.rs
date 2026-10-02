@@ -1,6 +1,8 @@
 //! Basic statement bodies and their enclosing source boundaries.
 
-use swc_next_ecma_ast::{Ast, BlockStatement, Directive, GetSpan, Span, Stmt, StmtData};
+use swc_next_ecma_ast::{
+    Ast, BlockStatement, DeclData, Directive, FunctionBody, GetSpan, Span, Stmt, StmtData,
+};
 
 use super::Formatter;
 use super::comments::{CommentRunLayout, ExpressionTail, NodeHead};
@@ -26,7 +28,16 @@ pub(super) enum StatementItem {
     Statement(Stmt),
 }
 
+enum BodySource {
+    Block(BlockStatement),
+    Function(FunctionBody),
+}
+
 impl StatementItem {
+    pub(super) fn is_printed(self, ast: &Ast<'_>) -> bool {
+        !matches!(self, Self::Statement(statement) if matches!(ast.stmt_data(statement), StmtData::EmptyStatement(_)))
+    }
+
     fn span(self, ast: &Ast<'_>) -> Span {
         match self {
             Self::Directive(node) => node.span(ast),
@@ -59,7 +70,7 @@ impl StatementBoundary {
 impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_statement_sequence(
         &mut self,
-        statements: impl Iterator<Item = StatementItem>,
+        mut statements: std::iter::Peekable<impl Iterator<Item = StatementItem>>,
         span: Span,
         previous_end: Option<u32>,
         kind: StatementSequenceKind,
@@ -67,14 +78,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<StatementSequence, FormatError> {
         let ast = self.ast;
         let mut previous = previous_end.map(StatementBoundary::SourceEnd);
-        let mut statements = statements
-            .filter(|item| match *item {
-                StatementItem::Directive(_) => true,
-                StatementItem::Statement(statement) => {
-                    !matches!(ast.stmt_data(statement), StmtData::EmptyStatement(_))
-                }
-            })
-            .peekable();
         while let Some(statement) = statements.next() {
             let statement_span = statement.span(self.ast);
             let leading = self.comments.between(Span::new(
@@ -92,6 +95,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         StmtData::ExpressionStatement(expression) => {
                             expression.expression(ast).span(ast).end
                         }
+                        StmtData::ReturnStatement(node) => node
+                            .argument(ast)
+                            .map_or(statement_span.start + "return".len() as u32, |argument| {
+                                argument.span(ast).end
+                            }),
+                        StmtData::ThrowStatement(node) => node.argument(ast).span(ast).end,
                         StmtData::DebuggerStatement(_) => {
                             statement_span.start + "debugger".len() as u32
                         }
@@ -228,6 +237,34 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     writer,
                 )
             }
+            StmtData::ReturnStatement(node) if mode == ContentMode::Formatted => {
+                let span = node.span(self.ast);
+                let keyword_end = span.start + "return".len() as u32;
+                let Some(argument) = node.argument(self.ast) else {
+                    writer.text("return");
+                    return self.finish_statement(span, keyword_end, None, writer);
+                };
+                let boundary = self.prepare_restricted_argument(keyword_end, argument)?;
+                writer.text("return");
+                let tail = self.format_restricted_argument(boundary, writer)?;
+                self.finish_statement(span, argument.span(self.ast).end, tail, writer)
+            }
+            StmtData::ThrowStatement(node) if mode == ContentMode::Formatted => {
+                let span = node.span(self.ast);
+                let argument = node.argument(self.ast);
+                let boundary =
+                    self.prepare_restricted_argument(span.start + "throw".len() as u32, argument)?;
+                writer.text("throw");
+                let tail = self.format_restricted_argument(boundary, writer)?;
+                self.finish_statement(span, argument.span(self.ast).end, tail, writer)
+            }
+            StmtData::Declaration(declaration) if mode == ContentMode::Formatted => {
+                let DeclData::Function(function) = self.ast.decl_data(declaration) else {
+                    return Err(self.unsupported("declaration", declaration));
+                };
+                self.format_function(function, writer)?;
+                Ok(StatementBoundary::SourceEnd(function.span(self.ast).end))
+            }
             StmtData::BlockStatement(block) => {
                 if mode == ContentMode::Verbatim {
                     self.format_verbatim(block.span(self.ast), writer)?;
@@ -291,30 +328,77 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         block: BlockStatement,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        let block_span = block.span(self.ast);
-        let body_span = Span::new(block_span.start + 1, block_span.end - 1);
-        let body = block.body(self.ast);
-        let opening = self.opening_line_constraint(body_span);
+        self.format_braced_body(BodySource::Block(block), ContentMode::Formatted, writer)
+    }
+
+    pub(super) fn format_function_body(
+        &mut self,
+        body: FunctionBody,
+        mode: ContentMode,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        self.format_braced_body(BodySource::Function(body), mode, writer)
+    }
+
+    fn format_braced_body(
+        &mut self,
+        source: BodySource,
+        mode: ContentMode,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        let ast = self.ast;
+        let (span, directives, body, function) = match source {
+            BodySource::Block(block) => (block.span(ast), None, block.body(ast), false),
+            BodySource::Function(function) => (
+                function.span(ast),
+                Some(function.directives(ast)),
+                function.body(ast),
+                true,
+            ),
+        };
+        if mode == ContentMode::Verbatim {
+            return self.format_verbatim(span, writer);
+        }
+        let content = Span::new(span.start + 1, span.end - 1);
+        let directives = directives
+            .into_iter()
+            .flat_map(|directives| directives.iter())
+            .map(|id| StatementItem::Directive(ast.get_node_in_sub_range(id)));
+        let body = body
+            .iter()
+            .map(|id| StatementItem::Statement(ast.get_node_in_sub_range(id)))
+            .filter(|item| item.is_printed(ast));
+        let mut items = directives.chain(body).peekable();
+        let has_items = items.peek().is_some();
+        let empty = if has_items {
+            false
+        } else {
+            let dangling = self.comments.in_range(content);
+            if function && self.content_mode(dangling) == ContentMode::Verbatim {
+                return self.format_verbatim(span, writer);
+            }
+            dangling.is_empty()
+        };
+        let opening = self.opening_line_constraint(content);
         writer.text("{");
-        let has_statements = body.iter().any(|id| {
-            let statement = self.ast.get_node_in_sub_range(id);
-            !matches!(self.ast.stmt_data(statement), StmtData::EmptyStatement(_))
-        });
-        if !has_statements && self.comments.between(body_span)?.is_empty() {
-            opening.write(writer, FlatSeparator::Empty, Writer::hard_line);
+        if empty {
+            opening.write(writer, FlatSeparator::Empty, |writer| {
+                if !function {
+                    writer.hard_line();
+                }
+            });
         } else {
             let sequence = writer.indent(|writer| {
                 opening.write(writer, FlatSeparator::Space, Writer::hard_line);
                 self.format_statement_sequence(
-                    body.iter()
-                        .map(|id| StatementItem::Statement(self.ast.get_node_in_sub_range(id))),
-                    body_span,
+                    items,
+                    content,
                     None,
                     StatementSequenceKind::Block,
                     writer,
                 )
             })?;
-            self.line_constraint(sequence.end, body_span.end).write(
+            self.line_constraint(sequence.end, content.end).write(
                 writer,
                 FlatSeparator::Space,
                 Writer::hard_line,

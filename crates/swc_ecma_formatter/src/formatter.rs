@@ -4,8 +4,10 @@ mod bindings;
 mod comments;
 mod diagnostics;
 mod expressions;
+mod functions;
 mod literals;
 mod parameters;
+mod restricted;
 mod source;
 mod statements;
 mod suppression;
@@ -64,7 +66,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let body = program.body(ast);
         let statements = body
             .iter()
-            .map(|id| StatementItem::Statement(ast.get_node_in_sub_range(id)));
+            .map(|id| StatementItem::Statement(ast.get_node_in_sub_range(id)))
+            .filter(|item| item.is_printed(ast));
         let span = program.span(ast);
         let previous_end = hashbang.map(|node| node.span(ast).end);
         let directives = program.directives(ast);
@@ -72,13 +75,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             has_source_items: !body.is_empty() || !directives.is_empty(),
         };
         let has_content = if directives.is_empty() {
-            self.format_statement_sequence(statements, span, previous_end, kind, writer)?
+            self.format_statement_sequence(statements.peekable(), span, previous_end, kind, writer)?
         } else {
             let directives = directives
                 .iter()
                 .map(|id| StatementItem::Directive(ast.get_node_in_sub_range(id)));
             self.format_statement_sequence(
-                directives.chain(statements),
+                directives.chain(statements).peekable(),
                 span,
                 previous_end,
                 kind,

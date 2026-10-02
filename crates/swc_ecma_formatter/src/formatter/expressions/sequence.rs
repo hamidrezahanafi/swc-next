@@ -63,7 +63,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if self.options.semicolons == Semicolons::AsNeeded && start.is_statement() {
             writer.text(";");
         }
-        let parenthesize = context.parentheses_owner == ParenthesesOwner::Expression;
+        let parenthesize = context.parentheses_owner == ParenthesesOwner::Expression
+            && !matches!(context.position, ExpressionPosition::RestrictedArgument);
         if parenthesize {
             writer.text("(");
         }
