@@ -19,7 +19,15 @@ struct ObjectBoundary<'ast> {
     separator: Span,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PropertySuppression {
+    None,
+    Value,
+    Property,
+}
+
 struct ObjectPropertyBoundary<'ast> {
+    suppression: PropertySuppression,
     before: &'ast [Comment],
     moved: &'ast [Comment],
     operator_line: &'ast [Comment],
@@ -214,21 +222,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if property.method(ast) || property.kind(ast) != PropertyKind::Init {
             return Err(self.unsupported("object method", property));
         }
-        if self.has_suppression {
-            let header = Span::new(
-                property.span(ast).start,
-                property.value(ast).span(ast).start,
-            );
-            if self.content_mode(self.comments.in_range(header)) == ContentMode::Verbatim {
-                return Err(self.unsupported("object property suppression boundary", property));
-            }
-        }
         let key_end = self.object_key_end(property)?;
         if property.shorthand(ast) {
             self.format_object_key(property, key_end, writer)?;
             return Ok(None);
         }
         let boundary = self.object_property_boundary(property, key_end)?;
+        if boundary.suppression == PropertySuppression::Property {
+            self.format_verbatim(property.span(ast), writer)?;
+            return Ok(None);
+        }
         let value = property.value(ast);
         let data = self.expression_content(value).data;
         let break_after =
@@ -277,11 +280,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     NodeHead {
                         comments: boundary.leading,
                         content_start: boundary.value_start,
-                        layout: CommentRunLayout::Leading(boundary.value_start),
+                        layout: CommentRunLayout::GroupedLeading(boundary.value_start),
                         gap_end: None,
                     },
-                    ExpressionContext::at(ExpressionPosition::PropertyValue)
-                        .with_content_mode(self.content_mode(boundary.leading)),
+                    ExpressionContext::at(ExpressionPosition::PropertyValue).with_content_mode(
+                        if boundary.suppression == PropertySuppression::Value {
+                            ContentMode::Verbatim
+                        } else {
+                            ContentMode::Formatted
+                        },
+                    ),
                     writer,
                 )
             };
@@ -323,6 +331,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let colon = Span::new(colon_start, colon_start + 1);
         let count = comments.partition_point(|comment| comment.span.end <= colon.start);
         let (before, after) = comments.split_at(count);
+        let suppression = self.object_property_suppression(after, value_start);
         let ordinary_before = before
             .iter()
             .all(|&comment| matches!(self.comment_semantics(comment), CommentSemantics::Ordinary));
@@ -369,6 +378,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     || self.line_breaks(colon.end, comment.span.start) != 0
             });
         Ok(ObjectPropertyBoundary {
+            suppression,
             before,
             moved,
             operator_line,
@@ -380,6 +390,47 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             line_before_colon,
             line_after_colon,
         })
+    }
+
+    fn object_property_suppression(
+        &self,
+        comments: &[Comment],
+        value_start: u32,
+    ) -> PropertySuppression {
+        if !self.has_suppression {
+            return PropertySuppression::None;
+        }
+        let Some(index) = comments.iter().position(|&comment| {
+            matches!(
+                self.comment_semantics(comment),
+                CommentSemantics::Suppression
+            )
+        }) else {
+            return PropertySuppression::None;
+        };
+        let mut first = index;
+        while first > 0
+            && self.line_breaks(comments[first - 1].span.end, comments[first].span.start) == 0
+        {
+            first -= 1;
+        }
+        if self.source_position_starts_line(comments[first].span.start) {
+            return PropertySuppression::Value;
+        }
+        let mut last = index;
+        while last + 1 < comments.len()
+            && self.line_breaks(comments[last].span.end, comments[last + 1].span.start) == 0
+        {
+            last += 1;
+        }
+        let following = comments
+            .get(last + 1)
+            .map_or(value_start, |comment| comment.span.start);
+        if self.line_breaks(comments[last].span.end, following) != 0 {
+            PropertySuppression::Property
+        } else {
+            PropertySuppression::Value
+        }
     }
 
     fn object_key_end(&self, property: ObjectProperty) -> Result<u32, FormatError> {
@@ -421,7 +472,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         NodeHead {
                             comments: leading,
                             content_start: key_span.start,
-                            layout: CommentRunLayout::Leading(key_span.start),
+                            layout: CommentRunLayout::GroupedLeading(key_span.start),
                             gap_end: None,
                         },
                         ExpressionContext::at(ExpressionPosition::Nested)
