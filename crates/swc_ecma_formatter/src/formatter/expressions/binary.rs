@@ -235,7 +235,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             | ExpressionPosition::ConditionalTest
             | ExpressionPosition::ConditionalConsequent
             | ExpressionPosition::ConditionalAlternate => true,
-            ExpressionPosition::AssignmentRight(_) => {
+            ExpressionPosition::AssignmentRight(_) | ExpressionPosition::PropertyValue => {
                 let inline = self.inline_logical_operand(binary.operator, binary.right);
                 !inline
                     || !BinaryLike::from_data(self.expression_content(binary.left).data, self.ast)
@@ -349,7 +349,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return false;
         }
         let right = self.expression_content(operand).data;
-        matches!(right, ExprData::ArrayExpression(array) if !array.elements(self.ast).is_empty())
+        match right {
+            ExprData::ArrayExpression(array) => !array.elements(self.ast).is_empty(),
+            ExprData::ObjectExpression(object) => !object.properties(self.ast).is_empty(),
+            _ => false,
+        }
     }
 
     fn format_binary_right(

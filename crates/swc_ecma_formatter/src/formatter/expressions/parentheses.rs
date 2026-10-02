@@ -417,6 +417,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     && (!array.elements(self.ast).is_empty()
                         || self.comments.in_range(inner_span).is_empty())
             }
+            ExprData::ObjectExpression(object) => {
+                leading.is_empty()
+                    && trailing.is_empty()
+                    && (!object.properties(self.ast).is_empty()
+                        || self.comments.in_range(inner_span).is_empty())
+            }
             _ => false,
         };
         let expand = matches!(kind, RetainedParentheses::Cast)

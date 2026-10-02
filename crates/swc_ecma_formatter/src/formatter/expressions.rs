@@ -4,6 +4,7 @@ mod arrays;
 mod assignment;
 mod binary;
 mod conditional;
+mod objects;
 mod parentheses;
 mod sequence;
 mod unary;
@@ -33,6 +34,7 @@ pub(super) enum ExpressionPosition {
         side: OperandSide,
     },
     SpreadArgument,
+    PropertyValue,
     ConditionalTest,
     ConditionalConsequent,
     ConditionalAlternate,
@@ -165,7 +167,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let span = expression.span(self.ast);
         let source = self.source(span);
         let parenthesize = context.parentheses_owner == ParenthesesOwner::Expression
-            && self.expression_needs_parentheses(data, context.position) == Some(true);
+            && (self.expression_needs_parentheses(data, context.position) == Some(true)
+                || matches!(data, ExprData::ObjectExpression(_))
+                    && context.statement_start != StatementStart::None);
         let starts_update = matches!(data, ExprData::UpdateExpression(update) if update.prefix(self.ast))
             && (source.starts_with("++") || source.starts_with("--"));
         if self.options.semicolons == Semicolons::AsNeeded
@@ -200,11 +204,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let binary = BinaryLike::from_data(data, self.ast);
         let parenthesize = context.parentheses_owner == ParenthesesOwner::Expression
-            && self.expression_needs_parentheses(data, context.position) == Some(true);
-        if self.options.semicolons != Semicolons::AsNeeded {
-            context.statement_start = StatementStart::None;
-        }
-        if context.statement_start == StatementStart::Pending {
+            && (self.expression_needs_parentheses(data, context.position) == Some(true)
+                || matches!(data, ExprData::ObjectExpression(_))
+                    && context.statement_start != StatementStart::None);
+        if context.statement_start == StatementStart::Pending
+            && self.options.semicolons == Semicolons::AsNeeded
+        {
             let mut asi_guard = parenthesize
                 || match data {
                     ExprData::ArrayExpression(_) | ExprData::RegExpLiteral(_) => true,
@@ -314,6 +319,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Ok(None)
             }
             ExprData::ArrayExpression(array) => self.format_array(array, writer).map(|()| None),
+            ExprData::ObjectExpression(object) => self.format_object(object, writer).map(|()| None),
             ExprData::UnaryExpression(unary) => self.format_unary(unary, writer),
             ExprData::UpdateExpression(update) => self.format_update(update, writer),
             ExprData::ConditionalExpression(conditional) => {
@@ -347,6 +353,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             | ExprData::BigIntLiteral(_)
             | ExprData::RegExpLiteral(_)
             | ExprData::ArrayExpression(_)
+            | ExprData::ObjectExpression(_)
             | ExprData::UnaryExpression(_)
             | ExprData::UpdateExpression(_)
             | ExprData::BinaryExpression(_)
@@ -413,7 +420,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     ),
                 }
             }
-            (ExpressionPosition::Statement, ExprData::StringLiteral(_)) => true,
+            (
+                ExpressionPosition::Statement,
+                ExprData::StringLiteral(_) | ExprData::ObjectExpression(_),
+            ) => true,
             _ => false,
         })
     }

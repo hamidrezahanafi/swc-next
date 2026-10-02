@@ -21,6 +21,12 @@ enum ArrayLayout {
     Fill,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ArrayChildKind {
+    Array,
+    Object,
+}
+
 #[derive(Clone, Copy)]
 enum Separator {
     Line,
@@ -99,11 +105,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text("[]");
             return Ok(());
         }
-        let expand = elements.len() > 1 && elements.iter().all(|id| {
-            let Some(argument) = self.ast.get_node_in_sub_range(id) else { return false };
-            let ArgumentData::Expr(expression) = self.ast.argument_data(argument) else { return false };
-            matches!(self.ast.expr_data(expression), ExprData::ArrayExpression(inner) if inner.elements(self.ast).len() > 1)
-        });
+        let expand = self.array_should_expand(array);
         let numeric = self.numeric_array_first(array);
         let opening = self.opening_line_constraint(content_span);
         let layout = if let Some(first) = numeric
@@ -137,6 +139,32 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text("]");
             Ok(())
         })
+    }
+
+    fn array_should_expand(&self, array: ArrayExpression) -> bool {
+        let elements = array.elements(self.ast);
+        if elements.len() < 2 {
+            return false;
+        }
+        let mut kinds = elements.iter().map(|id| {
+            let argument = self.ast.get_node_in_sub_range(id)?;
+            let ArgumentData::Expr(expression) = self.ast.argument_data(argument) else {
+                return None;
+            };
+            match self.expression_content(expression).data {
+                ExprData::ArrayExpression(child) if child.elements(self.ast).len() > 1 => {
+                    Some(ArrayChildKind::Array)
+                }
+                ExprData::ObjectExpression(child) if child.properties(self.ast).len() > 1 => {
+                    Some(ArrayChildKind::Object)
+                }
+                _ => None,
+            }
+        });
+        let Some(Some(kind)) = kinds.next() else {
+            return false;
+        };
+        kinds.all(|next| next == Some(kind))
     }
 
     fn numeric_array_first(&self, array: ArrayExpression) -> Option<Argument> {

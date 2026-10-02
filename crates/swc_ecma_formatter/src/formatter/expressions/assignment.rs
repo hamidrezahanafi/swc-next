@@ -241,7 +241,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         boundary.operator_span = Span::new(operator_start, operator_start + operator.len() as u32);
         let before_count = comments.partition_point(|comment| comment.span.end <= operator_start);
         let (before, after) = comments.split_at(before_count);
-        let hugs_comments = matches!(content.data, ExprData::ArrayExpression(_));
+        let hugs_comments = matches!(
+            content.data,
+            ExprData::ArrayExpression(_) | ExprData::ObjectExpression(_)
+        );
         let before_line = before
             .last()
             .is_some_and(|last| last.kind == CommentKind::Line);
@@ -337,7 +340,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         AssignmentLayout::Fluid
     }
 
-    fn assignment_right_breaks_after_operator(&self, mut data: ExprData) -> bool {
+    pub(super) fn assignment_right_breaks_after_operator(&self, mut data: ExprData) -> bool {
         match data {
             ExprData::AssignmentExpression(assignment) => {
                 return matches!(
