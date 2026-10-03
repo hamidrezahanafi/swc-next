@@ -9,7 +9,7 @@ use super::Formatter;
 use super::comments::{CommentRunLayout, ExpressionTail};
 use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::ExpressionContext;
-use super::expressions::arguments::{ArgumentLayout, FollowingItem, Separator};
+use super::expressions::arguments::{ArgumentLayout, ElisionLayout, FollowingItem, Separator};
 use super::expressions::assignment::AssignmentBoundary;
 use super::expressions::objects::PropertySuppression;
 use super::suppression::{ContentMode, SuppressionPosition};
@@ -17,7 +17,11 @@ use crate::{FormatError, TrailingCommas, document::Writer};
 
 enum DefaultOwner<'ast> {
     Whole,
-    Left(Span),
+    Bound {
+        gap: Span,
+        left_mode: ContentMode,
+        right_mode: ContentMode,
+    },
     Formatted {
         boundary: AssignmentBoundary<'ast>,
         break_after: bool,
@@ -144,27 +148,46 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let Some(operator) = self.find_token(gap, comments, "=") else {
             return Err(self.unsupported("binding default boundary", right));
         };
-        let after = &comments[comments.partition_point(|comment| comment.span.end <= operator)..];
-        let owner = match self.suppression_position(after, right_start) {
-            Some(SuppressionPosition::OwnLine) => DefaultOwner::Whole,
-            Some(SuppressionPosition::EndOfLine) => DefaultOwner::Left(gap),
-            position => {
-                let content = self.expression_content(right);
-                let mut boundary = self.assignment_boundary(
-                    left_end,
-                    &content,
-                    Span::new(operator, operator + 1),
-                )?;
-                if matches!(position, Some(SuppressionPosition::Inline)) {
-                    boundary.mode = ContentMode::Verbatim;
+        let mut left_mode = ContentMode::Formatted;
+        let mut right_mode = ContentMode::Formatted;
+        let mut whole = false;
+        if self.has_suppression {
+            let split = comments.partition_point(|comment| comment.span.end <= operator);
+            let (before, after) = comments.split_at(split);
+            for position in self.suppression_positions(before, operator) {
+                match position {
+                    SuppressionPosition::OwnLine => whole = true,
+                    SuppressionPosition::Inline | SuppressionPosition::EndOfLine => {
+                        left_mode = ContentMode::Verbatim;
+                    }
                 }
-                let break_after = boundary.own_line
-                    || !boundary.operator_line.is_empty()
-                    || self.assignment_right_breaks_after_operator(content.data);
-                DefaultOwner::Formatted {
-                    boundary,
-                    break_after,
+            }
+            for position in self.suppression_positions(after, right_start) {
+                match position {
+                    SuppressionPosition::OwnLine => whole = true,
+                    SuppressionPosition::EndOfLine => left_mode = ContentMode::Verbatim,
+                    SuppressionPosition::Inline => right_mode = ContentMode::Verbatim,
                 }
+            }
+        }
+        let owner = if whole {
+            DefaultOwner::Whole
+        } else if left_mode == ContentMode::Verbatim || right_mode == ContentMode::Verbatim {
+            DefaultOwner::Bound {
+                gap,
+                left_mode,
+                right_mode,
+            }
+        } else {
+            let content = self.expression_content(right);
+            let boundary =
+                self.assignment_boundary(left_end, &content, Span::new(operator, operator + 1))?;
+            let break_after = boundary.own_line
+                || !boundary.operator_line.is_empty()
+                || self.assignment_right_breaks_after_operator(content.data);
+            DefaultOwner::Formatted {
+                boundary,
+                break_after,
             }
         };
         Ok(PreparedBindingDefault {
@@ -191,12 +214,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_verbatim(span, writer)?;
                 return Ok(None);
             }
-            DefaultOwner::Left(gap) => {
-                self.format_verbatim(left.span(self.ast), writer)?;
+            DefaultOwner::Bound {
+                gap,
+                left_mode,
+                right_mode,
+            } => {
+                let tail = self.format_declaration_binding(left, left_mode, writer)?;
+                self.format_expression_tail(tail, writer)?;
                 self.format_verbatim(gap, writer)?;
                 return self.format_expression(
                     right,
-                    ExpressionContext::binding_initializer(),
+                    ExpressionContext::binding_initializer().with_content_mode(right_mode),
                     writer,
                 );
             }
@@ -309,48 +337,75 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let mut end = content.start;
                 let mut separator = Separator::Line;
                 let mut has_slot = false;
+                let mut following_mode = None;
+                let mut elisions = ElisionLayout::Formatted;
                 let constrained = self.diagnostic_range_is_sensitive(content);
                 while let Some(slot) = slots.next() {
-                    for _ in 0..slot.holes {
-                        if constrained {
+                    let mode =
+                        slot.binding.map_or(ContentMode::Formatted, |binding| {
+                            following_mode.unwrap_or_else(|| {
+                                if self.has_suppression {
+                                    self.content_mode(self.comments.in_range(Span::new(
+                                        content.start,
+                                        binding.span(ast).start,
+                                    )))
+                                } else {
+                                    ContentMode::Formatted
+                                }
+                            })
+                        });
+                    let source_elisions = match elisions {
+                        ElisionLayout::Formatted => 0,
+                        ElisionLayout::Source(holes) => {
+                            debug_assert_eq!(
+                                holes, slot.holes,
+                                "a source elision boundary covers the prepared AST slots"
+                            );
+                            holes
+                        }
+                    };
+                    for _ in source_elisions..slot.holes {
+                        if constrained || self.has_suppression {
                             let next = slot
                                 .binding
                                 .map_or(content.end, |node| node.span(ast).start);
                             let gap = Span::new(end, next);
                             let comments = self.comments.between(gap)?;
-                            let Some(comma) = self.find_comma(gap, comments) else {
-                                return Err(self.unsupported("binding elision boundary", array));
-                            };
-                            let count =
-                                comments.partition_point(|comment| comment.span.end <= comma);
-                            let leading = self.comments.take(count);
-                            match (leading.first(), has_slot) {
-                                (Some(first), _) => {
-                                    if has_slot {
-                                        self.comment_gap(end, first.span.start, writer);
+                            if constrained || !comments.is_empty() {
+                                let Some(comma) = self.find_comma(gap, comments) else {
+                                    return Err(self.unsupported("binding elision boundary", array));
+                                };
+                                let count =
+                                    comments.partition_point(|comment| comment.span.end <= comma);
+                                let leading = self.comments.take(count);
+                                match (leading.first(), has_slot) {
+                                    (Some(first), _) => {
+                                        if has_slot {
+                                            self.comment_gap(end, first.span.start, writer);
+                                        }
+                                        self.format_comment_run(
+                                            leading,
+                                            CommentRunLayout::Leading(comma),
+                                            writer,
+                                        )?;
                                     }
-                                    self.format_comment_run(
-                                        leading,
-                                        CommentRunLayout::Leading(comma),
+                                    (None, true) => ArgumentLayout::Lines.separator(
+                                        separator,
+                                        self.line_constraint(end, comma),
                                         writer,
-                                    )?;
+                                    ),
+                                    (None, false) => self.line_constraint(end, comma).write(
+                                        writer,
+                                        FlatSeparator::Empty,
+                                        |_| {},
+                                    ),
                                 }
-                                (None, true) => ArgumentLayout::Lines.separator(
-                                    separator,
-                                    self.line_constraint(end, comma),
-                                    writer,
-                                ),
-                                (None, false) => self.line_constraint(end, comma).write(
-                                    writer,
-                                    FlatSeparator::Empty,
-                                    |_| {},
-                                ),
+                                writer.text(",");
+                                end = comma + 1;
+                                separator = Separator::Line;
+                                has_slot = true;
+                                continue;
                             }
-                            writer.text(",");
-                            end = comma + 1;
-                            separator = Separator::Line;
-                            has_slot = true;
-                            continue;
                         }
                         if has_slot {
                             ArgumentLayout::Lines.separator(
@@ -379,9 +434,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         );
                     }
                     let following = match slots.peek() {
-                        Some(slot) if slot.holes != 0 => {
-                            FollowingItem::Elision(slot.binding.map(|node| node.span(ast)))
-                        }
+                        Some(slot) if slot.holes != 0 => FollowingItem::Elision {
+                            node: slot.binding.map(|node| node.span(ast)),
+                            holes: slot.holes,
+                        },
                         Some(slot) => slot.binding.map_or(FollowingItem::End, |node| {
                             FollowingItem::Node(node.span(ast))
                         }),
@@ -391,17 +447,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         ast.binding_pattern_data(binding),
                         BindingPatternData::BindingRestElement(_)
                     );
-                    let item = self.prepare_delimited_item(
+                    let mut item = self.prepare_delimited_item(
                         binding.span(ast),
                         following,
                         Span::new(end, content.end),
                         !rest && self.options.trailing_commas != TrailingCommas::None,
                         writer,
                     )?;
+                    item.set_leading_mode(mode);
                     let tail = self.format_declaration_binding(binding, item.mode, writer)?;
                     let boundary = self.finish_delimited_item(item, tail, writer)?;
                     end = boundary.end;
                     separator = boundary.separator;
+                    following_mode = Some(boundary.following_mode);
+                    elisions = boundary.elisions;
                     has_slot = true;
                 }
                 let dangling = self.comments.between(Span::new(end, content.end))?;
@@ -458,6 +517,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let mut end = content.start;
                 let mut separator = Separator::Line;
                 let mut has_previous = false;
+                let mut following_mode = None;
                 while let Some(property) = properties.next() {
                     if has_previous {
                         ArgumentLayout::Lines.separator(
@@ -471,13 +531,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         .map(|next| next.span(ast))
                         .or_else(|| rest.map(|rest| rest.span(ast)))
                         .map_or(FollowingItem::End, FollowingItem::Node);
-                    let item = self.prepare_delimited_item(
+                    let mut item = self.prepare_delimited_item(
                         property.span(ast),
                         following,
                         Span::new(end, content.end),
                         self.options.trailing_commas != TrailingCommas::None,
                         writer,
                     )?;
+                    if let Some(mode) = following_mode {
+                        item.set_leading_mode(mode);
+                    }
                     let tail = if item.mode == ContentMode::Verbatim {
                         self.format_verbatim(property.span(ast), writer)?;
                         None
@@ -487,6 +550,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     let boundary = self.finish_delimited_item(item, tail, writer)?;
                     end = boundary.end;
                     separator = boundary.separator;
+                    following_mode = Some(boundary.following_mode);
                     has_previous = true;
                 }
                 if let Some(rest) = rest {
@@ -497,13 +561,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                             writer,
                         );
                     }
-                    let item = self.prepare_delimited_item(
+                    let mut item = self.prepare_delimited_item(
                         rest.span(ast),
                         FollowingItem::End,
                         Span::new(end, content.end),
                         false,
                         writer,
                     )?;
+                    if let Some(mode) = following_mode {
+                        item.set_leading_mode(mode);
+                    }
                     let tail = self.format_declaration_binding(
                         BindingPattern::BindingRestElement(rest),
                         item.mode,

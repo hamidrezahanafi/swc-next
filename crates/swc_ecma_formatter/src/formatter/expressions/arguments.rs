@@ -1,11 +1,13 @@
 //! Shared source-ordered argument slots and comma/comment boundaries.
 
 use super::callbacks::{SelectedArgument, SelectedCallback};
-use super::{AccessKind, ExpressionContext, ExpressionPosition, Formatter, TailOwner};
+use super::calls::CallCallee;
+use super::{AccessKind, ExpressionContext, Formatter};
 use crate::formatter::comments::{ArrayCommentOwner, CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
-use crate::formatter::source::is_source_whitespace;
-use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
+use crate::formatter::suppression::{
+    BoundaryPunctuation, ContentMode, DelimitedFollowing, DelimitedSuppression, SuppressionPosition,
+};
 use crate::{FormatError, TrailingCommas, document::Writer};
 use swc_next_ecma_ast::{
     Argument, ArgumentData, CallExpression, Comment, CommentKind, Expr, ExprData, GetSpan, Span,
@@ -16,14 +18,23 @@ use swc_next_ecma_ast::{
 pub(super) enum FollowingArgument {
     End,
     Argument(Argument),
-    Elision(Option<Argument>),
+    Elision {
+        argument: Option<Argument>,
+        holes: usize,
+    },
+}
+
+pub(super) struct ArrayArgumentSlot {
+    pub(super) argument: Argument,
+    pub(super) following: FollowingArgument,
+    pub(super) mode: ContentMode,
 }
 
 #[derive(Clone, Copy)]
 pub(in crate::formatter) enum FollowingItem {
     End,
     Node(Span),
-    Elision(Option<Span>),
+    Elision { node: Option<Span>, holes: usize },
 }
 
 impl FollowingItem {
@@ -31,7 +42,7 @@ impl FollowingItem {
         match self {
             Self::End => None,
             Self::Node(span) => Some(span),
-            Self::Elision(span) => span,
+            Self::Elision { node, .. } => node,
         }
     }
 }
@@ -43,6 +54,23 @@ pub(in crate::formatter) struct PreparedItem {
     pub(in crate::formatter) mode: ContentMode,
     has_leading_comments: bool,
     trailing_comma: bool,
+    suppression: Option<DelimitedSuppression>,
+}
+
+impl PreparedItem {
+    pub(in crate::formatter) fn set_leading_mode(&mut self, mode: ContentMode) {
+        self.mode = if mode == ContentMode::Verbatim
+            || self
+                .suppression
+                .as_ref()
+                .and_then(|source| source.preceding)
+                .is_some_and(|target| target == self.item_span)
+        {
+            ContentMode::Verbatim
+        } else {
+            ContentMode::Formatted
+        };
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -57,12 +85,21 @@ pub(in crate::formatter) enum Separator {
     EmptyLine,
     OwnLineComment,
     TrailingLine,
+    Source(LineConstraint),
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::formatter) enum ElisionLayout {
+    Formatted,
+    Source(usize),
 }
 
 #[derive(Clone, Copy)]
 pub(in crate::formatter) struct ItemBoundary {
     pub(in crate::formatter) end: u32,
     pub(in crate::formatter) separator: Separator,
+    pub(in crate::formatter) following_mode: ContentMode,
+    pub(in crate::formatter) elisions: ElisionLayout,
 }
 
 impl ArgumentLayout {
@@ -84,6 +121,10 @@ impl ArgumentLayout {
         writer: &mut Writer<'_>,
     ) {
         self.entry(writer, |writer| {
+            if let Separator::Source(constraint) = separator {
+                constraint.write(writer, FlatSeparator::Space, Writer::line);
+                return;
+            }
             if matches!(separator, Separator::TrailingLine) {
                 // Fill may choose a flat separator even in an expanded array.
                 // A pending owned suffix must flush before the following item.
@@ -109,47 +150,28 @@ impl ArgumentLayout {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
-    pub(super) fn first_argument_prefix_mode(&self, comments: &[Comment]) -> ContentMode {
-        if !self.has_suppression {
-            return ContentMode::Formatted;
-        }
-        let mut runs = comments.chunk_by(|left, right| {
-            self.source(Span::new(left.span.end, right.span.start))
-                .chars()
-                .all(|character| {
-                    is_source_whitespace(character)
-                        && !matches!(character, '\n' | '\r' | '\u{2028}' | '\u{2029}')
-                })
-        });
-        let own_line = runs.any(|run| {
-            run.first()
-                .is_some_and(|first| self.source_position_starts_line(first.span.start))
-                && self.content_mode(run) == ContentMode::Verbatim
-        });
-        if own_line {
-            ContentMode::Verbatim
-        } else {
-            ContentMode::Formatted
-        }
-    }
-
     pub(super) fn format_argument_item_with_array_comments(
         &mut self,
-        argument: Argument,
-        following: FollowingArgument,
+        slot: ArrayArgumentSlot,
         span: Span,
         trailing_comma: bool,
         mut array_comments: Option<&mut ArrayCommentOwner<'ast>>,
         writer: &mut Writer<'ast>,
     ) -> Result<ItemBoundary, FormatError> {
+        let ArrayArgumentSlot {
+            argument,
+            following,
+            mode,
+        } = slot;
         let following = match following {
             FollowingArgument::Argument(argument) => FollowingItem::Node(argument.span(self.ast)),
-            FollowingArgument::Elision(argument) => {
-                FollowingItem::Elision(argument.map(|node| node.span(self.ast)))
-            }
+            FollowingArgument::Elision { argument, holes } => FollowingItem::Elision {
+                node: argument.map(|node| node.span(self.ast)),
+                holes,
+            },
             FollowingArgument::End => FollowingItem::End,
         };
-        let item = self.prepare_delimited_item_with_array_comments(
+        let mut item = self.prepare_delimited_item_with_array_comments(
             argument.span(self.ast),
             following,
             span,
@@ -157,6 +179,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             array_comments.as_deref_mut(),
             writer,
         )?;
+        item.set_leading_mode(mode);
         let tail = self.format_argument_with_array_comments(
             argument,
             item.mode,
@@ -194,23 +217,31 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<PreparedItem, FormatError> {
         let following_span = following.node();
+        let suppression = self.delimited_suppression(
+            item_span,
+            following_span.map_or(span.end, |span| span.start),
+            match following {
+                FollowingItem::End => DelimitedFollowing::End,
+                FollowingItem::Node(_) => DelimitedFollowing::Node,
+                FollowingItem::Elision { node: Some(_), .. } => DelimitedFollowing::Node,
+                FollowingItem::Elision { node: None, .. } => DelimitedFollowing::End,
+            },
+        );
         let leading = self
             .comments
             .between(Span::new(span.start, item_span.start))?;
         let has_leading_comments = !leading.is_empty();
         let leading = self.comments.take(leading.len());
         let leading_mode = self.content_mode(leading);
-        let mode = if leading_mode == ContentMode::Verbatim || !self.has_suppression {
-            leading_mode
+        let mode = if leading_mode == ContentMode::Verbatim
+            || suppression
+                .as_ref()
+                .and_then(|source| source.preceding)
+                .is_some_and(|target| target == item_span)
+        {
+            ContentMode::Verbatim
         } else {
-            self.trailing_content_mode(
-                Span::new(
-                    item_span.end,
-                    following_span.map_or(span.end, |span| span.start),
-                ),
-                BoundaryPunctuation::Comma,
-                following_span.is_none(),
-            )
+            ContentMode::Formatted
         };
         self.format_comment_run_with_array_comments(
             leading,
@@ -228,6 +259,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             mode,
             has_leading_comments,
             trailing_comma,
+            suppression,
         })
     }
 
@@ -253,6 +285,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             span,
             mode,
             trailing_comma,
+            suppression,
             ..
         } = item;
         let following_span = following.node();
@@ -262,16 +295,38 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             content_end,
             following_span.map_or(span.end, |span| span.start),
         );
+        let following_mode = suppression
+            .as_ref()
+            .map_or(ContentMode::Formatted, |source| source.following);
+        let preceding = suppression.as_ref().and_then(|source| source.preceding);
+        if preceding.is_some()
+            && (following_span.is_some() || matches!(following, FollowingItem::Elision { .. }))
+        {
+            let source = self.format_delimited_source_gap(
+                gap,
+                following_span.map_or(DelimitedFollowing::End, |_| DelimitedFollowing::Node),
+                writer,
+            )?;
+            return Ok(ItemBoundary {
+                end: source.end,
+                separator: Separator::Source(source.following),
+                following_mode,
+                elisions: match following {
+                    FollowingItem::Elision { holes, .. } => ElisionLayout::Source(holes),
+                    _ => ElisionLayout::Formatted,
+                },
+            });
+        }
         let comments = self.comments.between(gap)?;
         let comma = self.find_comma(gap, comments);
         let constrained = self.diagnostic_range_is_sensitive(span);
+        let preserve_comma = constrained || matches!(following, FollowingItem::Elision { .. });
         // A directive-covered separator owns the comments on its source side.
         let protected_comma =
             comma.filter(|&position| constrained && self.diagnostic_line_is_sensitive(position));
-        let trailing_limit = if constrained && matches!(following, FollowingItem::Elision(_)) {
-            comma
-                .and_then(|comma| self.find_comma(Span::new(comma + 1, gap.end), comments))
-                .unwrap_or(gap.end)
+        let trailing_limit = if matches!(following, FollowingItem::Elision { .. }) {
+            // The next elision owns the comments after this item's separator.
+            comma.unwrap_or(gap.end)
         } else {
             gap.end
         };
@@ -302,7 +357,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let prepare_run = (physical_break || inline_line)
             && mode == ContentMode::Formatted
             && !constrained
-            && !matches!(following, FollowingItem::Elision(_));
+            && !matches!(following, FollowingItem::Elision { .. });
         let prepared_run = if prepare_run {
             self.prepare_delimited_trailing_run(
                 comments,
@@ -323,11 +378,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 );
                 run.len()
             }
-            None => protected_comma.map_or(trailing_count, |comma| {
-                comments
-                    .partition_point(|comment| comment.span.end <= comma)
-                    .max(trailing_count)
-            }),
+            None => comma
+                .filter(|_| preserve_comma)
+                .map_or(trailing_count, |comma| {
+                    comments
+                        .partition_point(|comment| comment.span.end <= comma)
+                        .max(trailing_count)
+                }),
         };
         let boundary = self.comments.take(boundary_count);
         let (trailing, before_comma) = if canonical_run {
@@ -371,7 +428,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.line_constraint(last.span.end, comma).write(
                     writer,
                     FlatSeparator::Empty,
-                    |_| {},
+                    |writer| {
+                        if before_comma
+                            .last()
+                            .is_some_and(|comment| comment.kind == CommentKind::Line)
+                        {
+                            writer.hard_line();
+                        }
+                    },
                 );
             }
             writer.text(",");
@@ -401,7 +465,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut end = boundary_end;
         if required_comma
             && let Some(comma) = comma
-            && constrained
+            && preserve_comma
             && self
                 .comments
                 .first()
@@ -409,7 +473,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             end = end.max(comma + 1);
         }
-        if !has_more || !constrained && following_span.is_none() {
+        if !has_more || !preserve_comma && following_span.is_none() {
             let own_line = self.comments.between(Span::new(end, span.end))?;
             let own_line = self.comments.take(own_line.len());
             if let Some(first) = own_line.first() {
@@ -428,7 +492,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 end = last.span.end;
             }
         }
-        Ok(ItemBoundary { end, separator })
+        Ok(ItemBoundary {
+            end,
+            separator,
+            following_mode,
+            elisions: ElisionLayout::Formatted,
+        })
     }
 }
 
@@ -503,15 +572,17 @@ impl SourceArguments<'_> {
         }
     }
 
-    pub(super) fn callee_context(&self, context: ExpressionContext) -> ExpressionContext {
-        ExpressionContext::at(ExpressionPosition::CallCallee {
+    pub(super) fn callee_head(&self) -> CallCallee {
+        CallCallee {
+            expression: self.callee,
             access: self.access(),
             curried_call: self.curried_callee,
-        })
-        .with_expression_start(context.expression_start)
-        .with_tail_owner(TailOwner::ParentOperation)
-        .with_content_mode(self.callee_mode)
-        .with_member_chain_layout(context.member_chain_layout)
+            mode: self.callee_mode,
+        }
+    }
+
+    pub(super) fn callee_context(&self, context: ExpressionContext) -> ExpressionContext {
+        self.callee_head().context(context)
     }
 }
 
@@ -605,7 +676,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     prefix_comments.partition_point(|comment| comment.span.end <= operator.start);
                 let (before, after) = prefix_comments.split_at(before_count);
                 let before_span = Span::new(callee_span.end, operator.start);
-                self.prepare_first_argument_suppression(first.as_mut(), before);
+                self.prepare_first_argument_suppression(first.as_mut(), before, operator.start);
                 let before_mode =
                     self.trailing_content_mode(before_span, BoundaryPunctuation::None, false);
                 let after_span = Span::new(operator.end, opening);
@@ -722,7 +793,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
         };
         if !prefix.belongs_to_arguments() {
-            self.prepare_first_argument_suppression(Some(first), comments);
+            self.prepare_first_argument_suppression(Some(first), comments, span.end);
         }
         prefix
     }
@@ -731,6 +802,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &self,
         first: Option<&mut SourceFirstArgument>,
         comments: &[Comment],
+        following_start: u32,
     ) {
         if !self.has_suppression {
             return;
@@ -738,7 +810,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let Some(first) = first else {
             return;
         };
-        if self.first_argument_prefix_mode(comments) == ContentMode::Verbatim {
+        // Relocation and consumption are separate: an own-line marker before
+        // the opener still targets this actual argument when it stays outside.
+        if self
+            .suppression_positions(comments, following_start)
+            .any(|position| matches!(position, SuppressionPosition::OwnLine))
+        {
             first.mode = ContentMode::Verbatim;
         }
     }
@@ -963,7 +1040,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         writer,
                     )?;
                     if previous.is_none() && first_mode == ContentMode::Verbatim {
-                        item.mode = first_mode;
+                        item.set_leading_mode(first_mode);
                     }
                     let tail = self.format_argument_with_function_fact(
                         argument,
@@ -1018,13 +1095,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let following = following.map_or(FollowingItem::End, |argument| {
             FollowingItem::Node(argument.span(self.ast))
         });
-        self.prepare_delimited_item(
+        let mut item = self.prepare_delimited_item(
             span,
             following,
             Span::new(end, content.end),
             trailing_comma,
             writer,
-        )
+        )?;
+        if let Some(previous) = previous {
+            item.set_leading_mode(previous.following_mode);
+        }
+        Ok(item)
     }
 
     /// Reads the unconsumed outside boundary of this actual argument slot.
@@ -1043,8 +1124,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .is_empty()
     }
 
-    /// A block comment after the comma belongs to the following argument.
-    /// Mandatory line breaks in either slot are checked on the recorded fragments.
+    /// Inline blocks after the comma may stay with the following argument.
+    /// Effective trailing ignore targets are already excluded by the item's mode;
+    /// mandatory line breaks are checked on the recorded fragments.
     pub(super) fn first_callback_has_boundary_comments(&self, item: &PreparedItem) -> bool {
         if item.has_leading_comments {
             return true;

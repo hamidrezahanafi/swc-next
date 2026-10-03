@@ -203,6 +203,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     let boundary = SourceParentheses {
                         outer: parenthesized.span(self.ast),
                         inner: child.span(self.ast),
+                        inner_target: super::expressions::parentheses::ParenthesisInner::Expression(
+                            child,
+                        ),
                     };
                     if !self.parentheses_are_removable(boundary) {
                         break;

@@ -134,11 +134,16 @@ fn is_diagnostic_directive(source: &str, comment: Comment) -> bool {
             .strip_prefix("///")
             .or_else(|| source.strip_prefix("//"))
             .unwrap_or(source),
-        CommentKind::Block => source
-            .rsplit_once(['\n', '\r', '\u{2028}', '\u{2029}'])
-            .map_or(source, |(_, last)| last)
-            .trim_start_matches(is_directive_whitespace)
-            .trim_start_matches(['/', '*']),
+        CommentKind::Block => {
+            if !source.contains('@') {
+                return false;
+            }
+            source
+                .rsplit_once(['\n', '\r', '\u{2028}', '\u{2029}'])
+                .map_or(source, |(_, last)| last)
+                .trim_start_matches(is_directive_whitespace)
+                .trim_start_matches(['/', '*'])
+        }
     };
     let marker = marker.trim_start_matches(is_directive_whitespace);
     marker.starts_with("@ts-ignore") || marker.starts_with("@ts-expect-error")

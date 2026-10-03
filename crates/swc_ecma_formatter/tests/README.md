@@ -10,7 +10,7 @@ file wins, and absent options use Prettier defaults.
 
 The fixture runner formats twice. Both passes must parse, retain the comment
 count, and agree between the source and AST entry points. Non-idempotent output
-is recorded explicitly in the snapshot for review. Comment counts and parsing
+fails the test rather than being accepted in a snapshot. Comment counts and parsing
 alone do not prove that formatting preserved semantics.
 
 Run the local tests with:

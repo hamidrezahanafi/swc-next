@@ -6,7 +6,9 @@ use swc_next_ecma_ast::{
 };
 
 use super::Formatter;
-use super::arguments::{ArgumentLayout, FollowingArgument, Separator};
+use super::arguments::{
+    ArgumentLayout, ArrayArgumentSlot, ElisionLayout, FollowingArgument, Separator,
+};
 use super::parentheses::NumericContentView;
 use crate::formatter::comments::{ArrayCommentOwner, CommentRunLayout};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
@@ -468,15 +470,41 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut previous_end = span.start;
         let mut has_slot = false;
         let mut separator = Separator::Line;
+        let mut following_mode = None;
+        let mut elisions = ElisionLayout::Formatted;
         let constrained = self.diagnostic_range_is_sensitive(span);
         while let Some(item) = items.next() {
-            for _ in 0..item.holes {
-                if constrained {
-                    let end = item
-                        .argument
-                        .map_or(span.end, |argument| argument.span(ast).start);
-                    let gap = Span::new(previous_end, end);
-                    let comments = self.comments.between(gap)?;
+            // Resolve the initial source prefix before its elisions claim comments.
+            // Later real items receive their binding from the preceding source gap.
+            let mode = item.argument.map_or(ContentMode::Formatted, |argument| {
+                following_mode.unwrap_or_else(|| {
+                    if self.has_suppression {
+                        self.content_mode(
+                            self.comments
+                                .in_range(Span::new(span.start, argument.span(ast).start)),
+                        )
+                    } else {
+                        ContentMode::Formatted
+                    }
+                })
+            });
+            let source_elisions = match elisions {
+                ElisionLayout::Formatted => 0,
+                ElisionLayout::Source(holes) => {
+                    debug_assert_eq!(
+                        holes, item.holes,
+                        "a source elision boundary covers the prepared AST slots"
+                    );
+                    holes
+                }
+            };
+            for _ in source_elisions..item.holes {
+                let end = item
+                    .argument
+                    .map_or(span.end, |argument| argument.span(ast).start);
+                let gap = Span::new(previous_end, end);
+                let comments = self.comments.between(gap)?;
+                if constrained || !comments.is_empty() {
                     let Some(comma) = self.find_comma(gap, comments) else {
                         return Err(FormatError::unsupported(
                             "array elision boundary",
@@ -524,12 +552,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let Some(argument) = item.argument else {
                 continue;
             };
+            let argument_span = argument.span(ast);
             if has_slot {
                 let next_start = self
                     .comments
-                    .between(Span::new(previous_end, argument.span(ast).start))?
+                    .between(Span::new(previous_end, argument_span.start))?
                     .first()
-                    .map_or(argument.span(ast).start, |comment| comment.span.start);
+                    .map_or(argument_span.start, |comment| comment.span.start);
                 layout.separator(
                     separator,
                     self.line_constraint(previous_end, next_start),
@@ -538,13 +567,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             let boundary = layout.entry(writer, |writer| {
                 self.format_argument_item_with_array_comments(
-                    argument,
-                    match items.peek() {
-                        Some(item) if item.holes != 0 => FollowingArgument::Elision(item.argument),
-                        Some(item) => item
-                            .argument
-                            .map_or(FollowingArgument::End, FollowingArgument::Argument),
-                        None => FollowingArgument::End,
+                    ArrayArgumentSlot {
+                        argument,
+                        mode,
+                        following: match items.peek() {
+                            Some(item) if item.holes != 0 => FollowingArgument::Elision {
+                                argument: item.argument,
+                                holes: item.holes,
+                            },
+                            Some(item) => item
+                                .argument
+                                .map_or(FollowingArgument::End, FollowingArgument::Argument),
+                            None => FollowingArgument::End,
+                        },
                     },
                     Span::new(previous_end, span.end),
                     self.options.trailing_commas != TrailingCommas::None,
@@ -554,6 +589,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             })?;
             previous_end = boundary.end;
             separator = boundary.separator;
+            following_mode = Some(boundary.following_mode);
+            elisions = boundary.elisions;
             has_slot = true;
         }
         let dangling = self.comments.between(Span::new(previous_end, span.end))?;
@@ -563,6 +600,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .any(|comment| comment.kind == CommentKind::Line)
         {
             writer.break_parent();
+        }
+        if has_slot && let Some(first) = dangling.first() {
+            self.comment_gap(previous_end, first.span.start, writer);
         }
         self.format_comment_run_with_array_comments(
             dangling,

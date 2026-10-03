@@ -48,13 +48,7 @@ pub fn test_file(relative: &str) {
         .unwrap();
         writeln!(snapshot, "---------- Output ----------\n{output}").unwrap();
         let second_output = format_pass(relative, parser_options, options, &output);
-        if second_output != output {
-            writeln!(
-                snapshot,
-                "---------- Not idempotent (second pass) ----------\n{second_output}"
-            )
-            .unwrap();
-        }
+        assert_eq!(second_output, output, "{relative} formatting idempotence");
     }
     insta::with_settings!({
         snapshot_path => path.parent().unwrap(),

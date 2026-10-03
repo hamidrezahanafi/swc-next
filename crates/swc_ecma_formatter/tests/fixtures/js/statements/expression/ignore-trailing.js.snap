@@ -13,7 +13,7 @@ next;
 ---------- Options ----------
 {"semi":false}
 ---------- Output ----------
-first    +second // prettier-ignore
+first    +second; // prettier-ignore
 next
 
 ---------- Options ----------

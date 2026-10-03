@@ -82,12 +82,26 @@ impl CommentGap {
     }
 }
 
-pub(super) enum CommentSemantics {
-    Ordinary,
-    Suppression,
-    Diagnostic,
-    Optimizer,
-    TypeCast,
+/// A comment can carry more than one tool's annotation.
+pub(super) struct CommentSemantics {
+    pub(super) suppression: bool,
+    pub(super) diagnostic: bool,
+    pub(super) file_directive: bool,
+    pub(super) optimizer: bool,
+    pub(super) type_cast: bool,
+}
+
+impl CommentSemantics {
+    pub(super) fn is_ordinary(&self) -> bool {
+        !self.suppression
+            && !self.diagnostic
+            && !self.file_directive
+            && !self.has_target_annotation()
+    }
+
+    pub(super) fn has_target_annotation(&self) -> bool {
+        self.optimizer || self.type_cast
+    }
 }
 
 /// A syntax owner resolves the source target before relocating comments.
@@ -463,7 +477,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         comment: Comment,
         run: &mut Option<SourceCommentRun>,
     ) -> Option<PreparedLineFact> {
-        let ordinary = matches!(self.comment_semantics(comment), CommentSemantics::Ordinary);
+        let ordinary = self.comment_semantics(comment).is_ordinary();
         let (start, ordinary) = match run {
             Some(previous) if self.source_comment_gap_is_run(previous.previous, comment) => {
                 (previous.start, previous.ordinary && ordinary)
@@ -561,7 +575,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut previous_end = source_end;
         for (index, comment) in comments.iter().enumerate() {
             if index >= before_separator
-                && matches!(self.comment_semantics(*comment), CommentSemantics::TypeCast)
+                && self.has_type_casts
+                && self.comment_is_type_cast(*comment)
             {
                 break;
             }
@@ -586,26 +601,80 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     }
 
     pub(super) fn comment_semantics(&self, comment: Comment) -> CommentSemantics {
+        CommentSemantics {
+            suppression: self.has_suppression
+                && super::suppression::is_suppression_comment(self.ast, comment),
+            diagnostic: self.comment_is_diagnostic_directive(comment),
+            file_directive: self.has_file_directives && self.comment_is_file_directive(comment),
+            optimizer: self.has_target_annotations && self.comment_is_optimizer_annotation(comment),
+            type_cast: self.has_type_casts && self.comment_is_type_cast(comment),
+        }
+    }
+
+    pub(super) fn comment_is_file_directive(&self, comment: Comment) -> bool {
         let raw = self.source(comment.span);
-        if super::suppression::is_suppression_comment(self.ast, comment) {
-            return CommentSemantics::Suppression;
+        if !raw.contains('@') && !raw.starts_with("///") {
+            return false;
         }
-        if self.comment_is_diagnostic_directive(comment) {
-            return CommentSemantics::Diagnostic;
-        }
-        for (offset, marker) in raw.char_indices() {
-            if matches!(marker, '@' | '#') {
-                let tag = &raw[offset + 1..];
-                if tag.starts_with("__PURE__") || tag.starts_with("__NO_SIDE_EFFECTS__") {
-                    return CommentSemantics::Optimizer;
+        match comment.kind {
+            CommentKind::Line => {
+                let triple = raw.strip_prefix("///");
+                let marker = triple
+                    .or_else(|| raw.strip_prefix("//"))
+                    .unwrap_or(raw)
+                    .trim_start_matches(super::source::is_source_whitespace);
+                let tag = marker
+                    .split(|character| {
+                        character == ':' || super::source::is_source_whitespace(character)
+                    })
+                    .next()
+                    .unwrap_or(marker);
+                if tag.eq_ignore_ascii_case("@ts-check") || tag.eq_ignore_ascii_case("@ts-nocheck")
+                {
+                    return true;
                 }
+                triple.is_some()
+                    && ["<reference", "<amd-module", "<amd-dependency"]
+                        .iter()
+                        .any(|tag| {
+                            marker
+                                .strip_prefix(tag)
+                                .is_some_and(|rest| rest.starts_with([' ', '\t', '/', '>']))
+                        })
+            }
+            CommentKind::Block => {
+                raw.contains('@')
+                    && raw.char_indices().any(|(offset, character)| {
+                        if character != '@' {
+                            return false;
+                        }
+                        let tag = raw[offset + 1..]
+                            .split(super::source::is_source_whitespace)
+                            .next()
+                            .unwrap_or("");
+                        ["jsx", "jsxfrag", "jsximportsource", "jsxruntime"]
+                            .iter()
+                            .any(|name| tag.eq_ignore_ascii_case(name))
+                    })
             }
         }
-        if self.comment_is_type_cast(comment) {
-            CommentSemantics::TypeCast
-        } else {
-            CommentSemantics::Ordinary
+    }
+
+    pub(super) fn comment_is_optimizer_annotation(&self, comment: Comment) -> bool {
+        let raw = self.source(comment.span);
+        if !raw.contains('@') && !raw.contains('#') {
+            return false;
         }
+        raw.char_indices().any(|(offset, marker)| {
+            matches!(marker, '@' | '#') && {
+                let tag = &raw[offset + 1..];
+                tag.starts_with("__PURE__") || tag.starts_with("__NO_SIDE_EFFECTS__")
+            }
+        })
+    }
+
+    pub(super) fn comment_has_target_annotation(&self, comment: Comment) -> bool {
+        self.comment_is_optimizer_annotation(comment) || self.comment_is_type_cast(comment)
     }
 
     pub(super) fn comment_binding(
@@ -615,12 +684,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         target: Option<Span>,
     ) -> CommentBinding {
         let binding = self.comment_run_binding(comments.iter().copied(), |comment| {
-            match self.comment_semantics(comment) {
-                CommentSemantics::Ordinary => CommentBinding::Unbound,
-                CommentSemantics::Suppression => {
-                    target.map_or(CommentBinding::SourceBound, CommentBinding::BoundTo)
-                }
-                _ => CommentBinding::SourceBound,
+            let semantics = self.comment_semantics(comment);
+            if semantics.is_ordinary() {
+                CommentBinding::Unbound
+            } else if semantics.suppression {
+                target.map_or(CommentBinding::SourceBound, CommentBinding::BoundTo)
+            } else {
+                CommentBinding::SourceBound
             }
         });
         if matches!(binding, CommentBinding::SourceBound)
@@ -632,11 +702,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
+    /// Owners distinguish absent and unknown bindings; a run moves only with one shared target.
     pub(super) fn comment_run_binding(
         &self,
         comments: impl Iterator<Item = Comment>,
         mut resolve: impl FnMut(Comment) -> CommentBinding,
     ) -> CommentBinding {
+        if !self.has_target_annotations
+            && !self.has_file_directives
+            && !self.has_suppression
+            && self.diagnostic_lines.is_empty()
+        {
+            return CommentBinding::Unbound;
+        }
         let mut source_target = None;
         for comment in comments {
             let target = match resolve(comment) {
@@ -915,13 +993,37 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_trailing_comments(
         &mut self,
         span: Span,
+        statement_end: u32,
         has_following: bool,
         writer: &mut Writer<'ast>,
     ) -> Result<u32, FormatError> {
         let comments = self.comments.between(span)?;
+        let comments = self.trailing_comment_prefix(comments, span, statement_end, has_following);
+        self.comments.claim(comments)?;
+        if let Some(last) = comments.last() {
+            self.format_inline_trailing_comments(comments, writer)?;
+            Ok(last.span.end)
+        } else {
+            Ok(span.start)
+        }
+    }
+
+    fn trailing_comment_prefix(
+        &self,
+        comments: &'ast [Comment],
+        span: Span,
+        statement_end: u32,
+        has_following: bool,
+    ) -> &'ast [Comment] {
         let mut end = span.start;
         let mut count = 0;
         for (index, comment) in comments.iter().enumerate() {
+            if has_following
+                && self.has_target_annotations
+                && self.comment_has_target_annotation(*comment)
+            {
+                break;
+            }
             if self.line_breaks(end, comment.span.start) != 0 {
                 break;
             }
@@ -935,17 +1037,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 break;
             }
             end = comment.span.end;
-            if !has_following {
+            if !has_following || comment.span.end < statement_end {
                 count = index + 1;
             }
         }
-        let comments = self.comments.take(count);
-        if let Some(last) = comments.last() {
-            self.format_inline_trailing_comments(comments, writer)?;
-            Ok(last.span.end)
-        } else {
-            Ok(span.start)
-        }
+        &comments[..count]
     }
 }
 

@@ -633,7 +633,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 )
             })?;
             if previous.is_none() && first_mode == ContentMode::Verbatim {
-                item.mode = first_mode;
+                item.set_leading_mode(first_mode);
             }
             let (value, tail) = match &selected {
                 SelectedArgument::Callback(selected)

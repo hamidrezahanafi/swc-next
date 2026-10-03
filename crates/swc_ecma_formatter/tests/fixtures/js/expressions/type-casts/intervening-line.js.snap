@@ -13,7 +13,7 @@ source: crates/swc_ecma_formatter/tests/fixtures/mod.rs
 ---------- Options ----------
 {"semi":false}
 ---------- Output ----------
-;/** @type {number} */ // ordinary
+; /** @type {number} */ // ordinary
 (first + second)
 
 ---------- Options ----------

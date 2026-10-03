@@ -32,7 +32,7 @@ use super::literals::StringContext;
 use super::suppression::ContentMode;
 use super::{
     Formatter,
-    comments::{ArrayCommentOwner, CommentRunLayout, ExpressionTail},
+    comments::{ArrayCommentOwner, CommentRunLayout, ExpressionTail, NodeHead},
 };
 use crate::{FormatError, Semicolons, document::Writer};
 
@@ -76,11 +76,19 @@ pub(super) enum ExpressionStart {
     None,
     StatementPending,
     StatementGuard,
+    StatementGuarded,
     ArrowBody,
 }
 
 impl ExpressionStart {
     fn is_statement(self) -> bool {
+        matches!(
+            self,
+            Self::StatementPending | Self::StatementGuard | Self::StatementGuarded
+        )
+    }
+
+    fn needs_asi_guard(self) -> bool {
         matches!(self, Self::StatementPending | Self::StatementGuard)
     }
 }
@@ -219,6 +227,20 @@ impl ExpressionContext {
         self
     }
 
+    fn member_receiver(self, access: AccessKind, mode: ContentMode) -> Self {
+        let position = if matches!(self.position, ExpressionPosition::MemberAssignmentObject) {
+            ExpressionPosition::MemberAssignmentObject
+        } else {
+            ExpressionPosition::MemberObject(access)
+        };
+        Self::at(position)
+            .with_expression_start(self.expression_start)
+            .with_tail_owner(TailOwner::ParentOperation)
+            .with_content_mode(mode)
+            .with_member_layout(self.member_layout)
+            .with_member_chain_layout(self.member_chain_layout)
+    }
+
     fn with_member_layout(mut self, layout: MemberLayout) -> Self {
         self.member_layout = layout;
         self
@@ -262,6 +284,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let boundary = parentheses::SourceParentheses {
                     outer: span,
                     inner: child_span,
+                    inner_target: parentheses::ParenthesisInner::Expression(child),
                 };
                 if self.parentheses_are_removable(boundary)
                     && self.expression_needs_parentheses(
@@ -332,17 +355,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let data = self.ast.expr_data(expression);
         let span = expression.span(self.ast);
         let source = self.source(span);
-        let parenthesize = context.parentheses_owner == ParenthesesOwner::Expression
-            && (self.expression_needs_parentheses(data, context.position, context.content_mode)
-                == Some(true)
-                || matches!(data, ExprData::ObjectExpression(_))
-                    && context.expression_start != ExpressionStart::None
-                || matches!(data, ExprData::Function(_))
-                    && context.expression_start.is_statement());
+        let parenthesize = self.expression_is_parenthesized(data, context);
         let starts_update = matches!(data, ExprData::UpdateExpression(update) if update.prefix(self.ast))
             && (source.starts_with("++") || source.starts_with("--"));
         if self.options.semicolons == Semicolons::AsNeeded
-            && context.expression_start.is_statement()
+            && context.expression_start.needs_asi_guard()
             && (parenthesize
                 || !starts_update && source.starts_with(['(', '[', '/', '+', '-', '`']))
         {
@@ -382,13 +399,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return self.format_sequence(sequence, context, writer);
         }
         let binary = BinaryLike::from_data(data, self.ast);
-        let parenthesize = context.parentheses_owner == ParenthesesOwner::Expression
-            && (self.expression_needs_parentheses(data, context.position, context.content_mode)
-                == Some(true)
-                || matches!(data, ExprData::ObjectExpression(_))
-                    && context.expression_start != ExpressionStart::None
-                || matches!(data, ExprData::Function(_))
-                    && context.expression_start.is_statement());
+        let parenthesize = self.expression_is_parenthesized(data, context);
         if context.expression_start == ExpressionStart::StatementPending
             && self.options.semicolons == Semicolons::AsNeeded
         {
@@ -422,6 +433,24 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             writer.text(";");
             context.expression_start = ExpressionStart::None;
+        }
+        if parenthesize
+            && self.has_type_casts
+            && self
+                .source_cast_before(expression.span(self.ast).start)
+                .is_some()
+        {
+            return self.format_parenthesized_expression(
+                expression,
+                NodeHead {
+                    comments: &[],
+                    content_start: expression.span(self.ast).start,
+                    layout: CommentRunLayout::Source,
+                    gap_end: None,
+                },
+                context,
+                writer,
+            );
         }
         if let Some(binary) = binary {
             if parenthesize
@@ -595,6 +624,87 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text(")");
         }
         Ok(tail)
+    }
+
+    fn expression_is_parenthesized(&self, data: ExprData, context: ExpressionContext) -> bool {
+        context.parentheses_owner == ParenthesesOwner::Expression
+            && (self.expression_needs_parentheses(data, context.position, context.content_mode)
+                == Some(true)
+                || matches!(data, ExprData::ObjectExpression(_))
+                    && context.expression_start != ExpressionStart::None
+                || matches!(data, ExprData::Function(_)) && context.expression_start.is_statement())
+    }
+
+    /// Follow the printed head only when a guard must precede protected comments.
+    fn expression_needs_asi_guard(
+        &self,
+        mut expression: Expr,
+        mut context: ExpressionContext,
+        mut content: Option<ExprData>,
+    ) -> Result<bool, FormatError> {
+        loop {
+            if context.content_mode == ContentMode::Verbatim {
+                let data = self.ast.expr_data(expression);
+                let source = self.source(expression.span(self.ast));
+                let update = matches!(data, ExprData::UpdateExpression(node) if node.prefix(self.ast))
+                    && (source.starts_with("++") || source.starts_with("--"));
+                return Ok(self.expression_is_parenthesized(data, context)
+                    || !update && source.starts_with(['(', '[', '/', '+', '-', '`']));
+            }
+            let data = content
+                .take()
+                .unwrap_or_else(|| self.expression_content(expression).data);
+            if self.expression_is_parenthesized(data, context)
+                || matches!(
+                    data,
+                    ExprData::ParenthesizedExpression(_)
+                        | ExprData::SequenceExpression(_)
+                        | ExprData::ArrayExpression(_)
+                        | ExprData::RegExpLiteral(_)
+                )
+                || matches!(data, ExprData::UnaryExpression(node) if matches!(node.operator(self.ast), UnaryOperator::Positive | UnaryOperator::Negate))
+            {
+                return Ok(true);
+            }
+            if let Some(binary) = BinaryLike::from_data(data, self.ast) {
+                expression = binary.left;
+                context.position = ExpressionPosition::BinaryOperand {
+                    operator: binary.operator,
+                    side: OperandSide::Left,
+                };
+                continue;
+            }
+            match data {
+                ExprData::CallExpression(call) => {
+                    let callee = self.source_call_callee(call, context)?;
+                    expression = callee.expression;
+                    context = callee.context(context);
+                }
+                ExprData::MemberExpression(member) => {
+                    (expression, context) = self.source_member_receiver(member, context)?;
+                }
+                ExprData::ChainExpression(chain) => {
+                    expression = chain.expression(self.ast);
+                    context.position = ExpressionPosition::Nested;
+                }
+                ExprData::ConditionalExpression(conditional) => {
+                    expression = conditional.test(self.ast);
+                    context.position = ExpressionPosition::ConditionalTest;
+                }
+                ExprData::ArrowFunctionExpression(arrow) => {
+                    return self.arrow_needs_asi_guard(arrow);
+                }
+                ExprData::AssignmentExpression(assignment) => {
+                    let target = self.assignment_source_target(assignment)?;
+                    return self.source_target_needs_asi_guard(&target);
+                }
+                ExprData::UpdateExpression(update) if !update.prefix(self.ast) => {
+                    let target = self.update_source_target(update)?;
+                    return self.source_target_needs_asi_guard(&target);
+                }
+                _ => return Ok(false),
+            }
+        }
     }
 
     /// Unknown grammar keeps source parentheses until its formatting rules are implemented.

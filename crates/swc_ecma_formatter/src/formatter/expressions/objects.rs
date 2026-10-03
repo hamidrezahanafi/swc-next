@@ -7,7 +7,7 @@ use swc_next_ecma_ast::{
 };
 
 use super::{ExpressionContext, ExpressionPosition, Formatter};
-use crate::formatter::comments::{CommentRunLayout, CommentSemantics, ExpressionTail, NodeHead};
+use crate::formatter::comments::{CommentBinding, CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::literals::StringContext;
 use crate::formatter::suppression::{ContentMode, SuppressionPosition};
 use crate::{
@@ -448,9 +448,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let count = comments.partition_point(|comment| comment.span.end <= colon.start);
         let (before, after) = comments.split_at(count);
         let suppression = self.property_suppression(before, after, colon, value_start);
-        let ordinary_before = before
-            .iter()
-            .all(|&comment| matches!(self.comment_semantics(comment), CommentSemantics::Ordinary));
+        let ordinary_before = self
+            .comment_run_binding(before.iter().copied(), |comment| {
+                if self.comment_semantics(comment).is_ordinary() {
+                    CommentBinding::Unbound
+                } else {
+                    CommentBinding::SourceBound
+                }
+            })
+            .allows_relocation(None);
         let promoted = ordinary_before
             && before.first().is_some_and(|first| {
                 self.line_breaks(key_end, first.span.start) != 0

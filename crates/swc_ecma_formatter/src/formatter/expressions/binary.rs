@@ -9,7 +9,7 @@ use super::parentheses::SourceParentheses;
 use super::{
     ExpressionContext, ExpressionPosition, ExpressionStart, Formatter, HeadComments, TailOwner,
 };
-use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
+use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
 use crate::{FormatError, document::Writer};
@@ -198,9 +198,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn format_binary_head_comments(
         &mut self,
         mut expression: Expr,
+        context: ExpressionContext,
         writer: &mut Writer<'ast>,
-    ) -> Result<(), FormatError> {
+    ) -> Result<ExpressionStart, FormatError> {
         let start = expression.span(self.ast).start;
+        let operand = expression;
         loop {
             let content = self.expression_content(expression);
             if matches!(content.data, ExprData::ParenthesizedExpression(_)) {
@@ -221,7 +223,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let end = expression.span(self.ast).start;
         let comments = self.comments.between(Span::new(start, end))?;
         let comments = self.comments.take(comments.len());
-        self.format_comment_run(comments, CommentRunLayout::Leading(end), writer)
+        if self.has_target_annotations
+            && context.expression_start.needs_asi_guard()
+            && self.options.semicolons == crate::Semicolons::AsNeeded
+            && !comments.is_empty()
+        {
+            return self.format_expression_head(
+                operand,
+                NodeHead {
+                    comments,
+                    content_start: end,
+                    layout: CommentRunLayout::Leading(end),
+                    gap_end: None,
+                },
+                context,
+                writer,
+            );
+        }
+        self.format_comment_run(comments, CommentRunLayout::Leading(end), writer)?;
+        Ok(context.expression_start)
     }
 
     pub(super) fn format_binary(
@@ -251,7 +271,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return writer.group(false, |writer| self.format_binary_enclosed(binary, writer));
         }
         if context.head_comments == HeadComments::Pending {
-            self.format_binary_head_comments(binary.left, writer)?;
+            context.expression_start = self.format_binary_head_comments(
+                binary.left,
+                ExpressionContext {
+                    position: ExpressionPosition::BinaryOperand {
+                        operator: binary.operator,
+                        side: OperandSide::Left,
+                    },
+                    ..context
+                },
+                writer,
+            )?;
             context.head_comments = HeadComments::Claimed;
         }
         let chain = self.binary_chain(binary);
@@ -274,7 +304,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let chain = self.binary_chain(binary);
-        self.format_binary_head_comments(binary.left, writer)?;
+        self.format_binary_head_comments(
+            binary.left,
+            ExpressionContext::at(ExpressionPosition::BinaryOperand {
+                operator: binary.operator,
+                side: OperandSide::Left,
+            }),
+            writer,
+        )?;
         let tail = self.format_binary_head(chain.first, ExpressionStart::None, writer)?;
         self.format_binary_continuation(
             chain,
@@ -403,7 +440,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 && left.operator == binary.operator
             {
                 let chain = self.binary_chain(left);
-                self.format_binary_head_comments(left.left, writer)?;
+                self.format_binary_head_comments(
+                    left.left,
+                    ExpressionContext::at(ExpressionPosition::BinaryOperand {
+                        operator: left.operator,
+                        side: OperandSide::Left,
+                    }),
+                    writer,
+                )?;
                 let head = self.format_binary_head(chain.first, ExpressionStart::None, writer)?;
                 tail = self.format_binary_continuation(
                     chain,

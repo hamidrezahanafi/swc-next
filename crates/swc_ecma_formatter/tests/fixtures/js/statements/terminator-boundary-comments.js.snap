@@ -9,22 +9,26 @@ other;
 {}
 ---------- Output ----------
 item;
-/* own line */ other;
+/* own line */
+other;
 
 ---------- Options ----------
 {"semi":false}
 ---------- Output ----------
 item
-/* own line */ other
+/* own line */
+other
 
 ---------- Options ----------
 {"printWidth":10}
 ---------- Output ----------
 item;
-/* own line */ other;
+/* own line */
+other;
 
 ---------- Options ----------
 {"tabWidth":4,"useTabs":true}
 ---------- Output ----------
 item;
-/* own line */ other;
+/* own line */
+other;

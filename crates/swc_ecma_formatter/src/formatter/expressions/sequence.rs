@@ -3,9 +3,9 @@
 use swc_next_ecma_ast::{Comment, Expr, GetSpan, SequenceExpression, Span};
 
 use super::{ExpressionContext, ExpressionPosition, Formatter, ParenthesesOwner, TailOwner};
-use crate::formatter::comments::{CommentRunLayout, CommentSemantics, ExpressionTail, NodeHead};
+use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
-use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
+use crate::formatter::suppression::{ContentMode, DelimitedFollowing, DelimitedSuppression};
 use crate::{FormatError, Semicolons, document::Writer};
 
 struct SequenceBoundary<'ast> {
@@ -16,9 +16,16 @@ struct SequenceBoundary<'ast> {
     comma: Option<u32>,
     trailing: &'ast [Comment],
     leading: &'ast [Comment],
-    previous_mode: ContentMode,
+    suppression: Option<DelimitedSuppression>,
     before_comma: LineConstraint,
-    after_comma: LineConstraint,
+    separator: LineConstraint,
+}
+
+struct SequenceItem<'ast> {
+    expression: Expr,
+    leading: &'ast [Comment],
+    start: u32,
+    mode: ContentMode,
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -48,9 +55,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             gap_end: None,
         };
         if context.parentheses_owner == ParenthesesOwner::Expression
-            && leading.iter().any(|&comment| {
-                matches!(self.comment_semantics(comment), CommentSemantics::TypeCast)
-            })
+            && self.has_type_casts
+            && leading
+                .iter()
+                .any(|&comment| self.comment_is_type_cast(comment))
         {
             return self.format_parenthesized_expression(
                 Expr::SequenceExpression(sequence),
@@ -60,7 +68,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             );
         }
         let start = self.format_node_head(head, context.expression_start, writer)?;
-        if self.options.semicolons == Semicolons::AsNeeded && start.is_statement() {
+        if self.options.semicolons == Semicolons::AsNeeded && start.needs_asi_guard() {
             writer.text(";");
         }
         let parenthesize = context.parentheses_owner == ParenthesesOwner::Expression
@@ -79,9 +87,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .map(|next| self.sequence_boundary(first, next))
                     .transpose()?;
                 let tail = self.format_sequence_item(
-                    first,
-                    &[],
-                    first_start,
+                    SequenceItem {
+                        expression: first,
+                        leading: &[],
+                        start: first_start,
+                        mode: ContentMode::Formatted,
+                    },
                     boundary.as_ref(),
                     context.tail_owner,
                     writer,
@@ -92,16 +103,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_sequence_trailing(&mut boundary, tail, writer)?;
                 let mut write_rest = |writer: &mut Writer<'ast>| loop {
                     boundary
-                        .after_comma
+                        .separator
                         .write(writer, FlatSeparator::Space, Writer::line);
                     let following = expressions
                         .next()
                         .map(|next| self.sequence_boundary(boundary.next, next))
                         .transpose()?;
                     let tail = self.format_sequence_item(
-                        boundary.next,
-                        boundary.leading,
-                        boundary.next_start,
+                        SequenceItem {
+                            expression: boundary.next,
+                            leading: boundary.leading,
+                            start: boundary.next_start,
+                            mode: boundary.suppression.as_ref().map_or_else(
+                                || self.content_mode(boundary.leading),
+                                |source| source.following,
+                            ),
+                        },
                         following.as_ref(),
                         context.tail_owner,
                         writer,
@@ -136,18 +153,32 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     fn format_sequence_item(
         &mut self,
-        expression: Expr,
-        leading: &'ast [Comment],
-        next_start: u32,
+        item: SequenceItem<'ast>,
         following: Option<&SequenceBoundary<'ast>>,
         tail_owner: TailOwner,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        let leading_mode = self.content_mode(leading);
-        let mode = if leading_mode == ContentMode::Verbatim {
-            leading_mode
+        let SequenceItem {
+            expression,
+            leading,
+            start,
+            mode,
+        } = item;
+        let mode = if mode == ContentMode::Verbatim {
+            mode
         } else {
-            following.map_or(ContentMode::Formatted, |boundary| boundary.previous_mode)
+            following.map_or(ContentMode::Formatted, |boundary| {
+                if boundary
+                    .suppression
+                    .as_ref()
+                    .and_then(|source| source.preceding)
+                    .is_some_and(|target| target == expression.span(self.ast))
+                {
+                    ContentMode::Verbatim
+                } else {
+                    ContentMode::Formatted
+                }
+            })
         };
         let tail_owner = if following.is_some() {
             TailOwner::ParentOperation
@@ -159,8 +190,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             expression,
             NodeHead {
                 comments: leading,
-                content_start: next_start,
-                layout: CommentRunLayout::Leading(next_start),
+                content_start: start,
+                layout: CommentRunLayout::Leading(start),
                 gap_end: None,
             },
             ExpressionContext::at(ExpressionPosition::Nested)
@@ -208,9 +239,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             comma,
             trailing: &[],
             leading: &[],
-            previous_mode: self.trailing_content_mode(span, BoundaryPunctuation::Comma, false),
+            suppression: self.delimited_suppression(
+                previous.span(self.ast),
+                end,
+                DelimitedFollowing::Node,
+            ),
             before_comma: LineConstraint::Unconstrained,
-            after_comma: LineConstraint::Unconstrained,
+            separator: LineConstraint::Unconstrained,
         })
     }
 
@@ -252,7 +287,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .first()
                 .map_or(end, |comment| comment.span.start);
             boundary.before_comma = self.line_constraint(last, comma);
-            boundary.after_comma = self.line_constraint(comma + 1, next);
+            boundary.separator = self.line_constraint(comma + 1, next);
         }
         Ok(())
     }
@@ -266,10 +301,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if let Some(tail) = tail {
             boundary.source_end = tail.source_end;
         }
-        self.prepare_sequence_comments(
-            boundary,
-            Span::new(boundary.source_end, boundary.next_start),
-        )?;
+        let gap = Span::new(boundary.source_end, boundary.next_start);
+        if boundary
+            .suppression
+            .as_ref()
+            .is_some_and(|source| source.preceding.is_some())
+        {
+            let source = self.format_delimited_source_gap(gap, DelimitedFollowing::Node, writer)?;
+            boundary.separator = source.following;
+            return Ok(());
+        }
+        self.prepare_sequence_comments(boundary, gap)?;
         self.comments.claim(boundary.trailing)?;
         self.format_comment_run(
             boundary.trailing,

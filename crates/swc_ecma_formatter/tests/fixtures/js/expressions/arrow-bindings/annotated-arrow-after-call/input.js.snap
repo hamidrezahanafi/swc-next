@@ -8,7 +8,7 @@ first();
 {"arrowParens":"always","printWidth":80,"semi":false}
 ---------- Output ----------
 first()
-/*#__NO_SIDE_EFFECTS__*/ ;(value) => first(value)
+;/*#__NO_SIDE_EFFECTS__*/ (value) => first(value)
 
 ---------- Options ----------
 {"arrowParens":"avoid","printWidth":80,"semi":false}

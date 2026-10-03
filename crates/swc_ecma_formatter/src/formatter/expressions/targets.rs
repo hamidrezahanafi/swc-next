@@ -5,7 +5,7 @@ use swc_next_ecma_ast::{
     SimpleAssignmentTarget, SimpleAssignmentTargetData, Span, UpdateExpression, UpdateOperator,
 };
 
-use super::parentheses::SourceParentheses;
+use super::parentheses::{ParenthesisInner, SourceParentheses};
 use super::{ExpressionContext, ExpressionStart, Formatter, MemberChainLayout, TailOwner};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
 use crate::formatter::source::is_source_whitespace;
@@ -173,6 +173,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 parentheses: SourceParentheses {
                     outer: opening,
                     inner: target.span(self.ast),
+                    inner_target: ParenthesisInner::Unresolved,
                 },
                 mode: TargetLayerMode::Remove,
             });
@@ -182,12 +183,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let mut trailing = gap(suffix);
         let mut inner = target.span(self.ast);
+        let mut inner_target = match self.ast.simple_assignment_target_data(target) {
+            SimpleAssignmentTargetData::IdentifierReference(node) => {
+                ParenthesisInner::Expression(Expr::IdentifierReference(node))
+            }
+            SimpleAssignmentTargetData::MemberExpression(node) => {
+                ParenthesisInner::Expression(Expr::MemberExpression(node))
+            }
+            _ => ParenthesisInner::Unresolved,
+        };
         for layer in layers.iter_mut().rev() {
             let closing = trailing.consume(")").ok_or_else(invalid)?;
             layer.parentheses.outer.end = closing.end;
             layer.parentheses.inner = inner;
+            layer.parentheses.inner_target = inner_target;
             layer.mode = self.target_layer_mode(layer.parentheses);
             inner = layer.parentheses.outer;
+            inner_target = ParenthesisInner::SourcePair;
         }
         let operator_span = match known_operator {
             Some(span) if self.source(span) == operator.as_str() => span,
@@ -241,7 +253,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let verbatim = context.content_mode == ContentMode::Verbatim && !target.layers.is_empty();
         if !target.layers.is_empty()
-            && context.expression_start.is_statement()
+            && context.expression_start.needs_asi_guard()
             && self.options.semicolons == Semicolons::AsNeeded
         {
             // Prepare the statement guard before any removed-layer comments.
@@ -312,6 +324,26 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         // One deferred tail belongs to the whole run of removed wrappers.
         self.capture_expression_tail(Span::new(content_end, outer_end), tail)
+    }
+
+    pub(super) fn source_target_needs_asi_guard(
+        &self,
+        target: &SourceTarget,
+    ) -> Result<bool, FormatError> {
+        if !target.layers.is_empty() {
+            return Ok(true);
+        }
+        let expression = match self.ast.simple_assignment_target_data(target.target) {
+            SimpleAssignmentTargetData::IdentifierReference(_) => return Ok(false),
+            SimpleAssignmentTargetData::MemberExpression(member) => Expr::MemberExpression(member),
+            _ => return Err(self.unsupported("assignment target", target.target)),
+        };
+        self.expression_needs_asi_guard(
+            expression,
+            ExpressionContext::at(super::ExpressionPosition::MemberAssignmentObject)
+                .with_expression_start(ExpressionStart::StatementPending),
+            None,
+        )
     }
 
     pub(super) fn format_simple_assignment_target(

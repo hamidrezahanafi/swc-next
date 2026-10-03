@@ -1,9 +1,11 @@
 //! Callees and source-owned argument delimiters.
 
-use swc_next_ecma_ast::{CallExpression, Expr, ExprData, GetSpan, PropertyKeyData};
+use swc_next_ecma_ast::{
+    Argument, CallExpression, Expr, ExprData, GetSpan, PropertyKeyData, SubRange,
+};
 
 use super::arguments::{ArgumentGroup, SourceArguments};
-use super::{AccessKind, ExpressionContext, ExpressionPosition, Formatter};
+use super::{AccessKind, ExpressionContext, ExpressionPosition, Formatter, TailOwner};
 use crate::formatter::comments::ExpressionTail;
 use crate::formatter::suppression::ContentMode;
 use crate::{FormatError, document::Writer};
@@ -17,7 +19,56 @@ enum TestCallee {
     Terminal,
 }
 
+pub(super) struct CallCallee {
+    pub(super) expression: Expr,
+    pub(super) access: AccessKind,
+    pub(super) mode: ContentMode,
+    pub(super) curried_call: Option<CallExpression>,
+}
+
+impl CallCallee {
+    pub(super) fn context(&self, context: ExpressionContext) -> ExpressionContext {
+        ExpressionContext::at(ExpressionPosition::CallCallee {
+            access: self.access,
+            curried_call: self.curried_call,
+        })
+        .with_expression_start(context.expression_start)
+        .with_tail_owner(TailOwner::ParentOperation)
+        .with_content_mode(self.mode)
+        .with_member_chain_layout(context.member_chain_layout)
+    }
+}
+
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    pub(super) fn source_call_callee(
+        &self,
+        call: CallExpression,
+        context: ExpressionContext,
+    ) -> Result<CallCallee, FormatError> {
+        // Only suppression can change the callee's content mode.
+        if self.has_suppression {
+            return Ok(self.source_call(call, context)?.callee_head());
+        }
+        let ast = self.ast;
+        if call.type_arguments(ast).is_some() {
+            return Err(self.unsupported("call suffix", call));
+        }
+        let expression = call.callee(ast);
+        let access = if call.optional(ast) {
+            AccessKind::Optional
+        } else {
+            AccessKind::Ordinary
+        };
+        let mode = ContentMode::Formatted;
+        let curried_call = self.curried_call_callee(expression, call.arguments(ast), mode);
+        Ok(CallCallee {
+            expression,
+            access,
+            mode,
+            curried_call,
+        })
+    }
+
     pub(super) fn format_call(
         &mut self,
         call: CallExpression,
@@ -67,17 +118,29 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             ArgumentGroup::Local
         };
-        if !call_arguments.is_empty() && arguments.callee_mode == ContentMode::Formatted {
-            arguments.curried_callee = match self.expression_content(callee).data {
-                ExprData::CallExpression(child)
-                    if child.arguments(ast).len() > call_arguments.len() =>
-                {
-                    Some(child)
-                }
-                _ => None,
-            };
-        }
+        arguments.curried_callee =
+            self.curried_call_callee(callee, call_arguments, arguments.callee_mode);
         Ok(arguments)
+    }
+
+    #[inline]
+    fn curried_call_callee(
+        &self,
+        callee: Expr,
+        arguments: SubRange<Argument>,
+        mode: ContentMode,
+    ) -> Option<CallExpression> {
+        if arguments.is_empty() || mode != ContentMode::Formatted {
+            return None;
+        }
+        match self.expression_content(callee).data {
+            ExprData::CallExpression(child)
+                if child.arguments(self.ast).len() > arguments.len() =>
+            {
+                Some(child)
+            }
+            _ => None,
+        }
     }
 
     pub(super) fn is_test_callee(&self, expression: Expr) -> bool {

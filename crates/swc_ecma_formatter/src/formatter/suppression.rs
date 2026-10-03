@@ -1,8 +1,8 @@
 //! Ignore targets resolved at their owning syntax boundaries.
 
-use swc_next_ecma_ast::{Ast, Comment, Span};
+use swc_next_ecma_ast::{Ast, Comment, CommentKind, Span};
 
-use super::{Formatter, comments::CommentSemantics, source::is_source_whitespace};
+use super::{Formatter, diagnostics::LineConstraint, source::is_source_whitespace};
 use crate::{FormatError, document::Writer};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -21,8 +21,25 @@ pub(super) enum SuppressionPosition {
 #[derive(Clone, Copy)]
 pub(super) enum BoundaryPunctuation {
     None,
-    Comma,
     Semicolon,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum DelimitedFollowing {
+    Node,
+    End,
+}
+
+/// Ignore binding uses real siblings; slot layout retains its own comma boundary.
+pub(super) struct DelimitedSuppression {
+    pub(super) preceding: Option<Span>,
+    pub(super) following: ContentMode,
+}
+
+/// The source prefix owns punctuation; its consumer owns the next indentation scope.
+pub(super) struct DelimitedSourceGap {
+    pub(super) end: u32,
+    pub(super) following: LineConstraint,
 }
 
 pub(super) fn is_suppression_comment(ast: &Ast<'_>, comment: Comment) -> bool {
@@ -32,6 +49,7 @@ pub(super) fn is_suppression_comment(ast: &Ast<'_>, comment: Comment) -> bool {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    #[inline]
     pub(super) fn suppression_position(
         &self,
         comments: &[Comment],
@@ -40,35 +58,72 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if !self.has_suppression {
             return None;
         }
-        let index = comments.iter().position(|&comment| {
-            matches!(
-                self.comment_semantics(comment),
-                CommentSemantics::Suppression
-            )
-        })?;
-        let mut first = index;
-        while first > 0
-            && self.line_breaks(comments[first - 1].span.end, comments[first].span.start) == 0
-        {
-            first -= 1;
-        }
-        if self.source_position_starts_line(comments[first].span.start) {
-            return Some(SuppressionPosition::OwnLine);
-        }
-        let mut last = index;
-        while last + 1 < comments.len()
-            && self.line_breaks(comments[last].span.end, comments[last + 1].span.start) == 0
-        {
-            last += 1;
-        }
-        let following = comments
-            .get(last + 1)
-            .map_or(following_start, |comment| comment.span.start);
-        if self.line_breaks(comments[last].span.end, following) != 0 {
-            Some(SuppressionPosition::EndOfLine)
-        } else {
-            Some(SuppressionPosition::Inline)
-        }
+        self.suppressed_comment_runs(comments, following_start)
+            .next()
+            .map(|(_, position)| position)
+    }
+
+    pub(super) fn suppression_positions<'a>(
+        &'a self,
+        comments: &'a [Comment],
+        following_start: u32,
+    ) -> impl Iterator<Item = SuppressionPosition> + 'a {
+        self.suppressed_comment_runs(comments, following_start)
+            .map(|(_, position)| position)
+    }
+
+    /// Physical runs share source placement. Each syntax owner resolves the
+    /// actual target from that placement and the marker kind.
+    fn suppressed_comment_runs<'a>(
+        &'a self,
+        comments: &'a [Comment],
+        following_start: u32,
+    ) -> impl Iterator<Item = (&'a [Comment], SuppressionPosition)> + 'a {
+        let comments = if self.has_suppression { comments } else { &[] };
+        let mut runs = comments
+            .chunk_by(|left, right| {
+                self.source(Span::new(left.span.end, right.span.start))
+                    .chars()
+                    .all(|character| {
+                        is_source_whitespace(character)
+                            && !matches!(character, '\n' | '\r' | '\u{2028}' | '\u{2029}')
+                    })
+            })
+            .peekable();
+        std::iter::from_fn(move || {
+            while let Some(run) = runs.next() {
+                if self.content_mode(run) != ContentMode::Verbatim {
+                    continue;
+                }
+                let first = run.first()?;
+                let last = run.last()?;
+                let following = runs
+                    .peek()
+                    .and_then(|next| next.first())
+                    .map_or(following_start, |comment| comment.span.start);
+                let position = if self.source_position_starts_line(first.span.start) {
+                    SuppressionPosition::OwnLine
+                } else if self.comment_run_ends_line(*last, following) {
+                    SuppressionPosition::EndOfLine
+                } else {
+                    SuppressionPosition::Inline
+                };
+                return Some((run, position));
+            }
+            None
+        })
+    }
+
+    fn comment_run_ends_line(&self, last: Comment, following: u32) -> bool {
+        last.kind == CommentKind::Line
+            || self
+                .source(Span::new(last.span.end, following))
+                .chars()
+                .find(|&character| {
+                    !is_source_whitespace(character)
+                        || matches!(character, '\n' | '\r' | '\u{2028}' | '\u{2029}')
+                })
+                .is_some_and(|character| matches!(character, '\n' | '\r' | '\u{2028}' | '\u{2029}'))
     }
 
     pub(super) fn content_mode(&self, comments: &[Comment]) -> ContentMode {
@@ -81,6 +136,112 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             ContentMode::Formatted
         }
+    }
+
+    #[inline]
+    pub(super) fn delimited_suppression(
+        &self,
+        target: Span,
+        end: u32,
+        following: DelimitedFollowing,
+    ) -> Option<DelimitedSuppression> {
+        if !self.has_suppression {
+            return None;
+        }
+        self.resolve_delimited_suppression(target, end, following)
+    }
+
+    fn resolve_delimited_suppression(
+        &self,
+        target: Span,
+        end: u32,
+        following: DelimitedFollowing,
+    ) -> Option<DelimitedSuppression> {
+        let span = Span::new(target.end, end);
+        let comments = self.comments.in_range(span);
+        if self.content_mode(comments) != ContentMode::Verbatim {
+            return None;
+        }
+        let mut preceding_target = None;
+        let mut following_mode = ContentMode::Formatted;
+        let mut first = 0;
+        while first < comments.len() {
+            let mut last = first + 1;
+            while last < comments.len() {
+                let gap = Span::new(comments[last - 1].span.end, comments[last].span.start);
+                if self.line_breaks(gap.start, gap.end) != 0
+                    || !self.source(gap).chars().all(is_source_whitespace)
+                {
+                    break;
+                }
+                last += 1;
+            }
+            let run = &comments[first..last];
+            if self.content_mode(run) == ContentMode::Verbatim {
+                let after = run[run.len() - 1];
+                let next = comments.get(last).map_or(end, |comment| comment.span.start);
+                let end_of_line = self.comment_run_ends_line(after, next);
+                let preceding = matches!(following, DelimitedFollowing::End)
+                    || !self.source_position_starts_line(run[0].span.start)
+                        && (end_of_line
+                            || self
+                                .find_comma(Span::new(after.span.end, end), &comments[last..])
+                                .is_some());
+                if preceding {
+                    preceding_target = Some(target);
+                } else {
+                    following_mode = ContentMode::Verbatim;
+                }
+            }
+            first = last;
+        }
+        Some(DelimitedSuppression {
+            preceding: preceding_target,
+            following: following_mode,
+        })
+    }
+
+    /// Preserve an effective trailing ignore's complete delimiter relationship.
+    /// Node and slot ownership are resolved before this claims the borrowed run.
+    pub(super) fn format_delimited_source_gap(
+        &mut self,
+        gap: Span,
+        following: DelimitedFollowing,
+        writer: &mut Writer<'ast>,
+    ) -> Result<DelimitedSourceGap, FormatError> {
+        let comments = self.comments.in_range(gap);
+        let source_end = gap.start
+            + self
+                .source(gap)
+                .trim_end_matches(is_source_whitespace)
+                .len() as u32;
+        let last = comments
+            .last()
+            .filter(|comment| comment.span.end == source_end);
+        let following = match following {
+            DelimitedFollowing::Node if last.is_some() => {
+                let breaks = self.line_breaks(source_end, gap.end);
+                if breaks == 0 {
+                    LineConstraint::SameLine
+                } else {
+                    LineConstraint::NewLine(breaks)
+                }
+            }
+            DelimitedFollowing::Node => self.line_constraint(source_end, gap.end),
+            DelimitedFollowing::End => {
+                // The closing delimiter owns its indentation and newline. Literal
+                // source text has no pending suffix to force that closing break.
+                if last.is_some_and(|comment| comment.kind == CommentKind::Line) {
+                    writer.break_parent();
+                }
+                LineConstraint::Unconstrained
+            }
+        };
+        self.format_verbatim(Span::new(gap.start, source_end), writer)?;
+        Ok(DelimitedSourceGap {
+            end: source_end,
+            following,
+        })
     }
 
     /// A sibling owner supplies the complete boundary and its punctuation.
@@ -101,7 +262,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 is_source_whitespace(character)
                     || matches!(
                         (punctuation, character),
-                        (BoundaryPunctuation::Comma, ',') | (BoundaryPunctuation::Semicolon, ';')
+                        (BoundaryPunctuation::Semicolon, ';')
                     )
             }) || !terminal && self.line_breaks(previous, comment.span.start) != 0
             {

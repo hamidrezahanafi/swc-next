@@ -1,17 +1,17 @@
 //! Expression arrows with parameter, arrow-token and body boundary ownership.
 
 use swc_next_ecma_ast::{
-    ArrowFunctionBodyData, ArrowFunctionExpression, Comment, CommentKind, ExprData,
-    FormalParameterItemData, FormalParameterPatternData, GetSpan, Span,
+    ArrowFunctionBody, ArrowFunctionBodyData, ArrowFunctionExpression, Comment, CommentKind,
+    ExprData, FormalParameterItemData, FormalParameterPatternData, FormalParameters, GetSpan, Span,
 };
 
 use super::parentheses::SourceParentheses;
 use super::{ExpressionContext, ExpressionLayout, ExpressionPosition, Formatter, TailOwner};
-use crate::formatter::comments::{CommentRunLayout, CommentSemantics, ExpressionTail, NodeHead};
+use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::{parameters::SourceParameters, suppression::ContentMode};
 use crate::{
-    FormatError, Semicolons,
+    ArrowParentheses, FormatError, Semicolons,
     document::{Fragment, RecordedGroup, Writer},
 };
 
@@ -78,6 +78,16 @@ pub(super) struct SourceArrow<'a> {
     body: SourceArrowBody<'a>,
 }
 
+struct ArrowBoundary<'ast> {
+    parameters: FormalParameters,
+    parameter_span: Span,
+    body: ArrowFunctionBody,
+    body_span: Span,
+    operator: u32,
+    before: &'ast [Comment],
+    leading: &'ast [Comment],
+}
+
 pub(super) struct SourceArrowBody<'a> {
     body: ArrowFunctionBodyData,
     body_span: Span,
@@ -90,17 +100,34 @@ pub(super) struct SourceArrowBody<'a> {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
-    pub(super) fn source_arrow(
+    pub(super) fn arrow_needs_asi_guard(
         &self,
         arrow: ArrowFunctionExpression,
-    ) -> Result<SourceArrow<'ast>, FormatError> {
+    ) -> Result<bool, FormatError> {
+        if arrow.r#async(self.ast) {
+            return Ok(false);
+        }
+        if self.options.arrow_parentheses == ArrowParentheses::Always {
+            return Ok(true);
+        }
+        let boundary = self.source_arrow_boundary(arrow)?;
+        let parameters =
+            self.source_arrow_parameters(boundary.parameters, !boundary.before.is_empty())?;
+        Ok(parameters.starts_with_parenthesis())
+    }
+
+    #[inline(always)]
+    fn source_arrow_boundary(
+        &self,
+        arrow: ArrowFunctionExpression,
+    ) -> Result<ArrowBoundary<'ast>, FormatError> {
         if arrow.type_parameters(self.ast).is_some() || arrow.return_type(self.ast).is_some() {
             return Err(self.unsupported("typed arrow", arrow));
         }
-        let body = self.ast.arrow_function_body_data(arrow.body(self.ast));
         let params = arrow.params(self.ast);
         let parameter_span = params.span(self.ast);
-        let body_span = arrow.body(self.ast).span(self.ast);
+        let body = arrow.body(self.ast);
+        let body_span = body.span(self.ast);
         let gap = Span::new(parameter_span.end, body_span.start);
         let comments = self.comments.in_range(gap);
         let Some(operator) = self.find_token(gap, comments, "=>") else {
@@ -108,7 +135,32 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         let (before, leading) =
             comments.split_at(comments.partition_point(|comment| comment.span.end <= operator));
-        let parameters = self.source_arrow_parameters(params, !before.is_empty())?;
+        Ok(ArrowBoundary {
+            parameters: params,
+            parameter_span,
+            body,
+            body_span,
+            operator,
+            before,
+            leading,
+        })
+    }
+
+    pub(super) fn source_arrow(
+        &self,
+        arrow: ArrowFunctionExpression,
+    ) -> Result<SourceArrow<'ast>, FormatError> {
+        let ArrowBoundary {
+            parameters,
+            parameter_span,
+            body,
+            body_span,
+            operator,
+            before,
+            leading,
+        } = self.source_arrow_boundary(arrow)?;
+        let parameters = self.source_arrow_parameters(parameters, !before.is_empty())?;
+        let body = self.ast.arrow_function_body_data(body);
         let mode = self.content_mode(leading);
         let (head_end, hugs_shape, leading_layout) = match body {
             ArrowFunctionBodyData::Expr(expression) => {
@@ -192,15 +244,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let start = arrow.span(self.ast).start;
         let leading = self.comments.in_range(Span::new(body.operator + 2, start));
         if body.mode != ContentMode::Formatted
-            || leading.iter().any(|&comment| {
-                !matches!(self.comment_semantics(comment), CommentSemantics::Ordinary)
-            })
+            || !self
+                .comment_binding(leading, Span::new(body.operator + 2, start), None)
+                .allows_relocation(None)
         {
             return None;
         }
         if self.expression_layout(expression) == ExpressionLayout::Flat
             || self.expression_layout(content.expression) == ExpressionLayout::Flat
-            || self.diagnostic_range_is_sensitive(Span::new(body.operator + 2, start))
         {
             return None;
         }
@@ -410,7 +461,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             body,
             ..
         } = source;
-        if context.expression_start.is_statement()
+        if context.expression_start.needs_asi_guard()
             && self.options.semicolons == Semicolons::AsNeeded
             && !arrow.r#async(self.ast)
             && parameters.starts_with_parenthesis()

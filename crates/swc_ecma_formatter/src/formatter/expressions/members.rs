@@ -11,7 +11,9 @@ use super::{
 use crate::formatter::comments::{CommentBoundary, CommentGap, CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::source::is_source_whitespace;
-use crate::formatter::suppression::{BoundaryPunctuation, ContentMode, SuppressionPosition};
+use crate::formatter::suppression::{
+    BoundaryPunctuation, ContentMode, DelimitedFollowing, SuppressionPosition,
+};
 use crate::{FormatError, document::Writer};
 
 #[derive(Clone, Copy)]
@@ -159,21 +161,38 @@ impl SourceMember {
     }
 
     pub(super) fn receiver_context(&self, context: ExpressionContext) -> ExpressionContext {
-        let position = if matches!(context.position, ExpressionPosition::MemberAssignmentObject) {
-            ExpressionPosition::MemberAssignmentObject
-        } else {
-            ExpressionPosition::MemberObject(self.access)
-        };
-        ExpressionContext::at(position)
-            .with_expression_start(context.expression_start)
-            .with_tail_owner(TailOwner::ParentOperation)
-            .with_content_mode(self.receiver_mode)
-            .with_member_layout(context.member_layout)
-            .with_member_chain_layout(context.member_chain_layout)
+        context.member_receiver(self.access, self.receiver_mode)
     }
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    pub(super) fn source_member_receiver(
+        &self,
+        member: MemberExpression,
+        context: ExpressionContext,
+    ) -> Result<(Expr, ExpressionContext), FormatError> {
+        // Only suppression can change the receiver or preserve the whole member.
+        if self.has_suppression {
+            return Ok(match self.source_member(member)? {
+                PreparedMember::Verbatim(member) => (
+                    Expr::MemberExpression(member),
+                    context.with_content_mode(ContentMode::Verbatim),
+                ),
+                PreparedMember::Formatted(source) => {
+                    (source.object, source.receiver_context(context))
+                }
+            });
+        }
+        let access = if member.optional(self.ast) {
+            AccessKind::Optional
+        } else {
+            AccessKind::Ordinary
+        };
+        let receiver = member.object(self.ast);
+        let context = context.member_receiver(access, ContentMode::Formatted);
+        Ok((receiver, context))
+    }
+
     pub(super) fn format_member(
         &mut self,
         member: MemberExpression,
@@ -436,7 +455,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     "."
                 });
                 if let Some(gap) = key_gap {
-                    self.format_member_source_gap(*gap, writer)?;
+                    let source =
+                        self.format_delimited_source_gap(*gap, DelimitedFollowing::Node, writer)?;
+                    source.following.write(writer, FlatSeparator::Empty, |_| {});
                 } else {
                     self.comments.claim(after)?;
                     let next = after
@@ -584,35 +605,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         || matches!(character, '\n' | '\r' | '\u{2028}' | '\u{2029}')
                 })
                 .is_some_and(|character| matches!(character, '\n' | '\r' | '\u{2028}' | '\u{2029}'))
-    }
-
-    // The shared delimited source-gap printer is introduced by functional
-    // comments later in this history. This is its existing Node branch.
-    fn format_member_source_gap(
-        &mut self,
-        gap: Span,
-        writer: &mut Writer<'ast>,
-    ) -> Result<(), FormatError> {
-        let comments = self.comments.in_range(gap);
-        let source_end = gap.start
-            + self
-                .source(gap)
-                .trim_end_matches(is_source_whitespace)
-                .len() as u32;
-        let last = comments
-            .last()
-            .filter(|comment| comment.span.end == source_end);
-        let following = if last.is_some() {
-            match self.line_breaks(source_end, gap.end) {
-                0 => LineConstraint::SameLine,
-                count => LineConstraint::NewLine(count),
-            }
-        } else {
-            self.line_constraint(source_end, gap.end)
-        };
-        self.format_verbatim(Span::new(gap.start, source_end), writer)?;
-        following.write(writer, FlatSeparator::Empty, |_| {});
-        Ok(())
     }
 
     fn member_key_is_identifier(&self, mut expression: Expr) -> bool {

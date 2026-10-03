@@ -199,6 +199,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let mut end = content.start;
                 let mut separator = Separator::Line;
                 let mut has_previous = false;
+                let mut following_mode = None;
                 while let Some(item) = formals.next() {
                     let parameter = match ast.formal_parameter_item_data(item) {
                         FormalParameterItemData::FormalParameter(parameter) => parameter,
@@ -226,17 +227,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         .map(|item| item.span(ast))
                         .or_else(|| rest.map(|rest| rest.span(ast)))
                         .map_or(FollowingItem::End, FollowingItem::Node);
-                    let item = self.prepare_delimited_item(
+                    let mut item = self.prepare_delimited_item(
                         parameter.span(ast),
                         following,
                         Span::new(end, content.end),
                         !hug && self.options.trailing_commas == TrailingCommas::All,
                         writer,
                     )?;
+                    if let Some(mode) = following_mode {
+                        item.set_leading_mode(mode);
+                    }
                     let tail = self.format_formal_parameter(parameter, item.mode, writer)?;
                     let boundary = self.finish_delimited_item(item, tail, writer)?;
                     end = boundary.end;
                     separator = boundary.separator;
+                    following_mode = Some(boundary.following_mode);
                     has_previous = true;
                 }
                 if let Some(rest) = rest {
@@ -255,13 +260,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                             writer,
                         );
                     }
-                    let item = self.prepare_delimited_item(
+                    let mut item = self.prepare_delimited_item(
                         rest.span(ast),
                         FollowingItem::End,
                         Span::new(end, content.end),
                         false,
                         writer,
                     )?;
+                    if let Some(mode) = following_mode {
+                        item.set_leading_mode(mode);
+                    }
                     let tail = self.format_rest_parameter(rest, item.mode, writer)?;
                     end = self.finish_delimited_item(item, tail, writer)?.end;
                 }
