@@ -57,6 +57,41 @@ struct PreparedChain<'ast> {
     cast_head: Option<ParenthesizedExpression>,
     parts: Vec<ChainPart<'ast>>,
     calls: usize,
+    // Source boundaries can add groups and independently require expansion.
+    groups: usize,
+}
+
+struct ChainGrouping {
+    groups: usize,
+    pending_call: bool,
+    terminal_members: bool,
+}
+
+impl ChainGrouping {
+    fn new(terminal_member: bool) -> Self {
+        Self {
+            groups: 1,
+            pending_call: false,
+            terminal_members: terminal_member,
+        }
+    }
+
+    fn call(&mut self) {
+        self.pending_call = true;
+        self.terminal_members = false;
+    }
+
+    fn member(&mut self, numeric: bool) {
+        // The reverse walk closes the same call-bearing groups as the forward
+        // printer. Numeric accesses stay with a call; terminal named accesses
+        // each start a group after the last call. The remaining prefix is head.
+        if !numeric {
+            if self.pending_call || self.terminal_members {
+                self.groups += 1;
+            }
+            self.pending_call = false;
+        }
+    }
 }
 
 struct ChainHead {
@@ -99,11 +134,18 @@ enum ChainOperation<'ast> {
     Call(SourceArguments<'ast>),
 }
 
+enum ChainArgumentLayout {
+    ByWidth,
+    Inspect,
+    Complex,
+}
+
 struct ChainSource<'ast> {
     parts: Peekable<IntoIter<ChainPart<'ast>>>,
     pending: Option<PendingMember<'ast>>,
     tail: Option<ExpressionTail<'ast>>,
     remaining_calls: usize,
+    argument_layout: ChainArgumentLayout,
 }
 
 #[derive(Clone, Copy)]
@@ -295,6 +337,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut current_context = context;
         let mut parts = Vec::new();
         let mut calls = 0;
+        let terminal_member = matches!(
+            self.ast.expr_data(expression),
+            ExprData::MemberExpression(_)
+        );
+        let mut grouping = ChainGrouping::new(terminal_member);
         while current_context.content_mode == ContentMode::Formatted {
             match self.ast.expr_data(current) {
                 ExprData::MemberExpression(member) => match self.source_member(member)? {
@@ -303,6 +350,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         let numeric = source.key().is_some_and(|key| {
                             matches!(self.ast.expr_data(key), ExprData::NumericLiteral(_))
                         });
+                        grouping.member(numeric);
                         current = source.object;
                         current_context = source.receiver_context(current_context);
                         parts.push(ChainPart::Member(ChainMember {
@@ -323,6 +371,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     current_context = arguments.callee_context(current_context);
                     parts.push(ChainPart::Call(arguments));
                     calls += 1;
+                    grouping.call();
                 }
                 ExprData::ParenthesizedExpression(parenthesized) => {
                     let Some(child) =
@@ -354,6 +403,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             cast_head: self.source_cast_head(current),
             parts,
             calls,
+            groups: grouping.groups,
         })
     }
 
@@ -414,6 +464,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             pending: None,
             tail: None,
             remaining_calls: chain.calls,
+            argument_layout: if chain.groups > 2 {
+                ChainArgumentLayout::Inspect
+            } else {
+                ChainArgumentLayout::ByWidth
+            },
         };
         let (head, merge_head) = self.record_chain_head(
             ChainHead {
@@ -427,6 +482,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             &mut source,
             writer,
         )?;
+        // Merging the head leaves at most two groups in a short chain. Source
+        // boundaries may split those groups, but already require expansion.
+        if !terminal_member && merge_head && chain.groups <= 3 {
+            source.argument_layout = ChainArgumentLayout::ByWidth;
+        }
         let mut tail = Vec::new();
         while source.pending.is_some() || source.parts.peek().is_some() {
             tail.push(self.record_chain_group(terminal_member, &mut source, writer)?);
@@ -446,7 +506,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && !groups.tail.iter().any(|group| group.facts.source_break)
         {
             writer.group(false, |writer| write_compact(&groups, writer));
-        } else if groups.requires_expanded() {
+        } else if matches!(source.argument_layout, ChainArgumentLayout::Complex)
+            || groups.requires_expanded()
+        {
             write_expanded(&groups, merge_head, writer);
         } else {
             let (expanded, ()) = writer.record_with_value(|writer| {
@@ -658,6 +720,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         facts: &mut GroupFacts,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
+        // Long chains with complex arguments keep an AST-owned expansion
+        // decision when a nested collection changes its source layout.
+        if matches!(source.argument_layout, ChainArgumentLayout::Inspect) {
+            let complex = arguments
+                .arguments()
+                .iter()
+                .any(|id| !self.simple_call_argument(self.ast.get_node_in_sub_range(id), 2));
+            if complex {
+                source.argument_layout = ChainArgumentLayout::Complex;
+            }
+        }
         // Comments owned by the actual arguments may move inside their opener.
         // Only an outside prefix is a boundary for both merging and expansion.
         let has_boundary_comments = arguments.has_outside_prefix();

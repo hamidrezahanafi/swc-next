@@ -449,15 +449,15 @@ pub(super) struct SourceArguments<'ast> {
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum ArgumentGroup {
-    Local,
-    ParentCall,
-}
-
-#[derive(Clone, Copy)]
 struct SourceFirstArgument {
     node: Argument,
     mode: ContentMode,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum ArgumentGroup {
+    Local,
+    ParentCall,
 }
 
 impl ArgumentGroup {
@@ -475,6 +475,10 @@ impl ArgumentGroup {
 }
 
 impl SourceArguments<'_> {
+    pub(super) fn arguments(&self) -> SubRange<Argument> {
+        self.arguments
+    }
+
     pub(super) fn access(&self) -> AccessKind {
         match self.prefix {
             SourceArgumentPrefix::Direct(_) => AccessKind::Ordinary,

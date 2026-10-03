@@ -2,8 +2,10 @@
 
 use swc_next_ecma_ast::{
     Argument, ArgumentData, ArrayExpression, ArrowFunctionBodyData, ArrowFunctionExpression,
-    CallExpression, Expr, ExprData, Function, GetSpan, ObjectExpression, Span, SubRange,
+    CallExpression, Expr, ExprData, Function, GetSpan, ObjectExpression, ObjectPropertyKindData,
+    PropertyKeyData, SimpleAssignmentTargetData, Span, SubRange, UnaryOperator,
 };
+use unicode_width::UnicodeWidthStr;
 
 use super::arrays::{ArrayArgumentArity, RecordedArray, RecordedArrayArgument};
 use super::objects::RecordedObject;
@@ -388,25 +390,145 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     }
 
     fn short_callback_neighbor(&self, expression: Expr) -> bool {
-        match self.ast.expr_data(expression) {
-            ExprData::IdentifierReference(_)
-            | ExprData::ThisExpression(_)
-            | ExprData::StringLiteral(_)
-            | ExprData::NumericLiteral(_)
-            | ExprData::BooleanLiteral(_)
-            | ExprData::NullLiteral(_)
-            | ExprData::BigIntLiteral(_)
-            | ExprData::RegExpLiteral(_) => true,
-            ExprData::CallExpression(call) => call.arguments(self.ast).is_empty(),
-            ExprData::MemberExpression(member) => {
-                !member.computed(self.ast)
-                    && !member.optional(self.ast)
-                    && matches!(
-                        self.ast.expr_data(member.object(self.ast)),
-                        ExprData::IdentifierReference(_) | ExprData::ThisExpression(_)
-                    )
+        let ast = self.ast;
+        let mut data = self.expression_content(expression).data;
+        while let ExprData::ChainExpression(chain) = data {
+            data = self.expression_content(chain.expression(ast)).data;
+        }
+        match data {
+            ExprData::BinaryExpression(binary) => {
+                self.simple_callback_neighbor(binary.left(ast), 1)
+                    && self.simple_callback_neighbor(binary.right(ast), 1)
             }
-            _ => false,
+            ExprData::LogicalExpression(logical) => {
+                self.simple_callback_neighbor(logical.left(ast), 1)
+                    && self.simple_callback_neighbor(logical.right(ast), 1)
+            }
+            ExprData::CallExpression(call) if call.arguments(ast).len() > 1 => false,
+            ExprData::NewExpression(new) if new.arguments(ast).len() > 1 => false,
+            ExprData::RegExpLiteral(_) => true,
+            ExprData::ObjectExpression(object) => {
+                let span = object.span(ast);
+                object.properties(ast).is_empty() && self.comments.in_range(span).is_empty()
+            }
+            ExprData::ArrayExpression(array) => {
+                let span = array.span(ast);
+                array.elements(ast).is_empty() && self.comments.in_range(span).is_empty()
+            }
+            _ => self.simple_callback_neighbor_data(data, 2),
+        }
+    }
+
+    fn simple_callback_neighbor(&self, expression: Expr, depth: u8) -> bool {
+        if depth == 0 {
+            return false;
+        }
+        let data = self.expression_content(expression).data;
+        self.simple_callback_neighbor_data(data, depth)
+    }
+
+    pub(super) fn simple_call_argument(&self, argument: Argument, depth: u8) -> bool {
+        let ArgumentData::Expr(expression) = self.ast.argument_data(argument) else {
+            return false;
+        };
+        self.simple_callback_neighbor(expression, depth)
+    }
+
+    fn simple_callback_neighbor_data(&self, mut data: ExprData, depth: u8) -> bool {
+        if depth == 0 {
+            return false;
+        }
+        let ast = self.ast;
+        let child_depth = depth - 1;
+        loop {
+            let next = match data {
+                ExprData::IdentifierReference(_)
+                | ExprData::ThisExpression(_)
+                | ExprData::Super(_)
+                | ExprData::PrivateIdentifier(_)
+                | ExprData::StringLiteral(_)
+                | ExprData::NumericLiteral(_)
+                | ExprData::BooleanLiteral(_)
+                | ExprData::NullLiteral(_)
+                | ExprData::BigIntLiteral(_) => return true,
+                ExprData::RegExpLiteral(literal) => {
+                    return ast.get_utf8(literal.pattern(ast)).width() <= 5;
+                }
+                ExprData::ChainExpression(chain) => chain.expression(ast),
+                ExprData::UnaryExpression(unary)
+                    if matches!(
+                        unary.operator(ast),
+                        UnaryOperator::LogicalNot
+                            | UnaryOperator::Negate
+                            | UnaryOperator::Positive
+                            | UnaryOperator::BitwiseNot
+                    ) =>
+                {
+                    unary.argument(ast)
+                }
+                ExprData::UpdateExpression(update) => {
+                    match ast.simple_assignment_target_data(update.argument(ast)) {
+                        SimpleAssignmentTargetData::IdentifierReference(_) => return true,
+                        SimpleAssignmentTargetData::MemberExpression(member) => {
+                            Expr::MemberExpression(member)
+                        }
+                        _ => return false,
+                    }
+                }
+                ExprData::MemberExpression(member) => {
+                    if let PropertyKeyData::Expr(property) =
+                        ast.property_key_data(member.property(ast))
+                        && !self.simple_callback_neighbor(property, depth)
+                    {
+                        return false;
+                    }
+                    member.object(ast)
+                }
+                ExprData::CallExpression(call) => {
+                    let arguments = call.arguments(ast);
+                    if arguments.len() > usize::from(depth)
+                        || !arguments.iter().all(|id| {
+                            self.simple_call_argument(ast.get_node_in_sub_range(id), child_depth)
+                        })
+                    {
+                        return false;
+                    }
+                    call.callee(ast)
+                }
+                ExprData::NewExpression(new) => {
+                    let arguments = new.arguments(ast);
+                    if arguments.len() > usize::from(depth)
+                        || !arguments.iter().all(|id| {
+                            self.simple_call_argument(ast.get_node_in_sub_range(id), child_depth)
+                        })
+                    {
+                        return false;
+                    }
+                    new.callee(ast)
+                }
+                ExprData::ArrayExpression(array) => {
+                    return array.elements(ast).iter().all(|id| {
+                        ast.get_node_in_sub_range(id)
+                            .is_none_or(|argument| self.simple_call_argument(argument, child_depth))
+                    });
+                }
+                ExprData::ObjectExpression(object) => {
+                    return object.properties(ast).iter().all(|id| {
+                        let property = ast.get_node_in_sub_range(id);
+                        let ObjectPropertyKindData::ObjectProperty(property) =
+                            ast.object_property_kind_data(property)
+                        else {
+                            return false;
+                        };
+                        !property.computed(ast)
+                            && !property.method(ast)
+                            && (property.shorthand(ast)
+                                || self.simple_callback_neighbor(property.value(ast), child_depth))
+                    });
+                }
+                _ => return false,
+            };
+            data = self.expression_content(next).data;
         }
     }
 
