@@ -2,14 +2,45 @@
 
 use swc_next_ecma_ast::{
     Argument, Comment, CommentKind, ExprData, GetSpan, ObjectExpression, ObjectProperty,
-    ObjectPropertyKindData, PropertyKey, PropertyKeyData, PropertyKind, Span,
+    ObjectPropertyKind, ObjectPropertyKindData, PropertyKey, PropertyKeyData, PropertyKind, Span,
+    SubRange,
 };
 
 use super::{ExpressionContext, ExpressionPosition, Formatter};
 use crate::formatter::comments::{CommentRunLayout, CommentSemantics, ExpressionTail, NodeHead};
 use crate::formatter::literals::StringContext;
 use crate::formatter::suppression::{ContentMode, SuppressionPosition};
-use crate::{FormatError, QuoteProperties, TrailingCommas, document::Writer};
+use crate::{
+    FormatError, QuoteProperties, TrailingCommas,
+    document::{Fragment, Writer},
+};
+
+enum SourceObject<'ast> {
+    Verbatim(Span),
+    Formatted(FormattedObject<'ast>),
+}
+
+struct FormattedObject<'ast> {
+    expand: bool,
+    contents: ObjectContents<'ast>,
+}
+
+enum ObjectContents<'ast> {
+    Empty {
+        comments: &'ast [Comment],
+    },
+    Properties {
+        content: Span,
+        first: ObjectPropertyKind,
+        remaining: SubRange<ObjectPropertyKind>,
+    },
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct RecordedObject<'ast> {
+    pub(super) normal: Fragment<'ast>,
+    pub(super) forced: Option<Fragment<'ast>>,
+}
 
 struct ObjectBoundary<'ast> {
     inline: &'ast [Comment],
@@ -46,24 +77,91 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         object: ObjectExpression,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
+        match self.source_object(object)? {
+            SourceObject::Verbatim(span) => self.format_verbatim(span, writer),
+            SourceObject::Formatted(source) => writer.group(source.expand, |writer| {
+                self.format_object_contents(source.contents, writer)
+            }),
+        }
+    }
+
+    fn source_object(
+        &mut self,
+        object: ObjectExpression,
+    ) -> Result<SourceObject<'ast>, FormatError> {
         let ast = self.ast;
         let span = object.span(ast);
         let content = Span::new(span.start + 1, span.end - 1);
         if self.diagnostic_range_is_sensitive(content) {
             return Err(self.unsupported("object diagnostic boundary", object));
         }
-        let mut properties = object
-            .properties(ast)
-            .iter()
-            .map(|id| ast.get_node_in_sub_range(id))
-            .peekable();
-        let Some(first) = properties.peek().copied() else {
+        let mut remaining = object.properties(ast);
+        let Some(first) = remaining.first().map(|id| ast.get_node_in_sub_range(id)) else {
             let comments = self.comments.between(content)?;
             if self.content_mode(comments) == ContentMode::Verbatim {
-                return self.format_verbatim(span, writer);
+                return Ok(SourceObject::Verbatim(span));
             }
             let comments = self.comments.take(comments.len());
-            return writer.group(false, |writer| {
+            return Ok(SourceObject::Formatted(FormattedObject {
+                expand: false,
+                contents: ObjectContents::Empty { comments },
+            }));
+        };
+        let remaining = remaining.split_off(1);
+        let expand = self.line_breaks(content.start, first.span(ast).start) != 0;
+        Ok(SourceObject::Formatted(FormattedObject {
+            expand,
+            contents: ObjectContents::Properties {
+                content,
+                first,
+                remaining,
+            },
+        }))
+    }
+
+    pub(super) fn record_object(
+        &mut self,
+        object: ObjectExpression,
+        writer: &mut Writer<'ast>,
+    ) -> Result<RecordedObject<'ast>, FormatError> {
+        match self.source_object(object)? {
+            SourceObject::Verbatim(span) => {
+                let (normal, ()) =
+                    writer.record_with_value(|writer| self.format_verbatim(span, writer))?;
+                Ok(RecordedObject {
+                    normal,
+                    forced: None,
+                })
+            }
+            SourceObject::Formatted(FormattedObject { expand, contents }) => {
+                let (content, ()) = writer
+                    .record_with_value(|writer| self.format_object_contents(contents, writer))?;
+                let (normal, ()) = writer.record_with_value(|writer| {
+                    writer.group(expand, |writer| writer.write_fragment(content));
+                    Ok::<_, FormatError>(())
+                })?;
+                let forced = if normal.preferred_breaks() {
+                    None
+                } else {
+                    let (forced, ()) = writer.record_with_value(|writer| {
+                        writer.group(true, |writer| writer.write_fragment(content));
+                        Ok::<_, FormatError>(())
+                    })?;
+                    Some(forced)
+                };
+                Ok(RecordedObject { normal, forced })
+            }
+        }
+    }
+
+    fn format_object_contents(
+        &mut self,
+        contents: ObjectContents<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        let ast = self.ast;
+        match contents {
+            ObjectContents::Empty { comments } => {
                 writer.text("{");
                 if !comments.is_empty() {
                     writer.indent(|writer| {
@@ -80,86 +178,104 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
                 writer.text("}");
                 Ok(())
-            });
-        };
-        let expand = self.line_breaks(content.start, first.span(ast).start) != 0;
-        writer.group(expand, |writer| {
-            writer.text("{");
-            writer.indent(|writer| {
-                self.object_brace_line(writer);
-                let leading = self
-                    .comments
-                    .between(Span::new(content.start, first.span(ast).start))?;
-                let mut leading = leading;
-                while let Some(property) = properties.next() {
-                    let property_span = property.span(ast);
-                    let terminal = properties.peek().is_none();
-                    let next_start = properties
-                        .peek()
-                        .map_or(content.end, |next| next.span(ast).start);
-                    let boundary =
-                        self.object_boundary(Span::new(property_span.end, next_start), terminal);
-                    let mode = if self.content_mode(leading) == ContentMode::Verbatim
-                        || self.content_mode(boundary.inline) == ContentMode::Verbatim
-                        || self.content_mode(boundary.own_line) == ContentMode::Verbatim
-                    {
-                        ContentMode::Verbatim
-                    } else {
-                        ContentMode::Formatted
-                    };
-                    self.comments.claim(leading)?;
-                    self.format_comment_run(leading, CommentRunLayout::Source, writer)?;
-                    if let Some(last) = leading.last() {
-                        self.comment_gap(last.span.end, property_span.start, writer);
-                    }
-                    let tail = if mode == ContentMode::Verbatim {
-                        self.format_verbatim(property_span, writer)?;
-                        None
-                    } else {
-                        match ast.object_property_kind_data(property) {
-                            ObjectPropertyKindData::ObjectProperty(property) => {
-                                self.format_object_property(property, writer)?
-                            }
-                            ObjectPropertyKindData::SpreadElement(spread) => {
-                                self.format_argument(Argument::SpreadElement(spread), mode, writer)?
-                            }
-                        }
-                    };
-                    self.format_expression_tail(tail, writer)?;
-                    self.comments.claim(boundary.inline)?;
-                    self.format_inline_trailing_comments(boundary.inline, writer)?;
-                    if !terminal {
-                        writer.text(",");
-                        writer.line();
-                        if self.next_line_is_empty(boundary.separator.start, boundary.separator.end)
+            }
+            ObjectContents::Properties {
+                content,
+                first,
+                remaining,
+            } => {
+                writer.text("{");
+                writer.indent(|writer| {
+                    self.object_brace_line(writer);
+                    let leading = self
+                        .comments
+                        .between(Span::new(content.start, first.span(ast).start))?;
+                    let mut leading = leading;
+                    let mut properties = remaining
+                        .iter()
+                        .map(|id| ast.get_node_in_sub_range(id))
+                        .peekable();
+                    let mut property = first;
+                    loop {
+                        let property_span = property.span(ast);
+                        let terminal = properties.peek().is_none();
+                        let next_start = properties
+                            .peek()
+                            .map_or(content.end, |next| next.span(ast).start);
+                        let boundary = self
+                            .object_boundary(Span::new(property_span.end, next_start), terminal);
+                        let mode = if self.content_mode(leading) == ContentMode::Verbatim
+                            || self.content_mode(boundary.inline) == ContentMode::Verbatim
+                            || self.content_mode(boundary.own_line) == ContentMode::Verbatim
                         {
-                            writer.hard_line();
+                            ContentMode::Verbatim
+                        } else {
+                            ContentMode::Formatted
+                        };
+                        self.comments.claim(leading)?;
+                        self.format_comment_run(leading, CommentRunLayout::Source, writer)?;
+                        if let Some(last) = leading.last() {
+                            self.comment_gap(last.span.end, property_span.start, writer);
                         }
-                    } else {
-                        if self.options.trailing_commas != TrailingCommas::None {
-                            writer.if_break(",");
-                        }
-                        self.comments.claim(boundary.own_line)?;
-                        if let Some(first) = boundary.own_line.first() {
-                            writer.hard_line();
-                            if self.next_line_is_empty(boundary.trailing_end, first.span.start) {
+                        let tail = if mode == ContentMode::Verbatim {
+                            self.format_verbatim(property_span, writer)?;
+                            None
+                        } else {
+                            match ast.object_property_kind_data(property) {
+                                ObjectPropertyKindData::ObjectProperty(property) => {
+                                    self.format_object_property(property, writer)?
+                                }
+                                ObjectPropertyKindData::SpreadElement(spread) => self
+                                    .format_argument(
+                                        Argument::SpreadElement(spread),
+                                        mode,
+                                        writer,
+                                    )?,
+                            }
+                        };
+                        self.format_expression_tail(tail, writer)?;
+                        self.comments.claim(boundary.inline)?;
+                        self.format_inline_trailing_comments(boundary.inline, writer)?;
+                        if !terminal {
+                            writer.text(",");
+                            writer.line();
+                            if self.next_line_is_empty(
+                                boundary.separator.start,
+                                boundary.separator.end,
+                            ) {
                                 writer.hard_line();
                             }
-                            self.format_comment_run(
-                                boundary.own_line,
-                                CommentRunLayout::Lines,
-                                writer,
-                            )?;
+                        } else {
+                            if self.options.trailing_commas != TrailingCommas::None {
+                                writer.if_break(",");
+                            }
+                            self.comments.claim(boundary.own_line)?;
+                            if let Some(first) = boundary.own_line.first() {
+                                writer.hard_line();
+                                if self.next_line_is_empty(boundary.trailing_end, first.span.start)
+                                {
+                                    writer.hard_line();
+                                }
+                                self.format_comment_run(
+                                    boundary.own_line,
+                                    CommentRunLayout::Lines,
+                                    writer,
+                                )?;
+                            }
                         }
+                        leading = boundary.leading;
+                        let Some(next) = properties.next() else {
+                            break;
+                        };
+                        property = next;
                     }
-                    leading = boundary.leading;
-                }
+                    Ok(())
+                })?;
+                self.object_brace_line(writer);
+                writer.text("}");
                 Ok(())
-            })?;
-            self.object_brace_line(writer);
-            writer.text("}");
-            Ok(())
-        })
+            }
+        }
     }
 
     fn object_boundary(&self, span: Span, terminal: bool) -> ObjectBoundary<'ast> {

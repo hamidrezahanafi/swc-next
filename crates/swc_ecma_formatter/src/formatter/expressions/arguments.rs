@@ -1,6 +1,6 @@
 //! Shared source-ordered argument slots and comma/comment boundaries.
 
-use super::callbacks::SelectedCallback;
+use super::callbacks::{SelectedArgument, SelectedCallback};
 use super::{AccessKind, ExpressionContext, ExpressionPosition, Formatter, TailOwner};
 use crate::formatter::comments::{CommentRunLayout, CommentSemantics, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
@@ -40,6 +40,7 @@ pub(in crate::formatter) struct PreparedItem {
     following: FollowingItem,
     span: Span,
     pub(in crate::formatter) mode: ContentMode,
+    has_leading_comments: bool,
     trailing_comma: bool,
 }
 
@@ -162,6 +163,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let leading = self
             .comments
             .between(Span::new(span.start, item_span.start))?;
+        let has_leading_comments = !leading.is_empty();
         let leading = self.comments.take(leading.len());
         let leading_mode = self.content_mode(leading);
         let mode = if leading_mode == ContentMode::Verbatim || !self.has_suppression {
@@ -185,6 +187,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             following,
             span,
             mode,
+            has_leading_comments,
             trailing_comma,
         })
     }
@@ -484,17 +487,28 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    pub(super) fn source_arguments_have_function(&self, list: &SourceArguments<'ast>) -> bool {
-        list.arguments.iter().any(|id| {
-            let argument = self.ast.get_node_in_sub_range(id);
-            match self.ast.argument_data(argument) {
-                ArgumentData::Expr(expression) => matches!(
-                    self.expression_content(expression).data,
-                    ExprData::Function(_) | ExprData::ArrowFunctionExpression(_)
-                ),
-                ArgumentData::SpreadElement(_) => false,
-            }
-        })
+    pub(super) fn format_argument_with_function_fact(
+        &mut self,
+        argument: Argument,
+        mode: ContentMode,
+        missing_function: &mut Option<&mut bool>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        if missing_function.is_none() {
+            return self.format_argument(argument, mode, writer);
+        }
+        let data = self.ast.argument_data(argument);
+        let has_function = match data {
+            ArgumentData::Expr(expression) => matches!(
+                self.expression_content(expression).data,
+                ExprData::Function(_) | ExprData::ArrowFunctionExpression(_)
+            ),
+            ArgumentData::SpreadElement(_) => false,
+        };
+        if has_function && let Some(function) = missing_function.take() {
+            *function = true;
+        }
+        self.format_argument_data(data, mode, writer)
     }
 
     fn argument_prefix(
@@ -544,6 +558,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         list: SourceArguments<'ast>,
         tail: Option<ExpressionTail<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_source_arguments_with_function_fact(list, tail, None, writer)
+    }
+
+    pub(super) fn format_source_arguments_with_function_fact(
+        &mut self,
+        list: SourceArguments<'ast>,
+        tail: Option<ExpressionTail<'ast>>,
+        mut missing_function: Option<&mut bool>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let ast = self.ast;
@@ -700,9 +724,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Some(empty)
             })
             .any(|empty| empty);
-        if let Some(selected) = test_callback.or_else(|| self.select_callback(arguments)) {
-            return self.format_callback_arguments(
-                arguments, content, first_mode, expand, selected, writer,
+        if let Some(selected) = test_callback
+            .map(SelectedArgument::Callback)
+            .or_else(|| self.select_argument_layout(arguments, !hugged))
+        {
+            return self.format_selected_arguments(
+                arguments,
+                (content, first_mode),
+                expand,
+                selected,
+                missing_function,
+                writer,
             );
         }
         writer.group(expand, |writer| {
@@ -732,7 +764,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     if previous.is_none() && first_mode == ContentMode::Verbatim {
                         item.mode = first_mode;
                     }
-                    let tail = self.format_argument(argument, item.mode, writer)?;
+                    let tail = self.format_argument_with_function_fact(
+                        argument,
+                        item.mode,
+                        &mut missing_function,
+                        writer,
+                    )?;
                     previous = Some(self.finish_delimited_item(item, tail, writer)?);
                 }
                 let end = previous.map_or(content.start, |boundary| boundary.end);
@@ -787,6 +824,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             trailing_comma,
             writer,
         )
+    }
+
+    /// Reads the unconsumed outside boundary of this actual argument slot.
+    /// Object-internal comments remain owned by the value formatter.
+    pub(super) fn argument_has_boundary_comments(&self, item: &PreparedItem) -> bool {
+        if item.has_leading_comments {
+            return true;
+        }
+        let end = item
+            .following
+            .node()
+            .map_or(item.span.end, |span| span.start);
+        !self
+            .comments
+            .in_range(Span::new(item.item_span.end, end))
+            .is_empty()
     }
 
     pub(super) fn format_argument_dangling(

@@ -1335,8 +1335,8 @@ fn alternative_expansion_boundaries() {
     let scope = record(&mut writer, |writer| {
         writer.write_alternatives(fallback, &[preferred], fallback)
     });
-    assert!(preferred.breaks);
-    assert!(!scope.breaks);
+    assert!(preferred.preferred_breaks());
+    assert!(!scope.preferred_breaks());
     writer.group(false, |writer| {
         writer.text("head ");
         writer.if_flat("F");
@@ -1353,7 +1353,7 @@ fn alternative_expansion_boundaries() {
     let inherited = record(&mut writer, |writer| {
         writer.write_alternatives(normal, &[normal], fallback);
     });
-    assert!(inherited.breaks);
+    assert!(inherited.preferred_breaks());
     let flat = inherited
         .try_flat()
         .expect("expansion metadata permits a flat view");

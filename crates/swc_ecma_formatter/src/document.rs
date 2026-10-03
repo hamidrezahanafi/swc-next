@@ -72,6 +72,10 @@ pub(crate) struct RecordedGroup<'a> {
 }
 
 impl<'a> Fragment<'a> {
+    pub(crate) fn preferred_breaks(self) -> bool {
+        self.breaks
+    }
+
     pub(crate) fn try_flat(self) -> Option<FlatFragment<'a>> {
         self.capabilities
             .permits_flat()

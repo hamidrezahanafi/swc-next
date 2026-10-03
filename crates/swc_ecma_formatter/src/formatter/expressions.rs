@@ -19,12 +19,14 @@ mod targets;
 mod unary;
 
 use swc_next_ecma_ast::{
-    Argument, ArgumentData, Expr, ExprData, GetSpan, Span, UnaryOperator, UpdateOperator,
+    Argument, ArgumentData, Expr, ExprData, GetSpan, ObjectExpression, Span, UnaryOperator,
+    UpdateOperator,
 };
 
 use self::assignment::AssignmentParent;
 use self::binary::{BinaryLike, BinaryOperatorKind, OperandSide};
 use self::chains::FluentChainEligibility;
+use self::objects::RecordedObject;
 use super::literals::StringContext;
 use super::suppression::ContentMode;
 use super::{
@@ -727,13 +729,43 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
+    fn record_object_argument(
+        &mut self,
+        expression: Expr,
+        object: ObjectExpression,
+        writer: &mut Writer<'ast>,
+    ) -> Result<RecordedObject<'ast>, FormatError> {
+        let layout = self.expression_layout(expression);
+        match layout {
+            ExpressionLayout::Flat => {
+                let (normal, ()) = writer.record_with_value(|writer| {
+                    layout.write(writer, |writer| self.format_object(object, writer))
+                })?;
+                Ok(RecordedObject {
+                    normal,
+                    forced: None,
+                })
+            }
+            ExpressionLayout::Normal => self.record_object(object, writer),
+        }
+    }
+
     fn format_argument(
         &mut self,
         argument: Argument,
         mode: ContentMode,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        match self.ast.argument_data(argument) {
+        self.format_argument_data(self.ast.argument_data(argument), mode, writer)
+    }
+
+    fn format_argument_data(
+        &mut self,
+        argument: ArgumentData,
+        mode: ContentMode,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        match argument {
             ArgumentData::Expr(expression) => self.format_expression(
                 expression,
                 ExpressionContext::at(ExpressionPosition::Nested)

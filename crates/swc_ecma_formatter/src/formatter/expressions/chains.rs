@@ -145,6 +145,7 @@ struct GroupFacts {
     has_function: bool,
     has_boundary_comments: bool,
     source_break: bool,
+    preferred_breaks: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -204,9 +205,12 @@ impl ChainGroups<'_> {
         let Some((last, earlier)) = self.tail.split_last() else {
             return false;
         };
-        !self.head.can_flat
-            || earlier.iter().any(|group| !group.can_flat)
-            || !last.can_flat
+        self.head.facts.preferred_breaks
+            || !self.head.can_flat
+            || earlier
+                .iter()
+                .any(|group| group.facts.preferred_breaks || !group.can_flat)
+            || (last.facts.preferred_breaks || !last.can_flat)
                 && (self.head.facts.has_function
                     || earlier.iter().any(|group| group.facts.has_function))
     }
@@ -539,6 +543,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ChainHeadLayout::Grouped => writer.group(false, write_head),
             }
         })?;
+        facts.preferred_breaks = fragment.preferred_breaks();
         let merge_head = !head.has_comments
             && if head_parts == 0 {
                 source
@@ -603,6 +608,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Ok::<_, FormatError>(())
             })
         })?;
+        facts.preferred_breaks = fragment.preferred_breaks();
         Ok(ChainGroup::new(
             ChainGroupDoc::for_tail(fragment),
             before,
@@ -633,15 +639,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         facts: &mut GroupFacts,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        if !facts.has_function {
-            facts.has_function = self.source_arguments_have_function(&arguments);
-        }
         // Comments owned by the actual arguments may move inside their opener.
         // Only an outside prefix is a boundary for both merging and expansion.
         let has_boundary_comments = arguments.has_outside_prefix();
         facts.has_boundary_comments |= has_boundary_comments;
         facts.source_break |= has_boundary_comments;
-        source.tail = self.format_source_arguments(arguments, source.tail.take(), writer)?;
+        let missing_function = if facts.has_function {
+            None
+        } else {
+            Some(&mut facts.has_function)
+        };
+        source.tail = self.format_source_arguments_with_function_fact(
+            arguments,
+            source.tail.take(),
+            missing_function,
+            writer,
+        )?;
         source.remaining_calls -= 1;
         Ok(())
     }
