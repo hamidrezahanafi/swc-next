@@ -3,7 +3,7 @@
 use swc_next_ecma_ast::{Comment, CommentKind, Span};
 
 use super::Formatter;
-use super::diagnostics::FlatSeparator;
+use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::source::{lines, split_line};
 use crate::{FormatError, document::Writer};
 
@@ -32,12 +32,81 @@ pub(super) struct ExpressionTail<'ast> {
     pub(super) comments: &'ast [Comment],
 }
 
+/// Source facts remain valid after the pending run has been claimed.
+pub(super) struct CommentBoundary<'ast> {
+    comments: &'ast [Comment],
+    source_end: u32,
+    gap: CommentGap,
+}
+
+impl CommentBoundary<'_> {
+    pub(super) fn is_empty(&self) -> bool {
+        self.comments.is_empty()
+    }
+
+    pub(super) fn end(&self) -> u32 {
+        self.comments
+            .last()
+            .map_or(self.source_end, |comment| comment.span.end)
+    }
+
+    pub(super) fn gap(&self) -> CommentGap {
+        self.gap
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum CommentGap {
+    LineComment,
+    Source(LineConstraint),
+}
+
+impl CommentGap {
+    pub(super) fn requires_line(self) -> bool {
+        matches!(
+            self,
+            Self::LineComment | Self::Source(LineConstraint::NewLine(_))
+        )
+    }
+
+    pub(super) fn write<'a>(
+        self,
+        writer: &mut Writer<'a>,
+        flat: FlatSeparator,
+        default: impl FnOnce(&mut Writer<'a>),
+    ) {
+        match self {
+            Self::LineComment => writer.hard_line(),
+            Self::Source(constraint) => constraint.write(writer, flat, default),
+        }
+    }
+}
+
 pub(super) enum CommentSemantics {
     Ordinary,
     Suppression,
     Diagnostic,
     Optimizer,
     TypeCast,
+}
+
+/// A syntax owner resolves the source target before relocating comments.
+/// Unknown annotation targets and diagnostic coverage retain the source boundary.
+#[derive(Clone, Copy)]
+pub(super) enum CommentBinding {
+    Unbound,
+    BoundTo(Span),
+    SourceBound,
+}
+
+impl CommentBinding {
+    pub(super) fn allows_relocation(&self, target: Option<Span>) -> bool {
+        match self {
+            Self::Unbound => true,
+            Self::BoundTo(source) => target == Some(*source),
+            Self::SourceBound => false,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -199,25 +268,6 @@ impl PreparedTrailingRun<'_> {
     }
 }
 
-/// A syntax owner resolves the source target before relocating comments.
-/// Unknown annotation targets and diagnostic coverage retain the source boundary.
-#[derive(Clone, Copy)]
-pub(super) enum CommentBinding {
-    Unbound,
-    BoundTo(Span),
-    SourceBound,
-}
-
-impl CommentBinding {
-    pub(super) fn allows_relocation(&self, target: Option<Span>) -> bool {
-        match self {
-            Self::Unbound => true,
-            Self::BoundTo(source) => target == Some(*source),
-            Self::SourceBound => false,
-        }
-    }
-}
-
 pub(super) struct CommentCursor<'ast> {
     remaining: &'ast [Comment],
 }
@@ -347,6 +397,39 @@ impl<'ast> CommentCursor<'ast> {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    pub(super) fn prepare_comment_boundary(
+        &self,
+        comments: &'ast [Comment],
+        source_end: u32,
+        next_start: u32,
+    ) -> CommentBoundary<'ast> {
+        let last = comments.last();
+        let end = last.map_or(source_end, |comment| comment.span.end);
+        let gap = if last.is_some_and(|comment| comment.kind == CommentKind::Line) {
+            CommentGap::LineComment
+        } else {
+            CommentGap::Source(self.line_constraint(end, next_start))
+        };
+        CommentBoundary {
+            comments,
+            source_end,
+            gap,
+        }
+    }
+
+    pub(super) fn format_comment_boundary(
+        &mut self,
+        boundary: &CommentBoundary<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        self.comments.claim(boundary.comments)?;
+        self.format_comment_run(
+            boundary.comments,
+            CommentRunLayout::SourceAfter(boundary.source_end),
+            writer,
+        )
+    }
+
     /// Reference input normalizes CR/CRLF before attachment. Its backwards
     /// newline check skips SPACE/TAB only; run gaps use ECMA whitespace instead.
     fn source_line_starts_line(&self, position: u32) -> bool {
@@ -522,6 +605,30 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             CommentSemantics::TypeCast
         } else {
             CommentSemantics::Ordinary
+        }
+    }
+
+    pub(super) fn comment_binding(
+        &self,
+        comments: &[Comment],
+        boundary: Span,
+        target: Option<Span>,
+    ) -> CommentBinding {
+        let binding = self.comment_run_binding(comments.iter().copied(), |comment| {
+            match self.comment_semantics(comment) {
+                CommentSemantics::Ordinary => CommentBinding::Unbound,
+                CommentSemantics::Suppression => {
+                    target.map_or(CommentBinding::SourceBound, CommentBinding::BoundTo)
+                }
+                _ => CommentBinding::SourceBound,
+            }
+        });
+        if matches!(binding, CommentBinding::SourceBound)
+            || self.diagnostic_range_is_sensitive(boundary)
+        {
+            CommentBinding::SourceBound
+        } else {
+            binding
         }
     }
 

@@ -2,9 +2,7 @@
 
 use super::callbacks::{SelectedArgument, SelectedCallback};
 use super::{AccessKind, ExpressionContext, ExpressionPosition, Formatter, TailOwner};
-use crate::formatter::comments::{
-    ArrayCommentOwner, CommentRunLayout, CommentSemantics, ExpressionTail,
-};
+use crate::formatter::comments::{ArrayCommentOwner, CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::source::is_source_whitespace;
 use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
@@ -483,6 +481,13 @@ impl SourceArguments<'_> {
         match self.prefix {
             SourceArgumentPrefix::Direct(_) => AccessKind::Ordinary,
             SourceArgumentPrefix::Optional { .. } => AccessKind::Optional,
+            SourceArgumentPrefix::Empty { operator, .. } => {
+                if operator.is_some() {
+                    AccessKind::Optional
+                } else {
+                    AccessKind::Ordinary
+                }
+            }
         }
     }
 
@@ -494,6 +499,7 @@ impl SourceArguments<'_> {
             SourceArgumentPrefix::Optional { before, after, .. } => {
                 !before.is_empty() || !after.belongs_to_arguments() && !after.comments().is_empty()
             }
+            SourceArgumentPrefix::Empty { .. } => true,
         }
     }
 
@@ -533,6 +539,22 @@ enum SourceArgumentPrefix<'ast> {
         before: &'ast [Comment],
         after: ArgumentPrefix<'ast>,
     },
+    Empty {
+        operator: Option<Span>,
+        comments: &'ast [Comment],
+    },
+}
+
+impl SourceArgumentPrefix<'_> {
+    fn has_comments(&self) -> bool {
+        match self {
+            Self::Direct(prefix) => !prefix.comments().is_empty(),
+            Self::Optional { before, after, .. } => {
+                !before.is_empty() || !after.comments().is_empty()
+            }
+            Self::Empty { .. } => true,
+        }
+    }
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -549,38 +571,45 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             node: ast.get_node_in_sub_range(id),
             mode: ContentMode::Formatted,
         });
+        let first_span = first.map(|argument| argument.node.span(ast));
         let gap = Span::new(
             callee_span.end,
-            first.map_or(end - 1, |arg| arg.node.span(ast).start),
+            first_span.map_or(end - 1, |span| span.start),
         );
         let boundary_comments = self.comments.in_range(gap);
-        let (opening, prefix, callee_mode) = match access {
-            AccessKind::Ordinary => {
-                let opening = self.find_token(gap, boundary_comments, "(")?;
+        let operator = match access {
+            AccessKind::Ordinary => None,
+            AccessKind::Optional => {
+                let start = self.find_token(gap, boundary_comments, "?.")?;
+                Some(Span::new(start, start + 2))
+            }
+        };
+        let opening_start = operator.map_or(callee_span.end, |operator| operator.end);
+        let opening_gap = Span::new(opening_start, gap.end);
+        let opening = self.find_token(opening_gap, boundary_comments, "(")?;
+        let prefix_count = boundary_comments.partition_point(|comment| comment.span.end <= opening);
+        let prefix_comments = &boundary_comments[..prefix_count];
+        let (prefix, callee_mode) = match operator {
+            None => {
                 let span = Span::new(callee_span.end, opening);
-                let prefix = self.argument_prefix(first.as_mut(), span);
+                let prefix = self.argument_prefix(first.as_mut(), span, prefix_comments);
                 let mode = if prefix.belongs_to_arguments() {
                     ContentMode::Formatted
                 } else {
                     self.trailing_content_mode(span, BoundaryPunctuation::None, false)
                 };
-                (opening, SourceArgumentPrefix::Direct(prefix), mode)
+                (SourceArgumentPrefix::Direct(prefix), mode)
             }
-            AccessKind::Optional => {
-                let operator_start = self.find_token(gap, boundary_comments, "?.")?;
-                let operator = Span::new(operator_start, operator_start + 2);
-                let opening_gap = Span::new(operator.end, gap.end);
-                let opening = self.find_token(opening_gap, boundary_comments, "(")?;
+            Some(operator) => {
+                let before_count =
+                    prefix_comments.partition_point(|comment| comment.span.end <= operator.start);
+                let (before, after) = prefix_comments.split_at(before_count);
                 let before_span = Span::new(callee_span.end, operator.start);
-                self.prepare_first_argument_suppression(
-                    first.as_mut(),
-                    self.comments.in_range(before_span),
-                );
-                let before = self.comments.in_range(before_span);
+                self.prepare_first_argument_suppression(first.as_mut(), before);
                 let before_mode =
                     self.trailing_content_mode(before_span, BoundaryPunctuation::None, false);
                 let after_span = Span::new(operator.end, opening);
-                let after = self.argument_prefix(first.as_mut(), after_span);
+                let after = self.argument_prefix(first.as_mut(), after_span, after);
                 let after_mode = if after.belongs_to_arguments() {
                     ContentMode::Formatted
                 } else {
@@ -604,9 +633,30 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     before,
                     after,
                 };
-                (opening, prefix, mode)
+                (prefix, mode)
             }
         };
+        let prefix =
+            if first.is_none() && prefix.has_comments() && callee_mode == ContentMode::Formatted {
+                let comments = prefix_comments;
+                if !comments.is_empty()
+                    && self
+                        .comment_binding(
+                            self.comments
+                                .in_range(Span::new(callee_span.start, opening)),
+                            Span::new(callee_span.start, opening + 1),
+                            None,
+                        )
+                        .allows_relocation(None)
+                    && self.source_cast_head(callee).is_none()
+                {
+                    SourceArgumentPrefix::Empty { operator, comments }
+                } else {
+                    prefix
+                }
+            } else {
+                prefix
+            };
         Some(SourceArguments {
             arguments,
             first,
@@ -645,29 +695,34 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.format_argument_data(data, mode, writer)
     }
 
+    #[inline]
     fn argument_prefix(
         &self,
         first: Option<&mut SourceFirstArgument>,
         span: Span,
+        comments: &'ast [Comment],
     ) -> ArgumentPrefix<'ast> {
-        let comments = self.comments.in_range(span);
-        let belongs_to_arguments = first.is_some()
-            && !comments.is_empty()
-            && comments.iter().all(|&comment| {
-                comment.kind == CommentKind::Block
-                    && matches!(
-                        self.comment_semantics(comment),
-                        CommentSemantics::Ordinary | CommentSemantics::Suppression
-                    )
-            })
-            && !self.diagnostic_range_is_sensitive(Span::new(span.start, span.end + 1));
-        let prefix = if belongs_to_arguments {
-            ArgumentPrefix::Arguments(comments)
-        } else {
-            ArgumentPrefix::Outside(comments)
+        let Some(first) = first else {
+            return ArgumentPrefix::Outside(comments);
         };
-        if !belongs_to_arguments {
-            self.prepare_first_argument_suppression(first, comments);
+        let prefix = if comments.is_empty()
+            || comments
+                .iter()
+                .any(|comment| comment.kind != CommentKind::Block)
+        {
+            ArgumentPrefix::Outside(comments)
+        } else {
+            let target = self.has_suppression.then(|| first.node.span(self.ast));
+            let binding =
+                self.comment_binding(comments, Span::new(span.start, span.end + 1), target);
+            if binding.allows_relocation(target) {
+                ArgumentPrefix::Arguments(comments)
+            } else {
+                ArgumentPrefix::Outside(comments)
+            }
+        };
+        if !prefix.belongs_to_arguments() {
+            self.prepare_first_argument_suppression(Some(first), comments);
         }
         prefix
     }
@@ -686,6 +741,44 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if self.first_argument_prefix_mode(comments) == ContentMode::Verbatim {
             first.mode = ContentMode::Verbatim;
         }
+    }
+
+    fn format_empty_argument_prefix(
+        &self,
+        comments: &'ast [Comment],
+        operator: Option<Span>,
+        source_end: u32,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        let mut previous_end = source_end;
+        let mut pending_line = false;
+        for comment in comments {
+            let own_line = self.source_position_starts_line(comment.span.start);
+            let gap_start = operator
+                .filter(|operator| {
+                    previous_end <= operator.start && operator.end <= comment.span.start
+                })
+                .map_or(previous_end, |operator| operator.end);
+            if pending_line || own_line {
+                writer.hard_line();
+                if self.next_line_is_empty(gap_start, comment.span.start) {
+                    writer.hard_line();
+                }
+            } else {
+                writer.space();
+            }
+            self.format_comment_run(
+                std::slice::from_ref(comment),
+                CommentRunLayout::Source,
+                writer,
+            )?;
+            pending_line = own_line || comment.kind == CommentKind::Line;
+            previous_end = comment.span.end;
+        }
+        if pending_line {
+            writer.hard_line();
+        }
+        Ok(())
     }
 
     pub(super) fn format_source_arguments(
@@ -721,21 +814,36 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .as_ref()
             .map_or(callee_span.end, |tail| tail.source_end);
         let content_start = match prefix {
+            SourceArgumentPrefix::Empty { operator, comments } => {
+                let comments = if tail.is_some() {
+                    self.comments.between(Span::new(source_end, opening))?
+                } else {
+                    comments
+                };
+                self.comments.claim(comments)?;
+                self.format_empty_argument_prefix(comments, operator, source_end, writer)?;
+                if operator.is_some() {
+                    writer.text("?.");
+                }
+                opening + 1
+            }
             SourceArgumentPrefix::Direct(prefix) => {
                 let before = self.comments.between(Span::new(source_end, opening))?;
                 let prefix_belongs_to_arguments = prefix.belongs_to_arguments();
                 let move_tail = first.is_some()
                     && (prefix.comments().is_empty() || prefix_belongs_to_arguments)
                     && tail.as_ref().is_some_and(|tail| {
-                        tail.comments.iter().all(|&comment| {
-                            comment.kind == CommentKind::Block
-                                && matches!(
-                                    self.comment_semantics(comment),
-                                    CommentSemantics::Ordinary
+                        tail.comments
+                            .iter()
+                            .all(|comment| comment.kind == CommentKind::Block)
+                            && self
+                                .comment_binding(
+                                    tail.comments,
+                                    Span::new(source_end, opening + 1),
+                                    None,
                                 )
-                        })
-                    })
-                    && !self.diagnostic_range_is_sensitive(Span::new(source_end, opening + 1));
+                                .allows_relocation(None)
+                    });
                 let outside_count = if move_tail {
                     0
                 } else if prefix_belongs_to_arguments {
@@ -744,24 +852,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     before.len()
                 };
                 let (outside, inside) = before.split_at(outside_count);
-                self.comments.claim(outside)?;
-                self.format_comment_run(
-                    outside,
-                    CommentRunLayout::SourceAfter(source_end),
-                    writer,
-                )?;
-                let end = outside
-                    .last()
-                    .map_or(source_end, |comment| comment.span.end);
-                if outside
-                    .last()
-                    .is_some_and(|comment| comment.kind == CommentKind::Line)
-                {
-                    writer.hard_line();
-                } else {
-                    self.line_constraint(end, opening)
-                        .write(writer, FlatSeparator::Empty, |_| {});
-                }
+                let boundary = self.prepare_comment_boundary(outside, source_end, opening);
+                self.format_comment_boundary(&boundary, writer)?;
+                boundary.gap().write(writer, FlatSeparator::Empty, |_| {});
                 if inside.is_empty() {
                     opening + 1
                 } else if move_tail {
@@ -781,47 +874,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 } else {
                     before
                 };
-                self.comments.claim(before)?;
-                self.format_comment_run(before, CommentRunLayout::SourceAfter(source_end), writer)?;
-                let end = before.last().map_or(source_end, |comment| comment.span.end);
-                if before
-                    .last()
-                    .is_some_and(|comment| comment.kind == CommentKind::Line)
-                {
-                    writer.hard_line();
-                } else {
-                    self.line_constraint(end, operator.start).write(
-                        writer,
-                        FlatSeparator::Empty,
-                        |_| {},
-                    );
-                }
+                let boundary = self.prepare_comment_boundary(before, source_end, operator.start);
+                self.format_comment_boundary(&boundary, writer)?;
+                boundary.gap().write(writer, FlatSeparator::Empty, |_| {});
                 writer.text("?.");
                 if after.belongs_to_arguments() {
                     operator.end
                 } else {
                     let after = after.comments();
-                    self.comments.claim(after)?;
-                    self.format_comment_run(
-                        after,
-                        CommentRunLayout::SourceAfter(operator.end),
-                        writer,
-                    )?;
-                    let end = after
-                        .last()
-                        .map_or(operator.end, |comment| comment.span.end);
-                    if after
-                        .last()
-                        .is_some_and(|comment| comment.kind == CommentKind::Line)
-                    {
-                        writer.hard_line();
-                    } else {
-                        self.line_constraint(end, opening).write(
-                            writer,
-                            FlatSeparator::Empty,
-                            |_| {},
-                        );
-                    }
+                    let boundary = self.prepare_comment_boundary(after, operator.end, opening);
+                    self.format_comment_boundary(&boundary, writer)?;
+                    boundary.gap().write(writer, FlatSeparator::Empty, |_| {});
                     opening + 1
                 }
             }

@@ -3,12 +3,12 @@ formatter * prettier 3.9.9 * js
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 794
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 197/1070 (18.41%)
-Snapshot matched: 197/1070
+Passed: 198/1070 (18.50%)
+Snapshot matched: 198/1070
 AST parity: 256/256
 AST mismatched: 0/256
 AST format errors: 0/1070
-Mismatched: 59/1070
+Mismatched: 58/1070
 Format errors: 813/1070
 Panicked: 0/1070
 Not idempotent: 0/1070
@@ -140,7 +140,6 @@ Unsupported option sets: 19
 - js/call/first-argument-expansion/issue-4401.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/call/first-argument-expansion/jsx.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/call/first-argument-expansion/test.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/call/no-argument/no-arguments.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/chain-expression/issue-15785-2.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/chain-expression/issue-15785-3.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/chain-expression/issue-15916.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent

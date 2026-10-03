@@ -11,8 +11,8 @@ use super::{
     AccessKind, ExpressionContext, ExpressionLayout, ExpressionPosition, Formatter,
     MemberChainLayout, MemberLayout,
 };
-use crate::formatter::comments::ExpressionTail;
-use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
+use crate::formatter::comments::{CommentGap, ExpressionTail};
+use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::suppression::ContentMode;
 use crate::{
     FormatError,
@@ -115,17 +115,15 @@ struct PendingMember<'ast> {
 impl PendingMember<'_> {
     fn separator(&self) -> ChainSeparator {
         ChainSeparator {
-            constraint: self.boundary.constraint,
-            mandatory_line: self.boundary.mandatory_line,
+            gap: self.boundary.gap(),
             empty_line: self.boundary.empty_line,
         }
     }
 
     fn source_break(&self) -> bool {
         self.boundary.has_comments
-            || self.boundary.mandatory_line
             || self.boundary.empty_line
-            || matches!(self.boundary.constraint, LineConstraint::NewLine(_))
+            || self.boundary.gap().requires_line()
     }
 }
 
@@ -150,21 +148,21 @@ struct ChainSource<'ast> {
 
 #[derive(Clone, Copy)]
 struct ChainSeparator {
-    constraint: LineConstraint,
-    mandatory_line: bool,
+    gap: CommentGap,
     empty_line: bool,
 }
 
 impl ChainSeparator {
     fn write(self, expanded: bool, writer: &mut Writer<'_>) {
-        if self.mandatory_line {
-            writer.hard_line();
-            if self.empty_line {
+        match self.gap {
+            CommentGap::LineComment => {
                 writer.hard_line();
+                if self.empty_line {
+                    writer.hard_line();
+                }
             }
-        } else {
-            self.constraint
-                .write(writer, FlatSeparator::Empty, |writer| {
+            CommentGap::Source(constraint) => {
+                constraint.write(writer, FlatSeparator::Empty, |writer| {
                     if expanded || self.empty_line {
                         writer.hard_line();
                         if self.empty_line {
@@ -172,6 +170,7 @@ impl ChainSeparator {
                         }
                     }
                 });
+            }
         }
     }
 }
@@ -536,12 +535,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     let boundary =
                         self.format_member_boundary(&member.source, tail.take(), writer)?;
                     let lookup = self.member_lookup_layout(&member.source, member.lookup_owner);
-                    lookup.write(
-                        boundary.mandatory_line,
-                        boundary.constraint,
-                        writer,
-                        |writer| self.format_member_access(&member.source, boundary, writer),
-                    )?;
+                    lookup.write(boundary.gap(), writer, |writer| {
+                        self.format_member_access(&member.source, boundary, writer)
+                    })?;
                 }
                 ChainPart::Call(arguments) => {
                     tail = self.format_source_arguments(arguments, tail.take(), writer)?;

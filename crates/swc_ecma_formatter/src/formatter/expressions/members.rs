@@ -8,7 +8,7 @@ use swc_next_ecma_ast::{
 use super::{
     AccessKind, ExpressionContext, ExpressionPosition, Formatter, MemberLayout, TailOwner,
 };
-use crate::formatter::comments::{CommentRunLayout, CommentSemantics, ExpressionTail};
+use crate::formatter::comments::{CommentBoundary, CommentGap, CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::source::is_source_whitespace;
 use crate::formatter::suppression::{BoundaryPunctuation, ContentMode, SuppressionPosition};
@@ -74,11 +74,8 @@ pub(super) struct SourceMember {
 }
 
 pub(super) struct MemberBoundary<'ast> {
-    before: &'ast [Comment],
+    before: CommentBoundary<'ast>,
     after: &'ast [Comment],
-    source_end: u32,
-    pub(super) constraint: LineConstraint,
-    pub(super) mandatory_line: bool,
     pub(super) empty_line: bool,
     pub(super) has_comments: bool,
 }
@@ -86,6 +83,10 @@ pub(super) struct MemberBoundary<'ast> {
 impl MemberBoundary<'_> {
     pub(super) fn has_before_comments(&self) -> bool {
         !self.before.is_empty()
+    }
+
+    pub(super) fn gap(&self) -> CommentGap {
+        self.before.gap()
     }
 }
 
@@ -119,21 +120,16 @@ pub(super) enum MemberLookupLayout {
 impl MemberLookupLayout {
     pub(super) fn write<'ast>(
         self,
-        mandatory_line: bool,
-        constraint: LineConstraint,
+        gap: CommentGap,
         writer: &mut Writer<'ast>,
         access: impl FnOnce(&mut Writer<'ast>) -> Result<(), FormatError>,
     ) -> Result<(), FormatError> {
         let write = |writer: &mut Writer<'ast>| {
-            if mandatory_line {
-                writer.hard_line();
-            } else {
-                constraint.write(writer, FlatSeparator::Empty, |writer| {
-                    if matches!(self, Self::Grouped) {
-                        writer.soft_line();
-                    }
-                });
-            }
+            gap.write(writer, FlatSeparator::Empty, |writer| {
+                if matches!(self, Self::Grouped) {
+                    writer.soft_line();
+                }
+            });
             access(writer)
         };
         match self {
@@ -195,12 +191,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.format_expression(member.object, member.receiver_context(context), writer)?;
         let boundary = self.format_member_boundary(&member, tail, writer)?;
         let layout = self.member_lookup_layout(&member, MemberLookupOwner::from_context(context));
-        layout.write(
-            boundary.mandatory_line,
-            boundary.constraint,
-            writer,
-            |writer| self.format_member_access(&member, boundary, writer),
-        )?;
+        layout.write(boundary.gap(), writer, |writer| {
+            self.format_member_access(&member, boundary, writer)
+        })?;
         Ok(None)
     }
 
@@ -366,28 +359,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && comments[split..]
                 .iter()
                 .any(|comment| comment.kind == CommentKind::Line)
-            && comments.iter().all(|&comment| {
-                matches!(self.comment_semantics(comment), CommentSemantics::Ordinary)
-            })
-            && !self
-                .diagnostic_range_is_sensitive(Span::new(source_end, member.property_span.start));
+            && self
+                .comment_binding(
+                    comments,
+                    Span::new(source_end, member.property_span.start),
+                    None,
+                )
+                .allows_relocation(None);
         let (before, after) = comments.split_at(if move_lines { comments.len() } else { split });
-        let previous_end = before.last().map_or(source_end, |comment| comment.span.end);
-        let mandatory_line = before
-            .last()
-            .is_some_and(|comment| comment.kind == CommentKind::Line);
         let next_start = if move_lines {
             member.property_span.start
         } else {
             operator.start
         };
+        let before = self.prepare_comment_boundary(before, source_end, next_start);
+        let empty_line = self.next_line_is_empty(before.end(), next_start);
         Ok(MemberBoundary {
             before,
             after,
-            source_end,
-            constraint: self.line_constraint(previous_end, next_start),
-            mandatory_line,
-            empty_line: self.next_line_is_empty(previous_end, next_start),
+            empty_line,
             has_comments: !comments.is_empty(),
         })
     }
@@ -397,12 +387,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         boundary: &MemberBoundary<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        self.comments.claim(boundary.before)?;
-        self.format_comment_run(
-            boundary.before,
-            CommentRunLayout::SourceAfter(boundary.source_end),
-            writer,
-        )
+        self.format_comment_boundary(&boundary.before, writer)
     }
 
     pub(super) fn format_member_access(
@@ -424,36 +409,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     let before_bracket_count =
                         after.partition_point(|comment| comment.span.end <= brackets.start);
                     let before_bracket = &after[..before_bracket_count];
-                    self.comments.claim(before_bracket)?;
-                    self.format_comment_run(
-                        before_bracket,
-                        CommentRunLayout::SourceAfter(optional.end),
-                        writer,
-                    )?;
-                    let end = before_bracket
-                        .last()
-                        .map_or(optional.end, |comment| comment.span.end);
-                    if before_bracket
-                        .last()
-                        .is_some_and(|comment| comment.kind == CommentKind::Line)
-                    {
-                        writer.hard_line();
+                    let boundary =
+                        self.prepare_comment_boundary(before_bracket, optional.end, brackets.start);
+                    let separator = if boundary.is_empty() {
+                        FlatSeparator::Empty
                     } else {
-                        let separator = if before_bracket.is_empty() {
-                            FlatSeparator::Empty
-                        } else {
-                            FlatSeparator::Space
-                        };
-                        self.line_constraint(end, brackets.start).write(
-                            writer,
-                            separator,
-                            |writer| {
-                                if !before_bracket.is_empty() {
-                                    writer.space();
-                                }
-                            },
-                        );
-                    }
+                        FlatSeparator::Space
+                    };
+                    self.format_comment_boundary(&boundary, writer)?;
+                    boundary.gap().write(writer, separator, |writer| {
+                        if !boundary.is_empty() {
+                            writer.space();
+                        }
+                    });
                 }
                 self.format_member_key(*expression, *brackets, member.key_mode, *opening, writer)
             }
