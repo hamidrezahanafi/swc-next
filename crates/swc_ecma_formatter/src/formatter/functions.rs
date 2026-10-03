@@ -1,6 +1,6 @@
 //! Function headers and their actual parameter/body boundaries.
 
-use swc_next_ecma_ast::{Comment, Function, FunctionBody, GetSpan, Span};
+use swc_next_ecma_ast::{Comment, CommentKind, Function, FunctionBody, GetSpan, Span};
 
 use super::Formatter;
 use super::comments::CommentRunLayout;
@@ -119,8 +119,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let end = comments
             .last()
             .map_or(parameter_end, |comment| comment.span.end);
-        self.line_constraint(end, span.start)
-            .write(writer, FlatSeparator::Space, Writer::space);
+        if comments
+            .last()
+            .is_some_and(|comment| comment.kind == CommentKind::Line)
+        {
+            writer.hard_line();
+        } else {
+            self.line_constraint(end, span.start).write(
+                writer,
+                FlatSeparator::Space,
+                Writer::space,
+            );
+        }
         self.format_function_body(body, mode, writer)
     }
 }

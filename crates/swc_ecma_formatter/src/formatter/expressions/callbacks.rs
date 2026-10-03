@@ -82,7 +82,7 @@ enum RecordedValue<'a> {
     FinalObject(RecordedObject<'a>),
     FinalArray(RecordedArray<'a>),
     Callback {
-        signature: Fragment<'a>,
+        signature: Option<GroupedSignature<'a>>,
         body: Fragment<'a>,
         normal: Fragment<'a>,
         layout: ExpressionLayout,
@@ -95,12 +95,18 @@ struct RecordedArgument<'a> {
     suffix: Fragment<'a>,
 }
 
+#[derive(Clone, Copy)]
+enum GroupedSignature<'a> {
+    Independent(Fragment<'a>),
+    Flat(FlatFragment<'a>),
+}
+
 enum GroupedValue<'a> {
     Ordinary(FlatFragment<'a>),
     FinalObject(RecordedObject<'a>),
     FinalArray(RecordedArray<'a>),
     Callback {
-        signature: FlatFragment<'a>,
+        signature: GroupedSignature<'a>,
         body: Fragment<'a>,
     },
 }
@@ -131,7 +137,7 @@ impl<'a> RecordedArgument<'a> {
                     GroupedValue::Ordinary(normal)
                 } else {
                     GroupedValue::Callback {
-                        signature: signature.try_flat()?,
+                        signature: signature?,
                         body,
                     }
                 }
@@ -534,9 +540,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     fn record_callback(
         &mut self,
-        callback: Callback,
+        selected: &SelectedCallback,
         writer: &mut Writer<'ast>,
     ) -> Result<(RecordedValue<'ast>, Option<ExpressionTail<'ast>>), FormatError> {
+        let callback = selected.callback;
         let (signature, body, normal, tail) = match callback.kind {
             CallbackKind::Arrow(arrow) => {
                 let source = self.source_arrow(arrow)?;
@@ -568,6 +575,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             layout.write(writer, |writer| writer.write_fragment(normal));
             Ok::<_, FormatError>(())
         })?;
+        let signature = match (selected.role, callback.kind, layout) {
+            (CallbackRole::First, CallbackKind::Function(_), ExpressionLayout::Normal) => {
+                Some(GroupedSignature::Independent(signature))
+            }
+            _ => signature.try_flat().map(GroupedSignature::Flat),
+        };
         Ok((
             RecordedValue::Callback {
                 signature,
@@ -624,12 +637,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             let (value, tail) = match &selected {
                 SelectedArgument::Callback(selected)
-                    if argument == selected.argument && item.mode == ContentMode::Formatted =>
+                    if argument == selected.argument
+                        && item.mode == ContentMode::Formatted
+                        && (selected.role != CallbackRole::First
+                            || !self.first_callback_has_boundary_comments(&item)) =>
                 {
                     if let Some(function) = missing_function.take() {
                         *function = true;
                     }
-                    self.record_callback(selected.callback, writer)?
+                    self.record_callback(selected, writer)?
                 }
                 SelectedArgument::FinalObject(selected)
                     if argument == selected.argument
@@ -807,10 +823,18 @@ fn write_grouped_arguments<'a>(
                 };
                 writer.write_fragment(value);
             }
-            GroupedValue::Callback { signature, body } => {
-                writer.write_flat_fragment(signature);
-                writer.group(expand_body, |writer| writer.write_fragment(body));
-            }
+            GroupedValue::Callback { signature, body } => match signature {
+                GroupedSignature::Independent(signature) => {
+                    writer.group(expand_body, |writer| {
+                        writer.write_fragment(signature);
+                        writer.write_fragment(body);
+                    });
+                }
+                GroupedSignature::Flat(signature) => {
+                    writer.write_flat_fragment(signature);
+                    writer.group(expand_body, |writer| writer.write_fragment(body));
+                }
+            },
         }
         writer.write_flat_fragment(item.suffix);
     }
