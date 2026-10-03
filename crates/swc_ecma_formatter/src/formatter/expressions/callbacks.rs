@@ -210,6 +210,50 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Some(Callback { expression, kind })
     }
 
+    pub(super) fn arguments_are_function_composition(&self, arguments: SubRange<Argument>) -> bool {
+        if arguments.len() <= 1 {
+            return false;
+        }
+        let ast = self.ast;
+        let mut has_function = false;
+        for argument in arguments.iter().map(|id| ast.get_node_in_sub_range(id)) {
+            match self.composition_argument_data(argument) {
+                Some(ExprData::Function(_) | ExprData::ArrowFunctionExpression(_)) => {
+                    if has_function {
+                        return true;
+                    }
+                    has_function = true;
+                }
+                Some(ExprData::CallExpression(call)) => {
+                    let has_callback = call.arguments(ast).iter().any(|id| {
+                        let argument = ast.get_node_in_sub_range(id);
+                        matches!(
+                            self.composition_argument_data(argument),
+                            Some(ExprData::Function(_) | ExprData::ArrowFunctionExpression(_))
+                        )
+                    });
+                    if has_callback {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    fn composition_argument_data(&self, argument: Argument) -> Option<ExprData> {
+        let ArgumentData::Expr(mut expression) = self.ast.argument_data(argument) else {
+            return None;
+        };
+        loop {
+            match self.expression_content(expression).data {
+                ExprData::ChainExpression(chain) => expression = chain.expression(self.ast),
+                data => return Some(data),
+            }
+        }
+    }
+
     pub(super) fn select_argument_layout(
         &self,
         arguments: SubRange<Argument>,
@@ -416,13 +460,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_selected_arguments(
         &mut self,
         arguments: SubRange<Argument>,
-        content: (Span, ContentMode),
-        expand: bool,
+        content: Span,
+        first_mode: ContentMode,
         selected: SelectedArgument,
         mut missing_function: Option<&mut bool>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        let (content, first_mode) = content;
         let ast = self.ast;
         let mut outcome = match &selected {
             SelectedArgument::Callback(selected) => SelectionOutcome::Callback(selected.role),
@@ -543,7 +586,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             Ok::<_, FormatError>(())
         })?;
         let (fallback, ()) = writer.record_with_value(|writer| {
-            writer.group(expand, |writer| {
+            writer.group(false, |writer| {
                 writer.text("(");
                 writer.indent(|writer| {
                     writer.write_fragment(opening);
@@ -576,11 +619,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 return Ok(None);
             }
         };
-        if !expand
-            && let Some(grouped_items) = recorded
-                .iter()
-                .map(|item| item.try_group(policy))
-                .collect::<Option<Vec<_>>>()
+        if let Some(grouped_items) = recorded
+            .iter()
+            .map(|item| item.try_group(policy))
+            .collect::<Option<Vec<_>>>()
             && let Some(opening) = grouping_view(opening, policy)
             && let Some(closing) = grouping_view(closing, policy)
         {

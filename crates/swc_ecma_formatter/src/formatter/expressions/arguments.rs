@@ -821,19 +821,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .iter()
             .map(|id| ast.get_node_in_sub_range(id))
             .scan(content.start, |previous, argument| {
-                let empty = self.next_line_is_empty(*previous, argument.span(ast).start);
-                *previous = argument.span(ast).end;
+                let span = argument.span(ast);
+                let empty = self.next_line_is_empty(*previous, span.start);
+                *previous = span.end;
                 Some(empty)
             })
-            .any(|empty| empty);
-        if let Some(selected) = test_callback
-            .map(SelectedArgument::Callback)
-            .or_else(|| self.select_argument_layout(arguments, !hugged))
+            .any(|empty| empty)
+            || self.arguments_are_function_composition(arguments);
+        if !expand
+            && let Some(selected) = test_callback
+                .map(SelectedArgument::Callback)
+                .or_else(|| self.select_argument_layout(arguments, !hugged))
         {
             return self.format_selected_arguments(
                 arguments,
-                (content, first_mode),
-                expand,
+                content,
+                first_mode,
                 selected,
                 missing_function,
                 writer,
