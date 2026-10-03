@@ -19,10 +19,11 @@ mod targets;
 mod unary;
 
 use swc_next_ecma_ast::{
-    Argument, ArgumentData, Expr, ExprData, GetSpan, ObjectExpression, Span, UnaryOperator,
-    UpdateOperator,
+    Argument, ArgumentData, ArrayExpression, Expr, ExprData, GetSpan, ObjectExpression, Span,
+    UnaryOperator, UpdateOperator,
 };
 
+use self::arrays::{ArrayArgumentArity, RecordedArray, RecordedArrayArgument};
 use self::assignment::AssignmentParent;
 use self::binary::{BinaryLike, BinaryOperatorKind, OperandSide};
 use self::chains::FluentChainEligibility;
@@ -31,7 +32,7 @@ use super::literals::StringContext;
 use super::suppression::ContentMode;
 use super::{
     Formatter,
-    comments::{CommentRunLayout, ExpressionTail},
+    comments::{ArrayCommentOwner, CommentRunLayout, ExpressionTail},
 };
 use crate::{FormatError, Semicolons, document::Writer};
 
@@ -238,8 +239,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        let span = expression.span(self.ast);
+        self.format_expression_with_array_comments(expression, context, None, writer)
+    }
+
+    fn format_expression_with_array_comments(
+        &mut self,
+        expression: Expr,
+        context: ExpressionContext,
+        mut array_comments: Option<&mut ArrayCommentOwner<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         if context.content_mode == ContentMode::Verbatim {
+            let span = expression.span(self.ast);
             if let ExprData::ParenthesizedExpression(parenthesized) = self.ast.expr_data(expression)
                 && !matches!(context.position, ExpressionPosition::Statement)
             {
@@ -256,23 +267,49 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         ContentMode::Verbatim,
                     ) == Some(false)
                 {
-                    return self.format_source_parentheses(
-                        parenthesized,
-                        context.with_content_mode(ContentMode::Verbatim),
-                        writer,
-                    );
+                    let context = context.with_content_mode(ContentMode::Verbatim);
+                    return match array_comments {
+                        Some(owner) => self.format_source_parentheses_with_array_comments(
+                            parenthesized,
+                            context,
+                            Some(owner),
+                            writer,
+                        ),
+                        None => self.format_source_parentheses(parenthesized, context, writer),
+                    };
                 }
             }
             self.format_verbatim_expression(expression, context, writer)?;
+            if let Some(owner) = array_comments {
+                owner.finish_source(self, span.end);
+            }
             return Ok(None);
         }
         let layout = self.expression_layout(expression);
-        layout.write(writer, |writer| {
-            self.format_expression_content(expression, context, layout, writer)
-        })
+        let tail = layout.write(writer, |writer| {
+            self.format_expression_content(
+                expression,
+                context,
+                layout,
+                array_comments.as_deref_mut(),
+                writer,
+            )
+        })?;
+        if let Some(owner) = array_comments {
+            // A pending tail is still owned by the enclosing source boundary.
+            let end = match &tail {
+                Some(tail) => tail.source_end,
+                None => expression.span(self.ast).end,
+            };
+            owner.finish_source(self, end);
+        }
+        Ok(tail)
     }
 
     fn expression_layout(&self, expression: Expr) -> ExpressionLayout {
+        if self.diagnostic_lines.is_empty() {
+            return ExpressionLayout::Normal;
+        }
         let span = expression.span(self.ast);
         if self.diagnostic_line_is_sensitive(span.start)
             && self.line_breaks(span.start, span.end) == 0
@@ -323,11 +360,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         expression: Expr,
         mut context: ExpressionContext,
         layout: ExpressionLayout,
+        array_comments: Option<&mut ArrayCommentOwner<'ast>>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let data = self.ast.expr_data(expression);
         if let ExprData::ParenthesizedExpression(parenthesized) = data {
-            return self.format_source_parentheses(parenthesized, context, writer);
+            return match array_comments {
+                Some(owner) => self.format_source_parentheses_with_array_comments(
+                    parenthesized,
+                    context,
+                    Some(owner),
+                    writer,
+                ),
+                None => self.format_source_parentheses(parenthesized, context, writer),
+            };
         }
         if let ExprData::SequenceExpression(sequence) = data {
             return self.format_sequence(sequence, context, writer);
@@ -750,13 +796,50 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
+    fn record_array_argument(
+        &mut self,
+        expression: Expr,
+        array: ArrayExpression,
+        arity: ArrayArgumentArity,
+        writer: &mut Writer<'ast>,
+    ) -> Result<RecordedArrayArgument<'ast>, FormatError> {
+        let layout = self.expression_layout(expression);
+        match layout {
+            ExpressionLayout::Flat => {
+                let (normal, ()) = writer.record_with_value(|writer| {
+                    layout.write(writer, |writer| self.format_array(array, writer))
+                })?;
+                Ok(RecordedArrayArgument::Selected(RecordedArray {
+                    normal,
+                    forced: None,
+                }))
+            }
+            ExpressionLayout::Normal => self.record_array(array, arity, writer),
+        }
+    }
+
     fn format_argument(
         &mut self,
         argument: Argument,
         mode: ContentMode,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        self.format_argument_data(self.ast.argument_data(argument), mode, writer)
+        self.format_argument_with_array_comments(argument, mode, None, writer)
+    }
+
+    fn format_argument_with_array_comments(
+        &mut self,
+        argument: Argument,
+        mode: ContentMode,
+        array_comments: Option<&mut ArrayCommentOwner<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_argument_data_with_array_comments(
+            self.ast.argument_data(argument),
+            mode,
+            array_comments,
+            writer,
+        )
     }
 
     fn format_argument_data(
@@ -765,12 +848,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         mode: ContentMode,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_argument_data_with_array_comments(argument, mode, None, writer)
+    }
+
+    fn format_argument_data_with_array_comments(
+        &mut self,
+        argument: ArgumentData,
+        mode: ContentMode,
+        array_comments: Option<&mut ArrayCommentOwner<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         match argument {
-            ArgumentData::Expr(expression) => self.format_expression(
+            ArgumentData::Expr(expression) => self.format_expression_with_array_comments(
                 expression,
                 ExpressionContext::at(ExpressionPosition::Nested)
                     .with_content_mode(mode)
                     .with_arrow_layout(arrows::ArrowLayout::Argument),
+                array_comments,
                 writer,
             ),
             ArgumentData::SpreadElement(spread) => {

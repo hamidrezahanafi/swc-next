@@ -8,7 +8,7 @@ use super::{
     ExpressionContext, ExpressionPosition, ExpressionStart, Formatter, ParenthesesOwner, TailOwner,
 };
 use crate::formatter::comments::{
-    CommentBinding, CommentRunLayout, CommentSemantics, ExpressionTail, NodeHead,
+    ArrayCommentOwner, CommentBinding, CommentRunLayout, CommentSemantics, ExpressionTail, NodeHead,
 };
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::source::is_source_whitespace;
@@ -27,10 +27,53 @@ pub(in crate::formatter) struct ExpressionContent {
     pub(super) parentheses: Option<SourceParentheses>,
 }
 
+/// Numeric selection retains the source decision and a separate pure reference view.
+#[derive(Clone, Copy)]
+pub(super) enum NumericContentView {
+    Source,
+    Reference,
+    Both,
+}
+
+pub(super) struct NumericArgumentContent {
+    pub(super) source: Option<ExprData>,
+    pub(super) reference: Option<NumericReferenceRoot>,
+}
+
+pub(super) struct NumericReferenceRoot {
+    pub(super) expression: Expr,
+    pub(super) data: ExprData,
+}
+
+#[derive(Clone, Copy)]
+enum ParenthesisCastPosition {
+    Outer,
+    Inner,
+}
+
+enum SourceCastState {
+    Pending,
+    Known(Option<Comment>),
+}
+
+/// Move this child boundary into the next wrapper iteration instead of
+/// reconstructing its comment prefix or an already computed source cast.
+struct NumericCastBoundary<'ast> {
+    start: u32,
+    before: &'ast [Comment],
+    source: SourceCastState,
+}
+
 enum RetainedParentheses {
     Cast,
     Annotation,
     Operand,
+}
+
+struct RetainedSourceParentheses {
+    boundary: SourceParentheses,
+    kind: RetainedParentheses,
+    hug: bool,
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -38,7 +81,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         expression: Expr,
         head: NodeHead<'ast>,
+        context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_expression_with_leading_comments_with_array_comments(
+            expression, head, context, None, writer,
+        )
+    }
+
+    fn format_expression_with_leading_comments_with_array_comments(
+        &mut self,
+        expression: Expr,
+        head: NodeHead<'ast>,
         mut context: ExpressionContext,
+        mut array_comments: Option<&mut ArrayCommentOwner<'ast>>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         if !head.comments.is_empty() {
@@ -55,11 +111,26 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 context.content_mode,
             ) == Some(true);
         if !enclose_comments {
-            context.expression_start =
-                self.format_node_head(head, context.expression_start, writer)?;
-            return self.format_expression(expression, context, writer);
+            context.expression_start = self.format_node_head_with_array_comments(
+                head,
+                context.expression_start,
+                array_comments.as_deref_mut(),
+                writer,
+            )?;
+            return self.format_expression_with_array_comments(
+                expression,
+                context,
+                array_comments,
+                writer,
+            );
         }
-        self.format_parenthesized_expression(expression, head, context, writer)
+        self.format_parenthesized_expression_with_array_comments(
+            expression,
+            head,
+            context,
+            array_comments,
+            writer,
+        )
     }
 
     pub(in crate::formatter) fn format_node_head(
@@ -68,11 +139,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         start: ExpressionStart,
         writer: &mut Writer<'ast>,
     ) -> Result<ExpressionStart, FormatError> {
-        let start = self.format_expression_leading_comments(
+        self.format_node_head_with_array_comments(head, start, None, writer)
+    }
+
+    fn format_node_head_with_array_comments(
+        &self,
+        head: NodeHead<'ast>,
+        start: ExpressionStart,
+        array_comments: Option<&mut ArrayCommentOwner<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<ExpressionStart, FormatError> {
+        let start = self.format_expression_leading_comments_with_array_comments(
             head.comments,
             head.content_start,
             head.layout,
             start,
+            array_comments,
             writer,
         )?;
         if let Some(end) = head.gap_end
@@ -90,6 +172,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_parenthesized_expression_with_array_comments(
+            expression, head, context, None, writer,
+        )
+    }
+
+    fn format_parenthesized_expression_with_array_comments(
+        &mut self,
+        expression: Expr,
+        head: NodeHead<'ast>,
+        context: ExpressionContext,
+        mut array_comments: Option<&mut ArrayCommentOwner<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         if context.expression_start.is_statement()
             && self.options.semicolons == Semicolons::AsNeeded
         {
@@ -100,21 +195,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text("(");
             writer.indent(|writer| {
                 writer.soft_line();
-                self.format_comment_run(
+                self.format_comment_run_with_array_comments(
                     head.comments,
                     CommentRunLayout::FlatLeading(head.content_start),
+                    array_comments.as_deref_mut(),
                     writer,
                 )?;
-                let tail = self.format_expression(
+                let tail = self.format_expression_with_array_comments(
                     expression,
                     ExpressionContext::at(ExpressionPosition::Nested)
                         .with_content_mode(context.content_mode)
                         .with_tail_owner(context.tail_owner)
                         .with_member_chain_layout(context.member_chain_layout)
                         .inside_parentheses(),
+                    array_comments.as_deref_mut(),
                     writer,
                 )?;
-                self.format_expression_tail(tail, writer)
+                self.format_expression_tail_with_array_comments(tail, array_comments, writer)
             })?;
             writer.soft_line();
             writer.text(")");
@@ -191,9 +288,152 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
+    /// The selected Multiple-array owner drops a view once its decision is false.
+    /// A requested source view keeps the existing expression_content stopping rule.
+    pub(super) fn numeric_argument_content(
+        &self,
+        expression: Expr,
+        view: NumericContentView,
+    ) -> NumericArgumentContent {
+        let mut inner = expression;
+        let mut source = None;
+        let mut source_pending =
+            matches!(view, NumericContentView::Source | NumericContentView::Both);
+        let mut reference = matches!(
+            view,
+            NumericContentView::Reference | NumericContentView::Both
+        );
+        let mut pending_cast = None;
+        loop {
+            let data = self.ast.expr_data(inner);
+            let ExprData::ParenthesizedExpression(parenthesized) = data else {
+                if source_pending {
+                    source = Some(data);
+                }
+                return NumericArgumentContent {
+                    source,
+                    reference: reference.then_some(NumericReferenceRoot {
+                        expression: inner,
+                        data,
+                    }),
+                };
+            };
+            let child = parenthesized.expression(self.ast);
+            let boundary = SourceParentheses {
+                outer: parenthesized.span(self.ast),
+                inner: child.span(self.ast),
+            };
+            let mut outer_cast = pending_cast.take();
+            let mut inner_cast = None;
+            if source_pending
+                && (self
+                    .expression_needs_parentheses(
+                        self.ast.expr_data(child),
+                        ExpressionPosition::Nested,
+                        ContentMode::Formatted,
+                    )
+                    .is_none()
+                    || !self.parentheses_are_removable_with_casts(boundary, |position| {
+                        let (start, slot) = match position {
+                            ParenthesisCastPosition::Outer => {
+                                (boundary.outer.start, &mut outer_cast)
+                            }
+                            ParenthesisCastPosition::Inner => {
+                                (boundary.inner.start, &mut inner_cast)
+                            }
+                        };
+                        // Preserve source_type_cast's guard before its prefix query.
+                        if !self.ast.source()[start as usize..].starts_with('(') {
+                            return None;
+                        }
+                        let cast = slot.get_or_insert_with(|| self.numeric_cast_boundary(start));
+                        self.numeric_source_cast(cast)
+                    }))
+            {
+                source = Some(data);
+                source_pending = false;
+            }
+            if reference && !self.ast.comments().is_empty() {
+                let cast = outer_cast
+                    .get_or_insert_with(|| self.numeric_cast_boundary(boundary.outer.start));
+                if let Some(&comment) = cast.before.last()
+                    && self.reference_parenthesis_cast(comment, cast.start)
+                {
+                    reference = false;
+                }
+            }
+            if !source_pending && !reference {
+                return NumericArgumentContent {
+                    source,
+                    reference: None,
+                };
+            }
+            pending_cast = inner_cast;
+            inner = child;
+        }
+    }
+
+    fn numeric_cast_boundary(&self, start: u32) -> NumericCastBoundary<'ast> {
+        let comments = self.ast.comments();
+        let count = comments.partition_point(|comment| comment.span.end <= start);
+        NumericCastBoundary {
+            start,
+            before: &comments[..count],
+            source: SourceCastState::Pending,
+        }
+    }
+
+    fn numeric_source_cast(&self, boundary: &mut NumericCastBoundary<'ast>) -> Option<Comment> {
+        match boundary.source {
+            SourceCastState::Known(cast) => cast,
+            SourceCastState::Pending => {
+                let cast = self.source_type_cast_before(boundary.start, boundary.before);
+                boundary.source = SourceCastState::Known(cast);
+                cast
+            }
+        }
+    }
+
+    /// Pinned reference postprocess keeps only an immediately preceding Closure cast.
+    /// Keep its immediate-comment and trim-gap owner while sharing tag recognition.
+    fn reference_parenthesis_cast(&self, comment: Comment, start: u32) -> bool {
+        if comment.kind != CommentKind::Block {
+            return false;
+        }
+        let raw = self.source(comment.span);
+        if !raw.starts_with("/**")
+            || !self
+                .source(Span::new(comment.span.end, start))
+                .chars()
+                .all(|character| {
+                    matches!(character,
+                    '\u{0009}'..='\u{000d}' | ' ' | '\u{00a0}' | '\u{1680}'
+                    | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}'
+                    | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+                })
+        {
+            return false;
+        }
+        self.comment_is_type_cast(comment)
+    }
+
     pub(in crate::formatter) fn parentheses_are_removable(
         &self,
         boundary: SourceParentheses,
+    ) -> bool {
+        self.parentheses_are_removable_with_casts(boundary, |position| {
+            let start = match position {
+                ParenthesisCastPosition::Outer => boundary.outer.start,
+                ParenthesisCastPosition::Inner => boundary.inner.start,
+            };
+            self.source_type_cast(start)
+        })
+    }
+
+    fn parentheses_are_removable_with_casts(
+        &self,
+        boundary: SourceParentheses,
+        mut cast: impl FnMut(ParenthesisCastPosition) -> Option<Comment>,
     ) -> bool {
         let comments = self.ast.comments();
         if comments.is_empty() {
@@ -217,7 +457,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     CommentSemantics::Ordinary => CommentBinding::Unbound,
                     CommentSemantics::TypeCast => {
                         if inner_cast
-                            .get_or_insert_with(|| self.source_type_cast(boundary.inner.start))
+                            .get_or_insert_with(|| cast(ParenthesisCastPosition::Inner))
                             .is_some()
                         {
                             CommentBinding::BoundTo(boundary.inner)
@@ -237,7 +477,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         });
         leading_binding.allows_relocation(Some(boundary.inner))
             && trailing_binding.allows_relocation(None)
-            && !self.parenthesis_has_type_cast(boundary.outer.start)
+            && cast(ParenthesisCastPosition::Outer).is_none()
     }
 
     fn parentheses_separate_diagnostic_lines(&self, boundary: SourceParentheses) -> bool {
@@ -260,7 +500,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         comments: &[Comment],
         next_start: u32,
         layout: CommentRunLayout,
+        start: ExpressionStart,
+        writer: &mut Writer<'ast>,
+    ) -> Result<ExpressionStart, FormatError> {
+        self.format_expression_leading_comments_with_array_comments(
+            comments, next_start, layout, start, None, writer,
+        )
+    }
+
+    fn format_expression_leading_comments_with_array_comments(
+        &self,
+        comments: &[Comment],
+        next_start: u32,
+        layout: CommentRunLayout,
         mut start: ExpressionStart,
+        array_comments: Option<&mut ArrayCommentOwner<'ast>>,
         writer: &mut Writer<'ast>,
     ) -> Result<ExpressionStart, FormatError> {
         if start.is_statement()
@@ -271,7 +525,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text(";");
             start = ExpressionStart::None;
         }
-        self.format_comment_run(comments, layout, writer)?;
+        self.format_comment_run_with_array_comments(comments, layout, array_comments, writer)?;
         Ok(start)
     }
 
@@ -346,7 +600,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_source_parentheses(
         &mut self,
         parenthesized: ParenthesizedExpression,
+        context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_source_parentheses_with_array_comments(parenthesized, context, None, writer)
+    }
+
+    pub(super) fn format_source_parentheses_with_array_comments(
+        &mut self,
+        parenthesized: ParenthesizedExpression,
         mut context: ExpressionContext,
+        array_comments: Option<&mut ArrayCommentOwner<'ast>>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let span = parenthesized.span(self.ast);
@@ -368,6 +632,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 context,
                 writer,
             )?;
+            if let Some(owner) = array_comments {
+                owner.finish_source(self, span.end);
+            }
             return Ok(None);
         }
         context.content_mode = self.parentheses_content_mode(
@@ -378,10 +645,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             context.content_mode,
         );
         if self.parenthesis_has_type_cast(span.start) {
-            return self.format_retained_parentheses(
+            return self.format_retained_parentheses_with_array_comments(
                 parenthesized,
                 context,
                 RetainedParentheses::Cast,
+                array_comments,
                 writer,
             );
         }
@@ -391,10 +659,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ExprData::ConditionalExpression(_)
             )
         {
-            return self.format_retained_parentheses(
+            return self.format_retained_parentheses_with_array_comments(
                 parenthesized,
                 context,
                 RetainedParentheses::Operand,
+                array_comments,
                 writer,
             );
         }
@@ -431,20 +700,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     )
                     .is_none())
         {
-            return self.format_retained_parentheses(
+            return self.format_retained_parentheses_with_array_comments(
                 parenthesized,
                 context.with_content_mode(ContentMode::Verbatim),
                 RetainedParentheses::Operand,
+                array_comments,
                 writer,
             );
         }
         if ignored_child.is_none()
             && content.expression == Expr::ParenthesizedExpression(parenthesized)
         {
-            return self.format_retained_parentheses(
+            return self.format_retained_parentheses_with_array_comments(
                 parenthesized,
                 context,
                 RetainedParentheses::Annotation,
+                array_comments,
                 writer,
             );
         }
@@ -464,7 +735,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             self.content_mode(leading)
         };
-        let tail = self.format_expression_with_leading_comments(
+        let tail = self.format_expression_with_leading_comments_with_array_comments(
             inner,
             NodeHead {
                 comments: leading,
@@ -474,6 +745,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .then_some(inner_span.start),
             },
             context,
+            array_comments,
             writer,
         )?;
         self.capture_expression_tail(Span::new(inner_span.end, span.end), tail)
@@ -497,11 +769,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    fn format_retained_parentheses(
+    fn format_retained_parentheses_with_array_comments(
         &mut self,
         parenthesized: ParenthesizedExpression,
         context: ExpressionContext,
         kind: RetainedParentheses,
+        array_comments: Option<&mut ArrayCommentOwner<'ast>>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let span = parenthesized.span(self.ast);
@@ -533,16 +806,26 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             _ => false,
         };
-        self.format_retained_source_parentheses(
-            SourceParentheses {
-                outer: span,
-                inner: inner_span,
+        self.format_retained_source_parentheses_with_array_comments(
+            RetainedSourceParentheses {
+                boundary: SourceParentheses {
+                    outer: span,
+                    inner: inner_span,
+                },
+                kind,
+                hug,
             },
             context,
-            kind,
-            hug,
+            array_comments,
             writer,
-            |formatter, context, writer| formatter.format_expression(inner, context, writer),
+            |formatter, context, array_comments, writer| {
+                formatter.format_expression_with_array_comments(
+                    inner,
+                    context,
+                    array_comments,
+                    writer,
+                )
+            },
         )
     }
 
@@ -578,6 +861,37 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             &mut Writer<'ast>,
         ) -> Result<Option<ExpressionTail<'ast>>, FormatError>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_retained_source_parentheses_with_array_comments(
+            RetainedSourceParentheses {
+                boundary,
+                kind,
+                hug,
+            },
+            context,
+            None,
+            writer,
+            |formatter, context, _, writer| content(formatter, context, writer),
+        )
+    }
+
+    fn format_retained_source_parentheses_with_array_comments(
+        &mut self,
+        source: RetainedSourceParentheses,
+        context: ExpressionContext,
+        mut array_comments: Option<&mut ArrayCommentOwner<'ast>>,
+        writer: &mut Writer<'ast>,
+        content: impl FnOnce(
+            &mut Self,
+            ExpressionContext,
+            Option<&mut ArrayCommentOwner<'ast>>,
+            &mut Writer<'ast>,
+        ) -> Result<Option<ExpressionTail<'ast>>, FormatError>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let RetainedSourceParentheses {
+            boundary,
+            kind,
+            hug,
+        } = source;
         let span = boundary.outer;
         let inner_span = boundary.inner;
         let leading = self
@@ -612,7 +926,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let closing = self.line_constraint(last, span.end - 1);
         let write_contents = |writer: &mut Writer<'ast>| {
             self.comments.claim(leading)?;
-            self.format_comment_run(leading, leading_layout, writer)?;
+            self.format_comment_run_with_array_comments(
+                leading,
+                leading_layout,
+                array_comments.as_deref_mut(),
+                writer,
+            )?;
             let mode = match context.content_mode {
                 ContentMode::Verbatim => ContentMode::Verbatim,
                 ContentMode::Formatted => self.content_mode(leading),
@@ -629,9 +948,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             .with_content_mode(mode)
             .with_member_chain_layout(context.member_chain_layout);
-            let tail = content(self, context, writer)?;
+            let tail = content(self, context, array_comments.as_deref_mut(), writer)?;
             let tail = self.capture_expression_tail(Span::new(inner_span.end, span.end), tail)?;
-            self.format_expression_tail(tail, writer)
+            self.format_expression_tail_with_array_comments(tail, array_comments, writer)
         };
         writer.group(expand, |writer| {
             writer.text("(");
@@ -695,8 +1014,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return None;
         }
         let count = comments.partition_point(|comment| comment.span.end <= start);
+        self.source_type_cast_before(start, &comments[..count])
+    }
+
+    fn source_type_cast_before(&self, start: u32, comments: &[Comment]) -> Option<Comment> {
         let mut next_start = start;
-        for &comment in comments[..count].iter().rev() {
+        for &comment in comments.iter().rev() {
             if !self
                 .source(Span::new(comment.span.end, next_start))
                 .chars()

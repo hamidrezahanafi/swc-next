@@ -3,12 +3,12 @@ formatter * prettier 3.9.9 * js
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 794
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 186/1070 (17.38%)
-Snapshot matched: 186/1070
+Passed: 190/1070 (17.76%)
+Snapshot matched: 190/1070
 AST parity: 256/256
 AST mismatched: 0/256
 AST format errors: 0/1070
-Mismatched: 70/1070
+Mismatched: 66/1070
 Format errors: 813/1070
 Panicked: 0/1070
 Not idempotent: 0/1070
@@ -223,7 +223,6 @@ Unsupported option sets: 19
 - js/comments/call_comment.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/comments/class.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/comments/dangling.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
-- js/comments/dangling_array.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/comments/dangling_for.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/comments/dynamic_imports.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/comments/emoji.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
@@ -459,7 +458,6 @@ Unsupported option sets: 19
 - js/last-argument-expansion/edge_case.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/last-argument-expansion/issue-7518.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/last-argument-expansion/jsx.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/last-argument-expansion/number-only-array.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/last-argument-expansion/object.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/last-argument-expansion/overflow.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/line-suffix-boundary/boundary.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -543,7 +541,6 @@ Unsupported option sets: 19
 - js/quote-props/classes.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/quote-props/with_member_expressions.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/quotes/functions.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
-- js/quotes/switch-quote/switch-quote.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/require-amd/non-amd-define.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/require-amd/require.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/require/long-module-name.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent

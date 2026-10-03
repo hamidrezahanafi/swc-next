@@ -115,6 +115,10 @@ impl DiagnosticLines {
         }
     }
 
+    pub(super) fn is_empty(&self) -> bool {
+        self.lines.is_empty()
+    }
+
     fn sensitive_at(&self, position: u32) -> bool {
         let index = self.lines.partition_point(|line| line.span.end < position);
         self.lines
