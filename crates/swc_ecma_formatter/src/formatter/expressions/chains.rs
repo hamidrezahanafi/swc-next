@@ -5,7 +5,7 @@ use std::vec::IntoIter;
 
 use swc_next_ecma_ast::{Expr, ExprData, GetSpan, IdentifierName, ParenthesizedExpression};
 
-use super::arguments::SourceArguments;
+use super::arguments::{ArgumentGroup, SourceArguments};
 use super::members::{MemberBoundary, MemberLookupOwner, PreparedMember, SourceMember};
 use super::{
     AccessKind, ExpressionContext, ExpressionLayout, ExpressionPosition, Formatter,
@@ -16,7 +16,7 @@ use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::suppression::ContentMode;
 use crate::{
     FormatError,
-    document::{Fragment, NeutralFragment, Writer},
+    document::{Fragment, NeutralFragment, RecordedGroup, Writer},
 };
 
 pub(super) enum FluentChainEligibility {
@@ -146,15 +146,25 @@ struct GroupFacts {
     has_boundary_comments: bool,
     source_break: bool,
     preferred_breaks: bool,
+    has_parent_call_group: bool,
 }
 
 #[derive(Clone, Copy)]
 enum ChainGroupDoc<'ast> {
     Recorded(Fragment<'ast>),
+    ParentCall(Fragment<'ast>),
     Neutral(NeutralFragment<'ast>),
 }
 
 impl<'ast> ChainGroupDoc<'ast> {
+    fn for_group(group: RecordedGroup<'ast>, parent_call: bool) -> Self {
+        if parent_call {
+            Self::ParentCall(group.contents)
+        } else {
+            Self::for_tail(group.grouped)
+        }
+    }
+
     fn for_tail(fragment: Fragment<'ast>) -> Self {
         match fragment.try_neutral() {
             Some(fragment) => Self::Neutral(fragment),
@@ -164,7 +174,7 @@ impl<'ast> ChainGroupDoc<'ast> {
 
     fn can_flat(self) -> bool {
         match self {
-            Self::Recorded(fragment) => fragment.try_flat().is_some(),
+            Self::Recorded(fragment) | Self::ParentCall(fragment) => fragment.try_flat().is_some(),
             Self::Neutral(_) => true,
         }
     }
@@ -308,7 +318,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     }
                 },
                 ExprData::CallExpression(call) => {
-                    let arguments = self.source_call(call)?;
+                    let arguments = self.source_call(call, current_context)?;
                     current = arguments.callee;
                     current_context = arguments.callee_context(current_context);
                     parts.push(ChainPart::Call(arguments));
@@ -326,7 +336,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     if matches!(
                         current_context.position,
                         ExpressionPosition::MemberObject(AccessKind::Optional)
-                            | ExpressionPosition::CallCallee(AccessKind::Optional)
+                            | ExpressionPosition::CallCallee {
+                                access: AccessKind::Optional,
+                                ..
+                            }
                     ) =>
                 {
                     current = chain.expression(self.ast);
@@ -510,40 +523,51 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut leading = true;
         let mut head_parts = 0;
         let mut last_name: Option<IdentifierName> = None;
-        let (fragment, ()) = writer.record_with_value(|writer| {
-            let mut write_head = |writer: &mut Writer<'ast>| {
-                source.tail = self.format_expression(head.expression, head.context, writer)?;
-                while let Some(operation) = self.next_chain_operation(source)? {
-                    if let ChainOperation::Member(member) = operation {
-                        if !member.member.numeric || !leading {
-                            if terminal_member && leading && head_parts != 0 {
-                                source.pending = Some(member);
-                                break;
-                            }
-                            leading = false;
-                            let next_member =
-                                matches!(source.parts.peek(), Some(ChainPart::Member(_)));
-                            if !next_member || member.source_break() {
-                                source.pending = Some(member);
-                                break;
-                            }
+        let write_head = |writer: &mut Writer<'ast>| {
+            source.tail = self.format_expression(head.expression, head.context, writer)?;
+            while let Some(operation) = self.next_chain_operation(source)? {
+                if let ChainOperation::Member(member) = operation {
+                    if !member.member.numeric || !leading {
+                        if terminal_member && leading && head_parts != 0 {
+                            source.pending = Some(member);
+                            break;
                         }
-                        last_name = member.member.source.name();
-                        self.write_chain_member(member, false, &mut facts, writer)?;
-                    } else if let ChainOperation::Call(arguments) = operation {
-                        last_name = None;
-                        self.write_chain_call(arguments, source, &mut facts, writer)?;
+                        leading = false;
+                        let next_member = matches!(source.parts.peek(), Some(ChainPart::Member(_)));
+                        if !next_member || member.source_break() {
+                            source.pending = Some(member);
+                            break;
+                        }
                     }
-                    head_parts += 1;
+                    last_name = member.member.source.name();
+                    self.write_chain_member(member, false, &mut facts, writer)?;
+                } else if let ChainOperation::Call(arguments) = operation {
+                    last_name = None;
+                    self.write_chain_call(arguments, source, &mut facts, writer)?;
                 }
-                Ok::<_, FormatError>(())
-            };
-            match head.layout {
-                ChainHeadLayout::NeutralAtom => write_head(writer),
-                ChainHeadLayout::Grouped => writer.group(false, write_head),
+                head_parts += 1;
             }
-        })?;
-        facts.preferred_breaks = fragment.preferred_breaks();
+            Ok::<_, FormatError>(())
+        };
+        let (doc, preferred_breaks) = match head.layout {
+            ChainHeadLayout::NeutralAtom => {
+                let (fragment, ()) = writer.record_with_value(write_head)?;
+                (
+                    ChainGroupDoc::Recorded(fragment),
+                    fragment.preferred_breaks(),
+                )
+            }
+            ChainHeadLayout::Grouped => {
+                let (group, ()) = writer.record_group_with_value(write_head)?;
+                let doc = if facts.has_parent_call_group {
+                    ChainGroupDoc::ParentCall(group.contents)
+                } else {
+                    ChainGroupDoc::Recorded(group.grouped)
+                };
+                (doc, group.grouped.preferred_breaks())
+            }
+        };
+        facts.preferred_breaks = preferred_breaks;
         let merge_head = !head.has_comments
             && if head_parts == 0 {
                 source
@@ -553,10 +577,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             } else {
                 last_name.is_some_and(|name| factory_name(self.ast.get_utf8(name.name(self.ast))))
             };
-        Ok((
-            ChainGroup::new(ChainGroupDoc::Recorded(fragment), None, facts),
-            merge_head,
-        ))
+        Ok((ChainGroup::new(doc, None, facts), merge_head))
     }
 
     fn record_chain_group(
@@ -569,48 +590,46 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut facts = GroupFacts::default();
         let mut has_parts = false;
         let mut saw_call = false;
-        let (fragment, ()) = writer.record_with_value(|writer| {
-            writer.group(false, |writer| {
-                while let Some(operation) = self.next_chain_operation(source)? {
-                    match operation {
-                        ChainOperation::Member(member) => {
-                            if has_parts
-                                && ((saw_call || terminal_member && source.remaining_calls == 0)
-                                    && !member.member.numeric
-                                    || member.source_break())
-                            {
-                                source.pending = Some(member);
-                                break;
-                            }
-                            if !has_parts {
-                                let trailing = if member.boundary.has_before_comments() {
-                                    let (trailing, ()) = writer.record_with_value(|writer| {
-                                        self.format_member_trailing(&member.boundary, writer)
-                                    })?;
-                                    Some(trailing)
-                                } else {
-                                    None
-                                };
-                                before = Some(RecordedBoundary {
-                                    trailing,
-                                    separator: member.separator(),
-                                });
-                            }
-                            self.write_chain_member(member, !has_parts, &mut facts, writer)?;
+        let (group, ()) = writer.record_group_with_value(|writer| {
+            while let Some(operation) = self.next_chain_operation(source)? {
+                match operation {
+                    ChainOperation::Member(member) => {
+                        if has_parts
+                            && ((saw_call || terminal_member && source.remaining_calls == 0)
+                                && !member.member.numeric
+                                || member.source_break())
+                        {
+                            source.pending = Some(member);
+                            break;
                         }
-                        ChainOperation::Call(arguments) => {
-                            saw_call = true;
-                            self.write_chain_call(arguments, source, &mut facts, writer)?;
+                        if !has_parts {
+                            let trailing = if member.boundary.has_before_comments() {
+                                let (trailing, ()) = writer.record_with_value(|writer| {
+                                    self.format_member_trailing(&member.boundary, writer)
+                                })?;
+                                Some(trailing)
+                            } else {
+                                None
+                            };
+                            before = Some(RecordedBoundary {
+                                trailing,
+                                separator: member.separator(),
+                            });
                         }
+                        self.write_chain_member(member, !has_parts, &mut facts, writer)?;
                     }
-                    has_parts = true;
+                    ChainOperation::Call(arguments) => {
+                        saw_call = true;
+                        self.write_chain_call(arguments, source, &mut facts, writer)?;
+                    }
                 }
-                Ok::<_, FormatError>(())
-            })
+                has_parts = true;
+            }
+            Ok::<_, FormatError>(())
         })?;
-        facts.preferred_breaks = fragment.preferred_breaks();
+        facts.preferred_breaks = group.grouped.preferred_breaks();
         Ok(ChainGroup::new(
-            ChainGroupDoc::for_tail(fragment),
+            ChainGroupDoc::for_group(group, facts.has_parent_call_group),
             before,
             facts,
         ))
@@ -643,6 +662,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         // Only an outside prefix is a boundary for both merging and expansion.
         let has_boundary_comments = arguments.has_outside_prefix();
         facts.has_boundary_comments |= has_boundary_comments;
+        facts.has_parent_call_group |= matches!(arguments.group, ArgumentGroup::ParentCall);
         facts.source_break |= has_boundary_comments;
         let missing_function = if facts.has_function {
             None
@@ -665,7 +685,7 @@ fn factory_name(name: &str) -> bool {
         || !name.is_empty() && name.bytes().all(|byte| byte == b'_' || byte == b'$')
 }
 
-fn write_group<'ast>(group: &ChainGroup<'ast>, expanded: bool, writer: &mut Writer<'ast>) {
+fn write_group_boundary<'ast>(group: &ChainGroup<'ast>, expanded: bool, writer: &mut Writer<'ast>) {
     if let Some(boundary) = group.before {
         // The next member owns the preceding receiver's trailing comments.
         // Entering the shared indent affects any source lines in that run.
@@ -674,10 +694,25 @@ fn write_group<'ast>(group: &ChainGroup<'ast>, expanded: bool, writer: &mut Writ
         }
         boundary.separator.write(expanded, writer);
     }
+}
+
+fn write_group_contents<'ast>(group: &ChainGroup<'ast>, expanded: bool, writer: &mut Writer<'ast>) {
     match group.doc {
         ChainGroupDoc::Recorded(fragment) => writer.write_fragment(fragment),
+        ChainGroupDoc::ParentCall(fragment) => {
+            if expanded {
+                writer.write_fragment(fragment);
+            } else {
+                writer.group(false, |writer| writer.write_fragment(fragment));
+            }
+        }
         ChainGroupDoc::Neutral(fragment) => writer.write_neutral_fragment(fragment),
     }
+}
+
+fn write_group<'ast>(group: &ChainGroup<'ast>, expanded: bool, writer: &mut Writer<'ast>) {
+    write_group_boundary(group, expanded, writer);
+    write_group_contents(group, expanded, writer);
 }
 
 fn write_compact<'ast>(groups: &ChainGroups<'ast>, writer: &mut Writer<'ast>) {
@@ -688,9 +723,10 @@ fn write_compact<'ast>(groups: &ChainGroups<'ast>, writer: &mut Writer<'ast>) {
 }
 
 fn write_expanded<'ast>(groups: &ChainGroups<'ast>, merge_head: bool, writer: &mut Writer<'ast>) {
-    write_group(&groups.head, false, writer);
+    write_group(&groups.head, true, writer);
     let tail = if merge_head && let Some((first, remaining)) = groups.tail.split_first() {
-        write_group(first, false, writer);
+        write_group_boundary(first, false, writer);
+        write_group_contents(first, true, writer);
         remaining
     } else {
         &groups.tail

@@ -769,6 +769,89 @@ fn fragment_capabilities() {
     assert!(flattened.try_neutral().is_some());
 }
 
+fn recorded_group_document(write: impl FnOnce(&mut Writer<'_>), inherited: bool) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let (group, ()) = writer
+        .record_group_with_value(|writer| {
+            write(writer);
+            Ok::<_, std::convert::Infallible>(())
+        })
+        .unwrap();
+    writer.group(true, |writer| {
+        let fragment = if inherited {
+            group.contents
+        } else {
+            group.grouped
+        };
+        writer.write_fragment(fragment);
+    });
+    writer.finish().print(FormatOptions::prettier())
+}
+
+fn write_group_lines(writer: &mut Writer<'_>) {
+    writer.text("first");
+    writer.line();
+    writer.if_flat("flat");
+    writer.if_break("broken");
+}
+
+#[test]
+fn recorded_group_layouts() {
+    assert_eq!(
+        recorded_group_document(write_group_lines, false),
+        "first flat"
+    );
+
+    assert_eq!(
+        recorded_group_document(write_group_lines, true),
+        "first\nbroken"
+    );
+}
+
+fn write_group_suffix(writer: &mut Writer<'_>) {
+    writer.text("first");
+    writer.line_suffix("// trailing");
+    writer.soft_line();
+    writer.text("last");
+}
+
+#[test]
+fn recorded_group_boundaries() {
+    assert_eq!(
+        recorded_group_document(write_group_suffix, false),
+        "first // trailing\nlast"
+    );
+
+    assert_eq!(
+        recorded_group_document(write_group_suffix, true),
+        "first // trailing\nlast"
+    );
+}
+
+fn write_group_named_scope(writer: &mut Writer<'_>) {
+    let group = writer.named_group(true, |writer| {
+        writer.text("first");
+        writer.line();
+        writer.text("last");
+    });
+    writer.soft_line_if_break(group);
+    writer.text("tail");
+}
+
+#[test]
+fn recorded_group_named_scopes() {
+    assert_eq!(
+        recorded_group_document(write_group_named_scope, false),
+        "first\nlast\ntail"
+    );
+
+    assert_eq!(
+        recorded_group_document(write_group_named_scope, true),
+        "first\nlast\ntail"
+    );
+}
+
 fn neutral_continuation(width: u16, neutral: bool) -> String {
     let allocator = Allocator::new();
     let mut writer = Writer::new(&allocator);
@@ -1235,89 +1318,6 @@ fn named_line_scopes() {
         writer.text("b");
     });
     assert_eq!(writer.finish().print(FormatOptions::prettier()), "ab");
-}
-
-fn recorded_group_document(write: impl FnOnce(&mut Writer<'_>), inherited: bool) -> String {
-    let allocator = Allocator::new();
-    let mut writer = Writer::new(&allocator);
-    let (group, ()) = writer
-        .record_group_with_value(|writer| {
-            write(writer);
-            Ok::<_, std::convert::Infallible>(())
-        })
-        .unwrap();
-    writer.group(true, |writer| {
-        let fragment = if inherited {
-            group.contents
-        } else {
-            group.grouped
-        };
-        writer.write_fragment(fragment);
-    });
-    writer.finish().print(FormatOptions::prettier())
-}
-
-fn write_group_lines(writer: &mut Writer<'_>) {
-    writer.text("first");
-    writer.line();
-    writer.if_flat("flat");
-    writer.if_break("broken");
-}
-
-#[test]
-fn recorded_group_layouts() {
-    assert_eq!(
-        recorded_group_document(write_group_lines, false),
-        "first flat"
-    );
-
-    assert_eq!(
-        recorded_group_document(write_group_lines, true),
-        "first\nbroken"
-    );
-}
-
-fn write_group_suffix(writer: &mut Writer<'_>) {
-    writer.text("first");
-    writer.line_suffix("// trailing");
-    writer.soft_line();
-    writer.text("last");
-}
-
-#[test]
-fn recorded_group_boundaries() {
-    assert_eq!(
-        recorded_group_document(write_group_suffix, false),
-        "first // trailing\nlast"
-    );
-
-    assert_eq!(
-        recorded_group_document(write_group_suffix, true),
-        "first // trailing\nlast"
-    );
-}
-
-fn write_group_named_scope(writer: &mut Writer<'_>) {
-    let group = writer.named_group(true, |writer| {
-        writer.text("first");
-        writer.line();
-        writer.text("last");
-    });
-    writer.soft_line_if_break(group);
-    writer.text("tail");
-}
-
-#[test]
-fn recorded_group_named_scopes() {
-    assert_eq!(
-        recorded_group_document(write_group_named_scope, false),
-        "first\nlast\ntail"
-    );
-
-    assert_eq!(
-        recorded_group_document(write_group_named_scope, true),
-        "first\nlast\ntail"
-    );
 }
 
 #[test]

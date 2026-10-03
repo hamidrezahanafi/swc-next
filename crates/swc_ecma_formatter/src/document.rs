@@ -66,6 +66,8 @@ pub(crate) struct Fragment<'a> {
     conditional_lines: bool,
 }
 
+/// Both views retain the same complete scope; only the anonymous outer group differs.
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct RecordedGroup<'a> {
     pub(crate) grouped: Fragment<'a>,
     pub(crate) contents: Fragment<'a>,

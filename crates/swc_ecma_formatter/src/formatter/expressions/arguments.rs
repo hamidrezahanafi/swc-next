@@ -10,7 +10,8 @@ use crate::formatter::source::is_source_whitespace;
 use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
 use crate::{FormatError, TrailingCommas, document::Writer};
 use swc_next_ecma_ast::{
-    Argument, ArgumentData, Comment, CommentKind, Expr, ExprData, GetSpan, Span, SubRange,
+    Argument, ArgumentData, CallExpression, Comment, CommentKind, Expr, ExprData, GetSpan, Span,
+    SubRange,
 };
 
 #[derive(Clone, Copy)]
@@ -443,12 +444,34 @@ pub(super) struct SourceArguments<'ast> {
     prefix: SourceArgumentPrefix<'ast>,
     pub(super) callee_mode: ContentMode,
     pub(super) test_callback: Option<SelectedCallback>,
+    pub(super) group: ArgumentGroup,
+    pub(super) curried_callee: Option<CallExpression>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum ArgumentGroup {
+    Local,
+    ParentCall,
 }
 
 #[derive(Clone, Copy)]
 struct SourceFirstArgument {
     node: Argument,
     mode: ContentMode,
+}
+
+impl ArgumentGroup {
+    pub(super) fn write<'a, T>(
+        self,
+        expand: bool,
+        writer: &mut Writer<'a>,
+        write: impl FnOnce(&mut Writer<'a>) -> T,
+    ) -> T {
+        match (self, expand) {
+            (Self::ParentCall, false) => write(writer),
+            _ => writer.group(expand, write),
+        }
+    }
 }
 
 impl SourceArguments<'_> {
@@ -471,11 +494,14 @@ impl SourceArguments<'_> {
     }
 
     pub(super) fn callee_context(&self, context: ExpressionContext) -> ExpressionContext {
-        ExpressionContext::at(ExpressionPosition::CallCallee(self.access()))
-            .with_expression_start(context.expression_start)
-            .with_tail_owner(TailOwner::ParentOperation)
-            .with_content_mode(self.callee_mode)
-            .with_member_chain_layout(context.member_chain_layout)
+        ExpressionContext::at(ExpressionPosition::CallCallee {
+            access: self.access(),
+            curried_call: self.curried_callee,
+        })
+        .with_expression_start(context.expression_start)
+        .with_tail_owner(TailOwner::ParentOperation)
+        .with_content_mode(self.callee_mode)
+        .with_member_chain_layout(context.member_chain_layout)
     }
 }
 
@@ -586,6 +612,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             prefix,
             callee_mode,
             test_callback: None,
+            group: ArgumentGroup::Local,
+            curried_callee: None,
         })
     }
 
@@ -680,6 +708,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             callee_span,
             prefix,
             test_callback,
+            group,
             ..
         } = list;
         let first_mode = first.map_or(ContentMode::Formatted, |argument| argument.mode);
@@ -842,7 +871,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer,
             );
         }
-        writer.group(expand, |writer| {
+        group.write(expand, writer, |writer| {
             writer.text("(");
             let mut write_items = |writer: &mut Writer<'ast>| {
                 if !hugged && (first.is_some() || !self.comments.in_range(content).is_empty()) {

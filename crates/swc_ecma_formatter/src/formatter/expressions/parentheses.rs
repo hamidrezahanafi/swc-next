@@ -680,7 +680,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     ExpressionPosition::UnaryArgument(_)
                         | ExpressionPosition::MemberObject(_)
                         | ExpressionPosition::MemberAssignmentObject
-                        | ExpressionPosition::CallCallee(_)
+                        | ExpressionPosition::CallCallee { .. }
                         | ExpressionPosition::NewCallee
                         | ExpressionPosition::ArrowBody
                         | ExpressionPosition::RestrictedArgument
