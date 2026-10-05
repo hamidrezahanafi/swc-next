@@ -1,8 +1,9 @@
 //! Assignment and update owners recover target delimiters from their grammar gaps.
 
 use swc_next_ecma_ast::{
-    AssignmentExpression, AssignmentOperator, AssignmentTargetData, Comment, Expr, GetSpan,
-    SimpleAssignmentTarget, SimpleAssignmentTargetData, Span, UpdateExpression, UpdateOperator,
+    AssignmentExpression, AssignmentOperator, AssignmentTargetData, Ast, BindingPattern, Comment,
+    Expr, GetSpan, SimpleAssignmentTarget, SimpleAssignmentTargetData, Span, UpdateExpression,
+    UpdateOperator,
 };
 
 use super::parentheses::{ParenthesisInner, SourceParentheses};
@@ -27,8 +28,23 @@ impl TargetOperator {
     }
 }
 
+#[derive(Clone, Copy)]
+enum TargetNode {
+    Simple(SimpleAssignmentTarget),
+    Pattern(BindingPattern),
+}
+
+impl TargetNode {
+    fn span(self, ast: &Ast<'_>) -> Span {
+        match self {
+            Self::Simple(node) => node.span(ast),
+            Self::Pattern(node) => node.span(ast),
+        }
+    }
+}
+
 pub(super) struct SourceTarget {
-    target: SimpleAssignmentTarget,
+    target: TargetNode,
     operator: TargetOperator,
     pub(super) operator_span: Span,
     pub(super) span: Span,
@@ -105,11 +121,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         assignment: AssignmentExpression,
     ) -> Result<SourceTarget, FormatError> {
         let left = assignment.left(self.ast);
-        let AssignmentTargetData::SimpleAssignmentTarget(target) =
-            self.ast.assignment_target_data(left)
-        else {
-            return Err(self.unsupported("assignment target", left));
+        let target = match self.ast.assignment_target_data(left) {
+            AssignmentTargetData::SimpleAssignmentTarget(node) => TargetNode::Simple(node),
+            AssignmentTargetData::ArrayAssignmentTarget(node) => {
+                TargetNode::Pattern(BindingPattern::ArrayPattern(node))
+            }
+            AssignmentTargetData::ObjectAssignmentTarget(node) => {
+                TargetNode::Pattern(BindingPattern::ObjectPattern(node))
+            }
         };
+        if matches!(target, TargetNode::Pattern(_))
+            && assignment.operator(self.ast) != AssignmentOperator::Assign
+        {
+            return Err(self.unsupported("destructuring compound assignment", assignment));
+        }
         let span = target.span(self.ast);
         self.prepare_source_target(
             target,
@@ -142,12 +167,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Span::new(span.end - length, span.end),
             )
         };
-        self.prepare_source_target(target, operator, prefix, suffix, Some(operator_span))
+        self.prepare_source_target(
+            TargetNode::Simple(target),
+            operator,
+            prefix,
+            suffix,
+            Some(operator_span),
+        )
     }
 
     fn prepare_source_target(
         &self,
-        target: SimpleAssignmentTarget,
+        target: TargetNode,
         operator: TargetOperator,
         prefix: Span,
         suffix: Span,
@@ -183,14 +214,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let mut trailing = gap(suffix);
         let mut inner = target.span(self.ast);
-        let mut inner_target = match self.ast.simple_assignment_target_data(target) {
-            SimpleAssignmentTargetData::IdentifierReference(node) => {
-                ParenthesisInner::Expression(Expr::IdentifierReference(node))
-            }
-            SimpleAssignmentTargetData::MemberExpression(node) => {
-                ParenthesisInner::Expression(Expr::MemberExpression(node))
-            }
-            _ => ParenthesisInner::Unresolved,
+        let mut inner_target = match target {
+            TargetNode::Pattern(_) => ParenthesisInner::Unresolved,
+            TargetNode::Simple(target) => match self.ast.simple_assignment_target_data(target) {
+                SimpleAssignmentTargetData::IdentifierReference(node) => {
+                    ParenthesisInner::Expression(Expr::IdentifierReference(node))
+                }
+                SimpleAssignmentTargetData::MemberExpression(node) => {
+                    ParenthesisInner::Expression(Expr::MemberExpression(node))
+                }
+                _ => ParenthesisInner::Unresolved,
+            },
         };
         for layer in layers.iter_mut().rev() {
             let closing = trailing.consume(")").ok_or_else(invalid)?;
@@ -251,11 +285,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let verbatim = context.content_mode == ContentMode::Verbatim && !target.layers.is_empty();
-        if !target.layers.is_empty()
+        if (matches!(target.target, TargetNode::Pattern(_)) || !target.layers.is_empty())
             && context.expression_start.needs_asi_guard()
             && self.options.semicolons == Semicolons::AsNeeded
         {
-            // Prepare the statement guard before any removed-layer comments.
+            // Prepare the printed target guard before any target comments.
             writer.text(";");
             context.expression_start = ExpressionStart::None;
         }
@@ -269,7 +303,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     fn format_target_layers(
         &mut self,
-        target: SimpleAssignmentTarget,
+        target: TargetNode,
         mut layers: &[TargetLayer],
         mut context: ExpressionContext,
         writer: &mut Writer<'ast>,
@@ -282,7 +316,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let Some((layer, remaining)) = layers.split_first() else {
                 break (
                     target_end,
-                    self.format_simple_assignment_target(target, context, writer)?,
+                    match target {
+                        TargetNode::Simple(node) => {
+                            self.format_simple_assignment_target(node, context, writer)?
+                        }
+                        TargetNode::Pattern(node) => {
+                            self.format_declaration_binding(node, context.content_mode, writer)?
+                        }
+                    },
                 );
             };
             let boundary = layer.parentheses;
@@ -332,10 +373,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if !target.layers.is_empty() {
             return Ok(true);
         }
-        let expression = match self.ast.simple_assignment_target_data(target.target) {
+        let TargetNode::Simple(node) = target.target else {
+            return Ok(true);
+        };
+        let expression = match self.ast.simple_assignment_target_data(node) {
             SimpleAssignmentTargetData::IdentifierReference(_) => return Ok(false),
             SimpleAssignmentTargetData::MemberExpression(member) => Expr::MemberExpression(member),
-            _ => return Err(self.unsupported("assignment target", target.target)),
+            _ => return Err(self.unsupported("assignment target", node)),
         };
         self.expression_needs_asi_guard(
             expression,
@@ -345,7 +389,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         )
     }
 
-    pub(super) fn format_simple_assignment_target(
+    pub(in crate::formatter) fn format_simple_assignment_target(
         &mut self,
         target: SimpleAssignmentTarget,
         context: ExpressionContext,

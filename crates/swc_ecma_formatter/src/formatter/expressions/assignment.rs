@@ -1,13 +1,18 @@
 //! Assignment layouts and borrowed operator boundaries prepared before printing.
 
-use swc_next_ecma_ast::{AssignmentExpression, Comment, CommentKind, ExprData, GetSpan, Span};
+use swc_next_ecma_ast::{
+    AssignmentExpression, Comment, CommentKind, Expr, ExprData, GetSpan, ParenthesizedExpression,
+    Span,
+};
 
 use super::binary::BinaryLike;
 use super::parentheses::ExpressionContent;
 use super::{ExpressionContext, ExpressionPosition, Formatter};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
-use crate::formatter::suppression::ContentMode;
+use crate::formatter::suppression::{
+    ContentMode, DelimitedFollowing, SuppressionPosition, is_suppression_comment,
+};
 use crate::{FormatError, document::Writer};
 
 #[derive(Clone, Copy)]
@@ -24,6 +29,18 @@ enum AssignmentLayout {
     NeverBreakAfterOperator,
     Chain,
     ChainTail,
+}
+
+enum AssignmentRight {
+    Expression(Expr),
+    SourceParentheses(ParenthesizedExpression),
+}
+
+struct AssignmentSuppression {
+    gap: Span,
+    left: ContentMode,
+    right: ContentMode,
+    content: AssignmentRight,
 }
 
 pub(in crate::formatter) struct AssignmentBoundary<'ast> {
@@ -70,6 +87,52 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let target = self.assignment_source_target(assignment)?;
         let right = assignment.right(self.ast);
+        let suppression = if self.has_suppression {
+            self.prepare_assignment_suppression(
+                Span::new(target.span.end, right.span(self.ast).start),
+                target.operator_span,
+                right,
+            )
+        } else {
+            None
+        };
+        if let Some(source) = suppression {
+            return writer.group(false, |writer| {
+                let leading = self.comments.between(Span::new(
+                    assignment.span(self.ast).start,
+                    target.span.start,
+                ))?;
+                self.comments.claim(leading)?;
+                self.format_comment_run(
+                    leading,
+                    CommentRunLayout::Leading(target.span.start),
+                    writer,
+                )?;
+                let tail = self.format_source_target(
+                    &target,
+                    ExpressionContext::at(ExpressionPosition::MemberAssignmentObject)
+                        .with_expression_start(context.expression_start)
+                        .with_content_mode(source.left),
+                    writer,
+                )?;
+                self.format_expression_tail(tail, writer)?;
+                let gap =
+                    self.format_delimited_source_gap(source.gap, DelimitedFollowing::Node, writer)?;
+                gap.following
+                    .write(writer, FlatSeparator::Space, Writer::space);
+                let parent = match context.position {
+                    ExpressionPosition::Statement => AssignmentParent::Statement,
+                    _ => AssignmentParent::Nested,
+                };
+                self.format_prepared_assignment_right(
+                    source.content,
+                    ExpressionContext::at(ExpressionPosition::AssignmentRight(parent))
+                        .with_content_mode(source.right)
+                        .with_tail_owner(context.tail_owner),
+                    writer,
+                )
+            });
+        }
         let content = self.expression_content(right);
         let data = content.data;
         let head = self.assignment_expression_head(content);
@@ -186,6 +249,88 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             AssignmentLayout::Chain | AssignmentLayout::ChainTail => write(writer),
             _ => writer.group(false, write),
         }
+    }
+
+    fn prepare_assignment_suppression(
+        &self,
+        gap: Span,
+        operator: Span,
+        right: Expr,
+    ) -> Option<AssignmentSuppression> {
+        let mut inner = right;
+        while let ExprData::ParenthesizedExpression(node) = self.ast.expr_data(inner) {
+            inner = node.expression(self.ast);
+        }
+        let header_end = inner.span(self.ast).start;
+        let comments = self.comments.in_range(Span::new(gap.start, header_end));
+        if self.content_mode(comments) != ContentMode::Verbatim {
+            return None;
+        }
+        let complex = matches!(
+            self.ast.expr_data(inner),
+            ExprData::ArrayExpression(_) | ExprData::ObjectExpression(_)
+        );
+        let parentheses = match self.ast.expr_data(right) {
+            ExprData::ParenthesizedExpression(node)
+                if comments.iter().any(|&comment| {
+                    comment.span.start >= gap.end && is_suppression_comment(self.ast, comment)
+                }) =>
+            {
+                AssignmentRight::SourceParentheses(node)
+            }
+            _ => AssignmentRight::Expression(right),
+        };
+        let mut source = AssignmentSuppression {
+            gap,
+            left: ContentMode::Formatted,
+            right: ContentMode::Formatted,
+            content: parentheses,
+        };
+        for (run, position) in self.suppressed_comment_runs(comments, header_end) {
+            for &comment in run {
+                if !is_suppression_comment(self.ast, comment) {
+                    continue;
+                }
+                let left = match position {
+                    SuppressionPosition::OwnLine => false,
+                    SuppressionPosition::EndOfLine => comment.kind == CommentKind::Line && !complex,
+                    SuppressionPosition::Inline => comment.span.end <= operator.start,
+                };
+                if left {
+                    source.left = ContentMode::Verbatim;
+                } else {
+                    source.right = ContentMode::Verbatim;
+                }
+            }
+        }
+        Some(source)
+    }
+
+    fn format_prepared_assignment_right(
+        &mut self,
+        content: AssignmentRight,
+        context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let parenthesized = match content {
+            AssignmentRight::Expression(expression) => {
+                return self.format_expression(expression, context, writer);
+            }
+            AssignmentRight::SourceParentheses(node) => node,
+        };
+        let child = parenthesized.expression(self.ast);
+        let content = match self.ast.expr_data(child) {
+            ExprData::ParenthesizedExpression(node) => AssignmentRight::SourceParentheses(node),
+            _ => AssignmentRight::Expression(child),
+        };
+        self.format_assignment_right_parentheses(
+            parenthesized,
+            context,
+            writer,
+            |formatter, context, writer| {
+                formatter.format_prepared_assignment_right(content, context, writer)
+            },
+        )
     }
 
     fn assignment_expression_head(&self, mut content: ExpressionContent) -> ExpressionContent {

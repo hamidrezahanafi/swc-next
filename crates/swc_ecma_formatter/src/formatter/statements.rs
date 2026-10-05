@@ -6,8 +6,8 @@ mod tails;
 use self::tails::{StatementTailModes, StatementTailRelation};
 
 use swc_next_ecma_ast::{
-    Ast, BlockStatement, Comment, CommentKind, DeclData, Directive, FunctionBody, GetSpan, Span,
-    StaticBlock, Stmt, StmtData,
+    Ast, BlockStatement, Comment, CommentKind, DeclData, Directive, EmptyStatement, FunctionBody,
+    GetSpan, Span, StaticBlock, Stmt, StmtData,
 };
 
 use super::Formatter;
@@ -66,10 +66,21 @@ struct PreparedStatement<'ast> {
     span: Span,
     mode: ContentMode,
     source_gap: Option<LineConstraint>,
+    source_empty: Option<EmptyStatement>,
     annotation_tail: Option<StatementAnnotationTail<'ast>>,
 }
 
 impl StatementItem {
+    fn empty(self, ast: &Ast<'_>) -> Option<EmptyStatement> {
+        match self {
+            Self::Statement(node) => match ast.stmt_data(node) {
+                StmtData::EmptyStatement(empty) => Some(empty),
+                _ => None,
+            },
+            Self::Directive(_) => None,
+        }
+    }
+
     fn is_nonempty(self, ast: &Ast<'_>) -> bool {
         !matches!(self, Self::Statement(statement) if matches!(ast.stmt_data(statement), StmtData::EmptyStatement(_)))
     }
@@ -162,6 +173,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             has_terminator: false,
         });
         let mut first_statement = true;
+        let mut previous_span_end = previous_end.unwrap_or(span.start);
         let mut pending = statements.next().map(|item| {
             self.prepare_sequence_statement(item, statements.peek().copied(), incoming)
         });
@@ -174,9 +186,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 span: statement_span,
                 mode: source_mode,
                 source_gap,
+                source_empty,
                 annotation_tail,
             } = prepared;
-            if !statement.is_nonempty(ast) {
+            if let Some(empty) = statement.empty(ast) {
+                if let Some(next) = pending.as_mut() {
+                    next.source_empty = Some(empty);
+                }
                 continue;
             }
             let leading = self.comments.between(Span::new(
@@ -185,12 +201,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ))?;
             let leading_mode = self.content_mode(leading);
             while let Some(next) = pending.as_ref() {
-                if next.item.is_nonempty(ast) {
+                let Some(empty) = next.item.empty(ast) else {
                     break;
-                }
+                };
                 pending = statements.next().map(|item| {
                     self.prepare_sequence_statement(item, statements.peek().copied(), incoming)
                 });
+                if let Some(next) = pending.as_mut() {
+                    next.source_empty = Some(empty);
+                }
             }
             let following = pending.as_ref().map(|next| next.span.start);
             let suppression_tail = if self.has_suppression {
@@ -280,10 +299,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     FlatSeparator::Space
                 };
                 constraint.write(writer, separator, Writer::hard_line);
-                if constraint == LineConstraint::Unconstrained
-                    && self.line_breaks(boundary.end(), next_start) == 2
-                {
-                    writer.hard_line();
+                let gap_start = source_empty
+                    .map_or(previous_span_end, |empty| empty.span(ast).end)
+                    .max(boundary.end());
+                if constraint == LineConstraint::Unconstrained {
+                    let before_separator = boundary.end() < gap_start
+                        && self.next_line_is_empty(boundary.end(), gap_start.min(next_start));
+                    let after_separator =
+                        gap_start < next_start && self.line_breaks(gap_start, next_start) == 2;
+                    if before_separator || after_separator {
+                        writer.hard_line();
+                    }
                 }
             }
             let head = NodeHead {
@@ -348,6 +374,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 following.is_some(),
                 writer,
             )?;
+            previous_span_end = statement_span.end;
             previous = Some(match boundary {
                 StatementBoundary::Semicolon { terminator, .. } => {
                     StatementBoundary::Semicolon { end, terminator }
@@ -414,6 +441,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .filter(|target| target.span == span)
                 .map_or(ContentMode::Formatted, |target| target.mode),
             source_gap: None,
+            source_empty: None,
             annotation_tail,
         }
     }

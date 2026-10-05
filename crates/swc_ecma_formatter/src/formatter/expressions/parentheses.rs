@@ -12,7 +12,7 @@ use crate::formatter::comments::{
 };
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::source::is_source_whitespace;
-use crate::formatter::suppression::ContentMode;
+use crate::formatter::suppression::{ContentMode, is_suppression_comment};
 use crate::{FormatError, Semicolons, document::Writer};
 
 #[derive(Clone, Copy)]
@@ -62,6 +62,7 @@ enum ParenthesisCastPosition {
 struct ExpressionHeadAnnotation {
     index: usize,
     content: Option<ExprData>,
+    guard_prefix: Option<LineConstraint>,
 }
 
 enum SourceCastState {
@@ -87,6 +88,7 @@ struct RetainedSourceParentheses {
     boundary: SourceParentheses,
     kind: RetainedParentheses,
     hug: bool,
+    leading_mode: Option<ContentMode>,
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -178,22 +180,35 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if head.comments.is_empty() {
             return Ok(context.expression_start);
         }
+        let ignored_head = self.has_suppression && context.content_mode == ContentMode::Verbatim;
         let protected_start = if context.expression_start.needs_asi_guard()
             && self.options.semicolons == Semicolons::AsNeeded
-            && self.has_target_annotations
+            && (self.has_target_annotations || ignored_head)
         {
-            head.comments
-                .iter()
-                .position(|&comment| self.comment_has_target_annotation(comment))
+            head.comments.iter().position(|&comment| {
+                self.has_target_annotations && self.comment_has_target_annotation(comment)
+                    || ignored_head && is_suppression_comment(self.ast, comment)
+            })
         } else {
             None
         };
         if let Some(index) = protected_start {
+            let guard_prefix = ignored_head.then(|| {
+                if self.source_position_starts_line(head.comments[index].span.start) {
+                    LineConstraint::NewLine(1)
+                } else {
+                    LineConstraint::SameLine
+                }
+            });
             return self.format_annotated_expression_head(
                 expression,
                 head,
                 context,
-                ExpressionHeadAnnotation { index, content },
+                ExpressionHeadAnnotation {
+                    index,
+                    content,
+                    guard_prefix,
+                },
                 array_comments,
                 writer,
             );
@@ -229,7 +244,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer,
             )?;
             writer.text(";");
-            if protected
+            if let Some(prefix) = annotation.guard_prefix {
+                prefix.write(writer, FlatSeparator::Empty, |_| {});
+            } else if protected
                 .iter()
                 .any(|comment| comment.kind == CommentKind::Line)
             {
@@ -829,7 +846,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && (self.ignored_operand_owns_operation_head(ignored, context.position)
                 || matches!(
                     context.position,
-                    ExpressionPosition::UnaryArgument(_)
+                    ExpressionPosition::Statement
+                        | ExpressionPosition::UnaryArgument(_)
                         | ExpressionPosition::MemberObject(_)
                         | ExpressionPosition::MemberAssignmentObject
                         | ExpressionPosition::CallCallee { .. }
@@ -968,6 +986,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 },
                 kind,
                 hug,
+                leading_mode: None,
             },
             context,
             array_comments,
@@ -980,6 +999,42 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     writer,
                 )
             },
+        )
+    }
+
+    pub(super) fn format_assignment_right_parentheses(
+        &mut self,
+        parenthesized: ParenthesizedExpression,
+        context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+        content: impl FnOnce(
+            &mut Self,
+            ExpressionContext,
+            &mut Writer<'ast>,
+        ) -> Result<Option<ExpressionTail<'ast>>, FormatError>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let child = parenthesized.expression(self.ast);
+        let span = parenthesized.span(self.ast);
+        let kind = if self.parenthesis_has_type_cast(span.start) {
+            RetainedParentheses::Cast
+        } else {
+            RetainedParentheses::Operand
+        };
+        self.format_retained_source_parentheses_with_array_comments(
+            RetainedSourceParentheses {
+                boundary: SourceParentheses {
+                    outer: span,
+                    inner: child.span(self.ast),
+                    inner_target: ParenthesisInner::Expression(child),
+                },
+                kind,
+                hug: false,
+                leading_mode: Some(context.content_mode),
+            },
+            context,
+            None,
+            writer,
+            |formatter, context, _, writer| content(formatter, context, writer),
         )
     }
 
@@ -1020,6 +1075,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 boundary,
                 kind,
                 hug,
+                leading_mode: None,
             },
             context,
             None,
@@ -1045,6 +1101,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             boundary,
             kind,
             hug,
+            leading_mode,
         } = source;
         let span = boundary.outer;
         let inner_span = boundary.inner;
@@ -1073,7 +1130,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let first = leading
             .first()
             .map_or(inner_span.start, |comment| comment.span.start);
-        let opening = self.line_constraint(span.start + 1, first);
+        let opening = if leading_mode.is_some() {
+            self.source_line_constraint(span.start + 1, first)
+        } else {
+            self.line_constraint(span.start + 1, first)
+        };
         let last = trailing
             .last()
             .map_or(inner_span.end, |comment| comment.span.end);
@@ -1088,7 +1149,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             )?;
             let mode = match context.content_mode {
                 ContentMode::Verbatim => ContentMode::Verbatim,
-                ContentMode::Formatted => self.content_mode(leading),
+                ContentMode::Formatted => {
+                    leading_mode.unwrap_or_else(|| self.content_mode(leading))
+                }
             };
             let context = match (mode, context.position) {
                 (ContentMode::Verbatim, ExpressionPosition::UnaryArgument(operator)) => {

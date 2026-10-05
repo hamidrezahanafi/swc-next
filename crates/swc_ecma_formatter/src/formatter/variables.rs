@@ -1,5 +1,7 @@
 //! Variable declarations and their real keyword, binding and initializer owners.
 
+use std::ops::ControlFlow;
+
 use swc_next_ecma_ast::{GetSpan, Span, VariableDeclaration, VariableDeclarator, VariableKind};
 
 use super::Formatter;
@@ -108,12 +110,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         item.set_leading_mode(mode);
                     }
                     let tail = self.format_variable_declarator(declarator, item.mode, writer)?;
-                    self.finish_delimited_item(item, tail, writer)
+                    if matches!(following, FollowingItem::End) {
+                        Ok(ControlFlow::Break(tail))
+                    } else {
+                        self.finish_delimited_item(item, tail, writer)
+                            .map(ControlFlow::Continue)
+                    }
                 };
                 let boundary = if !first_item || indent_first {
                     writer.indent(write)?
                 } else {
                     write(writer)?
+                };
+                let boundary = match boundary {
+                    ControlFlow::Break(tail) => return Ok((end, tail)),
+                    ControlFlow::Continue(boundary) => boundary,
                 };
                 previous_end = boundary.end;
                 separator = boundary.separator;

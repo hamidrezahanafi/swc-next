@@ -168,14 +168,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     } else {
                         writer.if_break("(");
                     }
-                    writer.indent(|writer| {
+                    let tail = writer.indent(|writer| {
                         if matches!(envelope, ArgumentEnvelope::Required) {
                             writer.hard_line();
                         } else {
                             writer.soft_line();
                         }
                         let tail = write_argument(self, writer)?;
-                        self.format_expression_tail(tail, writer)
+                        if matches!(envelope, ArgumentEnvelope::Required) {
+                            self.format_expression_tail(tail, writer)?;
+                            Ok(None)
+                        } else {
+                            Ok(tail)
+                        }
                     })?;
                     if matches!(envelope, ArgumentEnvelope::Required) {
                         writer.hard_line();
@@ -184,7 +189,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         writer.soft_line();
                         writer.if_break(")");
                     }
-                    Ok(None)
+                    Ok(tail)
                 })
             }
         }

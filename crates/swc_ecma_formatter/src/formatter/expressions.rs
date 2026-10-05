@@ -868,6 +868,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 | ExprData::LogicalExpression(_)
                 | ExprData::ConditionalExpression(_),
             ) => true,
+            (ExpressionPosition::Statement, ExprData::AssignmentExpression(node)) => matches!(
+                self.ast.assignment_target_data(node.left(self.ast)),
+                swc_next_ecma_ast::AssignmentTargetData::ObjectAssignmentTarget(_)
+            ),
             (position, ExprData::AssignmentExpression(_)) => !matches!(
                 position,
                 ExpressionPosition::Statement | ExpressionPosition::AssignmentRight(_)

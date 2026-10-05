@@ -8,9 +8,9 @@ use swc_next_ecma_ast::{
 use super::Formatter;
 use super::comments::{CommentRunLayout, ExpressionTail};
 use super::diagnostics::{FlatSeparator, LineConstraint};
-use super::expressions::ExpressionContext;
 use super::expressions::arguments::{ArgumentLayout, ElisionLayout, FollowingItem, Separator};
 use super::expressions::assignment::AssignmentBoundary;
+use super::expressions::{ExpressionContext, ExpressionPosition};
 use super::suppression::{ContentMode, SuppressionPosition};
 use crate::{FormatError, TrailingCommas, document::Writer};
 
@@ -156,9 +156,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 )?;
                 self.format_declaration_binding(argument, mode, writer)
             }
-            BindingPatternData::SimpleAssignmentTarget(_) => {
-                Err(self.unsupported("assignment target in declaration binding", pattern))
-            }
+            BindingPatternData::SimpleAssignmentTarget(target) => self
+                .format_simple_assignment_target(
+                    target,
+                    ExpressionContext::at(ExpressionPosition::Nested),
+                    writer,
+                ),
         }
     }
 
@@ -742,6 +745,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return Ok(None);
         }
         let mode = suppression.value;
+        let next = after
+            .first()
+            .map_or(value_span.start, |comment| comment.span.start);
+        let value_prefix = if mode == ContentMode::Verbatim {
+            self.source_line_constraint(colon + 1, next)
+        } else {
+            self.line_constraint(colon + 1, next)
+        };
         let computed = property
             .computed(ast)
             .then_some(Span::new(property.span(ast).start, key_end));
@@ -759,11 +770,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .write(writer, FlatSeparator::Empty, |_| {});
         }
         writer.text(":");
-        let next = after
-            .first()
-            .map_or(value_span.start, |comment| comment.span.start);
-        self.line_constraint(colon + 1, next)
-            .write(writer, FlatSeparator::Space, Writer::space);
+        value_prefix.write(writer, FlatSeparator::Space, Writer::space);
         self.comments.claim(after)?;
         self.format_comment_run(
             after,
