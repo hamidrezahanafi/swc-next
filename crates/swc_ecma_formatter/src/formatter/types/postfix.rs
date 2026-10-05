@@ -204,9 +204,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let ast = self.ast;
         let name = node.expr_name(ast);
         let name_data = ast.ts_type_query_expr_name_data(name);
-        if matches!(name_data, TsTypeQueryExprNameData::TsImportType(_)) {
-            return Err(self.unsupported("import type query", name));
-        }
         let gap = Span::new(
             node.span(ast).start + "typeof".len() as u32,
             name.span(ast).start,
@@ -237,8 +234,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     self.format_type_name(name, mode, writer)?
                 }
                 TsTypeQueryExprNameData::ThisExpression(_) => writer.text("this"),
-                TsTypeQueryExprNameData::TsImportType(_) => {
-                    unreachable!("import query rejected before prefix claims")
+                TsTypeQueryExprNameData::TsImportType(import) => {
+                    self.format_import_type(import, writer)?;
                 }
             }
         }

@@ -1,13 +1,22 @@
-//! Dynamic imports and their real source/options expression slots.
+//! Shared import source/options slots retain their real expressions and delimiters.
 
-use swc_next_ecma_ast::{ExprData, GetSpan, ImportExpression, ImportPhase, Span};
+use swc_next_ecma_ast::{Expr, ExprData, GetSpan, ImportExpression, ImportPhase, Span};
 
 use super::arguments::{ArgumentLayout, FollowingItem, ItemBoundary};
 use super::arrows::ArrowLayout;
 use super::{ExpressionContext, ExpressionPosition, Formatter};
 use crate::formatter::comments::ExpressionTail;
 use crate::formatter::diagnostics::FlatSeparator;
+use crate::formatter::suppression::ContentMode;
 use crate::{FormatError, document::Writer};
+
+pub(in crate::formatter) struct ImportArguments {
+    pub(in crate::formatter) source: Expr,
+    pub(in crate::formatter) options: Option<Expr>,
+    pub(in crate::formatter) content: Span,
+    pub(in crate::formatter) opening: u32,
+    pub(in crate::formatter) last_mode: ContentMode,
+}
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_import_expression(
@@ -79,6 +88,33 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             },
             span.end - 1,
         );
+        self.format_import_arguments(
+            ImportArguments {
+                source,
+                options,
+                content,
+                opening,
+                last_mode: ContentMode::Formatted,
+            },
+            writer,
+        )?;
+        Ok(None)
+    }
+
+    pub(in crate::formatter) fn format_import_arguments(
+        &mut self,
+        arguments: ImportArguments,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        let ImportArguments {
+            source,
+            options,
+            content,
+            opening,
+            last_mode,
+        } = arguments;
+        let ast = self.ast;
+        let source_span = source.span(ast);
         let expand = self.next_line_is_empty(opening + 1, source_span.start)
             || options.is_some_and(|option| {
                 self.next_line_is_empty(source_span.end, option.span(ast).start)
@@ -130,6 +166,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     if let Some(boundary) = previous {
                         item.set_leading_mode(boundary.following_mode);
                     }
+                    if expressions.peek().is_none() && last_mode == ContentMode::Verbatim {
+                        item.set_leading_mode(last_mode);
+                    }
                     let tail = self.format_expression(
                         expression,
                         ExpressionContext::at(ExpressionPosition::Nested)
@@ -155,7 +194,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 );
             }
             writer.text(")");
-            Ok(None)
+            Ok(())
         })
     }
 }

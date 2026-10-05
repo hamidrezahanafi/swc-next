@@ -5,6 +5,7 @@ mod compound;
 mod conditional;
 mod context;
 mod generics;
+mod imports;
 mod infer;
 mod interfaces;
 mod mapped;
@@ -564,6 +565,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             TsTypeData::TsIndexedAccessType(node) => self.format_indexed_type(node, writer),
             TsTypeData::TsTypeOperator(node) => self.format_type_operator(node, writer),
             TsTypeData::TsTypeQuery(node) => self.format_type_query(node, writer),
+            TsTypeData::TsImportType(node) => self.format_import_type(node, writer),
             TsTypeData::TsParenthesizedType(node) => {
                 self.format_parenthesized_type(node, None, TypeContext::Root, writer)
             }
