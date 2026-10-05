@@ -1,0 +1,127 @@
+//! Restricted jump labels and the real owner of a labeled statement's header.
+
+use swc_next_ecma_ast::{
+    BreakStatement, ContinueStatement, GetSpan, LabelIdentifier, LabeledStatement, Span,
+};
+
+use super::super::{Formatter, PrintedStatement, StatementBoundary, StatementPunctuation};
+use super::{ControlledBodyEnd, ControlledBodyRole};
+use crate::formatter::suppression::{ContentMode, SuppressionPosition};
+use crate::{FormatError, document::Writer};
+
+#[derive(Clone, Copy)]
+pub(in crate::formatter::statements) enum JumpStatement {
+    Break(BreakStatement),
+    Continue(ContinueStatement),
+}
+
+impl<'ast, 'source> Formatter<'ast, 'source> {
+    pub(in crate::formatter::statements) fn format_jump_statement(
+        &mut self,
+        jump: JumpStatement,
+        punctuation: StatementPunctuation,
+        writer: &mut Writer<'ast>,
+    ) -> Result<PrintedStatement<'ast>, FormatError> {
+        let ast = self.ast;
+        let (keyword, label, span) = match jump {
+            JumpStatement::Break(node) => ("break", node.label(ast), node.span(ast)),
+            JumpStatement::Continue(node) => ("continue", node.label(ast), node.span(ast)),
+        };
+        let keyword_end = span.start + keyword.len() as u32;
+        let content_end = label.map_or(keyword_end, |label| label.span(ast).end);
+        if self.trailing_content_mode(Span::new(content_end, span.end), true)
+            == ContentMode::Verbatim
+        {
+            self.format_verbatim(span, writer)?;
+            return Ok(StatementBoundary::SourceEnd {
+                end: span.end,
+                has_terminator: self.statement_source_terminator(span).is_some(),
+            }
+            .into());
+        }
+        let mode = if self.has_suppression {
+            label.map_or(ContentMode::Formatted, |label| {
+                self.content_mode(
+                    self.comments
+                        .in_range(Span::new(keyword_end, label.span(ast).start)),
+                )
+            })
+        } else {
+            ContentMode::Formatted
+        };
+        writer.text(keyword);
+        if let Some(label) = label {
+            self.format_source_token_gap(keyword_end, label.span(ast).start, true, writer)?;
+            self.format_jump_label(label, mode, writer)?;
+        }
+        self.finish_statement(content_end, None, punctuation, writer)
+    }
+
+    fn format_jump_label(
+        &mut self,
+        label: LabelIdentifier,
+        mode: ContentMode,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        if mode == ContentMode::Verbatim {
+            self.format_verbatim(label.span(self.ast), writer)
+        } else {
+            writer.text(self.ast.get_utf8(label.name(self.ast)));
+            Ok(())
+        }
+    }
+
+    pub(in crate::formatter::statements) fn format_labeled_statement(
+        &mut self,
+        node: LabeledStatement,
+        punctuation: StatementPunctuation,
+        writer: &mut Writer<'ast>,
+    ) -> Result<PrintedStatement<'ast>, FormatError> {
+        let ast = self.ast;
+        let label = node.label(ast);
+        let statement = node.body(ast);
+        let head = Span::new(label.span(ast).end, statement.span(ast).start);
+        let comments = self.comments.in_range(head);
+        let colon = self
+            .find_token(head, comments, ":")
+            .ok_or_else(|| self.unsupported("label colon boundary", node))?;
+        let mut label_mode = ContentMode::Formatted;
+        let mut body_mode = ContentMode::Formatted;
+        let mut enclosing_mode = ContentMode::Formatted;
+        if self.has_suppression {
+            for (run, position) in self.suppressed_comment_runs(comments, head.end) {
+                if !matches!(position, SuppressionPosition::Inline) {
+                    enclosing_mode = ContentMode::Verbatim;
+                    continue;
+                }
+                if run.last().is_some_and(|comment| comment.span.end <= colon) {
+                    label_mode = ContentMode::Verbatim;
+                } else {
+                    body_mode = ContentMode::Verbatim;
+                }
+            }
+        }
+        if enclosing_mode == ContentMode::Verbatim {
+            let span = node.span(ast);
+            self.format_verbatim(span, writer)?;
+            return Ok(StatementBoundary::SourceEnd {
+                end: span.end,
+                has_terminator: self.statement_source_terminator(span).is_some(),
+            }
+            .into());
+        }
+        let body = self
+            .prepare_controlled_body(
+                statement,
+                colon + 1,
+                ControlledBodyEnd::Enclosing(node.span(ast).end),
+                ControlledBodyRole::Label,
+                body_mode,
+            )
+            .with_enclosing_punctuation(punctuation);
+        self.format_jump_label(label, label_mode, writer)?;
+        self.format_source_token_gap(label.span(ast).end, colon, false, writer)?;
+        writer.text(":");
+        self.format_controlled_body(body, writer)
+    }
+}

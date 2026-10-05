@@ -154,7 +154,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    fn statement_content_end(&self, item: StatementItem) -> u32 {
+    pub(super) fn statement_content_end(&self, item: StatementItem) -> u32 {
         let mut statement = match item {
             StatementItem::Directive(node) => return node.expression(self.ast).span(self.ast).end,
             StatementItem::Statement(statement) => statement,
@@ -166,6 +166,32 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         Some(alternate) => alternate,
                         None => node.consequent(self.ast),
                     };
+                }
+                StmtData::WhileStatement(node) => {
+                    statement = node.body(self.ast);
+                }
+                StmtData::DoWhileStatement(node) => {
+                    let expression = node.test(self.ast).span(self.ast);
+                    let end = node.span(self.ast).end;
+                    let span = Span::new(expression.end, end);
+                    let closing = self.find_token(span, self.comments.in_range(span), ")");
+                    return closing.map_or(end, |closing| closing + 1);
+                }
+                StmtData::LabeledStatement(node) => {
+                    statement = node.body(self.ast);
+                }
+                StmtData::BreakStatement(node) => {
+                    return node
+                        .label(self.ast)
+                        .map_or(node.span(self.ast).start + "break".len() as u32, |label| {
+                            label.span(self.ast).end
+                        });
+                }
+                StmtData::ContinueStatement(node) => {
+                    return node.label(self.ast).map_or(
+                        node.span(self.ast).start + "continue".len() as u32,
+                        |label| label.span(self.ast).end,
+                    );
                 }
                 StmtData::ExpressionStatement(node) => {
                     return node.expression(self.ast).span(self.ast).end;

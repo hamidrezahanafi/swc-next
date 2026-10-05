@@ -605,6 +605,27 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     _ => Err(self.unsupported("declaration", declaration)),
                 }
             }
+            StmtData::BreakStatement(node) if mode == ContentMode::Formatted => self
+                .format_jump_statement(
+                    control_flow::JumpStatement::Break(node),
+                    punctuation,
+                    writer,
+                ),
+            StmtData::ContinueStatement(node) if mode == ContentMode::Formatted => self
+                .format_jump_statement(
+                    control_flow::JumpStatement::Continue(node),
+                    punctuation,
+                    writer,
+                ),
+            StmtData::LabeledStatement(node) if mode == ContentMode::Formatted => {
+                self.format_labeled_statement(node, punctuation, writer)
+            }
+            StmtData::WhileStatement(node) if mode == ContentMode::Formatted => {
+                self.format_while_statement(node, punctuation, writer)
+            }
+            StmtData::DoWhileStatement(node) if mode == ContentMode::Formatted => {
+                self.format_do_while_statement(node, punctuation, writer)
+            }
             StmtData::IfStatement(node) if mode == ContentMode::Formatted => {
                 self.format_if_statement(node, punctuation, writer)
             }
