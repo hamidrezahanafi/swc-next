@@ -1,11 +1,15 @@
 //! Borrowed TypeScript type owners and their declaration punctuation boundaries.
 
+mod context;
+mod postfix;
+
 use swc_next_ecma_ast::{
     BindingPattern, CommentKind, ExprData, GetSpan, Span, TsLiteralData, TsParenthesizedType,
     TsQualifiedName, TsQualifiedNameLeft, TsQualifiedNameLeftData, TsType, TsTypeAliasDeclaration,
     TsTypeAnnotation, TsTypeData, TsTypeName, TsTypeNameData, UnaryOperator, VariableDeclarator,
 };
 
+use self::context::TypeContext;
 use super::Formatter;
 use super::bindings::InitializerLayout;
 use super::comments::{CommentBoundary, ExpressionTail};
@@ -20,6 +24,18 @@ use crate::{FormatError, document::Writer};
 enum TypeBoundaryRole {
     Alias,
     Qualified,
+}
+
+enum TypeBoundaryTarget<'a> {
+    Alias(&'a mut PreparedType),
+    Qualified,
+}
+
+#[derive(Clone, Copy)]
+struct PreparedType {
+    node: TsType,
+    data: TsTypeData,
+    source_owner: Option<TsType>,
 }
 
 enum TypeBoundaryLayout<'ast> {
@@ -41,7 +57,7 @@ struct PreparedTypeAnnotation<'ast> {
     pattern: BindingPattern,
     annotation: TsTypeAnnotation,
     wrapper_mode: ContentMode,
-    type_mode: ContentMode,
+    type_node: PreparedType,
     prefix: TypeBoundaryLayout<'ast>,
 }
 
@@ -60,11 +76,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let identifier_span = identifier.span(ast);
         let annotation = alias.type_annotation(ast);
         let annotation_span = annotation.span(ast);
+        let mut type_node = self.prepare_type(annotation, ContentMode::Formatted);
         let keyword_end = span.start + "type".len() as u32;
         let mut boundary = self.prepare_type_boundary(
             Span::new(identifier_span.end, annotation_span.start),
-            "=",
-            TypeBoundaryRole::Alias,
+            TypeBoundaryTarget::Alias(&mut type_node),
         )?;
         if self.has_suppression {
             let header = self
@@ -77,7 +93,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .comments
                 .in_range(Span::new(annotation_span.end, span.end));
             if self.content_mode(tail) == ContentMode::Verbatim {
-                boundary.right_mode = ContentMode::Verbatim;
+                type_node.source_owner = Some(annotation);
             }
         }
         writer.text("type");
@@ -88,16 +104,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text(ast.get_utf8(identifier.name(ast)));
         }
         self.format_type_boundary(&boundary, writer)?;
-        let tail = self.format_type(annotation, boundary.right_mode, writer)?;
+        let tail = self.format_prepared_type(type_node, TypeContext::Root, writer)?;
         Ok((annotation_span.end, tail))
     }
 
     fn prepare_type_boundary(
         &self,
         gap: Span,
-        token: &str,
-        role: TypeBoundaryRole,
+        mut target: TypeBoundaryTarget<'_>,
     ) -> Result<TypeBoundary<'ast>, FormatError> {
+        let (token, role) = match &target {
+            TypeBoundaryTarget::Alias(_) => ("=", TypeBoundaryRole::Alias),
+            TypeBoundaryTarget::Qualified => (".", TypeBoundaryRole::Qualified),
+        };
         let comments = self.comments.in_range(gap);
         let Some(start) = self.find_token(gap, comments, token) else {
             return Err(FormatError::unsupported(
@@ -131,6 +150,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         left_mode = ContentMode::Verbatim;
                     } else {
                         right_mode = ContentMode::Verbatim;
+                        if let TypeBoundaryTarget::Alias(node) = &mut target {
+                            self.select_type_head(node, position);
+                        }
                     }
                 }
             }
@@ -141,6 +163,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     left_mode = ContentMode::Verbatim;
                 } else {
                     right_mode = ContentMode::Verbatim;
+                    if let TypeBoundaryTarget::Alias(node) = &mut target {
+                        self.select_type_head(node, position);
+                    }
                 }
             }
         }
@@ -189,18 +214,103 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(())
     }
 
-    pub(super) fn format_type(
+    fn format_type_with_context(
         &mut self,
         annotation: TsType,
         mode: ContentMode,
+        context: TypeContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        if mode == ContentMode::Verbatim {
-            self.format_verbatim(annotation.span(self.ast), writer)?;
+        let node = self.prepare_type(annotation, mode);
+        self.format_prepared_type(node, context, writer)
+    }
+
+    fn prepare_type(&self, node: TsType, mode: ContentMode) -> PreparedType {
+        PreparedType {
+            node,
+            data: self.ast.ts_type_data(node),
+            source_owner: (mode == ContentMode::Verbatim).then_some(node),
+        }
+    }
+
+    fn select_type_head(&self, node: &mut PreparedType, position: SuppressionPosition) {
+        if node.source_owner == Some(node.node) {
+            return;
+        }
+        let mut data = node.data;
+        let owner = if matches!(position, SuppressionPosition::OwnLine) {
+            loop {
+                match data {
+                    TsTypeData::TsParenthesizedType(parentheses) => {
+                        let child = parentheses.type_annotation(self.ast);
+                        data = self.ast.ts_type_data(child);
+                    }
+                    TsTypeData::TsUnionType(union) => {
+                        break union
+                            .types(self.ast)
+                            .first()
+                            .map_or(node.node, |id| self.ast.get_node_in_sub_range(id));
+                    }
+                    _ => break node.node,
+                }
+            }
+        } else {
+            node.node
+        };
+        node.source_owner = Some(owner);
+    }
+
+    fn select_type_head_comments(
+        &self,
+        node: &mut PreparedType,
+        comments: &[swc_next_ecma_ast::Comment],
+        end: u32,
+    ) {
+        if !self.has_suppression || self.content_mode(comments) != ContentMode::Verbatim {
+            return;
+        }
+        for (_, position) in self.suppressed_comment_runs(comments, end) {
+            self.select_type_head(node, position);
+        }
+    }
+
+    fn format_prepared_type(
+        &mut self,
+        node: PreparedType,
+        context: TypeContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        if node.source_owner != Some(node.node)
+            && let TsTypeData::TsParenthesizedType(parentheses) = node.data
+        {
+            return self.format_parenthesized_type(parentheses, node.source_owner, context, writer);
+        }
+        if context.needs_parentheses(node.data) {
+            return writer.group(false, |writer| {
+                writer.text("(");
+                writer.indent(|writer| {
+                    writer.soft_line();
+                    let tail = self.format_type_data(node, writer)?;
+                    self.format_expression_tail(tail, writer)
+                })?;
+                writer.soft_line();
+                writer.text(")");
+                Ok(None)
+            });
+        }
+        self.format_type_data(node, writer)
+    }
+
+    fn format_type_data(
+        &mut self,
+        node: PreparedType,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        if node.source_owner == Some(node.node) {
+            self.format_verbatim(node.node.span(self.ast), writer)?;
             return Ok(None);
         }
-        let data = self.ast.ts_type_data(annotation);
-        let keyword = match data {
+        let keyword = match node.data {
             TsTypeData::TsAnyKeyword(_) => Some("any"),
             TsTypeData::TsUnknownKeyword(_) => Some("unknown"),
             TsTypeData::TsNeverKeyword(_) => Some("never"),
@@ -221,7 +331,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text(keyword);
             return Ok(None);
         }
-        match data {
+        match node.data {
             TsTypeData::TsTypeReference(reference) => {
                 if reference.type_arguments(self.ast).is_some() {
                     return Err(self.unsupported("type arguments", reference));
@@ -280,8 +390,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
                 Ok(None)
             }
-            TsTypeData::TsParenthesizedType(node) => self.format_parenthesized_type(node, writer),
-            _ => Err(self.unsupported("TypeScript type", annotation)),
+            TsTypeData::TsArrayType(node) => self.format_array_type(node, writer),
+            TsTypeData::TsIndexedAccessType(node) => self.format_indexed_type(node, writer),
+            TsTypeData::TsTypeOperator(node) => self.format_type_operator(node, writer),
+            TsTypeData::TsTypeQuery(node) => self.format_type_query(node, writer),
+            TsTypeData::TsParenthesizedType(node) => {
+                self.format_parenthesized_type(node, None, TypeContext::Root, writer)
+            }
+            _ => Err(self.unsupported("TypeScript type", node.node)),
         }
     }
 
@@ -313,8 +429,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let right = name.right(ast);
         let boundary = self.prepare_type_boundary(
             Span::new(left.span(ast).end, right.span(ast).start),
-            ".",
-            TypeBoundaryRole::Qualified,
+            TypeBoundaryTarget::Qualified,
         )?;
         self.format_qualified_type_left(left, boundary.left_mode, writer)?;
         self.format_type_boundary(&boundary, writer)?;
@@ -356,12 +471,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn format_parenthesized_type(
         &mut self,
         node: TsParenthesizedType,
+        source_owner: Option<TsType>,
+        context: TypeContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let ast = self.ast;
         let span = node.span(ast);
         let child = node.type_annotation(ast);
         let child_span = child.span(ast);
+        let mut child_type = self.prepare_type(child, ContentMode::Formatted);
+        child_type.source_owner = source_owner;
         let before = self
             .comments
             .in_range(Span::new(span.start + 1, child_span.start));
@@ -369,19 +488,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .comments
             .in_range(Span::new(child_span.end, span.end - 1));
         if before.is_empty() && after.is_empty() && !self.diagnostic_range_is_sensitive(span) {
-            return self.format_type(child, ContentMode::Formatted, writer);
+            return self.format_prepared_type(child_type, context, writer);
         }
-        let mode = if self.content_mode(before) == ContentMode::Verbatim
-            || self.content_mode(after) == ContentMode::Verbatim
-        {
-            ContentMode::Verbatim
-        } else {
-            ContentMode::Formatted
-        };
+        self.select_type_head_comments(&mut child_type, before, child_span.start);
+        if self.content_mode(after) == ContentMode::Verbatim {
+            child_type.source_owner = Some(child);
+        }
         writer.group(false, |writer| {
             writer.text("(");
             self.format_verbatim(Span::new(span.start + 1, child_span.start), writer)?;
-            let tail = self.format_type(child, mode, writer)?;
+            let tail = self.format_prepared_type(child_type, TypeContext::Root, writer)?;
             self.format_expression_tail(tail, writer)?;
             self.format_verbatim(Span::new(child_span.end, span.end - 1), writer)?;
             writer.text(")");
@@ -404,10 +520,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let split = comments.partition_point(|comment| comment.span.end <= colon_start);
         let (before, after) = comments.split_at(split);
         let wrapper_mode = self.content_mode(before);
-        let type_mode = self.content_mode(after);
+        let mut type_node = self.prepare_type(type_node, ContentMode::Formatted);
+        if wrapper_mode == ContentMode::Formatted {
+            self.select_type_head_comments(&mut type_node, after, gap.end);
+        }
         let prefix = if wrapper_mode == ContentMode::Verbatim {
             TypeBoundaryLayout::Source(Span::new(gap.start, annotation.span(ast).start))
-        } else if type_mode == ContentMode::Verbatim {
+        } else if type_node.source_owner.is_some() {
             TypeBoundaryLayout::Source(gap)
         } else {
             TypeBoundaryLayout::Formatted {
@@ -419,7 +538,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             pattern,
             annotation,
             wrapper_mode,
-            type_mode,
+            type_node,
             prefix,
         })
     }
@@ -448,11 +567,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if binding.wrapper_mode == ContentMode::Verbatim {
             self.format_verbatim(binding.annotation.span(ast), writer)
         } else {
-            let tail = self.format_type(
-                binding.annotation.type_annotation(ast),
-                binding.type_mode,
-                writer,
-            )?;
+            let tail = self.format_prepared_type(binding.type_node, TypeContext::Root, writer)?;
             self.format_expression_tail(tail, writer)
         }
     }
