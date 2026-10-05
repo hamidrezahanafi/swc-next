@@ -1,5 +1,6 @@
 //! Borrowed TypeScript type owners and their declaration punctuation boundaries.
 
+mod compound;
 mod context;
 mod postfix;
 
@@ -390,6 +391,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
                 Ok(None)
             }
+            TsTypeData::TsUnionType(union) => self.format_compound_type(
+                node,
+                union.types(self.ast),
+                compound::CompoundTypeKind::Union,
+                writer,
+            ),
+            TsTypeData::TsIntersectionType(intersection) => self.format_compound_type(
+                node,
+                intersection.types(self.ast),
+                compound::CompoundTypeKind::Intersection,
+                writer,
+            ),
             TsTypeData::TsArrayType(node) => self.format_array_type(node, writer),
             TsTypeData::TsIndexedAccessType(node) => self.format_indexed_type(node, writer),
             TsTypeData::TsTypeOperator(node) => self.format_type_operator(node, writer),

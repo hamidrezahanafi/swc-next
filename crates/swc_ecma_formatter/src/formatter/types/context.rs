@@ -7,6 +7,7 @@ pub(super) enum TypeContext {
     Root,
     PostfixOperand,
     OperatorOperand,
+    CompoundMember,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -25,6 +26,7 @@ impl TypeContext {
             Self::Root => return false,
             Self::PostfixOperand => TypePrecedence::Postfix,
             Self::OperatorOperand => TypePrecedence::Query,
+            Self::CompoundMember => TypePrecedence::Operator,
         };
         let precedence = match data {
             TsTypeData::TsUnionType(_) => TypePrecedence::Union,
