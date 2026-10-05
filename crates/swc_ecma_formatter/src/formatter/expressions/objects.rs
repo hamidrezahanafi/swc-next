@@ -22,6 +22,7 @@ pub(in crate::formatter) enum PropertyKeyContext {
     Ordinary,
     FunctionValueBinding,
     ClassField,
+    TypeMethod,
     ModuleAttribute,
 }
 
@@ -784,6 +785,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let raw = self.ast.get_utf8(literal.raw(self.ast));
         let content = &raw[1..raw.len() - 1];
+        if matches!(context, PropertyKeyContext::TypeMethod) && content == "new" {
+            return None;
+        }
         (swc_next_ecma_ast::is_identifier_es5_and_esnext(content.as_bytes())
             || !matches!(context, PropertyKeyContext::ModuleAttribute)
                 && !self.ast.lang().is_typescript()

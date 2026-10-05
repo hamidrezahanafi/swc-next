@@ -4,6 +4,7 @@ mod callable;
 mod compound;
 mod context;
 mod generics;
+mod members;
 mod postfix;
 mod tuple;
 
@@ -507,6 +508,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 compound::CompoundTypeKind::Intersection,
                 writer,
             ),
+            TsTypeData::TsTypeLiteral(node) => self.format_type_literal(node, writer),
             TsTypeData::TsTupleType(node) => self.format_tuple_type(node, writer),
             TsTypeData::TsFunctionType(node) => {
                 self.format_callable_type(callable::CallableType::Function(node), writer)

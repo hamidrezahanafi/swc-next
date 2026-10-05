@@ -54,7 +54,7 @@ impl CallableType {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum CallableParameter {
+pub(super) enum CallableParameter {
     This(TsThisParameter),
     Formal(FormalParameter),
     Rest(FormalParameterRest),
@@ -70,12 +70,12 @@ impl CallableParameter {
     }
 }
 
-enum CallableGap<'ast> {
+pub(super) enum CallableGap<'ast> {
     Source(Span),
     Formatted(CommentBoundary<'ast>),
 }
 
-enum AnnotationContent {
+pub(super) enum AnnotationContent {
     Wrapper(TsTypeAnnotation),
     Type(PreparedType),
 }
@@ -85,10 +85,33 @@ struct PredicateBound<'ast> {
     prefix: TypeBoundaryLayout<'ast>,
 }
 
-struct CallableReturn<'ast> {
-    content: AnnotationContent,
+pub(super) struct SignatureReturn<'ast> {
+    pub(super) content: AnnotationContent,
     prefix: TypeBoundaryLayout<'ast>,
-    preceding_mode: ContentMode,
+    pub(super) preceding_mode: ContentMode,
+    delimiter: SignatureReturnDelimiter,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum SignatureReturnDelimiter {
+    Arrow,
+    Colon,
+}
+
+impl SignatureReturnDelimiter {
+    fn token(self) -> &'static str {
+        match self {
+            Self::Arrow => "=>",
+            Self::Colon => ":",
+        }
+    }
+
+    fn preceding_space(self) -> FlatSeparator {
+        match self {
+            Self::Arrow => FlatSeparator::Space,
+            Self::Colon => FlatSeparator::Empty,
+        }
+    }
 }
 
 enum CallableHead<'ast> {
@@ -109,10 +132,10 @@ struct CallableTerminal {
     closing: LineConstraint,
 }
 
-struct CallableParameters {
+pub(super) struct CallableParameters {
     node: FormalParameters,
     this_parameter: Option<TsThisParameter>,
-    source_head: Option<CallableParameter>,
+    pub(super) source_head: Option<CallableParameter>,
     suppressed_tail: Option<CallableParameter>,
     terminal: Option<CallableTerminal>,
 }
@@ -154,13 +177,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.format_verbatim(node.span(ast), writer)?;
             return Ok(None);
         }
-        let mut parameters = CallableParameters {
-            node: parts.parameters,
-            this_parameter: parts.this_parameter,
-            source_head: None,
-            suppressed_tail: None,
-            terminal: None,
-        };
+        let mut parameters = self.callable_parameters(parts.parameters, parts.this_parameter);
         let head_end = parts
             .type_parameters
             .map_or(parameters_span.start, |node| node.span(ast).start);
@@ -239,31 +256,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             Some(CallableIncomingOwner::Return(annotation)) => Some(annotation),
             None => None,
         };
-        let return_type =
-            self.prepare_callable_return(parameters_span.end, parts.return_type, source_return);
-        if self.has_suppression {
-            let content = Span::new(parameters_span.start + 1, parameters_span.end - 1);
-            let candidate =
-                self.content_mode(self.comments.in_range(content)) == ContentMode::Verbatim;
-            if candidate || return_type.preceding_mode == ContentMode::Verbatim {
-                let last = self.last_callable_parameter(&parameters)?;
-                if return_type.preceding_mode == ContentMode::Verbatim {
-                    parameters.suppressed_tail = last;
-                }
-                if let Some(last) = last {
-                    let end = last.span(ast).end;
-                    let comments = self.comments.in_range(Span::new(end, content.end));
-                    if self.content_mode(comments) == ContentMode::Verbatim {
-                        parameters.suppressed_tail = Some(last);
-                        let last_end = comments.last().map_or(end, |comment| comment.span.end);
-                        parameters.terminal = Some(CallableTerminal {
-                            parameter: last,
-                            closing: self.source_line_constraint(last_end, content.end),
-                        });
-                    }
-                }
-            }
-        }
+        let return_type = self.prepare_signature_return(
+            parameters_span.end,
+            parts.return_type,
+            source_return,
+            SignatureReturnDelimiter::Arrow,
+        );
+        self.prepare_callable_parameter_tail(&mut parameters, return_type.preceding_mode)?;
         writer.group(false, |writer| {
             if let CallableHead::Constructor { abstract_gap } = head {
                 if let Some(gap) = abstract_gap {
@@ -285,19 +284,28 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_callable_gap(gap, FlatSeparator::Empty, writer)?;
             }
             self.format_callable_parameters(parameters, writer)?;
-            self.format_callable_return(return_type, writer)
+            self.format_signature_return(return_type, writer)
         })
     }
 
-    fn select_callable_incoming(
+    pub(super) fn callable_parameters(
+        &self,
+        node: FormalParameters,
+        this_parameter: Option<TsThisParameter>,
+    ) -> CallableParameters {
+        CallableParameters {
+            node,
+            this_parameter,
+            source_head: None,
+            suppressed_tail: None,
+            terminal: None,
+        }
+    }
+
+    pub(super) fn first_callable_parameter(
         &self,
         parameters: &CallableParameters,
-        annotation: TsTypeAnnotation,
-        owner: &mut Option<CallableIncomingOwner>,
-    ) -> Result<(), FormatError> {
-        if owner.is_some() {
-            return Ok(());
-        }
+    ) -> Result<Option<CallableParameter>, FormatError> {
         let ast = self.ast;
         let first = if let Some(this) = parameters.this_parameter {
             Some(CallableParameter::This(this))
@@ -314,6 +322,52 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             parameters.node.rest(ast).map(CallableParameter::Rest)
         };
+        Ok(first)
+    }
+
+    pub(super) fn prepare_callable_parameter_tail(
+        &self,
+        parameters: &mut CallableParameters,
+        preceding_mode: ContentMode,
+    ) -> Result<(), FormatError> {
+        if !self.has_suppression {
+            return Ok(());
+        }
+        let ast = self.ast;
+        let parameters_span = parameters.node.span(ast);
+        let content = Span::new(parameters_span.start + 1, parameters_span.end - 1);
+        let candidate = self.content_mode(self.comments.in_range(content)) == ContentMode::Verbatim;
+        if candidate || preceding_mode == ContentMode::Verbatim {
+            let last = self.last_callable_parameter(parameters)?;
+            if preceding_mode == ContentMode::Verbatim {
+                parameters.suppressed_tail = last;
+            }
+            if let Some(last) = last {
+                let end = last.span(ast).end;
+                let comments = self.comments.in_range(Span::new(end, content.end));
+                if self.content_mode(comments) == ContentMode::Verbatim {
+                    parameters.suppressed_tail = Some(last);
+                    let last_end = comments.last().map_or(end, |comment| comment.span.end);
+                    parameters.terminal = Some(CallableTerminal {
+                        parameter: last,
+                        closing: self.source_line_constraint(last_end, content.end),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn select_callable_incoming(
+        &self,
+        parameters: &CallableParameters,
+        annotation: TsTypeAnnotation,
+        owner: &mut Option<CallableIncomingOwner>,
+    ) -> Result<(), FormatError> {
+        if owner.is_some() {
+            return Ok(());
+        }
+        let first = self.first_callable_parameter(parameters)?;
         *owner = Some(first.map_or(
             CallableIncomingOwner::Return(annotation),
             CallableIncomingOwner::Parameter,
@@ -321,7 +375,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(())
     }
 
-    fn prepare_callable_gap(&self, gap: Span, source: bool) -> CallableGap<'ast> {
+    pub(super) fn prepare_callable_gap(&self, gap: Span, source: bool) -> CallableGap<'ast> {
         if source {
             return CallableGap::Source(gap);
         }
@@ -329,7 +383,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         CallableGap::Formatted(self.prepare_comment_boundary(comments, gap.start, gap.end))
     }
 
-    fn format_callable_gap(
+    pub(super) fn format_callable_gap(
         &mut self,
         gap: CallableGap<'ast>,
         separator: FlatSeparator,
@@ -343,22 +397,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    fn prepare_callable_return(
+    pub(super) fn prepare_signature_return(
         &self,
         preceding_end: u32,
         annotation: TsTypeAnnotation,
         source_return: Option<TsTypeAnnotation>,
-    ) -> CallableReturn<'ast> {
+        delimiter: SignatureReturnDelimiter,
+    ) -> SignatureReturn<'ast> {
         let ast = self.ast;
-        let arrow_start = annotation.span(ast).start;
+        let delimiter_start = annotation.span(ast).start;
         let before = self
             .comments
-            .in_range(Span::new(preceding_end, arrow_start));
+            .in_range(Span::new(preceding_end, delimiter_start));
         let mut preceding_mode = ContentMode::Formatted;
         let mut wrapper_mode =
             source_return.map_or(ContentMode::Formatted, |_| ContentMode::Verbatim);
         if self.has_suppression && self.content_mode(before) == ContentMode::Verbatim {
-            for (_, position) in self.suppressed_comment_runs(before, arrow_start) {
+            for (_, position) in self.suppressed_comment_runs(before, delimiter_start) {
                 if matches!(position, SuppressionPosition::EndOfLine) {
                     preceding_mode = ContentMode::Verbatim;
                 } else {
@@ -367,36 +422,43 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
         }
         if wrapper_mode == ContentMode::Verbatim {
-            return CallableReturn {
+            return SignatureReturn {
                 content: AnnotationContent::Wrapper(source_return.unwrap_or(annotation)),
-                prefix: TypeBoundaryLayout::Source(Span::new(preceding_end, arrow_start)),
+                prefix: TypeBoundaryLayout::Source(Span::new(preceding_end, delimiter_start)),
                 preceding_mode,
+                delimiter,
             };
         }
         let mut node = self.prepare_type(annotation.type_annotation(ast), ContentMode::Formatted);
         let type_start = node.node.span(ast).start;
-        let after = self
-            .comments
-            .in_range(Span::new(arrow_start + 2, type_start));
+        let after = self.comments.in_range(Span::new(
+            delimiter_start + delimiter.token().len() as u32,
+            type_start,
+        ));
         self.select_type_head_comments(&mut node, after, type_start);
         let prefix = if preceding_mode == ContentMode::Verbatim || node.source_owner.is_some() {
             TypeBoundaryLayout::Source(Span::new(preceding_end, type_start))
         } else {
             TypeBoundaryLayout::Formatted {
-                before: self.prepare_comment_boundary(before, preceding_end, arrow_start),
-                after: self.prepare_comment_boundary(after, arrow_start + 2, type_start),
+                before: self.prepare_comment_boundary(before, preceding_end, delimiter_start),
+                after: self.prepare_comment_boundary(
+                    after,
+                    delimiter_start + delimiter.token().len() as u32,
+                    type_start,
+                ),
             }
         };
-        CallableReturn {
+        SignatureReturn {
             content: AnnotationContent::Type(node),
             prefix,
             preceding_mode,
+            delimiter,
         }
     }
 
-    fn format_callable_return(
+    pub(super) fn format_signature_return(
         &mut self,
-        result: CallableReturn<'ast>,
+        result: SignatureReturn<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         match result.prefix {
@@ -405,8 +467,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_comment_boundary(&before, writer)?;
                 before
                     .gap()
-                    .write(writer, FlatSeparator::Space, Writer::space);
-                writer.text("=>");
+                    .write(writer, result.delimiter.preceding_space(), |writer| {
+                        if matches!(result.delimiter, SignatureReturnDelimiter::Arrow) {
+                            writer.space();
+                        }
+                    });
+                writer.text(result.delimiter.token());
                 self.format_comment_boundary(&after, writer)?;
                 after
                     .gap()
@@ -454,7 +520,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(parameters.this_parameter.map(CallableParameter::This))
     }
 
-    fn format_callable_parameters(
+    pub(super) fn format_callable_parameters(
         &mut self,
         parameters: CallableParameters,
         writer: &mut Writer<'ast>,
