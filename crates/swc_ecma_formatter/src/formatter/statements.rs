@@ -3,6 +3,7 @@
 mod control_flow;
 mod declarations;
 mod modules;
+mod namespaces;
 mod tails;
 
 pub(super) use declarations::DeclarationKeyword;
@@ -11,7 +12,7 @@ use self::tails::{StatementTailModes, StatementTailRelation};
 
 use swc_next_ecma_ast::{
     Ast, BlockStatement, Comment, CommentKind, DeclData, Directive, EmptyStatement, FunctionBody,
-    GetSpan, Span, StaticBlock, Stmt, StmtData,
+    GetSpan, Span, StaticBlock, Stmt, StmtData, TsModuleBlock,
 };
 
 use super::Formatter;
@@ -76,6 +77,7 @@ enum BodySource {
         empty: EmptyBlock,
     },
     Function(FunctionBody, Option<IncomingStatement>),
+    Module(TsModuleBlock, Option<IncomingStatement>),
     Static {
         body: StaticBlock,
         span: Span,
@@ -800,7 +802,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let boundary = if declaration.is_some_and(|declaration| {
                     matches!(
                         self.ast.decl_data(declaration),
-                        DeclData::TsTypeAliasDeclaration(_) | DeclData::TsInterfaceDeclaration(_)
+                        DeclData::TsTypeAliasDeclaration(_)
+                            | DeclData::TsInterfaceDeclaration(_)
+                            | DeclData::TsModuleDeclaration(_)
+                            | DeclData::TsGlobalDeclaration(_)
                     )
                 }) {
                     boundary.type_declaration()
@@ -966,6 +971,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         )
     }
 
+    pub(super) fn format_module_body(
+        &mut self,
+        body: TsModuleBlock,
+        mode: ContentMode,
+        incoming: Option<IncomingStatement>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        self.format_braced_body(BodySource::Module(body, incoming), mode, writer)
+    }
+
     fn format_braced_body(
         &mut self,
         source: BodySource,
@@ -995,6 +1010,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 node.body(ast),
                 StatementSequenceKind::Block(incoming),
                 empty,
+            ),
+            BodySource::Module(module, incoming) => (
+                module.span(ast),
+                Some(module.directives(ast)),
+                module.body(ast),
+                StatementSequenceKind::Block(incoming),
+                EmptyBlock::Compact,
             ),
             BodySource::Function(function, incoming) => (
                 function.span(ast),

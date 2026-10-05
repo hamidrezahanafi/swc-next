@@ -120,7 +120,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let span = declaration.span(self.ast);
             let end = if matches!(
                 data,
-                DeclData::TsTypeAliasDeclaration(_) | DeclData::TsInterfaceDeclaration(_)
+                DeclData::TsTypeAliasDeclaration(_)
+                    | DeclData::TsInterfaceDeclaration(_)
+                    | DeclData::TsModuleDeclaration(_)
+                    | DeclData::TsGlobalDeclaration(_)
             ) {
                 span.end
             } else {
@@ -131,14 +134,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 DeclData::VariableDeclaration(_) => {
                     self.finish_statement(end, None, punctuation, writer)
                 }
-                DeclData::TsTypeAliasDeclaration(_) | DeclData::TsInterfaceDeclaration(_) => {
-                    Ok(StatementBoundary::SourceEnd {
-                        end,
-                        has_terminator: self.source(span).ends_with(';'),
-                    }
-                    .type_declaration()
-                    .into())
+                DeclData::TsTypeAliasDeclaration(_)
+                | DeclData::TsInterfaceDeclaration(_)
+                | DeclData::TsModuleDeclaration(_)
+                | DeclData::TsGlobalDeclaration(_) => Ok(StatementBoundary::SourceEnd {
+                    end,
+                    has_terminator: self.source(span).ends_with(';'),
                 }
+                .type_declaration()
+                .into()),
                 _ => Ok(StatementBoundary::SourceEnd {
                     end,
                     has_terminator: false,
@@ -150,6 +154,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             DeclData::VariableDeclaration(node) => node.declare(self.ast),
             DeclData::TsTypeAliasDeclaration(node) => node.declare(self.ast),
             DeclData::TsInterfaceDeclaration(node) => node.declare(self.ast),
+            DeclData::TsModuleDeclaration(node) => node.declare(self.ast),
+            DeclData::TsGlobalDeclaration(node) => node.declare(self.ast),
             _ => false,
         };
         let keyword = if ambient {
@@ -193,6 +199,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let mut printed = self.finish_statement(end, tail, punctuation, writer)?;
                 printed.boundary = printed.boundary.type_declaration();
                 Ok(printed)
+            }
+            DeclData::TsModuleDeclaration(node) => {
+                self.format_namespace_declaration(node, keyword, punctuation, writer)
+            }
+            DeclData::TsGlobalDeclaration(node) => {
+                self.format_global_declaration(node, keyword, writer)
             }
             _ => Err(self.unsupported("declaration", declaration)),
         }

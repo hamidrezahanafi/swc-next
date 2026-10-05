@@ -32,7 +32,7 @@ use super::suppression::{ContentMode, SuppressionPosition, is_suppression_commen
 use super::variables::VariableContext;
 use crate::{FormatError, document::Writer};
 
-enum TypeGap<'ast> {
+pub(super) enum TypeGap<'ast> {
     Source(Span),
     Formatted(CommentBoundary<'ast>),
 }
@@ -71,10 +71,10 @@ enum TypeBoundaryLayout<'ast> {
     },
 }
 
-struct TypeBoundary<'ast> {
+pub(super) struct TypeBoundary<'ast> {
     role: TypeBoundaryRole,
-    left_mode: ContentMode,
-    right_mode: ContentMode,
+    pub(super) left_mode: ContentMode,
+    pub(super) right_mode: ContentMode,
     layout: TypeBoundaryLayout<'ast>,
 }
 
@@ -91,7 +91,7 @@ struct PreparedAnnotation<'ast> {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
-    fn prepare_type_gap(&self, gap: Span, source: bool) -> TypeGap<'ast> {
+    pub(super) fn prepare_type_gap(&self, gap: Span, source: bool) -> TypeGap<'ast> {
         if source {
             return TypeGap::Source(gap);
         }
@@ -99,7 +99,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         TypeGap::Formatted(self.prepare_comment_boundary(comments, gap.start, gap.end))
     }
 
-    fn format_type_gap(
+    pub(super) fn format_type_gap(
         &mut self,
         gap: TypeGap<'ast>,
         separator: FlatSeparator,
@@ -189,6 +189,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.format_type_boundary(&boundary, writer)?;
         let tail = self.format_prepared_type(type_node, TypeContext::Root, writer)?;
         Ok((annotation_span.end, tail))
+    }
+
+    pub(super) fn prepare_qualified_name_boundary(
+        &self,
+        gap: Span,
+    ) -> Result<TypeBoundary<'ast>, FormatError> {
+        self.prepare_type_boundary(gap, TypeBoundaryTarget::Qualified)
     }
 
     fn prepare_type_boundary(
@@ -307,7 +314,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    fn format_type_boundary(
+    pub(super) fn format_type_boundary(
         &mut self,
         boundary: &TypeBoundary<'ast>,
         writer: &mut Writer<'ast>,
@@ -594,7 +601,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    fn format_qualified_type_name(
+    pub(super) fn format_qualified_type_name(
         &mut self,
         name: TsQualifiedName,
         writer: &mut Writer<'ast>,
