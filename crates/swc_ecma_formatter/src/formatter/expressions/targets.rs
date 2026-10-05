@@ -9,7 +9,7 @@ use super::parentheses::{ParenthesisInner, SourceParentheses};
 use super::{ExpressionContext, ExpressionStart, Formatter, MemberChainLayout, TailOwner};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
 use crate::formatter::source::is_source_whitespace;
-use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
+use crate::formatter::suppression::ContentMode;
 use crate::{FormatError, Semicolons, document::Writer};
 
 #[derive(Clone, Copy)]
@@ -232,8 +232,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .in_range(Span::new(boundary.outer.start, boundary.inner.start));
             let trailing = Span::new(boundary.inner.end, boundary.outer.end - 1);
             if self.content_mode(leading) == ContentMode::Verbatim
-                || self.trailing_content_mode(trailing, BoundaryPunctuation::None, true)
-                    == ContentMode::Verbatim
+                || self.trailing_content_mode(trailing, true) == ContentMode::Verbatim
             {
                 return TargetLayerMode::Verbatim;
             }

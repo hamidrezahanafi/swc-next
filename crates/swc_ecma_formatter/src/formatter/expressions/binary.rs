@@ -11,7 +11,7 @@ use super::{
 };
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
-use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
+use crate::formatter::suppression::{ContentMode, SuppressionPosition};
 use crate::{FormatError, document::Writer};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -117,13 +117,34 @@ impl BinaryOperatorKind {
 }
 
 struct BinaryChain {
-    first: BinaryLike,
+    first: ChainParent,
     ancestors: Vec<ChainParent>,
 }
 
+#[derive(Clone, Copy)]
 struct ChainParent {
     binary: BinaryLike,
     left_content_end: u32,
+    suppression: Option<BinarySuppression>,
+}
+
+#[derive(Clone, Copy)]
+struct BinarySuppression {
+    operator: Span,
+    left_mode: ContentMode,
+    right_mode: ContentMode,
+}
+
+impl ChainParent {
+    fn left_mode(self) -> ContentMode {
+        self.suppression
+            .map_or(ContentMode::Formatted, |source| source.left_mode)
+    }
+
+    fn right_mode(self) -> ContentMode {
+        self.suppression
+            .map_or(ContentMode::Formatted, |source| source.right_mode)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -131,6 +152,12 @@ enum OperandLayout {
     Break,
     Inline,
     IndentedInline,
+}
+
+#[derive(Clone, Copy)]
+enum BinaryContinuationLayout {
+    Expression,
+    ControlCondition,
 }
 
 enum OperandBoundary<'ast> {
@@ -176,23 +203,79 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Some((binary, content.parentheses))
     }
 
-    fn binary_chain(&self, mut first: BinaryLike) -> BinaryChain {
+    fn prepare_binary_entry(
+        &self,
+        binary: BinaryLike,
+        left_content_end: u32,
+    ) -> Result<ChainParent, FormatError> {
+        let mut entry = ChainParent {
+            binary,
+            left_content_end,
+            suppression: None,
+        };
+        if !self.has_suppression {
+            return Ok(entry);
+        }
+        let right_start = binary.right.span(self.ast).start;
+        let span = Span::new(binary.left.span(self.ast).end, right_start);
+        let comments = self.comments.in_range(span);
+        if self.content_mode(comments) != ContentMode::Verbatim {
+            return Ok(entry);
+        }
+        let operator = binary.operator.as_str();
+        let Some(start) = self.find_token(span, comments, operator) else {
+            return Err(FormatError::unsupported(
+                "binary operator boundary",
+                None,
+                span,
+            ));
+        };
+        let split = comments.partition_point(|comment| comment.span.end <= start);
+        let (before, after) = comments.split_at(split);
+        let mut left_mode = ContentMode::Formatted;
+        let mut right_mode = ContentMode::Formatted;
+        for position in self.suppression_positions(before, start) {
+            match position {
+                SuppressionPosition::OwnLine => right_mode = ContentMode::Verbatim,
+                SuppressionPosition::Inline | SuppressionPosition::EndOfLine => {
+                    left_mode = ContentMode::Verbatim;
+                }
+            }
+        }
+        for position in self.suppression_positions(after, right_start) {
+            match position {
+                SuppressionPosition::EndOfLine => left_mode = ContentMode::Verbatim,
+                SuppressionPosition::OwnLine | SuppressionPosition::Inline => {
+                    right_mode = ContentMode::Verbatim;
+                }
+            }
+        }
+        entry.suppression = Some(BinarySuppression {
+            operator: Span::new(start, start + operator.len() as u32),
+            left_mode,
+            right_mode,
+        });
+        Ok(entry)
+    }
+
+    fn binary_chain(&self, first: BinaryLike) -> Result<BinaryChain, FormatError> {
+        let mut first = self.prepare_binary_entry(first, first.left.span(self.ast).end)?;
         let mut ancestors = Vec::new();
-        while let Some((left, left_parentheses)) = self.binary_content(first.left) {
-            if !first.operator.flattens(left.operator) {
+        while first.left_mode() != ContentMode::Verbatim {
+            let Some((left, left_parentheses)) = self.binary_content(first.binary.left) else {
+                break;
+            };
+            if !first.binary.operator.flattens(left.operator) {
                 break;
             }
-            let left_content_end = left_parentheses.map_or_else(
-                || first.left.span(self.ast).end,
+            first.left_content_end = left_parentheses.map_or_else(
+                || first.binary.left.span(self.ast).end,
                 |boundary| boundary.inner.end,
             );
-            ancestors.push(ChainParent {
-                binary: first,
-                left_content_end,
-            });
-            first = left;
+            ancestors.push(first);
+            first = self.prepare_binary_entry(left, left.left.span(self.ast).end)?;
         }
-        BinaryChain { first, ancestors }
+        Ok(BinaryChain { first, ancestors })
     }
 
     fn format_binary_head_comments(
@@ -250,6 +333,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         mut context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        if matches!(context.position, ExpressionPosition::ControlCondition) {
+            return self.format_binary_enclosed_with_context(binary, context, writer);
+        }
         let parent_indents = context.operand_indent == super::OperandIndent::Parent
             || match context.position {
                 ExpressionPosition::ParenthesizedUnaryArgument(_)
@@ -284,7 +370,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             )?;
             context.head_comments = HeadComments::Claimed;
         }
-        let chain = self.binary_chain(binary);
+        let chain = self.binary_chain(binary)?;
         let inline = chain.ancestors.is_empty()
             && self.inline_logical_operand(binary.operator, binary.right);
         writer.group(false, |writer| {
@@ -303,30 +389,42 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         binary: BinaryLike,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        let chain = self.binary_chain(binary);
-        self.format_binary_head_comments(
-            binary.left,
-            ExpressionContext::at(ExpressionPosition::BinaryOperand {
-                operator: binary.operator,
-                side: OperandSide::Left,
-            }),
-            writer,
-        )?;
-        let tail = self.format_binary_head(chain.first, ExpressionStart::None, writer)?;
-        self.format_binary_continuation(
-            chain,
+        self.format_binary_enclosed_with_context(
+            binary,
             ExpressionContext::at(ExpressionPosition::Nested),
-            tail,
             writer,
         )
     }
 
+    fn format_binary_enclosed_with_context(
+        &mut self,
+        binary: BinaryLike,
+        context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let chain = self.binary_chain(binary)?;
+        self.format_binary_head_comments(
+            binary.left,
+            ExpressionContext {
+                position: ExpressionPosition::BinaryOperand {
+                    operator: binary.operator,
+                    side: OperandSide::Left,
+                },
+                ..context
+            },
+            writer,
+        )?;
+        let tail = self.format_binary_head(chain.first, context.expression_start, writer)?;
+        self.format_binary_continuation(chain, context, tail, writer)
+    }
+
     fn format_binary_head(
         &mut self,
-        first: BinaryLike,
+        entry: ChainParent,
         expression_start: ExpressionStart,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let first = entry.binary;
         writer.group(false, |writer| {
             self.format_expression(
                 first.left,
@@ -337,14 +435,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     },
                     expression_start,
                     head_comments: HeadComments::Claimed,
-                    content_mode: self.trailing_content_mode(
-                        Span::new(
-                            first.left.span(self.ast).end,
-                            first.right.span(self.ast).start,
-                        ),
-                        BoundaryPunctuation::None,
-                        false,
-                    ),
+                    content_mode: entry.left_mode(),
                     tail_owner: TailOwner::Expression,
                     parentheses_owner: super::ParenthesesOwner::Expression,
                     member_layout: super::MemberLayout::Normal,
@@ -368,10 +459,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ExpressionPosition::BinaryOperand { operator, .. } => Some(operator),
             _ => None,
         };
-        let first = ChainParent {
-            binary: chain.first,
-            left_content_end: chain.first.left.span(self.ast).end,
+        let layout = match context.position {
+            ExpressionPosition::ControlCondition => BinaryContinuationLayout::ControlCondition,
+            _ => BinaryContinuationLayout::Expression,
         };
+        let first = chain.first;
         let mut nodes = std::iter::once(first)
             .chain(chain.ancestors.into_iter().rev())
             .peekable();
@@ -380,7 +472,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Some(next) => (Some(next.binary.operator), TailOwner::ParentOperation),
                 None => (parent, context.tail_owner),
             };
-            tail = self.format_binary_right(entry, parent, tail_owner, tail, writer)?;
+            tail = self.format_binary_right(entry, parent, layout, tail_owner, tail, writer)?;
         }
         Ok(tail)
     }
@@ -405,41 +497,38 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         entry: ChainParent,
         mut parent: Option<BinaryOperatorKind>,
+        layout: BinaryContinuationLayout,
         tail_owner: TailOwner,
         mut tail: Option<ExpressionTail<'ast>>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        let mut binary = entry.binary;
-        let mut left_content_end = entry.left_content_end;
+        let mut entry = entry;
         let mut closing_end = None;
         // Same-operator logical operands keep their short-circuit order in one group.
-        while let Some((right, boundary)) = self.binary_content(binary.right) {
-            if !matches!(binary.operator, BinaryOperatorKind::Logical(_))
-                || binary.operator != right.operator
-                || self.has_suppression
-                    && self.content_mode(self.comments.in_range(Span::new(
-                        left_content_end,
-                        binary.right.span(self.ast).start,
-                    ))) == ContentMode::Verbatim
+        while let Some((right, boundary)) = self.binary_content(entry.binary.right) {
+            if !matches!(entry.binary.operator, BinaryOperatorKind::Logical(_))
+                || entry.binary.operator != right.operator
+                || entry.right_mode() == ContentMode::Verbatim
             {
                 break;
             }
+            let mut next = self.prepare_binary_entry(right, right.left.span(self.ast).end)?;
             if let Some(boundary) = boundary {
                 closing_end.get_or_insert(boundary.outer.end);
             }
             let boundary = self.format_binary_operator(
-                binary.operator,
-                left_content_end,
+                entry,
                 right.left,
-                self.inline_logical_operand(binary.operator, right.left),
+                self.inline_logical_operand(entry.binary.operator, right.left),
                 tail,
                 writer,
             )?;
             let mode = self.format_binary_operand_boundary(boundary, writer)?;
-            if let Some((left, boundary)) = self.binary_content(right.left)
-                && left.operator == binary.operator
+            if next.left_mode() != ContentMode::Verbatim
+                && let Some((left, boundary)) = self.binary_content(right.left)
+                && left.operator == entry.binary.operator
             {
-                let chain = self.binary_chain(left);
+                let chain = self.binary_chain(left)?;
                 self.format_binary_head_comments(
                     left.left,
                     ExpressionContext::at(ExpressionPosition::BinaryOperand {
@@ -451,43 +540,61 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let head = self.format_binary_head(chain.first, ExpressionStart::None, writer)?;
                 tail = self.format_binary_continuation(
                     chain,
-                    ExpressionContext::at(ExpressionPosition::BinaryOperand {
-                        operator: binary.operator,
-                        side: OperandSide::Right,
+                    ExpressionContext::at(match layout {
+                        BinaryContinuationLayout::ControlCondition => {
+                            ExpressionPosition::ControlCondition
+                        }
+                        BinaryContinuationLayout::Expression => ExpressionPosition::BinaryOperand {
+                            operator: entry.binary.operator,
+                            side: OperandSide::Right,
+                        },
                     })
                     .with_tail_owner(TailOwner::ParentOperation),
                     head,
                     writer,
                 )?;
-                left_content_end = boundary.map_or_else(
+                next.left_content_end = boundary.map_or_else(
                     || right.left.span(self.ast).end,
                     |boundary| boundary.inner.end,
                 );
             } else {
+                let mode = if next.left_mode() == ContentMode::Verbatim {
+                    next.left_mode()
+                } else {
+                    mode
+                };
                 tail = self.format_expression(
                     right.left,
-                    ExpressionContext::at(ExpressionPosition::Nested)
-                        .with_content_mode(mode)
-                        .with_tail_owner(TailOwner::ParentOperation),
+                    ExpressionContext::at(ExpressionPosition::BinaryOperand {
+                        operator: entry.binary.operator,
+                        side: OperandSide::Left,
+                    })
+                    .with_content_mode(mode)
+                    .with_tail_owner(TailOwner::ParentOperation),
                     writer,
                 )?;
-                left_content_end = right.left.span(self.ast).end;
             }
-            parent = Some(binary.operator);
-            binary = right;
+            parent = Some(entry.binary.operator);
+            entry = next;
         }
+        let binary = entry.binary;
         let same_kind = |expression| {
             let data = self.expression_content(expression).data;
             BinaryOperatorKind::from_data(data, self.ast)
                 .is_some_and(|child| child.same_kind(binary.operator))
         };
-        let group_right = !parent.is_some_and(|parent| parent.same_kind(binary.operator))
+        let group_right = !matches!(
+            (layout, binary.operator),
+            (
+                BinaryContinuationLayout::ControlCondition,
+                BinaryOperatorKind::Logical(_)
+            )
+        ) && !parent.is_some_and(|parent| parent.same_kind(binary.operator))
             && !same_kind(binary.left)
             && !same_kind(binary.right);
         let write = |writer: &mut Writer<'ast>| {
             let boundary = self.format_binary_operator(
-                binary.operator,
-                left_content_end,
+                entry,
                 binary.right,
                 self.inline_logical_operand(binary.operator, binary.right),
                 tail,
@@ -527,8 +634,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     fn format_binary_operator(
         &mut self,
-        operator: BinaryOperatorKind,
-        left_content_end: u32,
+        entry: ChainParent,
         right: Expr,
         inline: bool,
         tail: Option<ExpressionTail<'ast>>,
@@ -536,52 +642,69 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<OperandBoundary<'ast>, FormatError> {
         let left_end = tail
             .as_ref()
-            .map_or(left_content_end, |tail| tail.source_end);
-        let content = self.expression_content(right);
-        let right_start = if content
-            .parentheses
-            .is_none_or(|boundary| self.parentheses_are_removable(boundary))
-        {
-            content.expression.span(self.ast).start
+            .map_or(entry.left_content_end, |tail| tail.source_end);
+        let right_start = if entry.suppression.is_some() {
+            entry.binary.right.span(self.ast).start
         } else {
-            right.span(self.ast).start
+            let content = self.expression_content(right);
+            if content
+                .parentheses
+                .is_none_or(|boundary| self.parentheses_are_removable(boundary))
+            {
+                content.expression.span(self.ast).start
+            } else {
+                right.span(self.ast).start
+            }
         };
         let boundary = Span::new(left_end, right_start);
         let comments = self.comments.between(boundary)?;
-        let operator = operator.as_str();
-        if self.diagnostic_line_is_sensitive(left_end)
+        let operator = entry.binary.operator.as_str();
+        if entry.suppression.is_some()
+            || self.diagnostic_line_is_sensitive(left_end)
             || self.diagnostic_line_is_sensitive(right_start)
             || comments
                 .iter()
                 .any(|&comment| self.comment_is_diagnostic_directive(comment))
         {
-            let Some(operator_start) = self.find_token(boundary, comments, operator) else {
+            let operator_span = entry.suppression.map(|source| source.operator).or_else(|| {
+                let start = self.find_token(boundary, comments, operator)?;
+                Some(Span::new(start, start + operator.len() as u32))
+            });
+            let Some(operator_span) = operator_span else {
                 return Err(FormatError::unsupported(
                     "binary operator boundary",
                     None,
                     boundary,
                 ));
             };
+            let operator_start = operator_span.start;
             let comments = self.comments.take(comments.len());
             let split = comments.partition_point(|comment| comment.span.end <= operator_start);
             let (before, after) = comments.split_at(split);
             self.format_comment_run(before, CommentRunLayout::SourceAfter(left_end), writer)?;
             let previous = before.last().map_or(left_end, |comment| comment.span.end);
-            self.line_constraint(previous, operator_start).write(
-                writer,
-                FlatSeparator::Space,
-                Writer::space,
-            );
+            let constraint = if entry.suppression.is_some() {
+                self.source_line_constraint(previous, operator_start)
+            } else {
+                self.line_constraint(previous, operator_start)
+            };
+            constraint.write(writer, FlatSeparator::Space, Writer::space);
             writer.text(operator);
-            let operator_end = operator_start + operator.len() as u32;
+            let operator_end = operator_span.end;
             self.format_comment_run(after, CommentRunLayout::SourceAfter(operator_end), writer)?;
             let previous = after
                 .last()
                 .map_or(operator_end, |comment| comment.span.end);
             return Ok(OperandBoundary::Constrained {
-                constraint: self.line_constraint(previous, right_start),
+                constraint: if entry.suppression.is_some() {
+                    self.source_line_constraint(previous, right_start)
+                } else {
+                    self.line_constraint(previous, right_start)
+                },
                 inline,
-                mode: self.content_mode(after),
+                mode: entry
+                    .suppression
+                    .map_or_else(|| self.content_mode(after), |source| source.right_mode),
             });
         }
         if comments.is_empty() {
@@ -600,12 +723,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 boundary,
             ));
         };
-        let comments = self.comments.take(comments.len());
         let before_count = comments.partition_point(|comment| comment.span.end <= operator_start);
+        // Keep an active source cast with the right operand's head.
+        let trailing_limit =
+            if before_count < comments.len() && self.source_cast_head(right).is_some() {
+                before_count
+            } else {
+                comments.len()
+            };
         let mode = self.content_mode(&comments[before_count..]);
+        let comments = self.comments.take(comments.len());
         let mut trailing_count = 0;
         let mut previous_end = left_end;
-        for (index, comment) in comments.iter().enumerate() {
+        for (index, comment) in comments[..trailing_limit].iter().enumerate() {
             if self.line_breaks(previous_end, comment.span.start) != 0 {
                 break;
             }

@@ -1,5 +1,10 @@
 //! Basic statement bodies and their enclosing source boundaries.
 
+mod control_flow;
+mod tails;
+
+use self::tails::{StatementTailModes, StatementTailRelation};
+
 use swc_next_ecma_ast::{
     Ast, BlockStatement, Comment, CommentKind, DeclData, Directive, FunctionBody, GetSpan, Span,
     Stmt, StmtData,
@@ -11,7 +16,7 @@ use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::{ExpressionContext, ExpressionPosition, ExpressionStart};
 use super::literals::StringContext;
 use super::source::is_source_whitespace;
-use super::suppression::{BoundaryPunctuation, ContentMode, SuppressionPosition};
+use super::suppression::ContentMode;
 use crate::{FormatError, Semicolons, document::Writer};
 
 #[derive(Clone, Copy)]
@@ -46,13 +51,15 @@ enum BodySource {
 struct StatementAnnotationTail<'ast> {
     comments: &'ast [Comment],
     end: u32,
-    suppression_target: Option<Span>,
+    suppression: StatementTailModes,
+    following_gap: Option<LineConstraint>,
 }
 
 struct PreparedStatement<'ast> {
     item: StatementItem,
     span: Span,
     mode: ContentMode,
+    source_gap: Option<LineConstraint>,
     annotation_tail: Option<StatementAnnotationTail<'ast>>,
 }
 
@@ -70,9 +77,15 @@ impl StatementItem {
 }
 
 #[derive(Clone, Copy)]
+struct StatementSourceTerminator {
+    start: u32,
+}
+
+#[derive(Clone, Copy)]
 enum StatementPunctuation {
     Canonical(Semicolons),
-    Source,
+    Source(StatementSourceTerminator),
+    SourcePacket,
 }
 
 #[derive(Clone, Copy)]
@@ -81,10 +94,36 @@ enum StatementBoundary {
     SourceEnd { end: u32, has_terminator: bool },
 }
 
+/// A compound statement forwards a pending run beyond its own layout group.
+/// Source terminators consume their bound run before returning this result.
+struct PrintedStatement<'ast> {
+    boundary: StatementBoundary,
+    pending: Option<ExpressionTail<'ast>>,
+}
+
+impl From<StatementBoundary> for PrintedStatement<'_> {
+    fn from(boundary: StatementBoundary) -> Self {
+        Self {
+            boundary,
+            pending: None,
+        }
+    }
+}
+
 impl StatementBoundary {
     fn end(self) -> u32 {
         match self {
             Self::Semicolon { end, .. } | Self::SourceEnd { end, .. } => end,
+        }
+    }
+
+    fn with_end(self, end: u32) -> Self {
+        match self {
+            Self::Semicolon { terminator, .. } => Self::Semicolon { end, terminator },
+            Self::SourceEnd { has_terminator, .. } => Self::SourceEnd {
+                end,
+                has_terminator,
+            },
         }
     }
 
@@ -126,6 +165,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 item: statement,
                 span: statement_span,
                 mode: source_mode,
+                source_gap,
                 annotation_tail,
             } = prepared;
             if !statement.is_nonempty(ast) {
@@ -136,7 +176,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 statement_span.start,
             ))?;
             let leading_mode = self.content_mode(leading);
-            let source_following = pending.as_ref().map(|next| next.span.start);
             while let Some(next) = pending.as_ref() {
                 if next.item.is_nonempty(ast) {
                     break;
@@ -146,51 +185,53 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 });
             }
             let following = pending.as_ref().map(|next| next.span.start);
-            let punctuation = if annotation_tail.is_some()
-                && self
-                    .ast
-                    .source()
-                    .as_bytes()
-                    .get(statement_span.end as usize - 1)
-                    == Some(&b';')
-            {
-                StatementPunctuation::Source
+            let suppression_tail = if self.has_suppression {
+                let limit = following.unwrap_or(span.end);
+                let relation = if following.is_some() {
+                    StatementTailRelation::Statement
+                } else {
+                    StatementTailRelation::Terminal
+                };
+                self.prepare_statement_suppression_tail(statement, limit, relation)
             } else {
-                StatementPunctuation::Canonical(self.options.semicolons)
+                None
+            };
+            if let Some(tail) = suppression_tail.as_ref()
+                && tail.modes.following == ContentMode::Verbatim
+                && let Some(next) = pending.as_mut()
+            {
+                next.mode = ContentMode::Verbatim;
+                next.source_gap = tail.following_gap;
+            }
+            let source_terminator = if annotation_tail.is_some() {
+                self.statement_source_terminator(statement_span)
+            } else {
+                suppression_tail.as_ref().and_then(|tail| tail.terminator)
+            };
+            let source_packet = suppression_tail
+                .as_ref()
+                .and_then(|tail| tail.source_packet);
+            let punctuation = if source_packet.is_some() {
+                StatementPunctuation::SourcePacket
+            } else {
+                match source_terminator {
+                    Some(terminator) => StatementPunctuation::Source(terminator),
+                    None => StatementPunctuation::Canonical(self.options.semicolons),
+                }
             };
             let mode = if source_mode == ContentMode::Verbatim
                 || leading_mode == ContentMode::Verbatim
                 || annotation_tail
                     .as_ref()
-                    .is_some_and(|tail| tail.suppression_target == Some(statement_span))
+                    .is_some_and(|tail| tail.suppression.current == ContentMode::Verbatim)
             {
                 ContentMode::Verbatim
             } else if !self.has_suppression {
                 ContentMode::Formatted
             } else {
-                let content_end = match statement {
-                    StatementItem::Directive(directive) => directive.expression(ast).span(ast).end,
-                    StatementItem::Statement(node) => match ast.stmt_data(node) {
-                        StmtData::ExpressionStatement(expression) => {
-                            expression.expression(ast).span(ast).end
-                        }
-                        StmtData::ReturnStatement(node) => node
-                            .argument(ast)
-                            .map_or(statement_span.start + "return".len() as u32, |argument| {
-                                argument.span(ast).end
-                            }),
-                        StmtData::ThrowStatement(node) => node.argument(ast).span(ast).end,
-                        StmtData::DebuggerStatement(_) => {
-                            statement_span.start + "debugger".len() as u32
-                        }
-                        _ => statement_span.end,
-                    },
-                };
-                self.trailing_content_mode(
-                    Span::new(content_end, source_following.unwrap_or(span.end)),
-                    BoundaryPunctuation::Semicolon,
-                    source_following.is_none(),
-                )
+                suppression_tail
+                    .as_ref()
+                    .map_or(ContentMode::Formatted, |tail| tail.modes.current)
             };
             let leading = self.comments.take(leading.len());
             let mut expression_start = ExpressionStart::StatementPending;
@@ -214,7 +255,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let next_start = leading
                     .first()
                     .map_or(statement_span.start, |comment| comment.span.start);
-                let constraint = self.line_constraint(boundary.end(), next_start);
+                let constraint =
+                    source_gap.unwrap_or_else(|| self.line_constraint(boundary.end(), next_start));
                 if constraint == LineConstraint::SameLine
                     && self.options.semicolons == Semicolons::AsNeeded
                     && !boundary.has_terminator()
@@ -242,7 +284,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 layout: CommentRunLayout::Source,
                 gap_end: leading.last().map(|_| statement_span.start),
             };
-            let boundary = match statement {
+            let printed = match statement {
                 StatementItem::Directive(directive) => {
                     self.format_node_head(head, expression_start, writer)?;
                     let expression = directive.expression(ast);
@@ -251,13 +293,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     } else {
                         self.format_string_literal(expression, StringContext::Directive, writer);
                     }
-                    self.finish_statement(
-                        statement_span,
-                        expression.span(ast).end,
-                        None,
-                        punctuation,
-                        writer,
-                    )?
+                    self.finish_statement(expression.span(ast).end, None, punctuation, writer)?
                 }
                 StatementItem::Statement(statement) => self.format_statement(
                     statement,
@@ -268,12 +304,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     writer,
                 )?,
             };
+            let mut boundary = self.flush_statement_tail(printed, writer)?;
             first_statement = false;
-            let trailing_start = if let Some(tail) = annotation_tail {
+            let trailing_start = if let Some(packet) = source_packet {
+                let start = packet.span.start.max(boundary.end());
+                self.format_verbatim(Span::new(start, packet.span.end), writer)?;
+                if let Some(next) = pending.as_mut() {
+                    next.source_gap = Some(packet.following);
+                }
+                boundary = StatementBoundary::SourceEnd {
+                    end: packet.span.end,
+                    has_terminator: true,
+                };
+                packet.span.end
+            } else if let Some(tail) = annotation_tail {
                 if let Some(next) = pending.as_mut()
-                    && tail.suppression_target == Some(next.span)
+                    && tail.suppression.following == ContentMode::Verbatim
                 {
                     next.mode = ContentMode::Verbatim;
+                    next.source_gap = tail.following_gap;
                 }
                 self.comments.claim(tail.comments)?;
                 self.format_comment_run(
@@ -356,6 +405,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             mode: incoming
                 .filter(|target| target.span == span)
                 .map_or(ContentMode::Formatted, |target| target.mode),
+            source_gap: None,
             annotation_tail,
         }
     }
@@ -401,11 +451,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
         }
         let comments = &comments[..count];
-        let previous_ignore = target.is_some()
-            || matches!(
-                self.suppression_position(comments, span.end),
-                Some(SuppressionPosition::EndOfLine)
-            );
+        let suppression = if target.is_some() {
+            StatementTailModes {
+                current: self.content_mode(comments),
+                following: ContentMode::Formatted,
+                enclosing: ContentMode::Formatted,
+            }
+        } else {
+            self.statement_annotation_tail_modes(comments, span.end)
+        };
+        let previous_ignore = target.is_some() || suppression.current == ContentMode::Verbatim;
         if target.is_none() {
             // Block annotations belong to the following head, including its ASI guard.
             if comments
@@ -428,9 +483,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
         let binding = self.comment_run_binding(comments.iter().copied(), |comment| {
             let semantics = self.comment_semantics(comment);
-            if semantics.suppression && previous_ignore {
-                CommentBinding::BoundTo(statement_span)
-            } else if semantics.has_target_annotation() {
+            if semantics.suppression || semantics.has_target_annotation() {
                 CommentBinding::SourceBound
             } else {
                 CommentBinding::Unbound
@@ -439,19 +492,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if binding.allows_relocation(None) {
             return None;
         }
-        let suppression_target = if self.content_mode(comments) == ContentMode::Verbatim {
-            Some(if previous_ignore {
-                statement_span
-            } else {
-                following.span(self.ast)
-            })
+        let following_gap = if suppression.following == ContentMode::Verbatim {
+            Some(
+                match self.line_breaks(end, following.span(self.ast).start) {
+                    0 => LineConstraint::SameLine,
+                    count => LineConstraint::NewLine(count),
+                },
+            )
         } else {
             None
         };
         Some(StatementAnnotationTail {
             comments,
             end,
-            suppression_target,
+            suppression,
+            following_gap,
         })
     }
 
@@ -463,7 +518,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         head: NodeHead<'ast>,
         punctuation: StatementPunctuation,
         writer: &mut Writer<'ast>,
-    ) -> Result<StatementBoundary, FormatError> {
+    ) -> Result<PrintedStatement<'ast>, FormatError> {
         let data = self.ast.stmt_data(statement);
         if let StmtData::ExpressionStatement(node) = data {
             let expression = node.expression(self.ast);
@@ -475,13 +530,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .with_content_mode(mode),
                 writer,
             )?;
-            return self.finish_statement(
-                statement.span(self.ast),
-                expression.span(self.ast).end,
-                tail,
-                punctuation,
-                writer,
-            );
+            return self.finish_statement(expression.span(self.ast).end, tail, punctuation, writer);
         }
         self.format_node_head(head, start, writer)?;
         match data {
@@ -490,12 +539,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Ok(StatementBoundary::Semicolon {
                     end: node.span(self.ast).end,
                     terminator: node.span(self.ast).end - 1,
-                })
+                }
+                .into())
             }
             StmtData::DebuggerStatement(node) => {
                 writer.text("debugger");
                 self.finish_statement(
-                    statement.span(self.ast),
                     node.span(self.ast).start + "debugger".len() as u32,
                     None,
                     punctuation,
@@ -507,12 +556,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let keyword_end = span.start + "return".len() as u32;
                 let Some(argument) = node.argument(self.ast) else {
                     writer.text("return");
-                    return self.finish_statement(span, keyword_end, None, punctuation, writer);
+                    return self.finish_statement(keyword_end, None, punctuation, writer);
                 };
                 let boundary = self.prepare_restricted_argument(keyword_end, argument)?;
                 writer.text("return");
                 let tail = self.format_restricted_argument(boundary, writer)?;
-                self.finish_statement(span, argument.span(self.ast).end, tail, punctuation, writer)
+                self.finish_statement(argument.span(self.ast).end, tail, punctuation, writer)
             }
             StmtData::ThrowStatement(node) if mode == ContentMode::Formatted => {
                 let span = node.span(self.ast);
@@ -521,7 +570,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     self.prepare_restricted_argument(span.start + "throw".len() as u32, argument)?;
                 writer.text("throw");
                 let tail = self.format_restricted_argument(boundary, writer)?;
-                self.finish_statement(span, argument.span(self.ast).end, tail, punctuation, writer)
+                self.finish_statement(argument.span(self.ast).end, tail, punctuation, writer)
             }
             StmtData::Declaration(declaration) if mode == ContentMode::Formatted => {
                 let DeclData::Function(function) = self.ast.decl_data(declaration) else {
@@ -531,7 +580,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Ok(StatementBoundary::SourceEnd {
                     end: function.span(self.ast).end,
                     has_terminator: false,
-                })
+                }
+                .into())
+            }
+            StmtData::IfStatement(node) if mode == ContentMode::Formatted => {
+                self.format_if_statement(node, punctuation, writer)
             }
             StmtData::BlockStatement(block) => {
                 if mode == ContentMode::Verbatim {
@@ -542,7 +595,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Ok(StatementBoundary::SourceEnd {
                     end: block.span(self.ast).end,
                     has_terminator: false,
-                })
+                }
+                .into())
             }
             _ if mode == ContentMode::Verbatim => {
                 let span = statement.span(self.ast);
@@ -550,7 +604,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Ok(StatementBoundary::SourceEnd {
                     end: span.end,
                     has_terminator: self.source(span).ends_with(';'),
-                })
+                }
+                .into())
             }
             _ => Err(self.unsupported("statement", statement)),
         }
@@ -558,47 +613,61 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     fn finish_statement(
         &mut self,
-        span: Span,
         content_end: u32,
         tail: Option<ExpressionTail<'ast>>,
         punctuation: StatementPunctuation,
         writer: &mut Writer<'ast>,
-    ) -> Result<StatementBoundary, FormatError> {
-        let source_terminator =
-            self.ast.source().as_bytes().get(span.end as usize - 1) == Some(&b';');
-        if source_terminator && matches!(punctuation, StatementPunctuation::Source) {
+    ) -> Result<PrintedStatement<'ast>, FormatError> {
+        if matches!(punctuation, StatementPunctuation::SourcePacket) {
+            let end = tail
+                .as_ref()
+                .and_then(|tail| tail.comments.last())
+                .map_or(content_end, |comment| comment.span.end);
+            self.format_expression_tail(tail, writer)?;
+            return Ok(StatementBoundary::SourceEnd {
+                end,
+                has_terminator: false,
+            }
+            .into());
+        }
+        if let StatementPunctuation::Source(terminator) = punctuation {
+            let source_end = terminator.start + 1;
             let tail_start = tail.as_ref().map_or(content_end, |tail| tail.source_end);
-            let source_comments = self.comments.in_range(Span::new(tail_start, span.end));
+            let source_comments = self.comments.in_range(Span::new(tail_start, source_end));
             let printed_end = tail
                 .as_ref()
                 .and_then(|tail| tail.comments.last())
                 .map_or(content_end, |comment| comment.span.end);
             self.format_expression_tail(tail, writer)?;
-            let comments = self.comments.between(Span::new(content_end, span.end))?;
+            let comments = self.comments.between(Span::new(content_end, source_end))?;
             self.comments.claim(comments)?;
             self.format_comment_run(comments, CommentRunLayout::SourceAfter(printed_end), writer)?;
             let last = comments.last().or_else(|| source_comments.last());
             let end = last.map_or(content_end, |comment| comment.span.end);
-            self.line_constraint(end, span.end - 1)
-                .write(writer, FlatSeparator::Empty, |writer| {
-                    if self.line_breaks(end, span.end - 1) != 0
+            self.line_constraint(end, terminator.start).write(
+                writer,
+                FlatSeparator::Empty,
+                |writer| {
+                    if self.line_breaks(end, terminator.start) != 0
                         || last.is_some_and(|comment| comment.kind == CommentKind::Line)
                     {
                         writer.hard_line();
                     }
-                });
+                },
+            );
             writer.text(";");
-            return Ok(if self.line_breaks(content_end, span.end - 1) != 0 {
+            let boundary = if self.line_breaks(content_end, terminator.start) != 0 {
                 StatementBoundary::Semicolon {
-                    end: span.end,
-                    terminator: span.end - 1,
+                    end: source_end,
+                    terminator: terminator.start,
                 }
             } else {
                 StatementBoundary::SourceEnd {
-                    end: span.end,
+                    end: source_end,
                     has_terminator: true,
                 }
-            });
+            };
+            return Ok(boundary.into());
         }
         if matches!(
             punctuation,
@@ -606,14 +675,32 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         ) {
             writer.text(";");
         }
-        self.format_expression_tail(tail, writer)?;
-        Ok(StatementBoundary::SourceEnd {
-            end: content_end,
-            has_terminator: matches!(
-                punctuation,
-                StatementPunctuation::Canonical(Semicolons::Always)
-            ),
+        Ok(PrintedStatement {
+            boundary: StatementBoundary::SourceEnd {
+                end: content_end,
+                has_terminator: matches!(
+                    punctuation,
+                    StatementPunctuation::Canonical(Semicolons::Always)
+                ),
+            },
+            pending: tail,
         })
+    }
+
+    fn flush_statement_tail(
+        &mut self,
+        printed: PrintedStatement<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<StatementBoundary, FormatError> {
+        let end = printed
+            .pending
+            .as_ref()
+            .and_then(|tail| tail.comments.last())
+            .map_or(printed.boundary.end(), |comment| {
+                printed.boundary.end().max(comment.span.end)
+            });
+        self.format_expression_tail(printed.pending, writer)?;
+        Ok(printed.boundary.with_end(end))
     }
 
     fn format_block(

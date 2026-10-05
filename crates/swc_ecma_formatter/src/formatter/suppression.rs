@@ -19,12 +19,6 @@ pub(super) enum SuppressionPosition {
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum BoundaryPunctuation {
-    None,
-    Semicolon,
-}
-
-#[derive(Clone, Copy)]
 pub(super) enum DelimitedFollowing {
     Node,
     End,
@@ -239,27 +233,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    /// A sibling owner supplies the complete boundary and its punctuation.
+    /// A syntax owner supplies the complete trailing trivia boundary.
     /// An own-line directive targets the previous item only at a terminal boundary.
-    pub(super) fn trailing_content_mode(
-        &self,
-        span: Span,
-        punctuation: BoundaryPunctuation,
-        terminal: bool,
-    ) -> ContentMode {
+    pub(super) fn trailing_content_mode(&self, span: Span, terminal: bool) -> ContentMode {
         if !self.has_suppression {
             return ContentMode::Formatted;
         }
         let mut previous = span.start;
         for comment in self.comments.in_range(span) {
             let gap = self.source(Span::new(previous, comment.span.start));
-            if !gap.chars().all(|character| {
-                is_source_whitespace(character)
-                    || matches!(
-                        (punctuation, character),
-                        (BoundaryPunctuation::Semicolon, ';')
-                    )
-            }) || !terminal && self.line_breaks(previous, comment.span.start) != 0
+            if !gap.chars().all(is_source_whitespace)
+                || !terminal && self.line_breaks(previous, comment.span.start) != 0
             {
                 break;
             }

@@ -12,7 +12,7 @@ use crate::formatter::comments::{
 };
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::source::is_source_whitespace;
-use crate::formatter::suppression::{BoundaryPunctuation, ContentMode};
+use crate::formatter::suppression::ContentMode;
 use crate::{FormatError, Semicolons, document::Writer};
 
 #[derive(Clone, Copy)]
@@ -681,7 +681,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(start)
     }
 
-    pub(super) fn capture_expression_tail(
+    pub(in crate::formatter) fn capture_expression_tail(
         &self,
         span: Span,
         tail: Option<ExpressionTail<'ast>>,
@@ -745,7 +745,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return ContentMode::Verbatim;
         }
         let trailing = Span::new(boundary.inner.end, boundary.outer.end - 1);
-        self.trailing_content_mode(trailing, BoundaryPunctuation::None, true)
+        self.trailing_content_mode(trailing, true)
     }
 
     pub(super) fn format_source_parentheses(
@@ -768,7 +768,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let child = parenthesized.expression(self.ast);
         let child_span = child.span(self.ast);
         let trailing = Span::new(child_span.end, span.end - 1);
-        let inline_mode = self.trailing_content_mode(trailing, BoundaryPunctuation::None, false);
+        let inline_mode = self.trailing_content_mode(trailing, false);
         if inline_mode == ContentMode::Verbatim
             && (matches!(context.position, ExpressionPosition::Statement)
                 || context.tail_owner == TailOwner::ParentOperation

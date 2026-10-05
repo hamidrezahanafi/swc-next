@@ -10,9 +10,7 @@ use super::{
 };
 use crate::formatter::comments::{CommentBoundary, CommentGap, CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
-use crate::formatter::suppression::{
-    BoundaryPunctuation, ContentMode, DelimitedFollowing, SuppressionPosition,
-};
+use crate::formatter::suppression::{ContentMode, DelimitedFollowing, SuppressionPosition};
 use crate::{FormatError, document::Writer};
 
 #[derive(Clone, Copy)]
@@ -328,11 +326,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 *opening = self.source_line_constraint(brackets.start + 1, first);
             }
             if key != ContentMode::Verbatim {
-                key = self.trailing_content_mode(
-                    Span::new(property_span.end, brackets.end - 1),
-                    BoundaryPunctuation::None,
-                    true,
-                );
+                key = self
+                    .trailing_content_mode(Span::new(property_span.end, brackets.end - 1), true);
             }
         }
         Ok(PreparedMember::Formatted(SourceMember {

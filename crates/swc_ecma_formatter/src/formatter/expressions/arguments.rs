@@ -6,7 +6,7 @@ use super::{AccessKind, ExpressionContext, Formatter};
 use crate::formatter::comments::{ArrayCommentOwner, CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::suppression::{
-    BoundaryPunctuation, ContentMode, DelimitedFollowing, DelimitedSuppression, SuppressionPosition,
+    ContentMode, DelimitedFollowing, DelimitedSuppression, SuppressionPosition,
 };
 use crate::{FormatError, TrailingCommas, document::Writer};
 use swc_next_ecma_ast::{
@@ -667,7 +667,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let mode = if prefix.belongs_to_arguments() {
                     ContentMode::Formatted
                 } else {
-                    self.trailing_content_mode(span, BoundaryPunctuation::None, false)
+                    self.trailing_content_mode(span, false)
                 };
                 (SourceArgumentPrefix::Direct(prefix), mode)
             }
@@ -677,14 +677,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let (before, after) = prefix_comments.split_at(before_count);
                 let before_span = Span::new(callee_span.end, operator.start);
                 self.prepare_first_argument_suppression(first.as_mut(), before, operator.start);
-                let before_mode =
-                    self.trailing_content_mode(before_span, BoundaryPunctuation::None, false);
+                let before_mode = self.trailing_content_mode(before_span, false);
                 let after_span = Span::new(operator.end, opening);
                 let after = self.argument_prefix(first.as_mut(), after_span, after);
                 let after_mode = if after.belongs_to_arguments() {
                     ContentMode::Formatted
                 } else {
-                    self.trailing_content_mode(after_span, BoundaryPunctuation::None, false)
+                    self.trailing_content_mode(after_span, false)
                 };
                 if !after.belongs_to_arguments()
                     && self.content_mode(after.comments()) == ContentMode::Verbatim

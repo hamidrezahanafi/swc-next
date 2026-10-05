@@ -66,6 +66,7 @@ pub(super) enum ExpressionPosition {
     AwaitArgument,
     MemberAssignmentObject,
     ConditionalTest,
+    ControlCondition,
     ConditionalConsequent,
     ConditionalAlternate,
     AssignmentRight(AssignmentParent),

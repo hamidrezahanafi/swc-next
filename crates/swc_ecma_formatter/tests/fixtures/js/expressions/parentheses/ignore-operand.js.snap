@@ -16,20 +16,17 @@ first + /* prettier-ignore */ 0xFf
 ---------- Options ----------
 {"printWidth":20}
 ---------- Output ----------
-first +
-  /* prettier-ignore */ 0xFf;
+first + /* prettier-ignore */ 0xFf;
 
 ---------- Options ----------
 {"printWidth":10}
 ---------- Output ----------
-first +
-  /* prettier-ignore */ 0xFf;
+first + /* prettier-ignore */ 0xFf;
 
 ---------- Options ----------
 {"printWidth":20,"tabWidth":4,"useTabs":true}
 ---------- Output ----------
-first +
-	/* prettier-ignore */ 0xFf;
+first + /* prettier-ignore */ 0xFf;
 
 ---------- Options ----------
 {"endOfLine":"crlf"}
