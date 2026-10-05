@@ -18,6 +18,7 @@ pub(super) mod parentheses;
 mod sequence;
 mod suspension;
 pub(super) mod targets;
+mod typescript;
 mod unary;
 
 use swc_next_ecma_ast::{
@@ -55,6 +56,9 @@ pub(super) enum ExpressionPosition {
         operator: BinaryOperatorKind,
         side: OperandSide,
     },
+    TypeBinaryOperand,
+    TypeAssertionOperand,
+    NonNullOperand,
     SpreadArgument,
     PropertyValue,
     MemberObject(AccessKind),
@@ -391,6 +395,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if self.options.semicolons == Semicolons::AsNeeded
             && context.expression_start.needs_asi_guard()
             && (parenthesize
+                || matches!(data, ExprData::TsTypeAssertion(_))
                 || !starts_update && source.starts_with(['(', '[', '/', '+', '-', '`']))
         {
             writer.text(";");
@@ -454,7 +459,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             let mut asi_guard = parenthesize
                 || match data {
-                    ExprData::ArrayExpression(_) | ExprData::RegExpLiteral(_) => true,
+                    ExprData::ArrayExpression(_)
+                    | ExprData::RegExpLiteral(_)
+                    | ExprData::TsTypeAssertion(_) => true,
                     ExprData::UnaryExpression(unary) => matches!(
                         unary.operator(self.ast),
                         UnaryOperator::Positive | UnaryOperator::Negate
@@ -678,6 +685,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ExprData::AssignmentExpression(assignment) => {
                 self.format_assignment(assignment, context, writer)
             }
+            ExprData::TsAsExpression(node) => self.format_binary_type_expression(
+                node.expression(self.ast),
+                node.type_annotation(self.ast),
+                typescript::TypeBinaryOperator::As,
+                context,
+                writer,
+            ),
+            ExprData::TsSatisfiesExpression(node) => self.format_binary_type_expression(
+                node.expression(self.ast),
+                node.type_annotation(self.ast),
+                typescript::TypeBinaryOperator::Satisfies,
+                context,
+                writer,
+            ),
+            ExprData::TsTypeAssertion(node) => self.format_type_assertion(node, context, writer),
+            ExprData::TsNonNullExpression(node) => self.format_non_null(node, context, writer),
             _ => Err(self.unsupported("expression", expression)),
         }?;
         if parenthesize {
@@ -690,6 +713,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context.parentheses_owner == ParenthesesOwner::Expression
             && (self.expression_needs_parentheses(data, context.position, context.content_mode)
                 == Some(true)
+                || matches!(context.position, ExpressionPosition::TypeBinaryOperand)
+                    && context.expression_start.is_statement()
+                    && self.type_binary_head_needs_parentheses(data)
                 || matches!(data, ExprData::ObjectExpression(_))
                     && context.expression_start != ExpressionStart::None
                 || matches!(data, ExprData::Function(_) | ExprData::Class(_))
@@ -710,6 +736,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let update = matches!(data, ExprData::UpdateExpression(node) if node.prefix(self.ast))
                     && (source.starts_with("++") || source.starts_with("--"));
                 return Ok(self.expression_is_parenthesized(data, context)
+                    || matches!(data, ExprData::TsTypeAssertion(_))
                     || !update && source.starts_with(['(', '[', '/', '+', '-', '`']));
             }
             let data = content
@@ -722,6 +749,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         | ExprData::SequenceExpression(_)
                         | ExprData::ArrayExpression(_)
                         | ExprData::RegExpLiteral(_)
+                        | ExprData::TsTypeAssertion(_)
                 )
                 || matches!(data, ExprData::UnaryExpression(node) if matches!(node.operator(self.ast), UnaryOperator::Positive | UnaryOperator::Negate))
             {
@@ -743,6 +771,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
                 ExprData::MemberExpression(member) => {
                     (expression, context) = self.source_member_receiver(member, context)?;
+                }
+                ExprData::TsAsExpression(node) => {
+                    expression = node.expression(self.ast);
+                    context.position = ExpressionPosition::TypeBinaryOperand;
+                }
+                ExprData::TsSatisfiesExpression(node) => {
+                    expression = node.expression(self.ast);
+                    context.position = ExpressionPosition::TypeBinaryOperand;
+                }
+                ExprData::TsNonNullExpression(node) => {
+                    expression = node.expression(self.ast);
+                    context.position = ExpressionPosition::NonNullOperand;
                 }
                 ExprData::ChainExpression(chain) => {
                     expression = chain.expression(self.ast);
@@ -808,6 +848,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         conditional.test(self.ast),
                         ExpressionPosition::ConditionalTest,
                     ),
+                    ExprData::TsAsExpression(node) => (
+                        node.expression(self.ast),
+                        ExpressionPosition::TypeBinaryOperand,
+                    ),
+                    ExprData::TsSatisfiesExpression(node) => (
+                        node.expression(self.ast),
+                        ExpressionPosition::TypeBinaryOperand,
+                    ),
+                    ExprData::TsNonNullExpression(node) => (
+                        node.expression(self.ast),
+                        ExpressionPosition::NonNullOperand,
+                    ),
                     ExprData::ChainExpression(chain) => {
                         (chain.expression(self.ast), ExpressionPosition::Nested)
                     }
@@ -863,6 +915,34 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             return Some(true);
         }
+        if let Some(needed) = typescript::type_expression_needs_parentheses(data, position) {
+            return Some(needed);
+        }
+        if matches!(position, ExpressionPosition::NonNullOperand)
+            && matches!(
+                data,
+                ExprData::UnaryExpression(_) | ExprData::UpdateExpression(_)
+            )
+        {
+            return Some(true);
+        }
+        if matches!(
+            position,
+            ExpressionPosition::TypeBinaryOperand
+                | ExpressionPosition::TypeAssertionOperand
+                | ExpressionPosition::NonNullOperand
+        ) && matches!(
+            data,
+            ExprData::ArrowFunctionExpression(_)
+                | ExprData::AssignmentExpression(_)
+                | ExprData::ConditionalExpression(_)
+                | ExprData::LogicalExpression(_)
+                | ExprData::BinaryExpression(_)
+                | ExprData::YieldExpression(_)
+                | ExprData::AwaitExpression(_)
+        ) {
+            return Some(true);
+        }
         match data {
             ExprData::SequenceExpression(_) => {
                 return Some(!matches!(
@@ -914,6 +994,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         | ExpressionPosition::MemberAssignmentObject
                         | ExpressionPosition::NewCallee
                         | ExpressionPosition::Superclass
+                        | ExpressionPosition::NonNullOperand
                 ));
             }
             ExprData::NewExpression(constructor) => {
@@ -958,7 +1039,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             | ExprData::LogicalExpression(_)
             | ExprData::ConditionalExpression(_)
             | ExprData::AssignmentExpression(_)
-            | ExprData::ParenthesizedExpression(_) => {}
+            | ExprData::ParenthesizedExpression(_)
+            | ExprData::TsNonNullExpression(_) => {}
             _ => return None,
         }
         if matches!(position, ExpressionPosition::NewCallee)

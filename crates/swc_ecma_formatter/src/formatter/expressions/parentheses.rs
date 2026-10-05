@@ -935,7 +935,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 side: super::binary::OperandSide::Left,
             } => super::binary::BinaryLike::from_data(self.ast.expr_data(expression), self.ast)
                 .is_none_or(|child| !operator.flattens(child.operator)),
-            ExpressionPosition::ConditionalTest => true,
+            ExpressionPosition::ConditionalTest
+            | ExpressionPosition::TypeBinaryOperand
+            | ExpressionPosition::NonNullOperand => true,
             _ => false,
         }
     }

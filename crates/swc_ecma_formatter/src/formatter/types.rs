@@ -20,7 +20,7 @@ use swc_next_ecma_ast::{
     TsTypeName, TsTypeNameData, UnaryOperator, VariableDeclarator,
 };
 
-use self::context::TypeContext;
+pub(super) use self::context::TypeContext;
 use super::Formatter;
 use super::bindings::InitializerLayout;
 use super::comments::{CommentBoundary, ExpressionTail};
@@ -56,10 +56,10 @@ enum TypeBoundaryTarget<'a> {
 }
 
 #[derive(Clone, Copy)]
-struct PreparedType {
-    node: TsType,
-    data: TsTypeData,
-    source_owner: Option<TsType>,
+pub(super) struct PreparedType {
+    pub(super) node: TsType,
+    pub(super) data: TsTypeData,
+    pub(super) source_owner: Option<TsType>,
 }
 
 enum TypeBoundaryLayout<'ast> {
@@ -359,7 +359,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.format_prepared_type(node, context, writer)
     }
 
-    fn prepare_type(&self, node: TsType, mode: ContentMode) -> PreparedType {
+    pub(super) fn prepare_type(&self, node: TsType, mode: ContentMode) -> PreparedType {
         PreparedType {
             node,
             data: self.ast.ts_type_data(node),
@@ -429,7 +429,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    fn format_prepared_type(
+    pub(super) fn format_prepared_type(
         &mut self,
         node: PreparedType,
         context: TypeContext,
