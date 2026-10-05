@@ -5,6 +5,7 @@ mod compound;
 mod conditional;
 mod context;
 mod generics;
+mod infer;
 mod interfaces;
 mod members;
 mod postfix;
@@ -48,6 +49,7 @@ enum TypeBoundaryTarget<'a> {
         name: BindingIdentifier,
         node: &'a mut PreparedType,
     },
+    InferConstraint(&'a mut PreparedType),
     Default(&'a mut PreparedType),
 }
 
@@ -205,6 +207,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 };
                 ("extends", TypeBoundaryRole::Constraint(leading))
             }
+            TypeBoundaryTarget::InferConstraint(_) => (
+                "extends",
+                TypeBoundaryRole::Constraint(LineConstraint::Unconstrained),
+            ),
             TypeBoundaryTarget::Default(_) => ("=", TypeBoundaryRole::Default),
         };
         let comments = self.comments.in_range(gap);
@@ -245,6 +251,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         right_mode = ContentMode::Verbatim;
                         if let TypeBoundaryTarget::Alias(node)
                         | TypeBoundaryTarget::Constraint { node, .. }
+                        | TypeBoundaryTarget::InferConstraint(node)
                         | TypeBoundaryTarget::Default(node) = &mut target
                         {
                             self.select_type_head(node, position);
@@ -261,6 +268,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     right_mode = ContentMode::Verbatim;
                     if let TypeBoundaryTarget::Alias(node)
                     | TypeBoundaryTarget::Constraint { node, .. }
+                    | TypeBoundaryTarget::InferConstraint(node)
                     | TypeBoundaryTarget::Default(node) = &mut target
                     {
                         self.select_type_head(node, position);
@@ -479,6 +487,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         match node.data {
             TsTypeData::TsTypeReference(reference) => self.format_type_reference(reference, writer),
             TsTypeData::TsConditionalType(node) => self.format_conditional_type(node, writer),
+            TsTypeData::TsInferType(node) => self.format_infer_type(node, writer),
             TsTypeData::TsLiteralType(literal) => {
                 match self.ast.ts_literal_data(literal.literal(self.ast)) {
                     TsLiteralData::StringLiteral(node) => {

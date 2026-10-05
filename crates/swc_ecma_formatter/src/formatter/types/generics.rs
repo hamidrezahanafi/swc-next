@@ -22,6 +22,7 @@ pub(super) enum TypeListKind {
 pub(super) enum TypeParameterContext {
     TypeDeclaration,
     Callable,
+    Infer,
 }
 
 #[derive(Clone, Copy)]
@@ -79,7 +80,7 @@ struct ParameterBound<'ast> {
     boundary: TypeBoundary<'ast>,
 }
 
-struct PreparedParameter<'ast> {
+pub(super) struct PreparedParameter<'ast> {
     node: TsTypeParameter,
     name: BindingIdentifier,
     name_mode: ContentMode,
@@ -343,7 +344,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    fn prepare_type_parameter(
+    pub(super) fn prepare_type_parameter(
         &self,
         node: TsTypeParameter,
         context: TypeParameterContext,
@@ -351,6 +352,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let ast = self.ast;
         if node.r#const(ast) && matches!(context, TypeParameterContext::TypeDeclaration) {
             return Err(self.unsupported("const type parameter in a type declaration", node));
+        }
+        if matches!(context, TypeParameterContext::Infer)
+            && (node.r#const(ast) || node.r#in(ast) || node.out(ast) || node.default(ast).is_some())
+        {
+            return Err(self.unsupported("infer type parameter modifiers or default", node));
         }
         if node.r#const(ast) && (node.r#in(ast) || node.out(ast)) {
             return Err(self.unsupported("const type parameter with variance", node));
@@ -362,9 +368,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let mut type_node = self.prepare_type(type_node, ContentMode::Formatted);
             let boundary = self.prepare_type_boundary(
                 Span::new(name_end, type_node.node.span(ast).start),
-                TypeBoundaryTarget::Constraint {
-                    name,
-                    node: &mut type_node,
+                if matches!(context, TypeParameterContext::Infer) {
+                    TypeBoundaryTarget::InferConstraint(&mut type_node)
+                } else {
+                    TypeBoundaryTarget::Constraint {
+                        name,
+                        node: &mut type_node,
+                    }
                 },
             )?;
             name_mode = boundary.left_mode;
@@ -427,6 +437,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return Ok(None);
         }
         let parameter = self.prepare_type_parameter(node, context)?;
+        self.format_prepared_type_parameter(parameter, writer)
+    }
+
+    pub(super) fn format_prepared_type_parameter(
+        &mut self,
+        parameter: PreparedParameter<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let ast = self.ast;
         writer.group(false, |writer| {
             self.format_type_parameter_modifiers(

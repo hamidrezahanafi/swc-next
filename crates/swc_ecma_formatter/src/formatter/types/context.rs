@@ -51,7 +51,12 @@ impl TypeContext {
             Self::TypeConstraint => return matches!(data, TsTypeData::TsConditionalType(_)),
             Self::PostfixOperand => TypePrecedence::Postfix,
             Self::ModifierOperand => TypePrecedence::Query,
-            Self::CompoundMember => TypePrecedence::Operator,
+            Self::CompoundMember => {
+                if let TsTypeData::TsInferType(node) = data {
+                    return node.type_parameter(ast).constraint(ast).is_some();
+                }
+                TypePrecedence::Operator
+            }
         };
         let precedence = match data {
             TsTypeData::TsConditionalType(_) => TypePrecedence::Conditional,
@@ -59,7 +64,7 @@ impl TypeContext {
             | TsTypeData::TsFunctionType(_)
             | TsTypeData::TsConstructorType(_) => TypePrecedence::Union,
             TsTypeData::TsIntersectionType(_) => TypePrecedence::Intersection,
-            TsTypeData::TsTypeOperator(_) => TypePrecedence::Operator,
+            TsTypeData::TsTypeOperator(_) | TsTypeData::TsInferType(_) => TypePrecedence::Operator,
             TsTypeData::TsTypeQuery(_) => TypePrecedence::Query,
             TsTypeData::TsArrayType(_) | TsTypeData::TsIndexedAccessType(_) => {
                 TypePrecedence::Postfix
