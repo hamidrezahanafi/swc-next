@@ -72,7 +72,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text(";");
         }
         let parenthesize = context.parentheses_owner == ParenthesesOwner::Expression
-            && !matches!(context.position, ExpressionPosition::RestrictedArgument);
+            && !matches!(
+                context.position,
+                ExpressionPosition::RestrictedArgument
+                    | ExpressionPosition::ForHead
+                    | ExpressionPosition::ForInitializer { parentheses: false }
+            );
         if parenthesize {
             writer.text("(");
         }

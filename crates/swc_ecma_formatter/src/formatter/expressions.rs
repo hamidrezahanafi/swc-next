@@ -10,12 +10,13 @@ mod calls;
 mod chains;
 mod conditional;
 mod constructors;
+mod for_initializer;
 mod members;
 pub(super) mod objects;
 pub(super) mod parentheses;
 mod sequence;
 mod suspension;
-mod targets;
+pub(super) mod targets;
 mod unary;
 
 use swc_next_ecma_ast::{
@@ -68,6 +69,13 @@ pub(super) enum ExpressionPosition {
     MemberAssignmentObject,
     ConditionalTest,
     ControlCondition,
+    ForHead,
+    ForInitializer {
+        parentheses: bool,
+    },
+    ForLeft {
+        parentheses: bool,
+    },
     ConditionalConsequent,
     ConditionalAlternate,
     AssignmentRight(AssignmentParent),
@@ -287,6 +295,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         if context.content_mode == ContentMode::Verbatim {
             let span = expression.span(self.ast);
+            if matches!(context.position, ExpressionPosition::ForInitializer { .. }) {
+                // This owner was parsed in NoIn grammar. Its source delimiters
+                // remain necessary even when the ignored child would print alone.
+                self.format_verbatim(span, writer)?;
+                if let Some(owner) = array_comments {
+                    owner.finish_source(self, span.end);
+                }
+                return Ok(None);
+            }
             if let ExprData::ParenthesizedExpression(parenthesized) = self.ast.expr_data(expression)
                 && !matches!(context.position, ExpressionPosition::Statement)
             {
@@ -411,6 +428,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let binary = BinaryLike::from_data(data, self.ast);
         let parenthesize = self.expression_is_parenthesized(data, context);
+        if parenthesize
+            && matches!(
+                context.position,
+                ExpressionPosition::ForInitializer { parentheses: true }
+                    | ExpressionPosition::ForLeft { parentheses: true }
+            )
+        {
+            return self.format_parenthesized_expression(
+                expression,
+                NodeHead {
+                    comments: &[],
+                    content_start: expression.span(self.ast).start,
+                    layout: CommentRunLayout::Source,
+                    gap_end: None,
+                },
+                context,
+                writer,
+            );
+        }
         if context.expression_start == ExpressionStart::StatementPending
             && self.options.semicolons == Semicolons::AsNeeded
         {
@@ -736,8 +772,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         position: ExpressionPosition,
         mode: ContentMode,
     ) -> Option<bool> {
+        if mode == ContentMode::Formatted
+            && matches!(
+                position,
+                ExpressionPosition::ForInitializer { parentheses: true }
+                    | ExpressionPosition::ForLeft { parentheses: true }
+            )
+        {
+            return Some(true);
+        }
         match data {
-            ExprData::SequenceExpression(_) => return Some(true),
+            ExprData::SequenceExpression(_) => {
+                return Some(!matches!(
+                    position,
+                    ExpressionPosition::ForHead | ExpressionPosition::ForInitializer { .. }
+                ));
+            }
             ExprData::ArrowFunctionExpression(_) => {
                 return Some(matches!(
                     position,
@@ -874,7 +924,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ),
             (position, ExprData::AssignmentExpression(_)) => !matches!(
                 position,
-                ExpressionPosition::Statement | ExpressionPosition::AssignmentRight(_)
+                ExpressionPosition::Statement
+                    | ExpressionPosition::AssignmentRight(_)
+                    | ExpressionPosition::ForHead
+                    | ExpressionPosition::ForInitializer { .. }
             ),
             (
                 ExpressionPosition::UnaryArgument(_)

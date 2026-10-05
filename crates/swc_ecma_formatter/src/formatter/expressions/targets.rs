@@ -17,6 +17,7 @@ use crate::{FormatError, Semicolons, document::Writer};
 enum TargetOperator {
     Assignment(AssignmentOperator),
     Update(UpdateOperator),
+    Iteration { of: bool },
 }
 
 impl TargetOperator {
@@ -24,6 +25,13 @@ impl TargetOperator {
         match self {
             Self::Assignment(operator) => operator.as_str(),
             Self::Update(operator) => operator.as_str(),
+            Self::Iteration { of } => {
+                if of {
+                    "of"
+                } else {
+                    "in"
+                }
+            }
         }
     }
 }
@@ -43,11 +51,11 @@ impl TargetNode {
     }
 }
 
-pub(super) struct SourceTarget {
+pub(in crate::formatter) struct SourceTarget {
     target: TargetNode,
     operator: TargetOperator,
     pub(super) operator_span: Span,
-    pub(super) span: Span,
+    pub(in crate::formatter) span: Span,
     layers: Vec<TargetLayer>,
 }
 
@@ -176,6 +184,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         )
     }
 
+    pub(in crate::formatter) fn iteration_source_target(
+        &self,
+        target: SimpleAssignmentTarget,
+        prefix: Span,
+        operator: Span,
+        of: bool,
+    ) -> Result<SourceTarget, FormatError> {
+        self.prepare_source_target(
+            TargetNode::Simple(target),
+            TargetOperator::Iteration { of },
+            prefix,
+            Span::new(target.span(self.ast).end, operator.start),
+            Some(operator),
+        )
+    }
+
     fn prepare_source_target(
         &self,
         target: TargetNode,
@@ -278,7 +302,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    pub(super) fn format_source_target(
+    pub(in crate::formatter) fn format_source_target(
         &mut self,
         target: &SourceTarget,
         mut context: ExpressionContext,

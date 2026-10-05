@@ -1,6 +1,8 @@
 //! Parent-owned conditions, controlled bodies, and their following keywords.
 
+mod for_loops;
 mod jumps;
+pub(super) use for_loops::IterationStatement;
 mod while_do;
 pub(super) use jumps::JumpStatement;
 
