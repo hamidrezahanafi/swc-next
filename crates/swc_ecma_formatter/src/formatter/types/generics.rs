@@ -20,7 +20,7 @@ pub(super) enum TypeListKind {
 
 #[derive(Clone, Copy)]
 pub(super) enum TypeParameterContext {
-    Alias,
+    TypeDeclaration,
     Callable,
 }
 
@@ -349,8 +349,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: TypeParameterContext,
     ) -> Result<PreparedParameter<'ast>, FormatError> {
         let ast = self.ast;
-        if node.r#const(ast) && matches!(context, TypeParameterContext::Alias) {
-            return Err(self.unsupported("const type parameter in a type alias", node));
+        if node.r#const(ast) && matches!(context, TypeParameterContext::TypeDeclaration) {
+            return Err(self.unsupported("const type parameter in a type declaration", node));
         }
         if node.r#const(ast) && (node.r#in(ast) || node.out(ast)) {
             return Err(self.unsupported("const type parameter with variance", node));

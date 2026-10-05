@@ -4,6 +4,7 @@ mod callable;
 mod compound;
 mod context;
 mod generics;
+mod interfaces;
 mod members;
 mod postfix;
 mod tuple;
@@ -25,6 +26,11 @@ use super::literals::StringContext;
 use super::suppression::{ContentMode, SuppressionPosition, is_suppression_comment};
 use super::variables::VariableContext;
 use crate::{FormatError, document::Writer};
+
+enum TypeGap<'ast> {
+    Source(Span),
+    Formatted(CommentBoundary<'ast>),
+}
 
 #[derive(Clone, Copy)]
 enum TypeBoundaryRole {
@@ -79,6 +85,28 @@ struct PreparedAnnotation<'ast> {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    fn prepare_type_gap(&self, gap: Span, source: bool) -> TypeGap<'ast> {
+        if source {
+            return TypeGap::Source(gap);
+        }
+        let comments = self.comments.in_range(gap);
+        TypeGap::Formatted(self.prepare_comment_boundary(comments, gap.start, gap.end))
+    }
+
+    fn format_type_gap(
+        &mut self,
+        gap: TypeGap<'ast>,
+        separator: FlatSeparator,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        match gap {
+            TypeGap::Source(span) => self.format_verbatim(span, writer),
+            TypeGap::Formatted(boundary) => {
+                self.format_type_comment_gap(&boundary, separator, writer)
+            }
+        }
+    }
+
     pub(super) fn format_type_alias(
         &mut self,
         alias: TsTypeAliasDeclaration,
@@ -145,7 +173,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.format_type_list_prefix(prefix, writer)?;
             self.format_type_parameters(
                 parameters,
-                generics::TypeParameterContext::Alias,
+                generics::TypeParameterContext::TypeDeclaration,
                 mode,
                 writer,
             )?;

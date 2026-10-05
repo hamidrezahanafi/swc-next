@@ -7,8 +7,10 @@ use swc_next_ecma_ast::{
 };
 
 use super::generics::TypeParameterContext;
-use super::{Formatter, PreparedAnnotation, PreparedType, TypeBoundaryLayout, TypeContext};
-use crate::formatter::comments::{CommentBoundary, CommentRunLayout, ExpressionTail};
+use super::{
+    Formatter, PreparedAnnotation, PreparedType, TypeBoundaryLayout, TypeContext, TypeGap,
+};
+use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::expressions::arguments::{ArgumentLayout, FollowingItem, Separator};
 use crate::formatter::suppression::{ContentMode, DelimitedSuppression, SuppressionPosition};
@@ -70,11 +72,6 @@ impl CallableParameter {
     }
 }
 
-pub(super) enum CallableGap<'ast> {
-    Source(Span),
-    Formatted(CommentBoundary<'ast>),
-}
-
 pub(super) enum AnnotationContent {
     Wrapper(TsTypeAnnotation),
     Type(PreparedType),
@@ -116,9 +113,7 @@ impl SignatureReturnDelimiter {
 
 enum CallableHead<'ast> {
     Function,
-    Constructor {
-        abstract_gap: Option<CallableGap<'ast>>,
-    },
+    Constructor { abstract_gap: Option<TypeGap<'ast>> },
 }
 
 #[derive(Clone, Copy)]
@@ -144,7 +139,7 @@ enum CallableBinding<'ast> {
     Pattern {
         node: BindingPattern,
         mode: ContentMode,
-        spread: Option<CallableGap<'ast>>,
+        spread: Option<TypeGap<'ast>>,
     },
     This(TsThisParameter),
 }
@@ -207,7 +202,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                             )?;
                         }
                     }
-                    Some(self.prepare_callable_gap(gap, source))
+                    Some(self.prepare_type_gap(gap, source))
                 } else {
                     None
                 };
@@ -224,7 +219,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.select_callable_incoming(&parameters, parts.return_type, &mut incoming)?;
             }
         }
-        let prefix = self.prepare_callable_gap(head_gap, head_source);
+        let prefix = self.prepare_type_gap(head_gap, head_source);
         let generic_tail = parts
             .type_parameters
             .map(|generic| {
@@ -245,7 +240,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         }
                     }
                 }
-                Ok((generic, self.prepare_callable_gap(gap, source)))
+                Ok((generic, self.prepare_type_gap(gap, source)))
             })
             .transpose()?;
         let source_return = match incoming {
@@ -267,12 +262,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             if let CallableHead::Constructor { abstract_gap } = head {
                 if let Some(gap) = abstract_gap {
                     writer.text("abstract");
-                    self.format_callable_gap(gap, FlatSeparator::Space, writer)?;
+                    self.format_type_gap(gap, FlatSeparator::Space, writer)?;
                 }
                 writer.text("new");
-                self.format_callable_gap(prefix, FlatSeparator::Space, writer)?;
+                self.format_type_gap(prefix, FlatSeparator::Space, writer)?;
             } else {
-                self.format_callable_gap(prefix, FlatSeparator::Empty, writer)?;
+                self.format_type_gap(prefix, FlatSeparator::Empty, writer)?;
             }
             if let Some((generic, gap)) = generic_tail {
                 self.format_type_parameters(
@@ -281,7 +276,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     generic_mode,
                     writer,
                 )?;
-                self.format_callable_gap(gap, FlatSeparator::Empty, writer)?;
+                self.format_type_gap(gap, FlatSeparator::Empty, writer)?;
             }
             self.format_callable_parameters(parameters, writer)?;
             self.format_signature_return(return_type, writer)
@@ -373,28 +368,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             CallableIncomingOwner::Parameter,
         ));
         Ok(())
-    }
-
-    pub(super) fn prepare_callable_gap(&self, gap: Span, source: bool) -> CallableGap<'ast> {
-        if source {
-            return CallableGap::Source(gap);
-        }
-        let comments = self.comments.in_range(gap);
-        CallableGap::Formatted(self.prepare_comment_boundary(comments, gap.start, gap.end))
-    }
-
-    pub(super) fn format_callable_gap(
-        &mut self,
-        gap: CallableGap<'ast>,
-        separator: FlatSeparator,
-        writer: &mut Writer<'ast>,
-    ) -> Result<(), FormatError> {
-        match gap {
-            CallableGap::Source(span) => self.format_verbatim(span, writer),
-            CallableGap::Formatted(boundary) => {
-                self.format_type_comment_gap(&boundary, separator, writer)
-            }
-        }
     }
 
     pub(super) fn prepare_signature_return(
@@ -692,7 +665,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 } else {
                     ContentMode::Formatted
                 };
-                let spread = self.prepare_callable_gap(gap, mode == ContentMode::Verbatim);
+                let spread = self.prepare_type_gap(gap, mode == ContentMode::Verbatim);
                 (
                     CallableBinding::Pattern {
                         node: pattern,
@@ -745,7 +718,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             CallableBinding::Pattern { node, mode, spread } => {
                 if let Some(gap) = spread {
                     writer.text("...");
-                    self.format_callable_gap(gap, FlatSeparator::Empty, writer)?;
+                    self.format_type_gap(gap, FlatSeparator::Empty, writer)?;
                 }
                 let tail = self.format_declaration_binding(node, mode, writer)?;
                 self.format_expression_tail(tail, writer)?;
@@ -784,7 +757,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             {
                 name_mode = ContentMode::Verbatim;
             }
-            self.prepare_callable_gap(gap, name_mode == ContentMode::Verbatim)
+            self.prepare_type_gap(gap, name_mode == ContentMode::Verbatim)
         });
         let bound = node
             .type_annotation(ast)
@@ -836,7 +809,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .transpose()?;
         if let Some(prefix) = asserts_prefix {
             writer.text("asserts");
-            self.format_callable_gap(prefix, FlatSeparator::Space, writer)?;
+            self.format_type_gap(prefix, FlatSeparator::Space, writer)?;
         }
         if name_mode == ContentMode::Verbatim {
             self.format_verbatim(name_span, writer)?;

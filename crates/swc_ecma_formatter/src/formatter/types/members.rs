@@ -8,11 +8,11 @@ use swc_next_ecma_ast::{
 };
 
 use super::callable::{
-    AnnotationContent, CallableGap, CallableParameter, CallableParameters, SignatureReturn,
+    AnnotationContent, CallableParameter, CallableParameters, SignatureReturn,
     SignatureReturnDelimiter,
 };
 use super::generics::TypeParameterContext;
-use super::{Formatter, PreparedType, TypeBoundaryLayout, TypeContext};
+use super::{Formatter, PreparedType, TypeBoundaryLayout, TypeContext, TypeGap};
 use crate::formatter::comments::{CommentBoundary, CommentGap, ExpressionTail};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::expressions::arguments::{ArgumentLayout, FollowingItem, Separator};
@@ -27,14 +27,14 @@ struct MemberKey<'ast> {
     computed: Option<Span>,
     end: u32,
     mode: ContentMode,
-    prefix: Option<(&'static str, CallableGap<'ast>)>,
+    prefix: Option<(&'static str, TypeGap<'ast>)>,
 }
 
 struct PropertyMember<'ast> {
     key: MemberKey<'ast>,
     optional: bool,
     annotation: Option<(PreparedType, TypeBoundaryLayout<'ast>)>,
-    ending: Option<CallableGap<'ast>>,
+    ending: Option<TypeGap<'ast>>,
 }
 
 #[derive(Clone, Copy)]
@@ -87,8 +87,8 @@ struct SignatureMember<'ast> {
     key: Option<MemberKey<'ast>>,
     construct: bool,
     optional: bool,
-    prefix: CallableGap<'ast>,
-    generics: Option<(TsTypeParameterDeclaration, ContentMode, CallableGap<'ast>)>,
+    prefix: TypeGap<'ast>,
+    generics: Option<(TsTypeParameterDeclaration, ContentMode, TypeGap<'ast>)>,
     parameters: CallableParameters,
     result: Option<SignatureReturn<'ast>>,
 }
@@ -97,8 +97,8 @@ struct IndexMember<'ast> {
     node: TsIndexSignature,
     opening: u32,
     closing: u32,
-    prefix: Option<CallableGap<'ast>>,
-    closing_gap: CallableGap<'ast>,
+    prefix: Option<TypeGap<'ast>>,
+    closing_gap: TypeGap<'ast>,
     source_head: Option<TsIndexSignatureParameter>,
     source_tail: Option<TsIndexSignatureParameter>,
     result: SignatureReturn<'ast>,
@@ -121,6 +121,18 @@ impl MemberHandle {
     fn span(self, ast: &swc_next_ecma_ast::Ast<'_>) -> Span {
         self.node.span(ast)
     }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum TypeMemberBodyKind {
+    Literal,
+    Interface,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct IncomingTypeMember {
+    pub(super) node: TsTypeElement,
+    pub(super) mode: ContentMode,
 }
 
 #[derive(Clone, Copy)]
@@ -151,14 +163,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         node: TsTypeLiteral,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        self.format_type_member_body(node.span(self.ast), node.members(self.ast), writer)?;
+        self.format_type_member_body(
+            node.span(self.ast),
+            node.members(self.ast),
+            TypeMemberBodyKind::Literal,
+            None,
+            writer,
+        )?;
         Ok(None)
     }
 
-    fn format_type_member_body(
+    pub(super) fn format_type_member_body(
         &mut self,
         span: Span,
         members: SubRange<TsTypeElement>,
+        kind: TypeMemberBodyKind,
+        incoming: Option<IncomingTypeMember>,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let ast = self.ast;
@@ -183,7 +203,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 return Ok(());
             }
             let boundary = self.prepare_comment_boundary(comments, content.start, content.end);
-            return writer.group(false, |writer| {
+            return writer.group(matches!(kind, TypeMemberBodyKind::Interface), |writer| {
                 writer.text("{");
                 writer.indent(|writer| self.format_comment_boundary(&boundary, writer))?;
                 boundary.gap().write(
@@ -194,7 +214,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         FlatSeparator::Empty
                     },
                     |writer| {
-                        if self.options.bracket_spacing {
+                        if matches!(kind, TypeMemberBodyKind::Interface) {
+                            writer.hard_line();
+                        } else if self.options.bracket_spacing {
                             writer.line();
                         } else {
                             writer.soft_line();
@@ -208,13 +230,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let first_start = first.span(ast).start;
         let leading_span = Span::new(content.start, first_start);
         let leading_comments = self.comments.in_range(leading_span);
-        let mut mode = self.content_mode(leading_comments);
+        let mut mode = incoming
+            .filter(|member| member.node == first.node)
+            .map_or_else(|| self.content_mode(leading_comments), |member| member.mode);
         let leading = self.prepare_member_gap(leading_span);
-        let expanded = self.line_breaks(content.start, first_start) != 0;
+        let expanded = matches!(kind, TypeMemberBodyKind::Interface)
+            || self.line_breaks(content.start, first_start) != 0;
         writer.group(expanded, |writer| {
             writer.text("{");
             let closing = writer.indent(|writer| {
-                self.format_member_gap(leading, MemberGapRole::Opening, writer)?;
+                self.format_member_gap(leading, MemberGapRole::Opening, kind, writer)?;
                 while let Some(node) = members.next() {
                     let span = node.span(ast);
                     let next = members.peek().copied();
@@ -269,7 +294,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                             }
                         };
                     }
-                    self.format_member_gap(gap, MemberGapRole::Between, writer)?;
+                    self.format_member_gap(gap, MemberGapRole::Between, kind, writer)?;
                     mode = suppression.map_or(ContentMode::Formatted, |source| source.following);
                 }
                 unreachable!("a nonempty type body retains its final member")
@@ -284,7 +309,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         FlatSeparator::Empty
                     },
                     |writer| {
-                        if self.options.bracket_spacing {
+                        if matches!(kind, TypeMemberBodyKind::Interface) {
+                            writer.hard_line();
+                        } else if self.options.bracket_spacing {
                             writer.line();
                         } else {
                             writer.soft_line();
@@ -310,6 +337,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         gap: MemberGap<'ast>,
         role: MemberGapRole,
+        kind: TypeMemberBodyKind,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let spaced = self.options.bracket_spacing || matches!(role, MemberGapRole::Between);
@@ -323,7 +351,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             MemberGap::Formatted(boundary) => {
                 self.format_comment_boundary(&boundary, writer)?;
                 boundary.gap().write(writer, flat, |writer| {
-                    if spaced {
+                    if matches!(kind, TypeMemberBodyKind::Interface) {
+                        writer.hard_line();
+                    } else if spaced {
                         writer.line();
                     } else {
                         writer.soft_line();
@@ -486,7 +516,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let gap = Span::new(span.start + keyword.len() as u32, start);
             (
                 keyword,
-                self.prepare_callable_gap(
+                self.prepare_type_gap(
                     gap,
                     self.has_suppression
                         && self.content_mode(self.comments.in_range(gap)) == ContentMode::Verbatim,
@@ -495,7 +525,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         });
         let mut mode = ContentMode::Formatted;
         if self.has_suppression
-            && let Some((_, CallableGap::Source(_))) = &prefix
+            && let Some((_, TypeGap::Source(_))) = &prefix
         {
             mode = ContentMode::Verbatim;
         }
@@ -572,7 +602,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     key.mode = ContentMode::Verbatim;
                 }
             }
-            Some(self.prepare_callable_gap(gap, source))
+            Some(self.prepare_type_gap(gap, source))
         } else {
             None
         };
@@ -662,7 +692,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
             }
         }
-        let prefix = self.prepare_callable_gap(head_gap, head_source);
+        let prefix = self.prepare_type_gap(head_gap, head_source);
         let generics = parts
             .generics
             .map(|generic| {
@@ -691,11 +721,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         }
                     }
                 }
-                Ok((
-                    generic,
-                    generic_mode,
-                    self.prepare_callable_gap(gap, source),
-                ))
+                Ok((generic, generic_mode, self.prepare_type_gap(gap, source)))
             })
             .transpose()?;
         let result = parts.result.map(|annotation| {
@@ -778,7 +804,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         let prefix = node.readonly(ast).then(|| {
             let gap = Span::new(span.start + 8, opening);
-            self.prepare_callable_gap(
+            self.prepare_type_gap(
                 gap,
                 self.content_mode(self.comments.in_range(gap)) == ContentMode::Verbatim,
             )
@@ -808,7 +834,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 source_tail = last;
             }
         }
-        let closing_gap = self.prepare_callable_gap(
+        let closing_gap = self.prepare_type_gap(
             closing_span,
             self.content_mode(closing_comments) == ContentMode::Verbatim,
         );
@@ -841,7 +867,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<(), FormatError> {
         if let Some((keyword, gap)) = key.prefix {
             writer.text(keyword);
-            self.format_callable_gap(gap, FlatSeparator::Space, writer)?;
+            self.format_type_gap(gap, FlatSeparator::Space, writer)?;
         }
         self.format_property_key_context(key.node, key.computed, key.mode, context, writer)
     }
@@ -877,7 +903,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     self.format_prepared_type(node, TypeContext::Root, writer)
                 } else {
                     if let Some(ending) = property.ending {
-                        self.format_callable_gap(ending, FlatSeparator::Empty, writer)?;
+                        self.format_type_gap(ending, FlatSeparator::Empty, writer)?;
                     }
                     if property.optional {
                         writer.text("?");
@@ -891,10 +917,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 } else if signature.construct {
                     writer.text("new");
                 }
-                if signature.optional && matches!(signature.prefix, CallableGap::Formatted(_)) {
+                if signature.optional && matches!(signature.prefix, TypeGap::Formatted(_)) {
                     writer.text("?");
                 }
-                self.format_callable_gap(
+                self.format_type_gap(
                     signature.prefix,
                     if signature.construct {
                         FlatSeparator::Space
@@ -910,7 +936,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         mode,
                         writer,
                     )?;
-                    self.format_callable_gap(gap, FlatSeparator::Empty, writer)?;
+                    self.format_type_gap(gap, FlatSeparator::Empty, writer)?;
                 }
                 self.format_callable_parameters(signature.parameters, writer)?;
                 match signature.result {
@@ -930,7 +956,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let ast = self.ast;
         if let Some(prefix) = index.prefix {
             writer.text("readonly");
-            self.format_callable_gap(prefix, FlatSeparator::Space, writer)?;
+            self.format_type_gap(prefix, FlatSeparator::Space, writer)?;
         }
         writer.group(false, |writer| {
             writer.text("[");
@@ -997,7 +1023,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         separator = boundary.separator;
                     }
                 }
-                self.format_callable_gap(index.closing_gap, FlatSeparator::Empty, writer)
+                self.format_type_gap(index.closing_gap, FlatSeparator::Empty, writer)
             })?;
             writer.text("]");
             self.format_signature_return(index.result, writer)

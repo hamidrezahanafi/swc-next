@@ -797,7 +797,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let boundary = if declaration.is_some_and(|declaration| {
                     matches!(
                         self.ast.decl_data(declaration),
-                        DeclData::TsTypeAliasDeclaration(_)
+                        DeclData::TsTypeAliasDeclaration(_) | DeclData::TsInterfaceDeclaration(_)
                     )
                 }) {
                     boundary.type_declaration()

@@ -118,7 +118,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let data = self.ast.decl_data(declaration);
         if mode == ContentMode::Verbatim {
             let span = declaration.span(self.ast);
-            let end = if matches!(data, DeclData::TsTypeAliasDeclaration(_)) {
+            let end = if matches!(
+                data,
+                DeclData::TsTypeAliasDeclaration(_) | DeclData::TsInterfaceDeclaration(_)
+            ) {
                 span.end
             } else {
                 self.declaration_content_end(declaration)
@@ -128,12 +131,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 DeclData::VariableDeclaration(_) => {
                     self.finish_statement(end, None, punctuation, writer)
                 }
-                DeclData::TsTypeAliasDeclaration(_) => Ok(StatementBoundary::SourceEnd {
-                    end,
-                    has_terminator: self.source(span).ends_with(';'),
+                DeclData::TsTypeAliasDeclaration(_) | DeclData::TsInterfaceDeclaration(_) => {
+                    Ok(StatementBoundary::SourceEnd {
+                        end,
+                        has_terminator: self.source(span).ends_with(';'),
+                    }
+                    .type_declaration()
+                    .into())
                 }
-                .type_declaration()
-                .into()),
                 _ => Ok(StatementBoundary::SourceEnd {
                     end,
                     has_terminator: false,
@@ -161,6 +166,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             DeclData::VariableDeclaration(variable) => {
                 let (end, tail) = self.format_variable_declaration(variable, writer)?;
                 self.finish_statement(end, tail, punctuation, writer)
+            }
+            DeclData::TsInterfaceDeclaration(interface) => {
+                self.format_interface(interface, writer)?;
+                Ok(StatementBoundary::TypeDeclarationEnd {
+                    end: interface.body(self.ast).span(self.ast).end,
+                    has_terminator: false,
+                }
+                .into())
             }
             DeclData::TsTypeAliasDeclaration(alias) => {
                 let (end, tail) = self.format_type_alias(alias, writer)?;
