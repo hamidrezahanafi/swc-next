@@ -7,6 +7,7 @@ mod context;
 mod generics;
 mod infer;
 mod interfaces;
+mod mapped;
 mod members;
 mod postfix;
 mod tuple;
@@ -488,6 +489,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             TsTypeData::TsTypeReference(reference) => self.format_type_reference(reference, writer),
             TsTypeData::TsConditionalType(node) => self.format_conditional_type(node, writer),
             TsTypeData::TsInferType(node) => self.format_infer_type(node, writer),
+            TsTypeData::TsMappedType(node) => self.format_mapped_type(node, writer),
             TsTypeData::TsLiteralType(literal) => {
                 match self.ast.ts_literal_data(literal.literal(self.ast)) {
                     TsLiteralData::StringLiteral(node) => {
