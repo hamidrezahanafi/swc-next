@@ -3,13 +3,13 @@ formatter * prettier 3.9.9 * typescript
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 657
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 205/804 (25.50%)
-Snapshot matched: 205/804
-AST parity: 332/332
-AST mismatched: 0/332
+Passed: 207/804 (25.75%)
+Snapshot matched: 207/804
+AST parity: 334/334
+AST mismatched: 0/334
 AST format errors: 0/804
 Mismatched: 127/804
-Format errors: 472/804
+Format errors: 470/804
 Panicked: 0/804
 Not idempotent: 0/804
 Ignored files: 76
@@ -269,7 +269,6 @@ Unsupported option sets: 7
 - typescript/conformance/types/intersectionType/intersectionType.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/lastTypeNode/lastTypeNode.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/moduleDeclaration/kind-detection.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/conformance/types/namespaceExportDeclaration/exportAsNamespace.d.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/parameterProperty/parameterProperty.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/thisType/thisType.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/tuple/tupleElementTypes2.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -329,7 +328,6 @@ Unsupported option sets: 7
 - typescript/export/export-class.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/export/export-type-star-from-2.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/export/export-type-star-from.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/export/export.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/function-type/consistent.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/function-type/single-parameter.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/function-type/type-annotation.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent

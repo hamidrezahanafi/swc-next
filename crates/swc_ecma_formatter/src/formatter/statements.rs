@@ -725,6 +725,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             StmtData::ExportDefaultDeclaration(node) if mode == ContentMode::Formatted => {
                 self.format_export_default(node, punctuation, writer)
             }
+            StmtData::TsExportAssignment(node) if mode == ContentMode::Formatted => {
+                self.format_ts_export_assignment(node, punctuation, writer)
+            }
+            StmtData::TsNamespaceExportDeclaration(node) if mode == ContentMode::Formatted => {
+                self.format_ts_namespace_export(node, punctuation, writer)
+            }
             StmtData::ExportAllDeclaration(node) if mode == ContentMode::Formatted => {
                 self.format_export_all(node, punctuation, writer)
             }
@@ -800,16 +806,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     StmtData::ExportNamedDeclaration(node) => node.declaration(self.ast),
                     _ => None,
                 };
-                let boundary = if declaration.is_some_and(|declaration| {
-                    matches!(
-                        self.ast.decl_data(declaration),
-                        DeclData::TsTypeAliasDeclaration(_)
-                            | DeclData::TsInterfaceDeclaration(_)
-                            | DeclData::TsModuleDeclaration(_)
-                            | DeclData::TsGlobalDeclaration(_)
-                            | DeclData::TsImportEqualsDeclaration(_)
-                    )
-                }) {
+                let boundary = if matches!(data, StmtData::TsNamespaceExportDeclaration(_))
+                    || declaration.is_some_and(|declaration| {
+                        matches!(
+                            self.ast.decl_data(declaration),
+                            DeclData::TsTypeAliasDeclaration(_)
+                                | DeclData::TsInterfaceDeclaration(_)
+                                | DeclData::TsModuleDeclaration(_)
+                                | DeclData::TsGlobalDeclaration(_)
+                                | DeclData::TsImportEqualsDeclaration(_)
+                        )
+                    }) {
                     boundary.type_declaration()
                 } else {
                     boundary

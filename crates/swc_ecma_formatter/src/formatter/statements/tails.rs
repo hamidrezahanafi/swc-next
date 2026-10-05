@@ -86,6 +86,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let (before, after) = comments.split_at(split);
         let child_tail = match statement {
             StatementItem::Statement(node) => match self.ast.stmt_data(node) {
+                StmtData::TsExportAssignment(_) | StmtData::TsNamespaceExportDeclaration(_) => true,
                 StmtData::Declaration(declaration) => matches!(
                     self.ast.decl_data(declaration),
                     DeclData::TsTypeAliasDeclaration(_) | DeclData::TsImportEqualsDeclaration(_)
@@ -246,6 +247,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
                 StmtData::ExportDefaultDeclaration(node) => {
                     return node.declaration(self.ast).span(self.ast).end;
+                }
+                StmtData::TsExportAssignment(node) => {
+                    return node.expression(self.ast).span(self.ast).end;
+                }
+                StmtData::TsNamespaceExportDeclaration(node) => {
+                    return node.id(self.ast).span(self.ast).end;
                 }
                 StmtData::DebuggerStatement(node) => {
                     return node.span(self.ast).start + "debugger".len() as u32;

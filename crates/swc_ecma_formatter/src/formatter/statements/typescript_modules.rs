@@ -1,11 +1,14 @@
 //! TypeScript module leaves retain real names, references and expression owners.
 
 use swc_next_ecma_ast::{
-    Expr, GetSpan, ImportOrExportKind, Span, TsImportEqualsDeclaration, TsModuleReference,
-    TsModuleReferenceData,
+    Expr, GetSpan, ImportOrExportKind, Span, TsExportAssignment, TsImportEqualsDeclaration,
+    TsModuleReference, TsModuleReferenceData, TsNamespaceExportDeclaration,
 };
 
 use super::{DeclarationKeyword, Formatter, PrintedStatement, StatementPunctuation};
+use crate::formatter::comments::{CommentRunLayout, NodeHead};
+use crate::formatter::diagnostics::FlatSeparator;
+use crate::formatter::expressions::ExpressionContext;
 use crate::formatter::expressions::imports::ImportArguments;
 use crate::formatter::suppression::ContentMode;
 use crate::{FormatError, document::Writer};
@@ -121,5 +124,118 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 )
             }
         }
+    }
+
+    pub(super) fn format_ts_export_assignment(
+        &mut self,
+        node: TsExportAssignment,
+        punctuation: StatementPunctuation,
+        writer: &mut Writer<'ast>,
+    ) -> Result<PrintedStatement<'ast>, FormatError> {
+        let ast = self.ast;
+        let expression = node.expression(ast);
+        let span = expression.span(ast);
+        let keyword_end = node.span(ast).start + "export".len() as u32;
+        let prefix = Span::new(keyword_end, span.start);
+        let operator = self.module_operator(prefix, "=")?;
+        let prefix_mode = if self.has_suppression {
+            self.content_mode(self.comments.in_range(prefix))
+        } else {
+            ContentMode::Formatted
+        };
+        let mode = if self.has_suppression
+            && self.content_mode(
+                self.comments
+                    .in_range(Span::new(span.end, node.span(ast).end)),
+            ) == ContentMode::Verbatim
+        {
+            ContentMode::Verbatim
+        } else {
+            prefix_mode
+        };
+        writer.text("export");
+        let tail = if prefix_mode == ContentMode::Verbatim {
+            self.format_verbatim(prefix, writer)?;
+            self.format_expression(
+                expression,
+                ExpressionContext::variable_initializer().with_content_mode(mode),
+                writer,
+            )?
+        } else {
+            self.format_module_gap(keyword_end, operator.start, true, writer)?;
+            writer.text("=");
+            let comments = self.comments.between(Span::new(operator.end, span.start))?;
+            let comments = self.comments.take(comments.len());
+            writer.space();
+            self.format_expression_with_leading_comments(
+                expression,
+                NodeHead {
+                    comments,
+                    content_start: span.start,
+                    layout: CommentRunLayout::Source,
+                    gap_end: comments.last().map(|_| span.start),
+                },
+                ExpressionContext::variable_initializer().with_content_mode(mode),
+                writer,
+            )?
+        };
+        self.finish_statement(span.end, tail, punctuation, writer)
+    }
+
+    pub(super) fn format_ts_namespace_export(
+        &mut self,
+        node: TsNamespaceExportDeclaration,
+        punctuation: StatementPunctuation,
+        writer: &mut Writer<'ast>,
+    ) -> Result<PrintedStatement<'ast>, FormatError> {
+        let ast = self.ast;
+        let name = node.id(ast);
+        let name_span = name.span(ast);
+        let keyword_end = node.span(ast).start + "export".len() as u32;
+        let prefix = Span::new(keyword_end, name_span.start);
+        let as_token = self.module_operator(prefix, "as")?;
+        let namespace_token =
+            self.module_operator(Span::new(as_token.end, name_span.start), "namespace")?;
+        let prefix_mode = if self.has_suppression {
+            self.content_mode(self.comments.in_range(prefix))
+        } else {
+            ContentMode::Formatted
+        };
+        let mode = if self.has_suppression
+            && self.content_mode(
+                self.comments
+                    .in_range(Span::new(name_span.end, node.span(ast).end)),
+            ) == ContentMode::Verbatim
+        {
+            ContentMode::Verbatim
+        } else {
+            prefix_mode
+        };
+        let before_as = self.prepare_type_gap(
+            Span::new(keyword_end, as_token.start),
+            prefix_mode == ContentMode::Verbatim,
+        );
+        let before_namespace = self.prepare_type_gap(
+            Span::new(as_token.end, namespace_token.start),
+            prefix_mode == ContentMode::Verbatim,
+        );
+        let before_name = self.prepare_type_gap(
+            Span::new(namespace_token.end, name_span.start),
+            prefix_mode == ContentMode::Verbatim,
+        );
+        writer.text("export");
+        self.format_type_gap(before_as, FlatSeparator::Space, writer)?;
+        writer.text("as");
+        self.format_type_gap(before_namespace, FlatSeparator::Space, writer)?;
+        writer.text("namespace");
+        self.format_type_gap(before_name, FlatSeparator::Space, writer)?;
+        if mode == ContentMode::Verbatim {
+            self.format_verbatim(name_span, writer)?;
+        } else {
+            writer.text(ast.get_utf8(name.name(ast)));
+        }
+        let mut printed = self.finish_statement(name_span.end, None, punctuation, writer)?;
+        printed.boundary = printed.boundary.type_declaration();
+        Ok(printed)
     }
 }
