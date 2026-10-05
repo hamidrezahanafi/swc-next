@@ -36,6 +36,7 @@ pub(in crate::formatter) enum FollowingItem {
     /// The enclosing syntax prepared the real owner beyond this closing delimiter.
     ResolvedTerminal(DelimitedSuppression),
     Node(Span),
+    ModuleSpecifier(Span),
     Elision {
         node: Option<Span>,
         holes: usize,
@@ -46,7 +47,7 @@ impl FollowingItem {
     fn node(self) -> Option<Span> {
         match self {
             Self::End | Self::ResolvedTerminal(_) => None,
-            Self::Node(span) => Some(span),
+            Self::Node(span) | Self::ModuleSpecifier(span) => Some(span),
             Self::Elision { node, .. } => node,
         }
     }
@@ -233,6 +234,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         DelimitedFollowing::End
                     }
                     FollowingItem::Node(_) => DelimitedFollowing::Node,
+                    FollowingItem::ModuleSpecifier(_) => DelimitedFollowing::ModuleSpecifier,
                     FollowingItem::Elision { node: Some(_), .. } => DelimitedFollowing::Node,
                     FollowingItem::Elision { node: None, .. } => DelimitedFollowing::End,
                 },

@@ -20,8 +20,8 @@ pub(super) mod targets;
 mod unary;
 
 use swc_next_ecma_ast::{
-    Argument, ArgumentData, ArrayExpression, CallExpression, Expr, ExprData, GetSpan,
-    ObjectExpression, Span, UnaryOperator, UpdateOperator,
+    Argument, ArgumentData, ArrayExpression, AssignmentTargetData, CallExpression, Expr, ExprData,
+    GetSpan, ObjectExpression, SimpleAssignmentTargetData, Span, UnaryOperator, UpdateOperator,
 };
 
 use self::arrays::{ArrayArgumentArity, RecordedArray, RecordedArrayArgument};
@@ -46,6 +46,7 @@ pub(super) enum AccessKind {
 #[derive(Clone, Copy)]
 pub(super) enum ExpressionPosition {
     Statement,
+    ExportDefault,
     Nested,
     UnaryArgument(UnaryOperator),
     ParenthesizedUnaryArgument(UnaryOperator),
@@ -766,6 +767,80 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     }
 
     /// Unknown grammar keeps source parentheses until its formatting rules are implemented.
+    /// A default export cannot expose a function/class declaration head followed
+    /// by expression syntax. Stop once an inner owner already supplies parentheses.
+    fn default_export_head_needs_parentheses(&self, mut data: ExprData, mode: ContentMode) -> bool {
+        loop {
+            let (expression, position) = if let Some(binary) = BinaryLike::from_data(data, self.ast)
+            {
+                (
+                    binary.left,
+                    ExpressionPosition::BinaryOperand {
+                        operator: binary.operator,
+                        side: OperandSide::Left,
+                    },
+                )
+            } else {
+                match data {
+                    ExprData::Function(_) | ExprData::Class(_) => return true,
+                    ExprData::CallExpression(call) => (
+                        call.callee(self.ast),
+                        ExpressionPosition::CallCallee {
+                            access: if call.optional(self.ast) {
+                                AccessKind::Optional
+                            } else {
+                                AccessKind::Ordinary
+                            },
+                            curried_call: None,
+                        },
+                    ),
+                    ExprData::MemberExpression(member) => (
+                        member.object(self.ast),
+                        ExpressionPosition::MemberObject(if member.optional(self.ast) {
+                            AccessKind::Optional
+                        } else {
+                            AccessKind::Ordinary
+                        }),
+                    ),
+                    ExprData::ConditionalExpression(conditional) => (
+                        conditional.test(self.ast),
+                        ExpressionPosition::ConditionalTest,
+                    ),
+                    ExprData::ChainExpression(chain) => {
+                        (chain.expression(self.ast), ExpressionPosition::Nested)
+                    }
+                    ExprData::AssignmentExpression(assignment) => {
+                        let AssignmentTargetData::SimpleAssignmentTarget(target) =
+                            self.ast.assignment_target_data(assignment.left(self.ast))
+                        else {
+                            return false;
+                        };
+                        let SimpleAssignmentTargetData::MemberExpression(member) =
+                            self.ast.simple_assignment_target_data(target)
+                        else {
+                            return false;
+                        };
+                        (Expr::MemberExpression(member), ExpressionPosition::Nested)
+                    }
+                    ExprData::UpdateExpression(update) if !update.prefix(self.ast) => {
+                        let SimpleAssignmentTargetData::MemberExpression(member) = self
+                            .ast
+                            .simple_assignment_target_data(update.argument(self.ast))
+                        else {
+                            return false;
+                        };
+                        (Expr::MemberExpression(member), ExpressionPosition::Nested)
+                    }
+                    _ => return false,
+                }
+            };
+            data = self.expression_content(expression).data;
+            if self.expression_needs_parentheses(data, position, mode) == Some(true) {
+                return false;
+            }
+        }
+    }
+
     fn expression_needs_parentheses(
         &self,
         data: ExprData,
@@ -778,6 +853,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ExpressionPosition::ForInitializer { parentheses: true }
                     | ExpressionPosition::ForLeft { parentheses: true }
             )
+        {
+            return Some(true);
+        }
+        if matches!(position, ExpressionPosition::ExportDefault)
+            && self.default_export_head_needs_parentheses(data, mode)
         {
             return Some(true);
         }
@@ -900,7 +980,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ));
         }
         Some(match (position, data) {
-            (ExpressionPosition::NewCallee, ExprData::Function(_)) => true,
+            (
+                ExpressionPosition::NewCallee | ExpressionPosition::CallCallee { .. },
+                ExprData::Function(_),
+            ) => true,
             (
                 ExpressionPosition::MemberObject(_) | ExpressionPosition::MemberAssignmentObject,
                 ExprData::NumericLiteral(_)
@@ -925,6 +1008,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             (position, ExprData::AssignmentExpression(_)) => !matches!(
                 position,
                 ExpressionPosition::Statement
+                    | ExpressionPosition::ExportDefault
                     | ExpressionPosition::AssignmentRight(_)
                     | ExpressionPosition::ForHead
                     | ExpressionPosition::ForInitializer { .. }

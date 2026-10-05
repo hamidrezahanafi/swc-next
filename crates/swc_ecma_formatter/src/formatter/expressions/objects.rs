@@ -3,7 +3,7 @@
 use swc_next_ecma_ast::{
     Argument, Comment, CommentKind, ExprData, GetSpan, ObjectExpression, ObjectProperty,
     ObjectPropertyKind, ObjectPropertyKindData, PropertyKey, PropertyKeyData, PropertyKind, Span,
-    SubRange,
+    StringLiteral, SubRange,
 };
 
 use super::{ExpressionContext, ExpressionPosition, Formatter};
@@ -22,6 +22,7 @@ pub(in crate::formatter) enum PropertyKeyContext {
     Ordinary,
     FunctionValueBinding,
     ClassField,
+    ModuleAttribute,
 }
 
 enum SourceObject<'ast> {
@@ -770,7 +771,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    fn unquoted_string_key(
+    pub(in crate::formatter) fn unquoted_string_key(
         &self,
         literal: swc_next_ecma_ast::StringLiteral,
         context: PropertyKeyContext,
@@ -784,7 +785,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let raw = self.ast.get_utf8(literal.raw(self.ast));
         let content = &raw[1..raw.len() - 1];
         (swc_next_ecma_ast::is_identifier_es5_and_esnext(content.as_bytes())
-            || !self.ast.lang().is_typescript() && numeric_property_name(content))
+            || !matches!(context, PropertyKeyContext::ModuleAttribute)
+                && !self.ast.lang().is_typescript()
+                && numeric_property_name(content))
         .then_some(content)
     }
 
@@ -887,6 +890,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             },
         }
         Ok(())
+    }
+    pub(in crate::formatter) fn format_string_property_name(
+        &self,
+        literal: StringLiteral,
+        context: PropertyKeyContext,
+        writer: &mut Writer<'ast>,
+    ) {
+        if let Some(content) = self.unquoted_string_key(literal, context) {
+            writer.text(content);
+        } else {
+            self.format_string_literal(literal, StringContext::Expression, writer);
+        }
     }
 }
 

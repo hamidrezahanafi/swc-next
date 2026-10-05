@@ -214,6 +214,26 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 StmtData::Declaration(declaration) => {
                     return self.declaration_content_end(declaration);
                 }
+                StmtData::ImportDeclaration(node) => {
+                    return self.module_source_content_end(
+                        node.source(self.ast),
+                        node.attributes(self.ast),
+                        node.span(self.ast).end,
+                    );
+                }
+                StmtData::ExportAllDeclaration(node) => {
+                    return self.module_source_content_end(
+                        node.source(self.ast),
+                        node.attributes(self.ast),
+                        node.span(self.ast).end,
+                    );
+                }
+                StmtData::ExportNamedDeclaration(node) => {
+                    return self.module_named_content_end(node);
+                }
+                StmtData::ExportDefaultDeclaration(node) => {
+                    return node.declaration(self.ast).span(self.ast).end;
+                }
                 StmtData::DebuggerStatement(node) => {
                     return node.span(self.ast).start + "debugger".len() as u32;
                 }
