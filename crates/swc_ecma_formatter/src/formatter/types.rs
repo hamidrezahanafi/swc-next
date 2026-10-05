@@ -2,6 +2,7 @@
 
 mod callable;
 mod compound;
+mod conditional;
 mod context;
 mod generics;
 mod interfaces;
@@ -429,7 +430,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             return self.format_parenthesized_type(parentheses, node.source_owner, context, writer);
         }
-        if context.needs_parentheses(node.data) {
+        if context.needs_parentheses(node.data, self.ast) {
             return writer.group(false, |writer| {
                 writer.text("(");
                 writer.indent(|writer| {
@@ -477,6 +478,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         match node.data {
             TsTypeData::TsTypeReference(reference) => self.format_type_reference(reference, writer),
+            TsTypeData::TsConditionalType(node) => self.format_conditional_type(node, writer),
             TsTypeData::TsLiteralType(literal) => {
                 match self.ast.ts_literal_data(literal.literal(self.ast)) {
                     TsLiteralData::StringLiteral(node) => {

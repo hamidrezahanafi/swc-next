@@ -443,7 +443,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.indent(|writer| {
                 if let Some(bound) = parameter.constraint {
                     self.format_type_boundary(&bound.boundary, writer)?;
-                    let tail = self.format_prepared_type(bound.node, TypeContext::Root, writer)?;
+                    let tail =
+                        self.format_prepared_type(bound.node, TypeContext::TypeConstraint, writer)?;
                     if parameter.default.is_none() {
                         return Ok(tail);
                     }
