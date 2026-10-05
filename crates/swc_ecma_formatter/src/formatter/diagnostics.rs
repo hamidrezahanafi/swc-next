@@ -162,10 +162,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if !self.diagnostic_line_is_sensitive(start) {
             LineConstraint::Unconstrained
         } else {
-            match self.line_breaks(start, end) {
-                0 => LineConstraint::SameLine,
-                count => LineConstraint::NewLine(count),
-            }
+            self.source_line_constraint(start, end)
+        }
+    }
+
+    pub(super) fn source_line_constraint(&self, start: u32, end: u32) -> LineConstraint {
+        match self.line_breaks(start, end) {
+            0 => LineConstraint::SameLine,
+            count => LineConstraint::NewLine(count),
         }
     }
 

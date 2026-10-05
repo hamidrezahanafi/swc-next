@@ -10,7 +10,6 @@ use super::{
 };
 use crate::formatter::comments::{CommentBoundary, CommentGap, CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
-use crate::formatter::source::is_source_whitespace;
 use crate::formatter::suppression::{
     BoundaryPunctuation, ContentMode, DelimitedFollowing, SuppressionPosition,
 };
@@ -326,10 +325,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let first = after_opening
                     .first()
                     .map_or(property_span.start, |comment| comment.span.start);
-                *opening = match self.line_breaks(brackets.start + 1, first) {
-                    0 => LineConstraint::SameLine,
-                    count => LineConstraint::NewLine(count),
-                };
+                *opening = self.source_line_constraint(brackets.start + 1, first);
             }
             if key != ContentMode::Verbatim {
                 key = self.trailing_content_mode(
@@ -520,7 +516,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 key: key_mode,
             };
         }
-        for (run, position) in self.member_suppressed_comment_runs(comments, key_start) {
+        for (run, position) in self.suppressed_comment_runs(comments, key_start) {
             match position {
                 SuppressionPosition::OwnLine => {
                     let identifier = match key {
@@ -551,60 +547,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             receiver,
             key: key_mode,
         }
-    }
-
-    /// Physical runs stop at punctuation and line breaks and share source placement.
-    /// Syntax owners resolve each marker's actual target, including Block/Line differences.
-    fn member_suppressed_comment_runs<'a>(
-        &'a self,
-        comments: &'a [Comment],
-        following_start: u32,
-    ) -> impl Iterator<Item = (&'a [Comment], SuppressionPosition)> + 'a {
-        let comments = if self.has_suppression { comments } else { &[] };
-        let mut runs = comments
-            .chunk_by(|left, right| {
-                self.source(Span::new(left.span.end, right.span.start))
-                    .chars()
-                    .all(|character| {
-                        is_source_whitespace(character)
-                            && !matches!(character, '\n' | '\r' | '\u{2028}' | '\u{2029}')
-                    })
-            })
-            .peekable();
-        std::iter::from_fn(move || {
-            while let Some(run) = runs.next() {
-                if self.content_mode(run) != ContentMode::Verbatim {
-                    continue;
-                }
-                let first = run.first()?;
-                let last = run.last()?;
-                let following = runs
-                    .peek()
-                    .and_then(|next| next.first())
-                    .map_or(following_start, |comment| comment.span.start);
-                let position = if self.source_position_starts_line(first.span.start) {
-                    SuppressionPosition::OwnLine
-                } else if self.member_comment_run_ends_line(*last, following) {
-                    SuppressionPosition::EndOfLine
-                } else {
-                    SuppressionPosition::Inline
-                };
-                return Some((run, position));
-            }
-            None
-        })
-    }
-
-    fn member_comment_run_ends_line(&self, last: Comment, following: u32) -> bool {
-        last.kind == CommentKind::Line
-            || self
-                .source(Span::new(last.span.end, following))
-                .chars()
-                .find(|&character| {
-                    !is_source_whitespace(character)
-                        || matches!(character, '\n' | '\r' | '\u{2028}' | '\u{2029}')
-                })
-                .is_some_and(|character| matches!(character, '\n' | '\r' | '\u{2028}' | '\u{2029}'))
     }
 
     fn member_key_is_identifier(&self, mut expression: Expr) -> bool {

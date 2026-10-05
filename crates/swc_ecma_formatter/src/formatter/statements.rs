@@ -14,9 +14,17 @@ use super::source::is_source_whitespace;
 use super::suppression::{BoundaryPunctuation, ContentMode, SuppressionPosition};
 use crate::{FormatError, Semicolons, document::Writer};
 
+#[derive(Clone, Copy)]
 pub(super) enum StatementSequenceKind {
     Program { has_source_items: bool },
     Block,
+    Function(Option<IncomingStatement>),
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct IncomingStatement {
+    pub(super) span: Span,
+    pub(super) mode: ContentMode,
 }
 
 pub(super) struct StatementSequence {
@@ -32,7 +40,7 @@ pub(super) enum StatementItem {
 
 enum BodySource {
     Block(BlockStatement),
-    Function(FunctionBody),
+    Function(FunctionBody, Option<IncomingStatement>),
 }
 
 struct StatementAnnotationTail<'ast> {
@@ -98,18 +106,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<StatementSequence, FormatError> {
         let ast = self.ast;
+        let incoming = match kind {
+            StatementSequenceKind::Function(incoming) => incoming,
+            _ => None,
+        };
         let mut previous = previous_end.map(|end| StatementBoundary::SourceEnd {
             end,
             has_terminator: false,
         });
         let mut first_statement = true;
-        let mut pending = statements
-            .next()
-            .map(|item| self.prepare_sequence_statement(item, statements.peek().copied()));
+        let mut pending = statements.next().map(|item| {
+            self.prepare_sequence_statement(item, statements.peek().copied(), incoming)
+        });
         while let Some(prepared) = pending {
-            pending = statements
-                .next()
-                .map(|item| self.prepare_sequence_statement(item, statements.peek().copied()));
+            pending = statements.next().map(|item| {
+                self.prepare_sequence_statement(item, statements.peek().copied(), incoming)
+            });
             let PreparedStatement {
                 item: statement,
                 span: statement_span,
@@ -129,9 +141,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 if next.item.is_nonempty(ast) {
                     break;
                 }
-                pending = statements
-                    .next()
-                    .map(|item| self.prepare_sequence_statement(item, statements.peek().copied()));
+                pending = statements.next().map(|item| {
+                    self.prepare_sequence_statement(item, statements.peek().copied(), incoming)
+                });
             }
             let following = pending.as_ref().map(|next| next.span.start);
             let punctuation = if annotation_tail.is_some()
@@ -302,7 +314,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.comment_gap(boundary.end(), first.span.start, writer);
         }
         let layout = match (previous, kind) {
-            (None, StatementSequenceKind::Block) => CommentRunLayout::Lines,
+            (None, StatementSequenceKind::Block | StatementSequenceKind::Function(_)) => {
+                CommentRunLayout::Lines
+            }
             (
                 None,
                 StatementSequenceKind::Program {
@@ -326,6 +340,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &self,
         item: StatementItem,
         following: Option<StatementItem>,
+        incoming: Option<IncomingStatement>,
     ) -> PreparedStatement<'ast> {
         let span = item.span(self.ast);
         let annotation_tail = if (self.has_target_annotations || self.has_suppression)
@@ -338,7 +353,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         PreparedStatement {
             item,
             span,
-            mode: ContentMode::Formatted,
+            mode: incoming
+                .filter(|target| target.span == span)
+                .map_or(ContentMode::Formatted, |target| target.mode),
             annotation_tail,
         }
     }
@@ -611,9 +628,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         body: FunctionBody,
         mode: ContentMode,
+        incoming: Option<IncomingStatement>,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        self.format_braced_body(BodySource::Function(body), mode, writer)
+        self.format_braced_body(BodySource::Function(body, incoming), mode, writer)
     }
 
     fn format_braced_body(
@@ -623,15 +641,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let ast = self.ast;
-        let (span, directives, body, function) = match source {
-            BodySource::Block(block) => (block.span(ast), None, block.body(ast), false),
-            BodySource::Function(function) => (
+        let (span, directives, body, kind) = match source {
+            BodySource::Block(block) => (
+                block.span(ast),
+                None,
+                block.body(ast),
+                StatementSequenceKind::Block,
+            ),
+            BodySource::Function(function, incoming) => (
                 function.span(ast),
                 Some(function.directives(ast)),
                 function.body(ast),
-                true,
+                StatementSequenceKind::Function(incoming),
             ),
         };
+        let function = matches!(kind, StatementSequenceKind::Function(_));
         if mode == ContentMode::Verbatim {
             return self.format_verbatim(span, writer);
         }
@@ -668,13 +692,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             let sequence = writer.indent(|writer| {
                 opening.write(writer, FlatSeparator::Space, Writer::hard_line);
-                self.format_statement_sequence(
-                    items,
-                    content,
-                    None,
-                    StatementSequenceKind::Block,
-                    writer,
-                )
+                self.format_statement_sequence(items, content, None, kind, writer)
             })?;
             self.line_constraint(sequence.end, content.end).write(
                 writer,

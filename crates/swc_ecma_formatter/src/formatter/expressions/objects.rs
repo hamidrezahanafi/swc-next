@@ -7,13 +7,29 @@ use swc_next_ecma_ast::{
 };
 
 use super::{ExpressionContext, ExpressionPosition, Formatter};
-use crate::formatter::comments::{CommentBinding, CommentRunLayout, ExpressionTail, NodeHead};
+use crate::formatter::comments::{
+    CommentBinding, CommentBoundary, CommentRunLayout, ExpressionTail, NodeHead,
+};
+use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
+use crate::formatter::functions::{FunctionNameModes, FunctionSignatureOwner};
 use crate::formatter::literals::StringContext;
-use crate::formatter::suppression::{ContentMode, SuppressionPosition};
+use crate::formatter::suppression::{ContentMode, DelimitedFollowing, SuppressionPosition};
 use crate::{
     FormatError, QuoteProperties, TrailingCommas,
     document::{Fragment, Writer},
 };
+
+#[derive(Clone, Copy)]
+enum PropertyKeyContext {
+    Ordinary,
+    FunctionValueBinding,
+}
+
+struct MethodFunctionPrefix<'ast> {
+    boundary: CommentBoundary<'ast>,
+    binding: CommentBinding,
+    following: LineConstraint,
+}
 
 enum SourceObject<'ast> {
     Verbatim(Span),
@@ -27,6 +43,7 @@ struct FormattedObject<'ast> {
 
 enum ObjectContents<'ast> {
     Empty {
+        content: Span,
         comments: &'ast [Comment],
     },
     Properties {
@@ -50,11 +67,10 @@ struct ObjectBoundary<'ast> {
     separator: Span,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(in crate::formatter) enum PropertySuppression {
-    None,
-    Value,
-    Property,
+pub(in crate::formatter) struct PropertySuppression {
+    pub(in crate::formatter) key: ContentMode,
+    pub(in crate::formatter) value: ContentMode,
+    pub(in crate::formatter) enclosing: ContentMode,
 }
 
 struct ObjectPropertyBoundary<'ast> {
@@ -92,9 +108,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let ast = self.ast;
         let span = object.span(ast);
         let content = Span::new(span.start + 1, span.end - 1);
-        if self.diagnostic_range_is_sensitive(content) {
-            return Err(self.unsupported("object diagnostic boundary", object));
-        }
         let mut remaining = object.properties(ast);
         let Some(first) = remaining.first().map(|id| ast.get_node_in_sub_range(id)) else {
             let comments = self.comments.between(content)?;
@@ -104,7 +117,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let comments = self.comments.take(comments.len());
             return Ok(SourceObject::Formatted(FormattedObject {
                 expand: false,
-                contents: ObjectContents::Empty { comments },
+                contents: ObjectContents::Empty { content, comments },
             }));
         };
         let remaining = remaining.split_off(1);
@@ -161,20 +174,42 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<(), FormatError> {
         let ast = self.ast;
         match contents {
-            ObjectContents::Empty { comments } => {
+            ObjectContents::Empty { content, comments } => {
                 writer.text("{");
                 if !comments.is_empty() {
                     writer.indent(|writer| {
-                        writer.soft_line();
-                        self.format_comment_run(comments, CommentRunLayout::Lines, writer)
+                        self.opening_line_constraint(content).write(
+                            writer,
+                            FlatSeparator::Empty,
+                            Writer::soft_line,
+                        );
+                        let layout = if self.diagnostic_range_is_sensitive(content) {
+                            CommentRunLayout::Source
+                        } else {
+                            CommentRunLayout::Lines
+                        };
+                        self.format_comment_run(comments, layout, writer)
                     })?;
-                    writer.soft_line();
+                    let end = comments
+                        .last()
+                        .map_or(content.start, |comment| comment.span.end);
+                    self.line_constraint(end, content.end).write(
+                        writer,
+                        FlatSeparator::Empty,
+                        Writer::soft_line,
+                    );
                     if comments
                         .iter()
                         .any(|comment| comment.kind == CommentKind::Line)
                     {
                         writer.break_parent();
                     }
+                } else {
+                    self.opening_line_constraint(content).write(
+                        writer,
+                        FlatSeparator::Empty,
+                        |_| {},
+                    );
                 }
                 writer.text("}");
                 Ok(())
@@ -185,12 +220,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 remaining,
             } => {
                 writer.text("{");
-                writer.indent(|writer| {
-                    self.object_brace_line(writer);
+                let end = writer.indent(|writer| {
+                    self.opening_line_constraint(content).write(
+                        writer,
+                        if self.options.bracket_spacing {
+                            FlatSeparator::Space
+                        } else {
+                            FlatSeparator::Empty
+                        },
+                        |writer| self.object_brace_line(writer),
+                    );
                     let leading = self
                         .comments
                         .between(Span::new(content.start, first.span(ast).start))?;
                     let mut leading = leading;
+                    let mut following_mode = None;
                     let mut properties = remaining
                         .iter()
                         .map(|id| ast.get_node_in_sub_range(id))
@@ -204,9 +248,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                             .map_or(content.end, |next| next.span(ast).start);
                         let boundary = self
                             .object_boundary(Span::new(property_span.end, next_start), terminal);
-                        let mode = if self.content_mode(leading) == ContentMode::Verbatim
-                            || self.content_mode(boundary.inline) == ContentMode::Verbatim
-                            || self.content_mode(boundary.own_line) == ContentMode::Verbatim
+                        let suppression = self.delimited_suppression(
+                            property_span,
+                            next_start,
+                            if terminal {
+                                DelimitedFollowing::End
+                            } else {
+                                DelimitedFollowing::Node
+                            },
+                        );
+                        let leading_mode =
+                            following_mode.unwrap_or_else(|| self.content_mode(leading));
+                        let mode = if leading_mode == ContentMode::Verbatim
+                            || suppression
+                                .as_ref()
+                                .is_some_and(|source| source.preceding.is_some())
                         {
                             ContentMode::Verbatim
                         } else {
@@ -233,45 +289,97 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                                     )?,
                             }
                         };
-                        self.format_expression_tail(tail, writer)?;
-                        self.comments.claim(boundary.inline)?;
-                        self.format_inline_trailing_comments(boundary.inline, writer)?;
-                        if !terminal {
-                            writer.text(",");
-                            writer.line();
-                            if self.next_line_is_empty(
-                                boundary.separator.start,
-                                boundary.separator.end,
-                            ) {
-                                writer.hard_line();
-                            }
+                        let protected_gap = !terminal
+                            && suppression
+                                .as_ref()
+                                .is_some_and(|source| source.preceding.is_some());
+                        let (end, next_leading) = if protected_gap {
+                            let content_end = tail
+                                .as_ref()
+                                .map_or(property_span.end, |tail| tail.source_end);
+                            let source = self.format_delimited_source_gap(
+                                Span::new(content_end, next_start),
+                                DelimitedFollowing::Node,
+                                writer,
+                            )?;
+                            source
+                                .following
+                                .write(writer, FlatSeparator::Space, Writer::line);
+                            (source.end, &[][..])
                         } else {
-                            if self.options.trailing_commas != TrailingCommas::None {
-                                writer.if_break(",");
-                            }
-                            self.comments.claim(boundary.own_line)?;
-                            if let Some(first) = boundary.own_line.first() {
-                                writer.hard_line();
-                                if self.next_line_is_empty(boundary.trailing_end, first.span.start)
+                            self.format_expression_tail(tail, writer)?;
+                            self.comments.claim(boundary.inline)?;
+                            self.format_inline_trailing_comments(boundary.inline, writer)?;
+                            if !terminal {
+                                writer.text(",");
+                                let constraint = self.line_constraint(
+                                    boundary.separator.start,
+                                    boundary.separator.end,
+                                );
+                                constraint.write(writer, FlatSeparator::Space, Writer::line);
+                                if constraint == LineConstraint::Unconstrained
+                                    && self.next_line_is_empty(
+                                        boundary.separator.start,
+                                        boundary.separator.end,
+                                    )
                                 {
                                     writer.hard_line();
                                 }
-                                self.format_comment_run(
-                                    boundary.own_line,
-                                    CommentRunLayout::Lines,
-                                    writer,
-                                )?;
+                            } else {
+                                if self.options.trailing_commas != TrailingCommas::None {
+                                    writer.if_break(",");
+                                }
+                                self.comments.claim(boundary.own_line)?;
+                                if let Some(first) = boundary.own_line.first() {
+                                    let constraint = self
+                                        .line_constraint(boundary.trailing_end, first.span.start);
+                                    constraint.write(
+                                        writer,
+                                        FlatSeparator::Space,
+                                        Writer::hard_line,
+                                    );
+                                    if constraint == LineConstraint::Unconstrained
+                                        && self.next_line_is_empty(
+                                            boundary.trailing_end,
+                                            first.span.start,
+                                        )
+                                    {
+                                        writer.hard_line();
+                                    }
+                                    self.format_comment_run(
+                                        boundary.own_line,
+                                        if constraint == LineConstraint::Unconstrained {
+                                            CommentRunLayout::Lines
+                                        } else {
+                                            CommentRunLayout::Source
+                                        },
+                                        writer,
+                                    )?;
+                                }
                             }
-                        }
-                        leading = boundary.leading;
+                            let end = boundary
+                                .own_line
+                                .last()
+                                .map_or(boundary.trailing_end, |comment| comment.span.end);
+                            (end, boundary.leading)
+                        };
+                        following_mode = suppression.map(|source| source.following);
+                        leading = next_leading;
                         let Some(next) = properties.next() else {
-                            break;
+                            return Ok::<_, FormatError>(end);
                         };
                         property = next;
                     }
-                    Ok(())
                 })?;
-                self.object_brace_line(writer);
+                self.line_constraint(end, content.end).write(
+                    writer,
+                    if self.options.bracket_spacing {
+                        FlatSeparator::Space
+                    } else {
+                        FlatSeparator::Empty
+                    },
+                    |writer| self.object_brace_line(writer),
+                );
                 writer.text("}");
                 Ok(())
             }
@@ -336,15 +444,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let ast = self.ast;
         if property.method(ast) || property.kind(ast) != PropertyKind::Init {
-            return Err(self.unsupported("object method", property));
+            self.format_object_method(property, writer)?;
+            return Ok(None);
         }
         let key_end = self.object_key_end(property)?;
         if property.shorthand(ast) {
-            self.format_object_key(property, key_end, writer)?;
+            self.format_object_key(property, key_end, ContentMode::Formatted, writer)?;
             return Ok(None);
         }
         let boundary = self.object_property_boundary(property, key_end)?;
-        if boundary.suppression == PropertySuppression::Property {
+        if boundary.suppression.enclosing == ContentMode::Verbatim {
             self.format_verbatim(property.span(ast), writer)?;
             return Ok(None);
         }
@@ -353,16 +462,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let break_after =
             boundary.line_after_colon || self.assignment_right_breaks_after_operator(data);
         writer.group(false, |writer| {
-            self.format_object_key(property, boundary.key_end, writer)?;
+            self.format_object_key(property, boundary.key_end, boundary.suppression.key, writer)?;
             self.comments.claim(boundary.before)?;
             self.format_comment_run(
                 boundary.before,
                 CommentRunLayout::SourceAfter(boundary.key_end),
                 writer,
             )?;
-            if boundary.line_before_colon {
-                writer.hard_line();
-            }
+            let before_colon = boundary
+                .before
+                .last()
+                .map_or(boundary.key_end, |comment| comment.span.end);
+            self.line_constraint(before_colon, boundary.colon.start)
+                .write(writer, FlatSeparator::Empty, |writer| {
+                    if boundary.line_before_colon {
+                        writer.hard_line();
+                    }
+                });
             writer.text(":");
             self.comments.claim(boundary.operator_line)?;
             self.format_comment_run(
@@ -370,6 +486,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 CommentRunLayout::SourceAfter(boundary.operator_line_start),
                 writer,
             )?;
+            let after_colon = boundary
+                .operator_line
+                .last()
+                .map_or(boundary.colon.end, |comment| comment.span.end);
+            let value_start = boundary
+                .leading
+                .first()
+                .map_or(boundary.value_start, |comment| comment.span.start);
+            let constraint = self.line_constraint(after_colon, value_start);
             let mut write_value = |writer: &mut Writer<'ast>| {
                 self.comments.claim(boundary.moved)?;
                 self.format_comment_run(boundary.moved, CommentRunLayout::Source, writer)?;
@@ -399,24 +524,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         layout: CommentRunLayout::GroupedLeading(boundary.value_start),
                         gap_end: None,
                     },
-                    ExpressionContext::at(ExpressionPosition::PropertyValue).with_content_mode(
-                        if boundary.suppression == PropertySuppression::Value {
-                            ContentMode::Verbatim
-                        } else {
-                            ContentMode::Formatted
-                        },
-                    ),
+                    ExpressionContext::at(ExpressionPosition::PropertyValue)
+                        .with_content_mode(boundary.suppression.value),
                     writer,
                 )
             };
             if break_after {
                 writer.group(false, |writer| {
                     writer.indent(|writer| {
-                        if boundary.line_after_colon {
-                            writer.hard_line();
-                        } else {
-                            writer.line();
-                        }
+                        constraint.write(writer, FlatSeparator::Space, |writer| {
+                            if boundary.line_after_colon {
+                                writer.hard_line();
+                            } else {
+                                writer.line();
+                            }
+                        });
                         write_value(writer)
                     })
                 })
@@ -424,13 +546,165 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 data,
                 ExprData::BooleanLiteral(_) | ExprData::NumericLiteral(_)
             ) {
-                writer.space();
+                constraint.write(writer, FlatSeparator::Space, Writer::space);
                 write_value(writer)
             } else {
-                let group = writer.named_group(false, |writer| writer.indent(Writer::line));
+                let group = writer.named_group(false, |writer| {
+                    writer.indent(|writer| {
+                        constraint.write(writer, FlatSeparator::Space, Writer::line)
+                    });
+                });
                 writer.indent_if_break(group, write_value)
             }
         })
+    }
+
+    fn format_object_method(
+        &mut self,
+        property: ObjectProperty,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        let ast = self.ast;
+        let value = property.value(ast);
+        let ExprData::Function(function) = ast.expr_data(value) else {
+            return Err(self.unsupported("object method value", value));
+        };
+        let key = property.key(ast);
+        let mut signature =
+            self.source_function_signature(function, FunctionSignatureOwner::Method(key))?;
+        if signature.enclosing_mode() == ContentMode::Verbatim {
+            return self.format_verbatim(property.span(ast), writer);
+        }
+        let start = property.span(ast).start;
+        let key_span = key.span(ast);
+        let keyword = match property.kind(ast) {
+            PropertyKind::Get => Some("get"),
+            PropertyKind::Set => Some("set"),
+            PropertyKind::Init if function.r#async(ast) => Some("async"),
+            PropertyKind::Init => None,
+        };
+        let keyword_end = keyword.map_or(start, |keyword| start + keyword.len() as u32);
+        let star = if function.generator(ast) {
+            let gap = Span::new(keyword_end, key_span.start);
+            let comments = self.comments.in_range(gap);
+            let Some(star) = self.find_token(gap, comments, "*") else {
+                return Err(self.unsupported("method generator boundary", property));
+            };
+            Some(star)
+        } else {
+            None
+        };
+        let head_end = star.map_or(keyword_end, |star| star + 1);
+        let computed = if property.computed(ast) {
+            let before = Span::new(head_end, key_span.start);
+            let comments = self.comments.in_range(before);
+            let Some(opening) = self.find_token(before, comments, "[") else {
+                return Err(self.unsupported("computed method opening boundary", property));
+            };
+            let after = Span::new(key_span.end, signature.span.start);
+            let comments = self.comments.in_range(after);
+            let Some(closing) = self.find_token(after, comments, "]") else {
+                return Err(self.unsupported("computed method closing boundary", property));
+            };
+            Some(Span::new(opening, closing + 1))
+        } else {
+            None
+        };
+        let key_start = computed.map_or(key_span.start, |span| span.start);
+        let key_end = computed.map_or(key_span.end, |span| span.end);
+        let modes = if self.has_suppression
+            && computed.is_none()
+            && matches!(
+                ast.property_key_data(key),
+                PropertyKeyData::IdentifierName(_)
+            ) {
+            // Babel attaches this prefix to the actual Identifier key.
+            FunctionNameModes {
+                name: self.content_mode(
+                    self.comments
+                        .in_range(Span::new(key_span.end, signature.span.start)),
+                ),
+                following: ContentMode::Formatted,
+            }
+        } else {
+            self.function_name_modes(Span::new(key_span.end, signature.span.start))
+        };
+        let function_prefix = if self.has_suppression
+            && computed.is_none()
+            && matches!(ast.property_key_data(key), PropertyKeyData::Expr(expression)
+                if matches!(ast.expr_data(expression), ExprData::StringLiteral(_)))
+        {
+            let function_span = function.span(ast);
+            let gap = Span::new(key_end, function_span.start);
+            let comments = self.comments.in_range(gap);
+            if self
+                .suppression_positions(comments, function_span.start)
+                .any(|position| matches!(position, SuppressionPosition::OwnLine))
+            {
+                // This real ObjectProperty value owns the complete Function.
+                let binding = self.comment_binding(comments, gap, Some(function_span));
+                let boundary =
+                    self.prepare_comment_boundary(comments, key_end, function_span.start);
+                let following = self.source_line_constraint(boundary.end(), function_span.start);
+                Some(MethodFunctionPrefix {
+                    boundary,
+                    binding,
+                    following,
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if function_prefix.is_none() {
+            signature.set_leading_mode(modes.following);
+        }
+        let key_mode = if signature.key_mode(key) == ContentMode::Verbatim
+            || modes.name == ContentMode::Verbatim
+        {
+            ContentMode::Verbatim
+        } else if self.has_suppression {
+            self.content_mode(self.comments.in_range(Span::new(start, key_span.start)))
+        } else {
+            ContentMode::Formatted
+        };
+        if let Some(keyword) = keyword {
+            writer.text(keyword);
+        }
+        if let Some(star) = star {
+            self.format_source_token_gap(keyword_end, star, keyword.is_some(), writer)?;
+            writer.text("*");
+        }
+        self.format_source_token_gap(
+            head_end,
+            key_start,
+            keyword.is_some() && star.is_none(),
+            writer,
+        )?;
+        let key_context = if function_prefix.is_some() {
+            // Unquoting would move the effective Function binding to the key.
+            PropertyKeyContext::FunctionValueBinding
+        } else {
+            PropertyKeyContext::Ordinary
+        };
+        self.format_property_key_context(key, computed, key_mode, key_context, writer)?;
+        if let Some(prefix) = function_prefix {
+            self.format_comment_boundary(&prefix.boundary, writer)?;
+            if prefix.binding.allows_relocation(None) {
+                prefix
+                    .boundary
+                    .gap()
+                    .write(writer, FlatSeparator::Empty, |_| {});
+            } else {
+                prefix.following.write(writer, FlatSeparator::Empty, |_| {});
+            }
+            self.format_verbatim(function.span(ast), writer)
+        } else {
+            self.format_source_token_gap(key_end, signature.span.start, false, writer)?;
+            let body = self.format_function_signature(signature, writer)?;
+            self.format_function_body_boundary(body, writer)
+        }
     }
 
     fn object_property_boundary(
@@ -447,7 +721,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let colon = Span::new(colon_start, colon_start + 1);
         let count = comments.partition_point(|comment| comment.span.end <= colon.start);
         let (before, after) = comments.split_at(count);
-        let suppression = self.property_suppression(before, after, colon, value_start);
+        let key_trailing = if self.has_suppression && property.computed(self.ast) {
+            self.comments.in_range(Span::new(
+                property.key(self.ast).span(self.ast).end,
+                colon.start,
+            ))
+        } else {
+            before
+        };
+        let key_leading = (self.has_suppression && property.computed(self.ast)).then(|| {
+            Span::new(
+                property.span(self.ast).start + 1,
+                property.key(self.ast).span(self.ast).start,
+            )
+        });
+        let suppression =
+            self.property_suppression(key_leading, key_trailing, after, colon, value_start);
         let ordinary_before = self
             .comment_run_binding(before.iter().copied(), |comment| {
                 if self.comment_semantics(comment).is_ordinary() {
@@ -516,22 +805,42 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     pub(in crate::formatter) fn property_suppression(
         &self,
+        key_leading: Option<Span>,
         before: &[Comment],
         after: &[Comment],
         colon: Span,
         value_start: u32,
     ) -> PropertySuppression {
-        let before = self.suppression_position(before, colon.start);
-        let after = self.suppression_position(after, value_start);
-        match (before, after) {
-            (Some(SuppressionPosition::EndOfLine), _)
-            | (_, Some(SuppressionPosition::EndOfLine)) => PropertySuppression::Property,
-            (Some(SuppressionPosition::OwnLine), _)
-            | (_, Some(SuppressionPosition::OwnLine | SuppressionPosition::Inline)) => {
-                PropertySuppression::Value
+        let mut suppression = PropertySuppression {
+            key: ContentMode::Formatted,
+            value: ContentMode::Formatted,
+            enclosing: ContentMode::Formatted,
+        };
+        if let Some(span) = key_leading {
+            let leading = self.comments.in_range(span);
+            if self
+                .suppression_positions(leading, span.end)
+                .any(|position| matches!(position, SuppressionPosition::EndOfLine))
+            {
+                suppression.enclosing = ContentMode::Verbatim;
             }
-            _ => PropertySuppression::None,
         }
+        for position in self.suppression_positions(before, colon.start) {
+            match position {
+                SuppressionPosition::OwnLine => suppression.value = ContentMode::Verbatim,
+                SuppressionPosition::EndOfLine => suppression.enclosing = ContentMode::Verbatim,
+                SuppressionPosition::Inline => suppression.key = ContentMode::Verbatim,
+            }
+        }
+        for position in self.suppression_positions(after, value_start) {
+            match position {
+                SuppressionPosition::EndOfLine => suppression.enclosing = ContentMode::Verbatim,
+                SuppressionPosition::OwnLine | SuppressionPosition::Inline => {
+                    suppression.value = ContentMode::Verbatim;
+                }
+            }
+        }
+        suppression
     }
 
     fn object_key_end(&self, property: ObjectProperty) -> Result<u32, FormatError> {
@@ -550,18 +859,31 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         property: ObjectProperty,
         key_end: u32,
+        mode: ContentMode,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let computed = property
             .computed(self.ast)
             .then_some(Span::new(property.span(self.ast).start, key_end));
-        self.format_property_key(property.key(self.ast), computed, writer)
+        self.format_property_key(property.key(self.ast), computed, mode, writer)
     }
 
     pub(in crate::formatter) fn format_property_key(
         &mut self,
         key: PropertyKey,
         computed: Option<Span>,
+        mode: ContentMode,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        self.format_property_key_context(key, computed, mode, PropertyKeyContext::Ordinary, writer)
+    }
+
+    fn format_property_key_context(
+        &mut self,
+        key: PropertyKey,
+        computed: Option<Span>,
+        mode: ContentMode,
+        context: PropertyKeyContext,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let ast = self.ast;
@@ -571,10 +893,27 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 return Err(self.unsupported("computed object key", key));
             };
             let closing = computed.end - 1;
+            let closing_constraint = if self.has_suppression {
+                let comments = self.comments.in_range(Span::new(key_span.end, closing));
+                if self.content_mode(comments) == ContentMode::Verbatim {
+                    comments
+                        .last()
+                        .map(|comment| self.source_line_constraint(comment.span.end, closing))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
             writer.group(false, |writer| {
                 writer.text("[");
-                writer.indent(|writer| {
-                    writer.soft_line();
+                let end = writer.indent(|writer| {
+                    let content = Span::new(computed.start + 1, closing);
+                    self.opening_line_constraint(content).write(
+                        writer,
+                        FlatSeparator::Empty,
+                        Writer::soft_line,
+                    );
                     let leading = self
                         .comments
                         .between(Span::new(computed.start + 1, key_span.start))?;
@@ -587,19 +926,34 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                             layout: CommentRunLayout::GroupedLeading(key_span.start),
                             gap_end: None,
                         },
-                        ExpressionContext::at(ExpressionPosition::Nested)
-                            .with_content_mode(self.content_mode(leading)),
+                        ExpressionContext::at(ExpressionPosition::Nested).with_content_mode(
+                            if mode == ContentMode::Verbatim {
+                                mode
+                            } else {
+                                self.content_mode(leading)
+                            },
+                        ),
                         writer,
                     )?;
                     let tail =
                         self.capture_expression_tail(Span::new(key_span.end, closing), tail)?;
-                    self.format_expression_tail(tail, writer)
+                    let end = tail
+                        .as_ref()
+                        .and_then(|tail| tail.comments.last())
+                        .map_or(key_span.end, |comment| comment.span.end);
+                    self.format_expression_tail(tail, writer)?;
+                    Ok::<_, FormatError>(end)
                 })?;
-                writer.soft_line();
+                closing_constraint
+                    .unwrap_or_else(|| self.line_constraint(end, closing))
+                    .write(writer, FlatSeparator::Empty, Writer::soft_line);
                 writer.text("]");
                 Ok(())
             })?;
             return Ok(());
+        }
+        if mode == ContentMode::Verbatim {
+            return self.format_verbatim(key_span, writer);
         }
         match ast.property_key_data(key) {
             PropertyKeyData::IdentifierName(identifier) => {
@@ -609,7 +963,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ExprData::StringLiteral(literal) => {
                     let raw = ast.get_utf8(literal.raw(ast));
                     let content = &raw[1..raw.len() - 1];
-                    if self.options.quote_properties == QuoteProperties::AsNeeded
+                    if matches!(context, PropertyKeyContext::Ordinary)
+                        && self.options.quote_properties == QuoteProperties::AsNeeded
                         && (swc_next_ecma_ast::is_identifier_es5_and_esnext(content.as_bytes())
                             || !ast.lang().is_typescript() && numeric_property_name(content))
                     {

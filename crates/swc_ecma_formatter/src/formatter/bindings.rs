@@ -11,7 +11,6 @@ use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::ExpressionContext;
 use super::expressions::arguments::{ArgumentLayout, ElisionLayout, FollowingItem, Separator};
 use super::expressions::assignment::AssignmentBoundary;
-use super::expressions::objects::PropertySuppression;
 use super::suppression::{ContentMode, SuppressionPosition};
 use crate::{FormatError, TrailingCommas, document::Writer};
 
@@ -645,21 +644,29 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         let (before, after) =
             comments.split_at(comments.partition_point(|comment| comment.span.end <= colon));
-        let suppression =
-            self.property_suppression(before, after, Span::new(colon, colon + 1), value_span.start);
-        if suppression == PropertySuppression::Property {
+        let key_trailing = if self.has_suppression && property.computed(ast) {
+            self.comments.in_range(Span::new(key.span(ast).end, colon))
+        } else {
+            before
+        };
+        let key_leading = (self.has_suppression && property.computed(ast))
+            .then(|| Span::new(property.span(ast).start + 1, key.span(ast).start));
+        let suppression = self.property_suppression(
+            key_leading,
+            key_trailing,
+            after,
+            Span::new(colon, colon + 1),
+            value_span.start,
+        );
+        if suppression.enclosing == ContentMode::Verbatim {
             self.format_verbatim(property.span(ast), writer)?;
             return Ok(None);
         }
-        let mode = if suppression == PropertySuppression::Value {
-            ContentMode::Verbatim
-        } else {
-            ContentMode::Formatted
-        };
+        let mode = suppression.value;
         let computed = property
             .computed(ast)
             .then_some(Span::new(property.span(ast).start, key_end));
-        self.format_property_key(key, computed, writer)?;
+        self.format_property_key(key, computed, suppression.key, writer)?;
         self.comments.claim(before)?;
         self.format_comment_run(before, CommentRunLayout::SourceAfter(key_end), writer)?;
         let end = before.last().map_or(key_end, |comment| comment.span.end);

@@ -72,9 +72,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .map(|(_, position)| position)
     }
 
-    /// Physical runs share source placement. Each syntax owner resolves the
-    /// actual target from that placement and the marker kind.
-    fn suppressed_comment_runs<'a>(
+    /// Physical runs stop at punctuation and line breaks and share source placement.
+    /// Syntax owners resolve each marker's actual target, including Block/Line differences.
+    pub(super) fn suppressed_comment_runs<'a>(
         &'a self,
         comments: &'a [Comment],
         following_start: u32,
@@ -220,12 +220,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .filter(|comment| comment.span.end == source_end);
         let following = match following {
             DelimitedFollowing::Node if last.is_some() => {
-                let breaks = self.line_breaks(source_end, gap.end);
-                if breaks == 0 {
-                    LineConstraint::SameLine
-                } else {
-                    LineConstraint::NewLine(breaks)
-                }
+                self.source_line_constraint(source_end, gap.end)
             }
             DelimitedFollowing::Node => self.line_constraint(source_end, gap.end),
             DelimitedFollowing::End => {

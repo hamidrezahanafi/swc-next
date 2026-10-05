@@ -1,5 +1,7 @@
 //! Typed argument selection and immutable layouts over source-owned slots.
 
+use crate::formatter::functions::FunctionSignatureOwner;
+
 use swc_next_ecma_ast::{
     Argument, ArgumentData, ArrayExpression, ArrowFunctionBodyData, ArrowFunctionExpression,
     CallExpression, Expr, ExprData, Function, GetSpan, ObjectExpression, ObjectPropertyKindData,
@@ -8,6 +10,7 @@ use swc_next_ecma_ast::{
 use unicode_width::UnicodeWidthStr;
 
 use super::arrays::{ArrayArgumentArity, RecordedArray, RecordedArrayArgument};
+use super::arrows::RecordedArrow;
 use super::objects::RecordedObject;
 use super::{ExpressionContext, ExpressionLayout, ExpressionPosition, Formatter};
 use crate::formatter::comments::ExpressionTail;
@@ -549,7 +552,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let source = self.source_arrow(arrow)?;
                 let context = ExpressionContext::at(ExpressionPosition::Nested)
                     .with_arrow_layout(super::arrows::ArrowLayout::Argument);
-                let recorded = self.record_arrow(source, context, writer)?;
+                let recorded = match self.record_arrow(source, context, writer)? {
+                    RecordedArrow::Verbatim(value) => {
+                        let layout = self.expression_layout(callback.expression);
+                        let (value, ()) = writer.record_with_value(|writer| {
+                            layout.write(writer, |writer| writer.write_fragment(value));
+                            Ok::<_, FormatError>(())
+                        })?;
+                        return Ok((RecordedValue::Ordinary(value), None));
+                    }
+                    RecordedArrow::Formatted(recorded) => recorded,
+                };
                 (
                     recorded.signature,
                     recorded.body,
@@ -558,8 +571,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 )
             }
             CallbackKind::Function(function) => {
-                let (signature, body) = writer
-                    .record_with_value(|writer| self.format_function_head(function, writer))?;
+                let source =
+                    self.source_function_signature(function, FunctionSignatureOwner::Function)?;
+                if source.enclosing_mode() == ContentMode::Verbatim {
+                    let layout = self.expression_layout(callback.expression);
+                    let (value, ()) = writer.record_with_value(|writer| {
+                        layout.write(writer, |writer| {
+                            self.format_verbatim(function.span(self.ast), writer)
+                        })
+                    })?;
+                    return Ok((RecordedValue::Ordinary(value), None));
+                }
+                let (signature, body) = writer.record_with_value(|writer| {
+                    self.format_function_head(function, source, writer)
+                })?;
                 let (body, ()) = writer
                     .record_with_value(|writer| self.format_function_body_boundary(body, writer))?;
                 let (normal, ()) = writer.record_with_value(|writer| {

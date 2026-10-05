@@ -1,7 +1,7 @@
 //! Actual arrow parameter boundaries and typed formal/rest item ownership.
 
 use swc_next_ecma_ast::{
-    ExprData, FormalParameter, FormalParameterItemData, FormalParameterPatternData,
+    Ast, ExprData, FormalParameter, FormalParameterItemData, FormalParameterPatternData,
     FormalParameterRest, FormalParameters, GetSpan, Span,
 };
 
@@ -22,6 +22,11 @@ enum ParameterSource {
     Bare(FormalParameter),
 }
 
+enum ParameterTail {
+    Formal(FormalParameter),
+    Rest(FormalParameterRest),
+}
+
 pub(super) struct SourceParameters {
     node: FormalParameters,
     source: ParameterSource,
@@ -29,9 +34,47 @@ pub(super) struct SourceParameters {
     rest: Option<FormalParameterRest>,
     omit_parentheses: bool,
     hug: bool,
+    leading_mode: ContentMode,
+    enclosing_mode: ContentMode,
+    suppressed_tail: Option<ParameterTail>,
 }
 
 impl SourceParameters {
+    pub(super) fn enclosing_mode(&self) -> ContentMode {
+        self.enclosing_mode
+    }
+
+    pub(super) fn has_parameters(&self) -> bool {
+        self.first.is_some() || self.rest.is_some()
+    }
+
+    pub(super) fn suppress_last(&mut self, ast: &Ast<'_>) -> Result<(), FormatError> {
+        self.suppressed_tail = if let Some(rest) = self.rest {
+            Some(ParameterTail::Rest(rest))
+        } else if let Some(id) = self.node.items(ast).iter().next_back() {
+            let item = ast.get_node_in_sub_range(id);
+            match ast.formal_parameter_item_data(item) {
+                FormalParameterItemData::FormalParameter(parameter) => {
+                    Some(ParameterTail::Formal(parameter))
+                }
+                FormalParameterItemData::TsParameterProperty(_) => {
+                    return Err(FormatError::unsupported(
+                        "typed parameter property",
+                        None,
+                        item.span(ast),
+                    ));
+                }
+            }
+        } else {
+            None
+        };
+        Ok(())
+    }
+
+    pub(super) fn set_leading_mode(&mut self, mode: ContentMode) {
+        self.leading_mode = mode;
+    }
+
     pub(super) fn starts_with_parenthesis(&self) -> bool {
         !self.omit_parentheses
     }
@@ -66,6 +109,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let ast = self.ast;
         let span = node.span(ast);
         let items = node.items(ast);
+        let rest = node.rest(ast);
         let first = items.iter().next().map(|id| ast.get_node_in_sub_range(id));
         let first = match first.map(|item| ast.formal_parameter_item_data(item)) {
             Some(FormalParameterItemData::FormalParameter(parameter)) => Some(parameter),
@@ -79,7 +123,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else if matches!(role, ParameterRole::Arrow { .. })
             && let Some(parameter) = first
             && items.len() == 1
-            && node.rest(ast).is_none()
+            && rest.is_none()
             && parameter.span(ast) == span
             && matches!(
                 ast.formal_parameter_pattern_data(parameter.pattern(ast)),
@@ -91,8 +135,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             return Err(self.unsupported("arrow parameter source boundary", node));
         };
+        let enclosing_mode = if self.has_suppression && first.is_none() && rest.is_none() {
+            self.content_mode(self.comments.in_range(span))
+        } else {
+            ContentMode::Formatted
+        };
         let single = match first {
-            Some(parameter) if items.len() == 1 && node.rest(ast).is_none() => Some(parameter),
+            Some(parameter) if items.len() == 1 && rest.is_none() => Some(parameter),
             _ => None,
         };
         let omit_parentheses = matches!(
@@ -143,9 +192,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             node,
             source,
             first,
-            rest: node.rest(ast),
+            rest,
             omit_parentheses,
             hug,
+            leading_mode: ContentMode::Formatted,
+            enclosing_mode,
+            suppressed_tail: None,
         })
     }
 
@@ -162,20 +214,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             rest,
             omit_parentheses,
             hug,
+            leading_mode,
+            enclosing_mode: _,
+            suppressed_tail,
         } = parameters;
         let has_parameters = first.is_some() || rest.is_some();
-        let (content, delimiters) = match source {
-            ParameterSource::Bare(parameter) => (parameter.span(ast), None),
-            ParameterSource::Parenthesized(span) => {
-                (Span::new(span.start + 1, span.end - 1), Some(span))
-            }
+        let content = match source {
+            ParameterSource::Bare(parameter) => parameter.span(ast),
+            ParameterSource::Parenthesized(span) => Span::new(span.start + 1, span.end - 1),
         };
-        if !has_parameters
-            && self.content_mode(self.comments.in_range(content)) == ContentMode::Verbatim
-            && let Some(delimiters) = delimiters
-        {
-            return self.format_verbatim(delimiters, writer);
-        }
         if omit_parentheses && let Some(parameter) = first {
             let tail = self.format_formal_parameter(parameter, ContentMode::Formatted, writer)?;
             self.format_expression_tail(tail, writer)?;
@@ -199,7 +246,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let mut end = content.start;
                 let mut separator = Separator::Line;
                 let mut has_previous = false;
-                let mut following_mode = None;
+                let mut following_mode =
+                    (leading_mode == ContentMode::Verbatim).then_some(leading_mode);
                 while let Some(item) = formals.next() {
                     let parameter = match ast.formal_parameter_item_data(item) {
                         FormalParameterItemData::FormalParameter(parameter) => parameter,
@@ -237,6 +285,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     if let Some(mode) = following_mode {
                         item.set_leading_mode(mode);
                     }
+                    if matches!(suppressed_tail, Some(ParameterTail::Formal(target)) if target == parameter) {
+                        item.set_leading_mode(ContentMode::Verbatim);
+                    }
                     let tail = self.format_formal_parameter(parameter, item.mode, writer)?;
                     let boundary = self.finish_delimited_item(item, tail, writer)?;
                     end = boundary.end;
@@ -269,6 +320,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     )?;
                     if let Some(mode) = following_mode {
                         item.set_leading_mode(mode);
+                    }
+                    if matches!(suppressed_tail, Some(ParameterTail::Rest(target)) if target == rest) {
+                        item.set_leading_mode(ContentMode::Verbatim);
                     }
                     let tail = self.format_rest_parameter(rest, item.mode, writer)?;
                     end = self.finish_delimited_item(item, tail, writer)?.end;
