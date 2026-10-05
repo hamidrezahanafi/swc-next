@@ -1,8 +1,8 @@
 //! Tuple slots reuse the borrowed item/comma protocol and keep label/type owners separate.
 
 use swc_next_ecma_ast::{
-    Comment, CommentKind, GetSpan, Span, TsNamedTupleMember, TsOptionalType, TsRestType,
-    TsTupleElementData, TsTupleType,
+    CommentKind, GetSpan, Span, TsNamedTupleMember, TsOptionalType, TsRestType, TsTupleElementData,
+    TsTupleType,
 };
 
 use super::context::TypeContext;
@@ -65,7 +65,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     if mode == ContentMode::Verbatim
                         && let PreparedTupleElement::Type(node) = &mut element_content
                     {
-                        self.select_tuple_head(node, leading, element_span.start, following_mode.is_none());
+                        self.select_delimited_type_head(node, leading, element_span.start, following_mode.is_none());
                     }
                     if following_mode.is_some() {
                         let next_start = self
@@ -123,27 +123,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text("]");
             Ok(None)
         })
-    }
-
-    fn select_tuple_head(
-        &self,
-        node: &mut PreparedType,
-        comments: &[Comment],
-        end: u32,
-        first: bool,
-    ) {
-        for (run, position) in self.suppressed_comment_runs(comments, end) {
-            let preceding = !first
-                && !matches!(position, SuppressionPosition::OwnLine)
-                && (matches!(position, SuppressionPosition::EndOfLine)
-                    || run.last().is_some_and(|last| {
-                        self.find_comma(Span::new(last.span.end, end), comments)
-                            .is_some()
-                    }));
-            if !preceding {
-                self.select_type_head(node, position);
-            }
-        }
     }
 
     pub(super) fn format_optional_type(

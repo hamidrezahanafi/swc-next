@@ -2,20 +2,22 @@
 
 mod compound;
 mod context;
+mod generics;
 mod postfix;
 mod tuple;
 
 use swc_next_ecma_ast::{
-    BindingPattern, CommentKind, ExprData, GetSpan, Span, TsLiteralData, TsParenthesizedType,
-    TsQualifiedName, TsQualifiedNameLeft, TsQualifiedNameLeftData, TsType, TsTypeAliasDeclaration,
-    TsTypeAnnotation, TsTypeData, TsTypeName, TsTypeNameData, UnaryOperator, VariableDeclarator,
+    BindingIdentifier, BindingPattern, Comment, CommentKind, ExprData, GetSpan, Span,
+    TsLiteralData, TsParenthesizedType, TsQualifiedName, TsQualifiedNameLeft,
+    TsQualifiedNameLeftData, TsType, TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeData,
+    TsTypeName, TsTypeNameData, UnaryOperator, VariableDeclarator,
 };
 
 use self::context::TypeContext;
 use super::Formatter;
 use super::bindings::InitializerLayout;
 use super::comments::{CommentBoundary, ExpressionTail};
-use super::diagnostics::FlatSeparator;
+use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::ExpressionContext;
 use super::literals::StringContext;
 use super::suppression::{ContentMode, SuppressionPosition, is_suppression_comment};
@@ -26,11 +28,18 @@ use crate::{FormatError, document::Writer};
 enum TypeBoundaryRole {
     Alias,
     Qualified,
+    Constraint(LineConstraint),
+    Default,
 }
 
 enum TypeBoundaryTarget<'a> {
     Alias(&'a mut PreparedType),
     Qualified,
+    Constraint {
+        name: BindingIdentifier,
+        node: &'a mut PreparedType,
+    },
+    Default(&'a mut PreparedType),
 }
 
 #[derive(Clone, Copy)]
@@ -70,8 +79,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<(u32, Option<ExpressionTail<'ast>>), FormatError> {
         let ast = self.ast;
-        if alias.declare(ast) || alias.type_parameters(ast).is_some() {
-            return Err(self.unsupported("ambient or generic type alias", alias));
+        if alias.declare(ast) {
+            return Err(self.unsupported("ambient type alias", alias));
         }
         let span = alias.span(ast);
         let identifier = alias.id(ast);
@@ -80,8 +89,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let annotation_span = annotation.span(ast);
         let mut type_node = self.prepare_type(annotation, ContentMode::Formatted);
         let keyword_end = span.start + "type".len() as u32;
-        let mut boundary = self.prepare_type_boundary(
-            Span::new(identifier_span.end, annotation_span.start),
+        let parameters = alias.type_parameters(ast).map(|node| {
+            let prefix = self.prepare_type_list_prefix(
+                Span::new(identifier_span.end, node.span(ast).start),
+                generics::TypeListKind::Parameters,
+            );
+            (node, prefix)
+        });
+        let head_end = parameters
+            .as_ref()
+            .map_or(identifier_span.end, |(node, _)| node.span(ast).end);
+        let mut name_mode = parameters
+            .as_ref()
+            .map_or(ContentMode::Formatted, |(_, prefix)| prefix.left_mode);
+        let boundary = self.prepare_type_boundary(
+            Span::new(head_end, annotation_span.start),
             TypeBoundaryTarget::Alias(&mut type_node),
         )?;
         if self.has_suppression {
@@ -89,7 +111,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .comments
                 .in_range(Span::new(keyword_end, identifier_span.start));
             if self.content_mode(header) == ContentMode::Verbatim {
-                boundary.left_mode = ContentMode::Verbatim;
+                name_mode = ContentMode::Verbatim;
             }
             let tail = self
                 .comments
@@ -98,12 +120,24 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 type_node.source_owner = Some(annotation);
             }
         }
+        if parameters.is_none() && boundary.left_mode == ContentMode::Verbatim {
+            name_mode = ContentMode::Verbatim;
+        }
         writer.text("type");
         self.format_source_token_gap(keyword_end, identifier_span.start, true, writer)?;
-        if boundary.left_mode == ContentMode::Verbatim {
+        if name_mode == ContentMode::Verbatim {
             self.format_verbatim(identifier_span, writer)?;
         } else {
             writer.text(ast.get_utf8(identifier.name(ast)));
+        }
+        if let Some((parameters, prefix)) = parameters {
+            let mode = if boundary.left_mode == ContentMode::Verbatim {
+                ContentMode::Verbatim
+            } else {
+                prefix.right_mode
+            };
+            self.format_type_list_prefix(prefix, writer)?;
+            self.format_type_parameters(parameters, mode, writer)?;
         }
         self.format_type_boundary(&boundary, writer)?;
         let tail = self.format_prepared_type(type_node, TypeContext::Root, writer)?;
@@ -115,9 +149,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         gap: Span,
         mut target: TypeBoundaryTarget<'_>,
     ) -> Result<TypeBoundary<'ast>, FormatError> {
-        let (token, role) = match &target {
+        let (token, mut role) = match &target {
             TypeBoundaryTarget::Alias(_) => ("=", TypeBoundaryRole::Alias),
             TypeBoundaryTarget::Qualified => (".", TypeBoundaryRole::Qualified),
+            TypeBoundaryTarget::Constraint { name, .. } => {
+                // A modifier-token name before `extends` needs a line terminator
+                // to remain the name. Read the real identifier, including escapes.
+                let leading = if matches!(
+                    self.ast.get_utf8(name.name(self.ast)),
+                    "const" | "in" | "out"
+                ) {
+                    LineConstraint::NewLine(1)
+                } else {
+                    LineConstraint::Unconstrained
+                };
+                ("extends", TypeBoundaryRole::Constraint(leading))
+            }
+            TypeBoundaryTarget::Default(_) => ("=", TypeBoundaryRole::Default),
         };
         let comments = self.comments.in_range(gap);
         let Some(start) = self.find_token(gap, comments, token) else {
@@ -142,6 +190,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         TypeBoundaryRole::Qualified => {
                             !matches!(position, SuppressionPosition::OwnLine)
                         }
+                        TypeBoundaryRole::Constraint(_) | TypeBoundaryRole::Default => {
+                            !matches!(position, SuppressionPosition::OwnLine)
+                        }
                         TypeBoundaryRole::Alias => {
                             matches!(position, SuppressionPosition::Inline)
                                 || matches!(position, SuppressionPosition::EndOfLine)
@@ -152,20 +203,26 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         left_mode = ContentMode::Verbatim;
                     } else {
                         right_mode = ContentMode::Verbatim;
-                        if let TypeBoundaryTarget::Alias(node) = &mut target {
+                        if let TypeBoundaryTarget::Alias(node)
+                        | TypeBoundaryTarget::Constraint { node, .. }
+                        | TypeBoundaryTarget::Default(node) = &mut target
+                        {
                             self.select_type_head(node, position);
                         }
                     }
                 }
             }
             for (_, position) in self.suppressed_comment_runs(after, gap.end) {
-                if matches!(role, TypeBoundaryRole::Qualified)
+                if !matches!(role, TypeBoundaryRole::Alias)
                     && matches!(position, SuppressionPosition::EndOfLine)
                 {
                     left_mode = ContentMode::Verbatim;
                 } else {
                     right_mode = ContentMode::Verbatim;
-                    if let TypeBoundaryTarget::Alias(node) = &mut target {
+                    if let TypeBoundaryTarget::Alias(node)
+                    | TypeBoundaryTarget::Constraint { node, .. }
+                    | TypeBoundaryTarget::Default(node) = &mut target
+                    {
                         self.select_type_head(node, position);
                     }
                 }
@@ -174,6 +231,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let layout = if left_mode == ContentMode::Verbatim || right_mode == ContentMode::Verbatim {
             TypeBoundaryLayout::Source(gap)
         } else {
+            if matches!(
+                role,
+                TypeBoundaryRole::Constraint(LineConstraint::NewLine(1))
+            ) && before
+                .last()
+                .is_some_and(|comment| self.line_breaks(gap.start, comment.span.end) != 0)
+            {
+                // SourceAfter prints this preceding run's existing line once.
+                role = TypeBoundaryRole::Constraint(LineConstraint::Unconstrained);
+            }
             TypeBoundaryLayout::Formatted {
                 before: self.prepare_comment_boundary(before, gap.start, operator.start),
                 after: self.prepare_comment_boundary(after, operator.end, gap.end),
@@ -195,21 +262,36 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let (token, space) = match boundary.role {
             TypeBoundaryRole::Alias => ("=", FlatSeparator::Space),
             TypeBoundaryRole::Qualified => (".", FlatSeparator::Empty),
+            TypeBoundaryRole::Constraint(_) => ("extends", FlatSeparator::Space),
+            TypeBoundaryRole::Default => ("=", FlatSeparator::Space),
         };
         let (before, after) = match &boundary.layout {
             TypeBoundaryLayout::Source(gap) => return self.format_verbatim(*gap, writer),
             TypeBoundaryLayout::Formatted { before, after } => (before, after),
         };
         self.format_comment_boundary(before, writer)?;
-        before.gap().write(writer, space, |writer| {
-            if matches!(space, FlatSeparator::Space) {
-                writer.space();
-            }
-        });
+        if matches!(
+            boundary.role,
+            TypeBoundaryRole::Constraint(LineConstraint::NewLine(1))
+        ) && !before.gap().requires_line()
+        {
+            writer.hard_line();
+        } else {
+            before.gap().write(writer, space, |writer| {
+                if matches!(space, FlatSeparator::Space) {
+                    writer.space();
+                }
+            });
+        }
         writer.text(token);
         self.format_comment_boundary(after, writer)?;
         after.gap().write(writer, space, |writer| {
-            if matches!(space, FlatSeparator::Space) {
+            if matches!(
+                boundary.role,
+                TypeBoundaryRole::Constraint(_) | TypeBoundaryRole::Default
+            ) {
+                writer.line();
+            } else if matches!(space, FlatSeparator::Space) {
                 writer.space();
             }
         });
@@ -276,6 +358,27 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
+    fn select_delimited_type_head(
+        &self,
+        node: &mut PreparedType,
+        comments: &[Comment],
+        end: u32,
+        first: bool,
+    ) {
+        for (run, position) in self.suppressed_comment_runs(comments, end) {
+            let preceding = !first
+                && !matches!(position, SuppressionPosition::OwnLine)
+                && (matches!(position, SuppressionPosition::EndOfLine)
+                    || run.last().is_some_and(|last| {
+                        self.find_comma(Span::new(last.span.end, end), comments)
+                            .is_some()
+                    }));
+            if !preceding {
+                self.select_type_head(node, position);
+            }
+        }
+    }
+
     fn format_prepared_type(
         &mut self,
         node: PreparedType,
@@ -334,17 +437,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return Ok(None);
         }
         match node.data {
-            TsTypeData::TsTypeReference(reference) => {
-                if reference.type_arguments(self.ast).is_some() {
-                    return Err(self.unsupported("type arguments", reference));
-                }
-                self.format_type_name(
-                    reference.type_name(self.ast),
-                    ContentMode::Formatted,
-                    writer,
-                )?;
-                Ok(None)
-            }
+            TsTypeData::TsTypeReference(reference) => self.format_type_reference(reference, writer),
             TsTypeData::TsLiteralType(literal) => {
                 match self.ast.ts_literal_data(literal.literal(self.ast)) {
                     TsLiteralData::StringLiteral(node) => {

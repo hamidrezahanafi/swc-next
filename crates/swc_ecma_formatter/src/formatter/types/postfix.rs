@@ -202,9 +202,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let ast = self.ast;
-        if node.type_arguments(ast).is_some() {
-            return Err(self.unsupported("type query arguments", node));
-        }
         let name = node.expr_name(ast);
         let name_data = ast.ts_type_query_expr_name_data(name);
         if matches!(name_data, TsTypeQueryExprNameData::TsImportType(_)) {
@@ -215,7 +212,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             name.span(ast).start,
         );
         let prefix = self.prepare_type_prefix(gap);
-        let mode = prefix.mode;
+        let arguments = node.type_arguments(ast).map(|node| {
+            let prefix = self.prepare_type_list_prefix(
+                Span::new(name.span(ast).end, node.span(ast).start),
+                super::generics::TypeListKind::Arguments,
+            );
+            (node, prefix)
+        });
+        let mode = if arguments
+            .as_ref()
+            .is_some_and(|(_, prefix)| prefix.left_mode == ContentMode::Verbatim)
+        {
+            ContentMode::Verbatim
+        } else {
+            prefix.mode
+        };
         writer.text("typeof");
         self.format_type_prefix(prefix, FlatSeparator::Space, writer)?;
         if mode == ContentMode::Verbatim {
@@ -230,6 +241,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     unreachable!("import query rejected before prefix claims")
                 }
             }
+        }
+        if let Some((arguments, prefix)) = arguments {
+            let mode = prefix.right_mode;
+            self.format_type_list_prefix(prefix, writer)?;
+            self.format_type_arguments(arguments, mode, writer)?;
         }
         Ok(None)
     }
