@@ -3,13 +3,13 @@ formatter * prettier 3.9.9 * js
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 794
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 569/1070 (53.18%)
-Snapshot matched: 569/1070
-AST parity: 768/768
-AST mismatched: 0/768
+Passed: 583/1070 (54.49%)
+Snapshot matched: 583/1070
+AST parity: 787/787
+AST mismatched: 0/787
 AST format errors: 0/1070
-Mismatched: 199/1070
-Format errors: 301/1070
+Mismatched: 204/1070
+Format errors: 282/1070
 Panicked: 0/1070
 Not idempotent: 0/1070
 Ignored files: 298
@@ -54,7 +54,6 @@ Unsupported option sets: 19
 - js/arrows/assignment-chain-with-arrow-chain.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/call.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/comment.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
-- js/arrows/curried.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/currying-4.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/issue-14702.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/issue-17421.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
@@ -120,9 +119,9 @@ Unsupported option sets: 19
 - js/comments/break-continue-statements-3.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/comments/call_comment.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/comments/dangling_for.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
-- js/comments/dynamic_imports.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
+- js/comments/dynamic_imports.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/comments/empty-statements.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
-- js/comments/first-argument/first-argument.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
+- js/comments/first-argument/first-argument.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/comments/flow-types/inline.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/comments/function-declaration.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/comments/function/18146.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -179,14 +178,11 @@ Unsupported option sets: 19
 - js/destructuring/destructuring.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/destructuring/issue-5988.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/directives/issue-7346.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/dynamic-import/assertions.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/dynamic-import/import-phase.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/dynamic-import/template-literal.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/dynamic-import/test.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/embeded/indention/19518.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/embeded/indention/indention-2.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/embeded/indention/indention.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/empty-paren-comment/empty_paren_comment.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/explicit-resource-management/for-await-using-of-comments.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/explicit-resource-management/using-declarations.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/explicit-resource-management/valid-await-expr-using.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -220,14 +216,8 @@ Unsupported option sets: 19
 - js/identifier/parentheses/let.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/if/condition-break/boolean-expression.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/if/condition-break/unary-expression.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/import-assertions/bracket-spacing/dynamic-import.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/import-assertions/dynamic-import.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/import-attributes/bracket-spacing/dynamic-import.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/import-attributes/dynamic-import.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/import-attributes/long-sources.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/import/long-module-name/import-defer.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/import/long-module-name/import-expression.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/import/long-module-name/import-source.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
+- js/import-attributes/long-sources.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- js/import/long-module-name/import-expression.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/label/comment.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/label/empty_label.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/last-argument-expansion/arrow.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -319,7 +309,6 @@ Unsupported option sets: 19
 - js/throw_statement/binaryish.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/throw_statement/comment.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/throw_statement/jsx.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/trailing-comma/dynamic-import.js: 0/3 mismatched, 3/3 format errors, 0/3 panicked, 0/3 not idempotent
 - js/trailing-comma/function-calls.js: 3/3 mismatched, 0/3 format errors, 0/3 panicked, 0/3 not idempotent
 - js/trailing-comma/jsx.js: 0/3 mismatched, 3/3 format errors, 0/3 panicked, 0/3 not idempotent
 - js/trailing-comma/trailing_whitespace.js: 3/3 mismatched, 0/3 format errors, 0/3 panicked, 0/3 not idempotent

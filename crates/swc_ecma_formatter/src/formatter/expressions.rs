@@ -11,6 +11,7 @@ mod chains;
 mod conditional;
 mod constructors;
 mod for_initializer;
+mod imports;
 mod members;
 pub(super) mod objects;
 pub(super) mod parentheses;
@@ -668,6 +669,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_yield(yield_expression, writer)
             }
             ExprData::MetaProperty(meta) => self.format_meta_property(meta, writer).map(|()| None),
+            ExprData::ImportExpression(import) => self.format_import_expression(import, writer),
             ExprData::UnaryExpression(unary) => self.format_unary(unary, writer),
             ExprData::UpdateExpression(update) => self.format_update(update, context, writer),
             ExprData::ConditionalExpression(conditional) => {
@@ -949,6 +951,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             | ExprData::ObjectExpression(_)
             | ExprData::MemberExpression(_)
             | ExprData::CallExpression(_)
+            | ExprData::ImportExpression(_)
             | ExprData::UnaryExpression(_)
             | ExprData::UpdateExpression(_)
             | ExprData::BinaryExpression(_)
