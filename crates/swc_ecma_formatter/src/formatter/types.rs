@@ -3,6 +3,7 @@
 mod compound;
 mod context;
 mod postfix;
+mod tuple;
 
 use swc_next_ecma_ast::{
     BindingPattern, CommentKind, ExprData, GetSpan, Span, TsLiteralData, TsParenthesizedType,
@@ -403,6 +404,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 compound::CompoundTypeKind::Intersection,
                 writer,
             ),
+            TsTypeData::TsTupleType(node) => self.format_tuple_type(node, writer),
+            TsTypeData::TsOptionalType(node) => self.format_optional_type(node, writer),
+            TsTypeData::TsRestType(node) => self.format_rest_type(node, writer),
             TsTypeData::TsArrayType(node) => self.format_array_type(node, writer),
             TsTypeData::TsIndexedAccessType(node) => self.format_indexed_type(node, writer),
             TsTypeData::TsTypeOperator(node) => self.format_type_operator(node, writer),

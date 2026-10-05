@@ -6,7 +6,7 @@ use swc_next_ecma_ast::TsTypeData;
 pub(super) enum TypeContext {
     Root,
     PostfixOperand,
-    OperatorOperand,
+    ModifierOperand,
     CompoundMember,
 }
 
@@ -25,7 +25,7 @@ impl TypeContext {
         let minimum = match self {
             Self::Root => return false,
             Self::PostfixOperand => TypePrecedence::Postfix,
-            Self::OperatorOperand => TypePrecedence::Query,
+            Self::ModifierOperand => TypePrecedence::Query,
             Self::CompoundMember => TypePrecedence::Operator,
         };
         let precedence = match data {

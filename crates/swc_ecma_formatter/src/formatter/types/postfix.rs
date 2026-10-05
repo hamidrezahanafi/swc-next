@@ -17,8 +17,8 @@ enum TypePrefixLayout<'ast> {
     Formatted(CommentBoundary<'ast>),
 }
 
-struct TypePrefix<'ast> {
-    mode: ContentMode,
+pub(super) struct TypePrefix<'ast> {
+    pub(super) mode: ContentMode,
     layout: TypePrefixLayout<'ast>,
 }
 
@@ -193,7 +193,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         writer.text(keyword);
         self.format_type_prefix(prefix, FlatSeparator::Space, writer)?;
-        self.format_prepared_type(operand_type, TypeContext::OperatorOperand, writer)
+        self.format_prepared_type(operand_type, TypeContext::ModifierOperand, writer)
     }
 
     pub(super) fn format_type_query(
@@ -234,7 +234,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(None)
     }
 
-    fn prepare_type_prefix(&self, gap: Span) -> TypePrefix<'ast> {
+    pub(super) fn prepare_type_prefix(&self, gap: Span) -> TypePrefix<'ast> {
         let comments = self.comments.in_range(gap);
         let mode = self.content_mode(comments);
         let layout = if mode == ContentMode::Verbatim {
@@ -245,7 +245,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         TypePrefix { mode, layout }
     }
 
-    fn format_type_prefix(
+    pub(super) fn format_type_prefix(
         &mut self,
         prefix: TypePrefix<'ast>,
         separator: FlatSeparator,
