@@ -115,13 +115,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         punctuation: StatementPunctuation,
         writer: &mut Writer<'ast>,
     ) -> Result<PrintedStatement<'ast>, FormatError> {
+        let data = self.ast.decl_data(declaration);
         if mode == ContentMode::Verbatim {
-            let end = self.declaration_content_end(declaration);
-            self.format_verbatim(Span::new(declaration.span(self.ast).start, end), writer)?;
-            return match self.ast.decl_data(declaration) {
+            let span = declaration.span(self.ast);
+            let end = if matches!(data, DeclData::TsTypeAliasDeclaration(_)) {
+                span.end
+            } else {
+                self.declaration_content_end(declaration)
+            };
+            self.format_verbatim(Span::new(span.start, end), writer)?;
+            return match data {
                 DeclData::VariableDeclaration(_) => {
                     self.finish_statement(end, None, punctuation, writer)
                 }
+                DeclData::TsTypeAliasDeclaration(_) => Ok(StatementBoundary::SourceEnd {
+                    end,
+                    has_terminator: self.source(span).ends_with(';'),
+                }
+                .type_declaration()
+                .into()),
                 _ => Ok(StatementBoundary::SourceEnd {
                     end,
                     has_terminator: false,
@@ -129,7 +141,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .into()),
             };
         }
-        match self.ast.decl_data(declaration) {
+        match data {
             DeclData::Function(function) => {
                 self.format_function(function, writer)?;
                 Ok(StatementBoundary::SourceEnd {
@@ -149,6 +161,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             DeclData::VariableDeclaration(variable) => {
                 let (end, tail) = self.format_variable_declaration(variable, writer)?;
                 self.finish_statement(end, tail, punctuation, writer)
+            }
+            DeclData::TsTypeAliasDeclaration(alias) => {
+                let (end, tail) = self.format_type_alias(alias, writer)?;
+                let mut printed = self.finish_statement(end, tail, punctuation, writer)?;
+                printed.boundary = printed.boundary.type_declaration();
+                Ok(printed)
             }
             _ => Err(self.unsupported("declaration", declaration)),
         }
@@ -338,9 +356,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<PrintedStatement<'ast>, FormatError> {
         let ast = self.ast;
-        if node.export_kind(ast) != ImportOrExportKind::Value {
-            return Err(self.unsupported("type export", node));
-        }
         let span = node.span(ast);
         let keyword_end = span.start + 6;
         if let Some(declaration) = node.declaration(ast) {
@@ -351,6 +366,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text("export");
             self.format_module_gap(keyword_end, declaration.span(ast).start, true, writer)?;
             return self.format_declaration(declaration, mode, punctuation, writer);
+        }
+        if node.export_kind(ast) != ImportOrExportKind::Value {
+            return Err(self.unsupported("type export", node));
         }
         let specifiers = node.specifiers(ast);
         let first = specifiers.first().map(|id| ast.get_node_in_sub_range(id));

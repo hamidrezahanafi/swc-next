@@ -7,8 +7,8 @@ mod tails;
 use self::tails::{StatementTailModes, StatementTailRelation};
 
 use swc_next_ecma_ast::{
-    Ast, BlockStatement, Comment, CommentKind, Directive, EmptyStatement, FunctionBody, GetSpan,
-    Span, StaticBlock, Stmt, StmtData,
+    Ast, BlockStatement, Comment, CommentKind, DeclData, Directive, EmptyStatement, FunctionBody,
+    GetSpan, Span, StaticBlock, Stmt, StmtData,
 };
 
 use super::Formatter;
@@ -133,8 +133,19 @@ enum StatementPunctuation {
 
 #[derive(Clone, Copy)]
 enum StatementBoundary {
-    Semicolon { end: u32, terminator: u32 },
-    SourceEnd { end: u32, has_terminator: bool },
+    Semicolon {
+        end: u32,
+        terminator: u32,
+    },
+    SourceEnd {
+        end: u32,
+        has_terminator: bool,
+    },
+    /// The real type declaration closes before a following expression on a new line.
+    TypeDeclarationEnd {
+        end: u32,
+        has_terminator: bool,
+    },
 }
 
 /// A compound statement forwards a pending run beyond its own layout group.
@@ -156,8 +167,22 @@ impl From<StatementBoundary> for PrintedStatement<'_> {
 impl StatementBoundary {
     fn end(self) -> u32 {
         match self {
-            Self::Semicolon { end, .. } | Self::SourceEnd { end, .. } => end,
+            Self::Semicolon { end, .. }
+            | Self::SourceEnd { end, .. }
+            | Self::TypeDeclarationEnd { end, .. } => end,
         }
+    }
+
+    fn has_terminator(self) -> bool {
+        match self {
+            Self::Semicolon { .. } => true,
+            Self::SourceEnd { has_terminator, .. }
+            | Self::TypeDeclarationEnd { has_terminator, .. } => has_terminator,
+        }
+    }
+
+    fn guards_expression(self) -> bool {
+        matches!(self, Self::TypeDeclarationEnd { .. }) || self.has_terminator()
     }
 
     fn with_end(self, end: u32) -> Self {
@@ -167,13 +192,36 @@ impl StatementBoundary {
                 end,
                 has_terminator,
             },
+            Self::TypeDeclarationEnd { has_terminator, .. } => Self::TypeDeclarationEnd {
+                end,
+                has_terminator,
+            },
         }
     }
 
-    fn has_terminator(self) -> bool {
+    fn type_declaration(self) -> Self {
         match self {
-            Self::Semicolon { .. } => true,
-            Self::SourceEnd { has_terminator, .. } => has_terminator,
+            Self::SourceEnd {
+                end,
+                has_terminator,
+            } => Self::TypeDeclarationEnd {
+                end,
+                has_terminator,
+            },
+            boundary => boundary,
+        }
+    }
+
+    fn with_source_packet(self, end: u32) -> Self {
+        match self {
+            Self::TypeDeclarationEnd { .. } => Self::TypeDeclarationEnd {
+                end,
+                has_terminator: true,
+            },
+            _ => Self::SourceEnd {
+                end,
+                has_terminator: true,
+            },
         }
     }
 }
@@ -313,7 +361,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 expression_start = ExpressionStart::StatementGuarded;
             }
             if let Some(boundary) = previous {
-                if boundary.has_terminator() {
+                if boundary.guards_expression() {
                     expression_start = ExpressionStart::StatementGuarded;
                 }
                 let next_start = leading
@@ -407,10 +455,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 if let Some(next) = pending.as_mut() {
                     next.source_gap = Some(packet.following);
                 }
-                boundary = StatementBoundary::SourceEnd {
-                    end: packet.span.end,
-                    has_terminator: true,
-                };
+                boundary = boundary.with_source_packet(packet.span.end);
                 packet.span.end
             } else if let Some(tail) = annotation_tail {
                 if let Some(next) = pending.as_mut()
@@ -436,17 +481,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer,
             )?;
             previous_span_end = statement_span.end;
-            previous = Some(match boundary {
-                StatementBoundary::Semicolon { terminator, .. } => {
-                    StatementBoundary::Semicolon { end, terminator }
-                }
-                StatementBoundary::SourceEnd { has_terminator, .. } => {
-                    StatementBoundary::SourceEnd {
-                        end,
-                        has_terminator,
-                    }
-                }
-            });
+            previous = Some(boundary.with_end(end));
         }
         let dangling = self.comments.between(Span::new(
             previous.map_or(span.start, StatementBoundary::end),
@@ -750,11 +785,26 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             _ if mode == ContentMode::Verbatim => {
                 let span = statement.span(self.ast);
                 self.format_verbatim(span, writer)?;
-                Ok(StatementBoundary::SourceEnd {
+                let boundary = StatementBoundary::SourceEnd {
                     end: span.end,
                     has_terminator: self.source(span).ends_with(';'),
-                }
-                .into())
+                };
+                let declaration = match data {
+                    StmtData::Declaration(declaration) => Some(declaration),
+                    StmtData::ExportNamedDeclaration(node) => node.declaration(self.ast),
+                    _ => None,
+                };
+                let boundary = if declaration.is_some_and(|declaration| {
+                    matches!(
+                        self.ast.decl_data(declaration),
+                        DeclData::TsTypeAliasDeclaration(_)
+                    )
+                }) {
+                    boundary.type_declaration()
+                } else {
+                    boundary
+                };
+                Ok(boundary.into())
             }
             _ => Err(self.unsupported("statement", statement)),
         }

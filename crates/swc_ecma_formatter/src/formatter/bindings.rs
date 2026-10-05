@@ -303,6 +303,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 computed.map_or(key.span(self.ast).end, |span| span.end)
             }
         };
+        self.format_initializer_right(left_end, right, layout, context, writer)
+    }
+
+    pub(super) fn format_initializer_right(
+        &mut self,
+        left_end: u32,
+        right: Expr,
+        layout: InitializerLayout<'ast>,
+        context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let (boundary, break_after) = match layout {
             InitializerLayout::Bound { gap, right_mode } => {
                 self.format_verbatim(gap, writer)?;

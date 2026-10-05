@@ -106,6 +106,9 @@ Expression contexts carry precedence, operand roles, and statement-start rules.
 Parenthesis and layout changes must preserve evaluation order, directive status,
 statement boundaries, and semantic comment scopes.
 
+Annotation wrappers, their inner types, and annotated bindings remain separate
+owners with independent source modes.
+
 Shared printers receive actual AST children and the caller's grammar context.
 The caller retains its enclosing owner, required delimiters, and ending; reuse
 does not widen a child's source interval or change its syntax domain.
