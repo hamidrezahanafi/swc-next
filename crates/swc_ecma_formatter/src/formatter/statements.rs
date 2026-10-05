@@ -1,8 +1,11 @@
 //! Basic statement bodies and their enclosing source boundaries.
 
 mod control_flow;
+mod declarations;
 mod modules;
 mod tails;
+
+pub(super) use declarations::DeclarationKeyword;
 
 use self::tails::{StatementTailModes, StatementTailRelation};
 

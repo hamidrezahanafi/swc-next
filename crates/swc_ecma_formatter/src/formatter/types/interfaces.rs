@@ -12,6 +12,7 @@ use crate::formatter::comments::CommentBoundary;
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::expressions::arguments::{ArgumentLayout, FollowingItem, ItemBoundary};
 use crate::formatter::expressions::{ExpressionContext, ExpressionPosition};
+use crate::formatter::statements::DeclarationKeyword;
 use crate::formatter::suppression::{ContentMode, SuppressionPosition};
 use crate::{FormatError, document::Writer};
 
@@ -59,9 +60,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(in crate::formatter) fn format_interface(
         &mut self,
         node: TsInterfaceDeclaration,
+        keyword: Option<DeclarationKeyword>,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        let head = self.prepare_interface(node)?;
+        let head = self.prepare_interface(node, keyword)?;
         writer.group(false, |writer| {
             writer.text("interface");
             self.format_type_gap(head.prefix, FlatSeparator::Space, writer)?;
@@ -101,17 +103,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn prepare_interface(
         &self,
         node: TsInterfaceDeclaration,
+        keyword: Option<DeclarationKeyword>,
     ) -> Result<InterfaceHead<'ast>, FormatError> {
         let ast = self.ast;
-        if node.declare(ast) {
-            return Err(self.unsupported("ambient interface", node));
-        }
         let name = node.id(ast);
         let name_span = name.span(ast);
-        let keyword_end = node.span(ast).start + "interface".len() as u32;
+        let keyword_end = keyword
+            .map_or(node.span(ast).start + "interface".len() as u32, |keyword| {
+                keyword.span.end
+            });
         let head_gap = Span::new(keyword_end, name_span.start);
         let comments = self.comments.in_range(head_gap);
         let mut name_mode = self.content_mode(comments);
+        if keyword.is_some_and(|keyword| keyword.suppresses_name(name)) {
+            name_mode = ContentMode::Verbatim;
+        }
         let prefix = if name_mode == ContentMode::Verbatim {
             TypeGap::Source(head_gap)
         } else {
