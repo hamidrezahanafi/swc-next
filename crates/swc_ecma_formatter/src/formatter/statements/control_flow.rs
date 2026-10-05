@@ -377,6 +377,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     }),
                 StmtData::ThrowStatement(node) => node.argument(self.ast).span(self.ast).end,
                 StmtData::DebuggerStatement(_) => span.start + "debugger".len() as u32,
+                StmtData::Declaration(declaration) => self.declaration_content_end(declaration),
                 _ => span.end,
             }
         } else {

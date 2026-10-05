@@ -11,6 +11,7 @@ mod restricted;
 mod source;
 mod statements;
 mod suppression;
+mod variables;
 
 use swc_next_ecma_ast::{Ast, GetSpan, Span, StmtData};
 

@@ -27,6 +27,15 @@ enum DefaultOwner<'ast> {
     },
 }
 
+pub(super) struct BindingInitializer<'ast> {
+    pub(super) left: BindingPattern,
+    pub(super) right: Expr,
+    pub(super) boundary: AssignmentBoundary<'ast>,
+    pub(super) left_mode: ContentMode,
+    pub(super) break_after: bool,
+    pub(super) context: ExpressionContext,
+}
+
 pub(super) struct PreparedBindingDefault<'ast> {
     left: BindingPattern,
     right: Expr,
@@ -83,7 +92,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    fn format_declaration_binding(
+    pub(super) fn format_declaration_binding(
         &mut self,
         pattern: BindingPattern,
         mode: ContentMode,
@@ -232,7 +241,33 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 break_after,
             } => (boundary, break_after),
         };
-        let tail = self.format_declaration_binding(left, ContentMode::Formatted, writer)?;
+        self.format_binding_initializer(
+            BindingInitializer {
+                left,
+                right,
+                boundary,
+                left_mode: ContentMode::Formatted,
+                break_after,
+                context: ExpressionContext::binding_initializer(),
+            },
+            writer,
+        )
+    }
+
+    pub(super) fn format_binding_initializer(
+        &mut self,
+        initializer: BindingInitializer<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let BindingInitializer {
+            left,
+            right,
+            boundary,
+            left_mode,
+            break_after,
+            context,
+        } = initializer;
+        let tail = self.format_declaration_binding(left, left_mode, writer)?;
         self.format_expression_tail(tail, writer)?;
         let left_end = left.span(self.ast).end;
         self.comments.claim(boundary.before)?;
@@ -287,7 +322,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_expression_with_leading_comments(
                     right,
                     boundary.right_head(),
-                    ExpressionContext::binding_initializer().with_content_mode(boundary.mode),
+                    context.with_content_mode(boundary.mode),
                     writer,
                 )
             };

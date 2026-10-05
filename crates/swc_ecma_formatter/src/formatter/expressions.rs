@@ -167,6 +167,15 @@ pub(super) struct ExpressionContext {
 }
 
 impl ExpressionContext {
+    pub(super) fn variable_initializer() -> Self {
+        Self::at(ExpressionPosition::AssignmentRight(
+            AssignmentParent::Statement,
+        ))
+        .with_arrow_layout(arrows::ArrowLayout::Assignment(
+            arrows::ArrowHeadGap::Expression,
+        ))
+    }
+
     pub(super) fn binding_initializer() -> Self {
         Self::at(ExpressionPosition::AssignmentRight(
             AssignmentParent::Nested,
