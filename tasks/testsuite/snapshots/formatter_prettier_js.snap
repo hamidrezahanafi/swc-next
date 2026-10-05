@@ -3,13 +3,13 @@ formatter * prettier 3.9.9 * js
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 794
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 568/1070 (53.08%)
-Snapshot matched: 568/1070
-AST parity: 767/767
-AST mismatched: 0/767
+Passed: 569/1070 (53.18%)
+Snapshot matched: 569/1070
+AST parity: 768/768
+AST mismatched: 0/768
 AST format errors: 0/1070
 Mismatched: 199/1070
-Format errors: 302/1070
+Format errors: 301/1070
 Panicked: 0/1070
 Not idempotent: 0/1070
 Ignored files: 298
@@ -225,7 +225,6 @@ Unsupported option sets: 19
 - js/import-attributes/bracket-spacing/dynamic-import.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/import-attributes/dynamic-import.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/import-attributes/long-sources.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/import-meta/import_meta.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/import/long-module-name/import-defer.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/import/long-module-name/import-expression.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/import/long-module-name/import-source.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
