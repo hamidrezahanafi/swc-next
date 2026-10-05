@@ -1,5 +1,6 @@
 //! Borrowed TypeScript type owners and their declaration punctuation boundaries.
 
+mod callable;
 mod compound;
 mod context;
 mod generics;
@@ -66,6 +67,10 @@ struct TypeBoundary<'ast> {
 
 struct PreparedTypeAnnotation<'ast> {
     pattern: BindingPattern,
+    content: PreparedAnnotation<'ast>,
+}
+
+struct PreparedAnnotation<'ast> {
     annotation: TsTypeAnnotation,
     wrapper_mode: ContentMode,
     type_node: PreparedType,
@@ -137,7 +142,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 prefix.right_mode
             };
             self.format_type_list_prefix(prefix, writer)?;
-            self.format_type_parameters(parameters, mode, writer)?;
+            self.format_type_parameters(
+                parameters,
+                generics::TypeParameterContext::Alias,
+                mode,
+                writer,
+            )?;
         }
         self.format_type_boundary(&boundary, writer)?;
         let tail = self.format_prepared_type(type_node, TypeContext::Root, writer)?;
@@ -498,6 +508,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer,
             ),
             TsTypeData::TsTupleType(node) => self.format_tuple_type(node, writer),
+            TsTypeData::TsFunctionType(node) => {
+                self.format_callable_type(callable::CallableType::Function(node), writer)
+            }
+            TsTypeData::TsConstructorType(node) => {
+                self.format_callable_type(callable::CallableType::Constructor(node), writer)
+            }
+            TsTypeData::TsTypePredicate(node) => self.format_type_predicate(node, writer),
             TsTypeData::TsOptionalType(node) => self.format_optional_type(node, writer),
             TsTypeData::TsRestType(node) => self.format_rest_type(node, writer),
             TsTypeData::TsArrayType(node) => self.format_array_type(node, writer),
@@ -620,9 +637,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         pattern: BindingPattern,
         annotation: TsTypeAnnotation,
     ) -> Result<PreparedTypeAnnotation<'ast>, FormatError> {
+        let content = self.prepare_annotation_content(pattern.span(self.ast).end, annotation)?;
+        Ok(PreparedTypeAnnotation { pattern, content })
+    }
+
+    fn prepare_annotation_content(
+        &self,
+        preceding_end: u32,
+        annotation: TsTypeAnnotation,
+    ) -> Result<PreparedAnnotation<'ast>, FormatError> {
         let ast = self.ast;
         let type_node = annotation.type_annotation(ast);
-        let gap = Span::new(pattern.span(ast).end, type_node.span(ast).start);
+        let gap = Span::new(preceding_end, type_node.span(ast).start);
         let comments = self.comments.in_range(gap);
         let Some(colon_start) = self.find_token(gap, comments, ":") else {
             return Err(self.unsupported("type annotation colon", annotation));
@@ -644,8 +670,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 after: self.prepare_comment_boundary(after, colon_start + 1, gap.end),
             }
         };
-        Ok(PreparedTypeAnnotation {
-            pattern,
+        Ok(PreparedAnnotation {
             annotation,
             wrapper_mode,
             type_node,
@@ -653,16 +678,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    fn format_annotated_binding(
+    fn format_annotation_content(
         &mut self,
-        binding: PreparedTypeAnnotation<'ast>,
+        content: PreparedAnnotation<'ast>,
         writer: &mut Writer<'ast>,
-    ) -> Result<(), FormatError> {
-        let ast = self.ast;
-        let tail =
-            self.format_declaration_binding(binding.pattern, ContentMode::Formatted, writer)?;
-        self.format_expression_tail(tail, writer)?;
-        match binding.prefix {
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        match content.prefix {
             TypeBoundaryLayout::Source(gap) => self.format_verbatim(gap, writer)?,
             TypeBoundaryLayout::Formatted { before, after } => {
                 self.format_comment_boundary(&before, writer)?;
@@ -674,12 +695,24 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .write(writer, FlatSeparator::Space, Writer::space);
             }
         }
-        if binding.wrapper_mode == ContentMode::Verbatim {
-            self.format_verbatim(binding.annotation.span(ast), writer)
+        if content.wrapper_mode == ContentMode::Verbatim {
+            self.format_verbatim(content.annotation.span(self.ast), writer)?;
+            Ok(None)
         } else {
-            let tail = self.format_prepared_type(binding.type_node, TypeContext::Root, writer)?;
-            self.format_expression_tail(tail, writer)
+            self.format_prepared_type(content.type_node, TypeContext::Root, writer)
         }
+    }
+
+    fn format_annotated_binding(
+        &mut self,
+        binding: PreparedTypeAnnotation<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        let tail =
+            self.format_declaration_binding(binding.pattern, ContentMode::Formatted, writer)?;
+        self.format_expression_tail(tail, writer)?;
+        let tail = self.format_annotation_content(binding.content, writer)?;
+        self.format_expression_tail(tail, writer)
     }
 
     pub(super) fn format_typed_variable_declarator(

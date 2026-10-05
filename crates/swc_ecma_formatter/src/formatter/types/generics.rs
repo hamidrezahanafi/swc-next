@@ -19,6 +19,12 @@ pub(super) enum TypeListKind {
 }
 
 #[derive(Clone, Copy)]
+pub(super) enum TypeParameterContext {
+    Alias,
+    Callable,
+}
+
+#[derive(Clone, Copy)]
 enum TypeList {
     Arguments(TsTypeParameterInstantiation),
     Parameters(TsTypeParameterDeclaration),
@@ -40,21 +46,21 @@ impl TypeList {
 #[derive(Clone, Copy)]
 enum GenericMember {
     Type(TsType),
-    Parameter(TsTypeParameter),
+    Parameter(TsTypeParameter, TypeParameterContext),
 }
 
 impl GenericMember {
     fn span(self, ast: &swc_next_ecma_ast::Ast<'_>) -> Span {
         match self {
             Self::Type(node) => node.span(ast),
-            Self::Parameter(node) => node.span(ast),
+            Self::Parameter(node, _) => node.span(ast),
         }
     }
 }
 
 enum PreparedGenericMember {
     Type(PreparedType),
-    Parameter(TsTypeParameter),
+    Parameter(TsTypeParameter, TypeParameterContext),
 }
 
 enum TypeListPrefixLayout<'ast> {
@@ -180,6 +186,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_type_parameters(
         &mut self,
         node: TsTypeParameterDeclaration,
+        context: TypeParameterContext,
         mode: ContentMode,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
@@ -190,7 +197,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let members = node
             .params(ast)
             .iter()
-            .map(|id| GenericMember::Parameter(ast.get_node_in_sub_range(id)));
+            .map(|id| GenericMember::Parameter(ast.get_node_in_sub_range(id), context));
         self.format_generic_list(TypeList::Parameters(node), members, writer)
     }
 
@@ -252,7 +259,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         GenericMember::Type(node) => PreparedGenericMember::Type(
                             first_type.take().unwrap_or_else(|| self.prepare_type(node, ContentMode::Formatted)),
                         ),
-                        GenericMember::Parameter(node) => PreparedGenericMember::Parameter(node),
+                        GenericMember::Parameter(node, context) => PreparedGenericMember::Parameter(node, context),
                     };
                     if mode == ContentMode::Verbatim
                         && let PreparedGenericMember::Type(node) = &mut prepared
@@ -302,7 +309,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                             }
                             self.format_prepared_type(node, TypeContext::Root, writer)?
                         }
-                        PreparedGenericMember::Parameter(node) => self.format_type_parameter(node, item.mode, writer)?,
+                        PreparedGenericMember::Parameter(node, context) => self.format_type_parameter(node, context, item.mode, writer)?,
                     };
                     let boundary = self.finish_delimited_item(item, tail, writer)?;
                     end = boundary.end;
@@ -339,10 +346,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn prepare_type_parameter(
         &self,
         node: TsTypeParameter,
+        context: TypeParameterContext,
     ) -> Result<PreparedParameter<'ast>, FormatError> {
         let ast = self.ast;
-        if node.r#const(ast) {
+        if node.r#const(ast) && matches!(context, TypeParameterContext::Alias) {
             return Err(self.unsupported("const type parameter in a type alias", node));
+        }
+        if node.r#const(ast) && (node.r#in(ast) || node.out(ast)) {
+            return Err(self.unsupported("const type parameter with variance", node));
         }
         let name = node.name(ast);
         let name_end = name.span(ast).end;
@@ -387,7 +398,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             None
         };
-        if self.has_suppression && (node.r#in(ast) || node.out(ast)) {
+        if self.has_suppression && (node.r#const(ast) || node.r#in(ast) || node.out(ast)) {
             let prefix = self
                 .comments
                 .in_range(Span::new(node.span(ast).start, name.span(ast).start));
@@ -407,6 +418,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn format_type_parameter(
         &mut self,
         node: TsTypeParameter,
+        context: TypeParameterContext,
         mode: ContentMode,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
@@ -414,10 +426,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.format_verbatim(node.span(self.ast), writer)?;
             return Ok(None);
         }
-        let parameter = self.prepare_type_parameter(node)?;
+        let parameter = self.prepare_type_parameter(node, context)?;
         let ast = self.ast;
         writer.group(false, |writer| {
-            self.format_type_parameter_modifiers(parameter.node, parameter.name, writer)?;
+            self.format_type_parameter_modifiers(
+                parameter.node,
+                parameter.name,
+                parameter.name_mode,
+                writer,
+            )?;
             if parameter.name_mode == ContentMode::Verbatim {
                 self.format_verbatim(parameter.name.span(ast), writer)?;
             } else {
@@ -444,9 +461,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         node: TsTypeParameter,
         name: BindingIdentifier,
+        name_mode: ContentMode,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let ast = self.ast;
+        if node.r#const(ast) {
+            let gap = Span::new(node.span(ast).start + 5, name.span(ast).start);
+            writer.text("const");
+            if name_mode == ContentMode::Verbatim {
+                return self.format_verbatim(gap, writer);
+            }
+            return self.format_source_token_gap(gap.start, gap.end, true, writer);
+        }
         if !node.r#in(ast) && !node.out(ast) {
             return Ok(());
         }
