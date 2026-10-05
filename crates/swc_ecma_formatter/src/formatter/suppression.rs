@@ -25,6 +25,7 @@ pub(super) enum DelimitedFollowing {
 }
 
 /// Ignore binding uses real siblings; slot layout retains its own comma boundary.
+#[derive(Clone, Copy)]
 pub(super) struct DelimitedSuppression {
     pub(super) preceding: Option<Span>,
     pub(super) following: ContentMode,

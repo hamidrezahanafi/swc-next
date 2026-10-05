@@ -7,7 +7,7 @@ use self::tails::{StatementTailModes, StatementTailRelation};
 
 use swc_next_ecma_ast::{
     Ast, BlockStatement, Comment, CommentKind, DeclData, Directive, FunctionBody, GetSpan, Span,
-    Stmt, StmtData,
+    StaticBlock, Stmt, StmtData,
 };
 
 use super::Formatter;
@@ -24,6 +24,7 @@ pub(super) enum StatementSequenceKind {
     Program { has_source_items: bool },
     Block,
     Function(Option<IncomingStatement>),
+    Static(Option<IncomingStatement>),
 }
 
 #[derive(Clone, Copy)]
@@ -46,6 +47,11 @@ pub(super) enum StatementItem {
 enum BodySource {
     Block(BlockStatement),
     Function(FunctionBody, Option<IncomingStatement>),
+    Static {
+        body: StaticBlock,
+        span: Span,
+        incoming: Option<IncomingStatement>,
+    },
 }
 
 struct StatementAnnotationTail<'ast> {
@@ -146,7 +152,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<StatementSequence, FormatError> {
         let ast = self.ast;
         let incoming = match kind {
-            StatementSequenceKind::Function(incoming) => incoming,
+            StatementSequenceKind::Function(incoming) | StatementSequenceKind::Static(incoming) => {
+                incoming
+            }
             _ => None,
         };
         let mut previous = previous_end.map(|end| StatementBoundary::SourceEnd {
@@ -582,6 +590,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         }
                         .into())
                     }
+                    DeclData::Class(class) => {
+                        self.format_class(class, writer)?;
+                        Ok(StatementBoundary::SourceEnd {
+                            end: class.span(self.ast).end,
+                            has_terminator: false,
+                        }
+                        .into())
+                    }
                     DeclData::VariableDeclaration(variable) => {
                         let (end, tail) = self.format_variable_declaration(variable, writer)?;
                         self.finish_statement(end, tail, punctuation, writer)
@@ -727,6 +743,24 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.format_braced_body(BodySource::Function(body, incoming), mode, writer)
     }
 
+    pub(super) fn format_static_block_body(
+        &mut self,
+        body: StaticBlock,
+        span: Span,
+        incoming: Option<IncomingStatement>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        self.format_braced_body(
+            BodySource::Static {
+                body,
+                span,
+                incoming,
+            },
+            ContentMode::Formatted,
+            writer,
+        )
+    }
+
     fn format_braced_body(
         &mut self,
         source: BodySource,
@@ -735,6 +769,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<(), FormatError> {
         let ast = self.ast;
         let (span, directives, body, kind) = match source {
+            BodySource::Static {
+                body,
+                span,
+                incoming,
+            } => (
+                span,
+                None,
+                body.body(ast),
+                StatementSequenceKind::Static(incoming),
+            ),
             BodySource::Block(block) => (
                 block.span(ast),
                 None,
@@ -749,6 +793,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ),
         };
         let function = matches!(kind, StatementSequenceKind::Function(_));
+        let compact_empty = function || matches!(kind, StatementSequenceKind::Static(_));
         if mode == ContentMode::Verbatim {
             return self.format_verbatim(span, writer);
         }
@@ -778,7 +823,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer.text("{");
         if empty {
             opening.write(writer, FlatSeparator::Empty, |writer| {
-                if !function {
+                if !compact_empty {
                     writer.hard_line();
                 }
             });

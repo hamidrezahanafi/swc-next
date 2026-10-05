@@ -3,7 +3,7 @@
 use swc_next_ecma_ast::{GetSpan, Span, VariableDeclaration, VariableDeclarator, VariableKind};
 
 use super::Formatter;
-use super::bindings::BindingInitializer;
+use super::bindings::{InitializerLayout, InitializerLeft, PreparedInitializer};
 use super::comments::ExpressionTail;
 use super::diagnostics::FlatSeparator;
 use super::expressions::ExpressionContext;
@@ -172,13 +172,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let break_after = boundary.own_line
             || !boundary.operator_line.is_empty()
             || self.assignment_right_breaks_after_operator(content.data);
-        self.format_binding_initializer(
-            BindingInitializer {
-                left,
+        self.format_initializer(
+            PreparedInitializer {
+                left: InitializerLeft::Binding(left),
                 right,
-                boundary,
+                layout: InitializerLayout::Formatted {
+                    boundary,
+                    break_after,
+                },
                 left_mode,
-                break_after,
                 context: ExpressionContext::variable_initializer(),
             },
             writer,

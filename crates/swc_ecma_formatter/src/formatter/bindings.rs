@@ -2,7 +2,7 @@
 
 use swc_next_ecma_ast::{
     ArrayPattern, BindingPattern, BindingPatternData, BindingProperty, CommentKind, Expr,
-    FormalParameterPattern, FormalParameterPatternData, GetSpan, ObjectPattern, Span,
+    FormalParameterPattern, FormalParameterPatternData, GetSpan, ObjectPattern, PropertyKey, Span,
 };
 
 use super::Formatter;
@@ -27,12 +27,31 @@ enum DefaultOwner<'ast> {
     },
 }
 
-pub(super) struct BindingInitializer<'ast> {
-    pub(super) left: BindingPattern,
+#[derive(Clone, Copy)]
+pub(super) enum InitializerLeft {
+    Binding(BindingPattern),
+    Property {
+        key: PropertyKey,
+        computed: Option<Span>,
+    },
+}
+
+pub(super) enum InitializerLayout<'ast> {
+    Formatted {
+        boundary: AssignmentBoundary<'ast>,
+        break_after: bool,
+    },
+    Bound {
+        gap: Span,
+        right_mode: ContentMode,
+    },
+}
+
+pub(super) struct PreparedInitializer<'ast> {
+    pub(super) left: InitializerLeft,
     pub(super) right: Expr,
-    pub(super) boundary: AssignmentBoundary<'ast>,
+    pub(super) layout: InitializerLayout<'ast>,
     pub(super) left_mode: ContentMode,
-    pub(super) break_after: bool,
     pub(super) context: ExpressionContext,
 }
 
@@ -227,12 +246,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 left_mode,
                 right_mode,
             } => {
-                let tail = self.format_declaration_binding(left, left_mode, writer)?;
-                self.format_expression_tail(tail, writer)?;
-                self.format_verbatim(gap, writer)?;
-                return self.format_expression(
-                    right,
-                    ExpressionContext::binding_initializer().with_content_mode(right_mode),
+                return self.format_initializer(
+                    PreparedInitializer {
+                        left: InitializerLeft::Binding(left),
+                        right,
+                        layout: InitializerLayout::Bound { gap, right_mode },
+                        left_mode,
+                        context: ExpressionContext::binding_initializer(),
+                    },
                     writer,
                 );
             }
@@ -241,35 +262,58 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 break_after,
             } => (boundary, break_after),
         };
-        self.format_binding_initializer(
-            BindingInitializer {
-                left,
+        self.format_initializer(
+            PreparedInitializer {
+                left: InitializerLeft::Binding(left),
                 right,
-                boundary,
+                layout: InitializerLayout::Formatted {
+                    boundary,
+                    break_after,
+                },
                 left_mode: ContentMode::Formatted,
-                break_after,
                 context: ExpressionContext::binding_initializer(),
             },
             writer,
         )
     }
 
-    pub(super) fn format_binding_initializer(
+    pub(super) fn format_initializer(
         &mut self,
-        initializer: BindingInitializer<'ast>,
+        initializer: PreparedInitializer<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        let BindingInitializer {
+        let PreparedInitializer {
             left,
             right,
-            boundary,
+            layout,
             left_mode,
-            break_after,
             context,
         } = initializer;
-        let tail = self.format_declaration_binding(left, left_mode, writer)?;
-        self.format_expression_tail(tail, writer)?;
-        let left_end = left.span(self.ast).end;
+        let left_end = match left {
+            InitializerLeft::Binding(binding) => {
+                let tail = self.format_declaration_binding(binding, left_mode, writer)?;
+                self.format_expression_tail(tail, writer)?;
+                binding.span(self.ast).end
+            }
+            InitializerLeft::Property { key, computed } => {
+                self.format_field_key(key, computed, left_mode, writer)?;
+                computed.map_or(key.span(self.ast).end, |span| span.end)
+            }
+        };
+        let (boundary, break_after) = match layout {
+            InitializerLayout::Bound { gap, right_mode } => {
+                self.format_verbatim(gap, writer)?;
+                return self.format_expression(
+                    right,
+                    context.with_content_mode(right_mode),
+                    writer,
+                );
+            }
+            InitializerLayout::Formatted {
+                boundary,
+                break_after,
+            } => (boundary, break_after),
+        };
         self.comments.claim(boundary.before)?;
         self.format_comment_run(
             boundary.before,

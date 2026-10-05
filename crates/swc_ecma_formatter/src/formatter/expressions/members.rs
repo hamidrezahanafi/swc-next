@@ -2,7 +2,7 @@
 
 use swc_next_ecma_ast::{
     Comment, CommentKind, Expr, ExprData, GetSpan, IdentifierName, MemberExpression,
-    PropertyKeyData, Span,
+    PrivateIdentifier, PropertyKeyData, Span,
 };
 
 use super::{
@@ -15,13 +15,19 @@ use crate::{FormatError, document::Writer};
 
 #[derive(Clone, Copy)]
 enum MemberKey {
-    Static(IdentifierName),
+    Static(StaticMemberKey),
     Computed(Expr),
+}
+
+#[derive(Clone, Copy)]
+enum StaticMemberKey {
+    Public(IdentifierName),
+    Private(PrivateIdentifier),
 }
 
 enum MemberPunctuation {
     Static {
-        key: IdentifierName,
+        key: StaticMemberKey,
         operator: Span,
         key_gap: Option<Span>,
     },
@@ -152,7 +158,14 @@ impl SourceMember {
 
     pub(super) fn name(&self) -> Option<IdentifierName> {
         match self.punctuation {
-            MemberPunctuation::Static { key, .. } => Some(key),
+            MemberPunctuation::Static {
+                key: StaticMemberKey::Public(key),
+                ..
+            } => Some(key),
+            MemberPunctuation::Static {
+                key: StaticMemberKey::Private(_),
+                ..
+            } => None,
             MemberPunctuation::Computed { .. } => None,
         }
     }
@@ -247,7 +260,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             member.computed(self.ast),
             self.ast.property_key_data(property),
         ) {
-            (false, PropertyKeyData::IdentifierName(identifier)) => MemberKey::Static(identifier),
+            (false, PropertyKeyData::IdentifierName(identifier)) => {
+                MemberKey::Static(StaticMemberKey::Public(identifier))
+            }
+            (false, PropertyKeyData::Expr(expression)) => match self.ast.expr_data(expression) {
+                ExprData::PrivateIdentifier(identifier) => {
+                    MemberKey::Static(StaticMemberKey::Private(identifier))
+                }
+                _ => return Err(self.unsupported("member property", property)),
+            },
             (true, PropertyKeyData::Expr(expression)) => MemberKey::Computed(expression),
             _ => return Err(self.unsupported("member property", property)),
         };
@@ -470,7 +491,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 if member.key_mode == ContentMode::Verbatim {
                     self.format_verbatim(member.property_span, writer)?;
                 } else {
-                    writer.text(self.ast.get_utf8(identifier.name(self.ast)));
+                    match identifier {
+                        StaticMemberKey::Public(identifier) => {
+                            writer.text(self.ast.get_utf8(identifier.name(self.ast)))
+                        }
+                        StaticMemberKey::Private(identifier) => {
+                            writer.text("#");
+                            writer.text(self.ast.get_utf8(identifier.name(self.ast)));
+                        }
+                    }
                 }
                 Ok(())
             }
@@ -510,6 +539,30 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 receiver,
                 key: key_mode,
             };
+        }
+        if let MemberKey::Static(StaticMemberKey::Private(private)) = key {
+            let mut receiver = ContentMode::Formatted;
+            let mut key = ContentMode::Formatted;
+            let split = comments.partition_point(|comment| comment.span.end <= key_boundary);
+            for position in self.suppression_positions(&comments[..split], key_boundary) {
+                match position {
+                    crate::formatter::suppression::SuppressionPosition::OwnLine => {
+                        key = ContentMode::Verbatim
+                    }
+                    _ => receiver = ContentMode::Verbatim,
+                }
+            }
+            for position in
+                self.suppression_positions(&comments[split..], private.span(self.ast).start)
+            {
+                match position {
+                    crate::formatter::suppression::SuppressionPosition::EndOfLine => {
+                        receiver = ContentMode::Verbatim
+                    }
+                    _ => key = ContentMode::Verbatim,
+                }
+            }
+            return MemberContent::Formatted { receiver, key };
         }
         for (run, position) in self.suppressed_comment_runs(comments, key_start) {
             match position {

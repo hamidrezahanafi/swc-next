@@ -2,29 +2,38 @@
 
 use swc_next_ecma_ast::{
     Ast, ExprData, FormalParameter, FormalParameterItemData, FormalParameterPatternData,
-    FormalParameterRest, FormalParameters, GetSpan, Span,
+    FormalParameterRest, FormalParameters, FunctionBody, GetSpan, Span,
 };
 
 use super::Formatter;
 use super::comments::{CommentRunLayout, ExpressionTail};
-use super::diagnostics::FlatSeparator;
+use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::arguments::{ArgumentLayout, FollowingItem, Separator};
-use super::suppression::ContentMode;
+use super::suppression::{ContentMode, DelimitedSuppression, SuppressionPosition};
 use crate::{ArrowParentheses, FormatError, TrailingCommas, document::Writer};
 
 enum ParameterRole {
     Arrow { has_trailing_comments: bool },
     Function,
+    PrivateMethod(FunctionBody),
 }
 
 enum ParameterSource {
     Parenthesized(Span),
     Bare(FormalParameter),
+    PrivateEmpty(Span),
 }
 
+#[derive(Clone, Copy)]
 enum ParameterTail {
     Formal(FormalParameter),
     Rest(FormalParameterRest),
+}
+
+struct PrivateParameterBoundary {
+    parameter: ParameterTail,
+    relation: DelimitedSuppression,
+    closing: LineConstraint,
 }
 
 pub(super) struct SourceParameters {
@@ -37,9 +46,21 @@ pub(super) struct SourceParameters {
     leading_mode: ContentMode,
     enclosing_mode: ContentMode,
     suppressed_tail: Option<ParameterTail>,
+    private_boundary: Option<PrivateParameterBoundary>,
+    key_mode: ContentMode,
+    body_target: Option<(FunctionBody, ContentMode)>,
 }
 
 impl SourceParameters {
+    pub(super) fn key_mode(&self) -> ContentMode {
+        self.key_mode
+    }
+    pub(super) fn body_mode(&self, body: FunctionBody) -> ContentMode {
+        self.body_target
+            .filter(|(target, _)| *target == body)
+            .map_or(ContentMode::Formatted, |(_, mode)| mode)
+    }
+
     pub(super) fn enclosing_mode(&self) -> ContentMode {
         self.enclosing_mode
     }
@@ -101,6 +122,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.source_parameters(node, ParameterRole::Function)
     }
 
+    pub(super) fn source_private_method_parameters(
+        &self,
+        node: FormalParameters,
+        body: FunctionBody,
+    ) -> Result<SourceParameters, FormatError> {
+        self.source_parameters(node, ParameterRole::PrivateMethod(body))
+    }
+
     fn source_parameters(
         &self,
         node: FormalParameters,
@@ -118,7 +147,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             None => None,
         };
-        let source = if self.source(span).starts_with('(') && self.source(span).ends_with(')') {
+        let mut source = if self.source(span).starts_with('(') && self.source(span).ends_with(')') {
             ParameterSource::Parenthesized(span)
         } else if matches!(role, ParameterRole::Arrow { .. })
             && let Some(parameter) = first
@@ -135,7 +164,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             return Err(self.unsupported("arrow parameter source boundary", node));
         };
-        let enclosing_mode = if self.has_suppression && first.is_none() && rest.is_none() {
+        let enclosing_mode = if self.has_suppression
+            && !matches!(role, ParameterRole::PrivateMethod(_))
+            && first.is_none()
+            && rest.is_none()
+        {
             self.content_mode(self.comments.in_range(span))
         } else {
             ContentMode::Formatted
@@ -188,6 +221,64 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .in_range(Span::new(parameter_span.end, span.end))
                     .is_empty()
         });
+        let mut key_mode = ContentMode::Formatted;
+        let mut body_mode = ContentMode::Formatted;
+        let mut private_boundary = None;
+        if self.has_suppression
+            && let ParameterRole::PrivateMethod(_) = role
+        {
+            let content = Span::new(span.start + 1, span.end - 1);
+            let tail = if let Some(rest) = rest {
+                Some(ParameterTail::Rest(rest))
+            } else {
+                items.iter().next_back().and_then(|id| {
+                    match ast.formal_parameter_item_data(ast.get_node_in_sub_range(id)) {
+                        FormalParameterItemData::FormalParameter(parameter) => {
+                            Some(ParameterTail::Formal(parameter))
+                        }
+                        FormalParameterItemData::TsParameterProperty(_) => None,
+                    }
+                })
+            };
+            let end = tail.map_or(content.start, |tail| match tail {
+                ParameterTail::Formal(parameter) => parameter.span(ast).end,
+                ParameterTail::Rest(rest) => rest.span(ast).end,
+            });
+            let gap = Span::new(end, content.end);
+            let comments = self.comments.in_range(gap);
+            if self.content_mode(comments) == ContentMode::Verbatim {
+                let mut preceding = None;
+                for position in self.suppression_positions(comments, content.end) {
+                    match position {
+                        SuppressionPosition::OwnLine => body_mode = ContentMode::Verbatim,
+                        SuppressionPosition::Inline | SuppressionPosition::EndOfLine => {
+                            if let Some(tail) = tail {
+                                preceding = Some(match tail {
+                                    ParameterTail::Formal(parameter) => parameter.span(ast),
+                                    ParameterTail::Rest(rest) => rest.span(ast),
+                                });
+                            } else {
+                                key_mode = ContentMode::Verbatim;
+                            }
+                        }
+                    }
+                }
+                if let Some(parameter) = tail {
+                    let last = comments.last().map_or(end, |comment| comment.span.end);
+                    private_boundary = Some(PrivateParameterBoundary {
+                        parameter,
+                        relation: DelimitedSuppression {
+                            preceding,
+                            following: body_mode,
+                        },
+                        closing: self.source_line_constraint(last, content.end),
+                    });
+                } else {
+                    source = ParameterSource::PrivateEmpty(span);
+                }
+            }
+            // The function signature consumes this actual body target below.
+        }
         Ok(SourceParameters {
             node,
             source,
@@ -198,6 +289,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             leading_mode: ContentMode::Formatted,
             enclosing_mode,
             suppressed_tail: None,
+            private_boundary,
+            key_mode,
+            body_target: match role {
+                ParameterRole::PrivateMethod(body) if body_mode == ContentMode::Verbatim => {
+                    Some((body, body_mode))
+                }
+                _ => None,
+            },
         })
     }
 
@@ -217,11 +316,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             leading_mode,
             enclosing_mode: _,
             suppressed_tail,
+            private_boundary,
+            key_mode: _,
+            body_target: _,
         } = parameters;
+        if let ParameterSource::PrivateEmpty(span) = source {
+            return self.format_verbatim(span, writer);
+        }
         let has_parameters = first.is_some() || rest.is_some();
         let content = match source {
             ParameterSource::Bare(parameter) => parameter.span(ast),
-            ParameterSource::Parenthesized(span) => Span::new(span.start + 1, span.end - 1),
+            ParameterSource::Parenthesized(span) | ParameterSource::PrivateEmpty(span) => {
+                Span::new(span.start + 1, span.end - 1)
+            }
         };
         if omit_parentheses && let Some(parameter) = first {
             let tail = self.format_formal_parameter(parameter, ContentMode::Formatted, writer)?;
@@ -275,6 +382,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         .map(|item| item.span(ast))
                         .or_else(|| rest.map(|rest| rest.span(ast)))
                         .map_or(FollowingItem::End, FollowingItem::Node);
+                    let following = private_boundary.as_ref()
+                        .filter(|source| matches!(source.parameter, ParameterTail::Formal(target) if target == parameter))
+                        .map_or(following, |source| FollowingItem::ResolvedTerminal(source.relation));
                     let mut item = self.prepare_delimited_item(
                         parameter.span(ast),
                         following,
@@ -313,7 +423,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     }
                     let mut item = self.prepare_delimited_item(
                         rest.span(ast),
-                        FollowingItem::End,
+                        private_boundary.as_ref()
+                            .filter(|source| matches!(source.parameter, ParameterTail::Rest(target) if target == rest))
+                            .map_or(FollowingItem::End, |source| FollowingItem::ResolvedTerminal(source.relation)),
                         Span::new(end, content.end),
                         false,
                         writer,
@@ -344,7 +456,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.indent(write_items)?
             };
             if !hug && (has_parameters || end != content.start) {
-                self.line_constraint(end, content.end).write(
+                private_boundary.as_ref().map_or_else(
+                    || self.line_constraint(end, content.end), |source| source.closing,
+                ).write(
                     writer,
                     FlatSeparator::Empty,
                     Writer::soft_line,

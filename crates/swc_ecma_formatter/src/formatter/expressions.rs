@@ -60,6 +60,7 @@ pub(super) enum ExpressionPosition {
         curried_call: Option<CallExpression>,
     },
     NewCallee,
+    Superclass,
     ArrowBody,
     RestrictedArgument,
     YieldArgument,
@@ -540,6 +541,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.text(self.ast.get_utf8(identifier.name(self.ast)));
                 Ok(None)
             }
+            ExprData::Super(_) => {
+                writer.text("super");
+                Ok(None)
+            }
+            ExprData::PrivateIdentifier(identifier) => {
+                writer.text("#");
+                writer.text(self.ast.get_utf8(identifier.name(self.ast)));
+                Ok(None)
+            }
             ExprData::ThisExpression(_) => {
                 writer.text("this");
                 Ok(None)
@@ -612,6 +622,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             ExprData::NewExpression(constructor) => self.format_new(constructor, writer),
             ExprData::Function(function) => self.format_function(function, writer).map(|()| None),
+            ExprData::Class(class) => self.format_class(class, writer).map(|()| None),
             ExprData::ArrowFunctionExpression(arrow) => self.format_arrow(arrow, context, writer),
             ExprData::AwaitExpression(await_expression) => {
                 self.format_await(await_expression, writer)
@@ -642,7 +653,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 == Some(true)
                 || matches!(data, ExprData::ObjectExpression(_))
                     && context.expression_start != ExpressionStart::None
-                || matches!(data, ExprData::Function(_)) && context.expression_start.is_statement())
+                || matches!(data, ExprData::Function(_) | ExprData::Class(_))
+                    && context.expression_start.is_statement())
     }
 
     /// Follow the printed head only when a guard must precede protected comments.
@@ -737,6 +749,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         | ExpressionPosition::MemberAssignmentObject
                         | ExpressionPosition::CallCallee { .. }
                         | ExpressionPosition::NewCallee
+                        | ExpressionPosition::Superclass
                         | ExpressionPosition::ConditionalTest
                 ));
             }
@@ -751,6 +764,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         | ExpressionPosition::MemberAssignmentObject
                         | ExpressionPosition::CallCallee { .. }
                         | ExpressionPosition::NewCallee
+                        | ExpressionPosition::Superclass
                         | ExpressionPosition::ConditionalTest
                 );
                 let awaited_yield = matches!(data, ExprData::YieldExpression(_))
@@ -767,6 +781,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         }
                         | ExpressionPosition::MemberAssignmentObject
                         | ExpressionPosition::NewCallee
+                        | ExpressionPosition::Superclass
                 ));
             }
             ExprData::NewExpression(constructor) => {
@@ -789,6 +804,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             ExprData::IdentifierReference(_)
             | ExprData::Function(_)
+            | ExprData::Class(_)
+            | ExprData::Super(_)
+            | ExprData::PrivateIdentifier(_)
             | ExprData::MetaProperty(_)
             | ExprData::ThisExpression(_)
             | ExprData::StringLiteral(_)
@@ -814,6 +832,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && self.new_callee_contains_call(data, mode)
         {
             return Some(true);
+        }
+        if matches!(position, ExpressionPosition::Superclass) {
+            return Some(matches!(
+                data,
+                ExprData::ArrowFunctionExpression(_)
+                    | ExprData::SequenceExpression(_)
+                    | ExprData::AssignmentExpression(_)
+                    | ExprData::ConditionalExpression(_)
+                    | ExprData::UnaryExpression(_)
+                    | ExprData::UpdateExpression(_)
+                    | ExprData::BinaryExpression(_)
+                    | ExprData::LogicalExpression(_)
+                    | ExprData::YieldExpression(_)
+                    | ExprData::AwaitExpression(_)
+                    | ExprData::ChainExpression(_)
+            ));
         }
         Some(match (position, data) {
             (ExpressionPosition::NewCallee, ExprData::Function(_)) => true,
@@ -895,7 +929,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             (
                 ExpressionPosition::Statement,
-                ExprData::StringLiteral(_) | ExprData::ObjectExpression(_) | ExprData::Function(_),
+                ExprData::StringLiteral(_)
+                | ExprData::ObjectExpression(_)
+                | ExprData::Function(_)
+                | ExprData::Class(_),
             ) => true,
             _ => false,
         })

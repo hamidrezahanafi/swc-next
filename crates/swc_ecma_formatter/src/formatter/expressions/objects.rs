@@ -7,11 +7,9 @@ use swc_next_ecma_ast::{
 };
 
 use super::{ExpressionContext, ExpressionPosition, Formatter};
-use crate::formatter::comments::{
-    CommentBinding, CommentBoundary, CommentRunLayout, ExpressionTail, NodeHead,
-};
+use crate::formatter::comments::{CommentBinding, CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
-use crate::formatter::functions::{FunctionNameModes, FunctionSignatureOwner};
+
 use crate::formatter::literals::StringContext;
 use crate::formatter::suppression::{ContentMode, DelimitedFollowing, SuppressionPosition};
 use crate::{
@@ -20,15 +18,10 @@ use crate::{
 };
 
 #[derive(Clone, Copy)]
-enum PropertyKeyContext {
+pub(in crate::formatter) enum PropertyKeyContext {
     Ordinary,
     FunctionValueBinding,
-}
-
-struct MethodFunctionPrefix<'ast> {
-    boundary: CommentBoundary<'ast>,
-    binding: CommentBinding,
-    following: LineConstraint,
+    ClassField,
 }
 
 enum SourceObject<'ast> {
@@ -564,147 +557,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         property: ObjectProperty,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        let ast = self.ast;
-        let value = property.value(ast);
-        let ExprData::Function(function) = ast.expr_data(value) else {
-            return Err(self.unsupported("object method value", value));
-        };
-        let key = property.key(ast);
-        let mut signature =
-            self.source_function_signature(function, FunctionSignatureOwner::Method(key))?;
-        if signature.enclosing_mode() == ContentMode::Verbatim {
-            return self.format_verbatim(property.span(ast), writer);
-        }
-        let start = property.span(ast).start;
-        let key_span = key.span(ast);
-        let keyword = match property.kind(ast) {
-            PropertyKind::Get => Some("get"),
-            PropertyKind::Set => Some("set"),
-            PropertyKind::Init if function.r#async(ast) => Some("async"),
-            PropertyKind::Init => None,
-        };
-        let keyword_end = keyword.map_or(start, |keyword| start + keyword.len() as u32);
-        let star = if function.generator(ast) {
-            let gap = Span::new(keyword_end, key_span.start);
-            let comments = self.comments.in_range(gap);
-            let Some(star) = self.find_token(gap, comments, "*") else {
-                return Err(self.unsupported("method generator boundary", property));
-            };
-            Some(star)
-        } else {
-            None
-        };
-        let head_end = star.map_or(keyword_end, |star| star + 1);
-        let computed = if property.computed(ast) {
-            let before = Span::new(head_end, key_span.start);
-            let comments = self.comments.in_range(before);
-            let Some(opening) = self.find_token(before, comments, "[") else {
-                return Err(self.unsupported("computed method opening boundary", property));
-            };
-            let after = Span::new(key_span.end, signature.span.start);
-            let comments = self.comments.in_range(after);
-            let Some(closing) = self.find_token(after, comments, "]") else {
-                return Err(self.unsupported("computed method closing boundary", property));
-            };
-            Some(Span::new(opening, closing + 1))
-        } else {
-            None
-        };
-        let key_start = computed.map_or(key_span.start, |span| span.start);
-        let key_end = computed.map_or(key_span.end, |span| span.end);
-        let modes = if self.has_suppression
-            && computed.is_none()
-            && matches!(
-                ast.property_key_data(key),
-                PropertyKeyData::IdentifierName(_)
-            ) {
-            // Babel attaches this prefix to the actual Identifier key.
-            FunctionNameModes {
-                name: self.content_mode(
-                    self.comments
-                        .in_range(Span::new(key_span.end, signature.span.start)),
-                ),
-                following: ContentMode::Formatted,
-            }
-        } else {
-            self.function_name_modes(Span::new(key_span.end, signature.span.start))
-        };
-        let function_prefix = if self.has_suppression
-            && computed.is_none()
-            && matches!(ast.property_key_data(key), PropertyKeyData::Expr(expression)
-                if matches!(ast.expr_data(expression), ExprData::StringLiteral(_)))
-        {
-            let function_span = function.span(ast);
-            let gap = Span::new(key_end, function_span.start);
-            let comments = self.comments.in_range(gap);
-            if self
-                .suppression_positions(comments, function_span.start)
-                .any(|position| matches!(position, SuppressionPosition::OwnLine))
-            {
-                // This real ObjectProperty value owns the complete Function.
-                let binding = self.comment_binding(comments, gap, Some(function_span));
-                let boundary =
-                    self.prepare_comment_boundary(comments, key_end, function_span.start);
-                let following = self.source_line_constraint(boundary.end(), function_span.start);
-                Some(MethodFunctionPrefix {
-                    boundary,
-                    binding,
-                    following,
-                })
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        if function_prefix.is_none() {
-            signature.set_leading_mode(modes.following);
-        }
-        let key_mode = if signature.key_mode(key) == ContentMode::Verbatim
-            || modes.name == ContentMode::Verbatim
-        {
-            ContentMode::Verbatim
-        } else if self.has_suppression {
-            self.content_mode(self.comments.in_range(Span::new(start, key_span.start)))
-        } else {
-            ContentMode::Formatted
-        };
-        if let Some(keyword) = keyword {
-            writer.text(keyword);
-        }
-        if let Some(star) = star {
-            self.format_source_token_gap(keyword_end, star, keyword.is_some(), writer)?;
-            writer.text("*");
-        }
-        self.format_source_token_gap(
-            head_end,
-            key_start,
-            keyword.is_some() && star.is_none(),
-            writer,
-        )?;
-        let key_context = if function_prefix.is_some() {
-            // Unquoting would move the effective Function binding to the key.
-            PropertyKeyContext::FunctionValueBinding
-        } else {
-            PropertyKeyContext::Ordinary
-        };
-        self.format_property_key_context(key, computed, key_mode, key_context, writer)?;
-        if let Some(prefix) = function_prefix {
-            self.format_comment_boundary(&prefix.boundary, writer)?;
-            if prefix.binding.allows_relocation(None) {
-                prefix
-                    .boundary
-                    .gap()
-                    .write(writer, FlatSeparator::Empty, |_| {});
-            } else {
-                prefix.following.write(writer, FlatSeparator::Empty, |_| {});
-            }
-            self.format_verbatim(function.span(ast), writer)
-        } else {
-            self.format_source_token_gap(key_end, signature.span.start, false, writer)?;
-            let body = self.format_function_signature(signature, writer)?;
-            self.format_function_body_boundary(body, writer)
-        }
+        let header =
+            self.source_method_header(crate::formatter::functions::MethodOwner::Object(property))?;
+        self.format_method_header(header, writer)
     }
 
     fn object_property_boundary(
@@ -878,7 +733,62 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.format_property_key_context(key, computed, mode, PropertyKeyContext::Ordinary, writer)
     }
 
-    fn format_property_key_context(
+    pub(in crate::formatter) fn format_field_key(
+        &mut self,
+        key: PropertyKey,
+        computed: Option<Span>,
+        mode: ContentMode,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        self.format_property_key_context(
+            key,
+            computed,
+            mode,
+            PropertyKeyContext::ClassField,
+            writer,
+        )
+    }
+
+    pub(in crate::formatter) fn property_key_identifier(
+        &self,
+        key: PropertyKey,
+        context: PropertyKeyContext,
+        mode: ContentMode,
+    ) -> Option<&'ast str> {
+        match self.ast.property_key_data(key) {
+            PropertyKeyData::IdentifierName(identifier) => {
+                Some(self.ast.get_utf8(identifier.name(self.ast)))
+            }
+            PropertyKeyData::Expr(expression) if mode == ContentMode::Formatted => {
+                if let ExprData::StringLiteral(literal) = self.ast.expr_data(expression) {
+                    self.unquoted_string_key(literal, context)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn unquoted_string_key(
+        &self,
+        literal: swc_next_ecma_ast::StringLiteral,
+        context: PropertyKeyContext,
+    ) -> Option<&'ast str> {
+        if self.options.quote_properties != QuoteProperties::AsNeeded
+            || matches!(context, PropertyKeyContext::FunctionValueBinding)
+            || matches!(context, PropertyKeyContext::ClassField) && self.ast.lang().is_typescript()
+        {
+            return None;
+        }
+        let raw = self.ast.get_utf8(literal.raw(self.ast));
+        let content = &raw[1..raw.len() - 1];
+        (swc_next_ecma_ast::is_identifier_es5_and_esnext(content.as_bytes())
+            || !self.ast.lang().is_typescript() && numeric_property_name(content))
+        .then_some(content)
+    }
+
+    pub(in crate::formatter) fn format_property_key_context(
         &mut self,
         key: PropertyKey,
         computed: Option<Span>,
@@ -961,13 +871,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             PropertyKeyData::Expr(expression) => match ast.expr_data(expression) {
                 ExprData::StringLiteral(literal) => {
-                    let raw = ast.get_utf8(literal.raw(ast));
-                    let content = &raw[1..raw.len() - 1];
-                    if matches!(context, PropertyKeyContext::Ordinary)
-                        && self.options.quote_properties == QuoteProperties::AsNeeded
-                        && (swc_next_ecma_ast::is_identifier_es5_and_esnext(content.as_bytes())
-                            || !ast.lang().is_typescript() && numeric_property_name(content))
-                    {
+                    if let Some(content) = self.unquoted_string_key(literal, context) {
                         writer.text(content);
                     } else {
                         self.format_string_literal(literal, StringContext::Expression, writer);
@@ -975,6 +879,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
                 ExprData::NumericLiteral(literal) => self.format_numeric_literal(literal, writer),
                 ExprData::BigIntLiteral(literal) => self.format_bigint_literal(literal, writer),
+                ExprData::PrivateIdentifier(identifier) => {
+                    writer.text("#");
+                    writer.text(ast.get_utf8(identifier.name(ast)));
+                }
                 _ => return Err(self.unsupported("object property key", key)),
             },
         }
