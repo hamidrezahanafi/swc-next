@@ -21,16 +21,37 @@ use crate::{FormatError, Semicolons, document::Writer};
 
 #[derive(Clone, Copy)]
 pub(super) enum StatementSequenceKind {
-    Program { has_source_items: bool },
-    Block,
+    Program {
+        has_source_items: bool,
+    },
+    Block(Option<IncomingStatement>),
     Function(Option<IncomingStatement>),
     Static(Option<IncomingStatement>),
+    Case {
+        incoming: Option<CaseIncoming>,
+        terminator: Option<StatementSourceTerminator>,
+    },
 }
 
 #[derive(Clone, Copy)]
 pub(super) struct IncomingStatement {
     pub(super) span: Span,
     pub(super) mode: ContentMode,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum CaseIncoming {
+    Statement(IncomingStatement),
+    Block {
+        block: BlockStatement,
+        incoming: IncomingStatement,
+    },
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum EmptyBlock {
+    Compact,
+    Expanded,
 }
 
 pub(super) struct StatementSequence {
@@ -45,7 +66,11 @@ pub(super) enum StatementItem {
 }
 
 enum BodySource {
-    Block(BlockStatement),
+    Block {
+        node: BlockStatement,
+        incoming: Option<IncomingStatement>,
+        empty: EmptyBlock,
+    },
     Function(FunctionBody, Option<IncomingStatement>),
     Static {
         body: StaticBlock,
@@ -94,7 +119,7 @@ impl StatementItem {
 }
 
 #[derive(Clone, Copy)]
-struct StatementSourceTerminator {
+pub(super) struct StatementSourceTerminator {
     start: u32,
 }
 
@@ -163,9 +188,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<StatementSequence, FormatError> {
         let ast = self.ast;
         let incoming = match kind {
-            StatementSequenceKind::Function(incoming) | StatementSequenceKind::Static(incoming) => {
-                incoming
-            }
+            StatementSequenceKind::Block(incoming)
+            | StatementSequenceKind::Function(incoming)
+            | StatementSequenceKind::Static(incoming) => incoming,
+            StatementSequenceKind::Case {
+                incoming: Some(CaseIncoming::Statement(incoming)),
+                ..
+            } => Some(incoming),
             _ => None,
         };
         let mut previous = previous_end.map(|end| StatementBoundary::SourceEnd {
@@ -238,7 +267,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let source_packet = suppression_tail
                 .as_ref()
                 .and_then(|tail| tail.source_packet);
-            let punctuation = if source_packet.is_some() {
+            let punctuation = if let StatementSequenceKind::Case {
+                terminator: Some(terminator),
+                ..
+            } = kind
+                && following.is_none()
+            {
+                StatementPunctuation::Source(terminator)
+            } else if source_packet.is_some() {
                 StatementPunctuation::SourcePacket
             } else {
                 match source_terminator {
@@ -329,14 +365,38 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     }
                     self.finish_statement(expression.span(ast).end, None, punctuation, writer)?
                 }
-                StatementItem::Statement(statement) => self.format_statement(
-                    statement,
-                    expression_start,
-                    mode,
-                    head,
-                    punctuation,
-                    writer,
-                )?,
+                StatementItem::Statement(statement) => {
+                    if let StatementSequenceKind::Case {
+                        incoming: Some(CaseIncoming::Block { block, incoming }),
+                        ..
+                    } = kind
+                        && statement == Stmt::BlockStatement(block)
+                        && mode == ContentMode::Formatted
+                    {
+                        self.format_node_head(head, expression_start, writer)?;
+                        self.format_compound_block(
+                            block,
+                            mode,
+                            Some(incoming),
+                            EmptyBlock::Expanded,
+                            writer,
+                        )?;
+                        StatementBoundary::SourceEnd {
+                            end: block.span(ast).end,
+                            has_terminator: false,
+                        }
+                        .into()
+                    } else {
+                        self.format_statement(
+                            statement,
+                            expression_start,
+                            mode,
+                            head,
+                            punctuation,
+                            writer,
+                        )?
+                    }
+                }
             };
             let mut boundary = self.flush_statement_tail(printed, writer)?;
             first_statement = false;
@@ -398,9 +458,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.comment_gap(boundary.end(), first.span.start, writer);
         }
         let layout = match (previous, kind) {
-            (None, StatementSequenceKind::Block | StatementSequenceKind::Function(_)) => {
-                CommentRunLayout::Lines
-            }
+            (
+                None,
+                StatementSequenceKind::Block(_)
+                | StatementSequenceKind::Function(_)
+                | StatementSequenceKind::Case { .. },
+            ) => CommentRunLayout::Lines,
             (
                 None,
                 StatementSequenceKind::Program {
@@ -672,6 +735,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             StmtData::IfStatement(node) if mode == ContentMode::Formatted => {
                 self.format_if_statement(node, punctuation, writer)
             }
+            StmtData::WithStatement(node) if mode == ContentMode::Formatted => {
+                self.format_with_statement(node, punctuation, writer)
+            }
+            StmtData::SwitchStatement(node) if mode == ContentMode::Formatted => {
+                Ok(self.format_switch_statement(node, writer)?.into())
+            }
+            StmtData::TryStatement(node) if mode == ContentMode::Formatted => {
+                Ok(self.format_try_statement(node, writer)?.into())
+            }
             StmtData::BlockStatement(block) => {
                 if mode == ContentMode::Verbatim {
                     self.format_verbatim(block.span(self.ast), writer)?;
@@ -794,7 +866,32 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         block: BlockStatement,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        self.format_braced_body(BodySource::Block(block), ContentMode::Formatted, writer)
+        self.format_compound_block(
+            block,
+            ContentMode::Formatted,
+            None,
+            EmptyBlock::Expanded,
+            writer,
+        )
+    }
+
+    fn format_compound_block(
+        &mut self,
+        node: BlockStatement,
+        mode: ContentMode,
+        incoming: Option<IncomingStatement>,
+        empty: EmptyBlock,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        self.format_braced_body(
+            BodySource::Block {
+                node,
+                incoming,
+                empty,
+            },
+            mode,
+            writer,
+        )
     }
 
     pub(super) fn format_function_body(
@@ -832,7 +929,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let ast = self.ast;
-        let (span, directives, body, kind) = match source {
+        let (span, directives, body, kind, empty_layout) = match source {
             BodySource::Static {
                 body,
                 span,
@@ -842,22 +939,27 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 None,
                 body.body(ast),
                 StatementSequenceKind::Static(incoming),
+                EmptyBlock::Compact,
             ),
-            BodySource::Block(block) => (
-                block.span(ast),
+            BodySource::Block {
+                node,
+                incoming,
+                empty,
+            } => (
+                node.span(ast),
                 None,
-                block.body(ast),
-                StatementSequenceKind::Block,
+                node.body(ast),
+                StatementSequenceKind::Block(incoming),
+                empty,
             ),
             BodySource::Function(function, incoming) => (
                 function.span(ast),
                 Some(function.directives(ast)),
                 function.body(ast),
                 StatementSequenceKind::Function(incoming),
+                EmptyBlock::Compact,
             ),
         };
-        let function = matches!(kind, StatementSequenceKind::Function(_));
-        let compact_empty = function || matches!(kind, StatementSequenceKind::Static(_));
         if mode == ContentMode::Verbatim {
             return self.format_verbatim(span, writer);
         }
@@ -878,7 +980,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             false
         } else {
             let dangling = self.comments.in_range(content);
-            if function && self.content_mode(dangling) == ContentMode::Verbatim {
+            if self.content_mode(dangling) == ContentMode::Verbatim {
                 return self.format_verbatim(span, writer);
             }
             dangling.is_empty()
@@ -887,7 +989,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer.text("{");
         if empty {
             opening.write(writer, FlatSeparator::Empty, |writer| {
-                if !compact_empty {
+                if matches!(empty_layout, EmptyBlock::Expanded) {
                     writer.hard_line();
                 }
             });
