@@ -84,13 +84,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             comments.partition_point(|comment| comment.span.end <= terminator.start)
         });
         let (before, after) = comments.split_at(split);
-        let alias = matches!(statement, StatementItem::Statement(node)
-            if matches!(self.ast.stmt_data(node), StmtData::Declaration(declaration)
-                if matches!(self.ast.decl_data(declaration), DeclData::TsTypeAliasDeclaration(_))));
-        // Before its terminator, a type alias's marker belongs to the actual type.
-        // The alias prepares that child; only the outer tail can select a statement.
+        let child_tail = match statement {
+            StatementItem::Statement(node) => match self.ast.stmt_data(node) {
+                StmtData::Declaration(declaration) => matches!(
+                    self.ast.decl_data(declaration),
+                    DeclData::TsTypeAliasDeclaration(_) | DeclData::TsImportEqualsDeclaration(_)
+                ),
+                _ => false,
+            },
+            StatementItem::Directive(_) => false,
+        };
+        // These leaf declarations prepare their real trailing child.
+        // Only comments after the source terminator can select the statement.
         let modes =
-            self.statement_tail_modes(if alias { after } else { comments }, limit, relation);
+            self.statement_tail_modes(if child_tail { after } else { comments }, limit, relation);
         let terminator =
             source_terminator.filter(|_| self.content_mode(before) == ContentMode::Verbatim);
         let following_gap = match (modes.following, after.is_empty(), terminator, relation) {
@@ -268,6 +275,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
             },
             DeclData::TsGlobalDeclaration(node) => return node.body(self.ast).span(self.ast).end,
+            DeclData::TsImportEqualsDeclaration(node) => {
+                return node.module_reference(self.ast).span(self.ast).end;
+            }
             _ => return declaration.span(self.ast).end,
         };
         let Some(last) = variable.declarators(self.ast).last() else {

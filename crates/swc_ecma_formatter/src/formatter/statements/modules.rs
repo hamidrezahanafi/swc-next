@@ -122,6 +122,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 data,
                 DeclData::TsTypeAliasDeclaration(_)
                     | DeclData::TsInterfaceDeclaration(_)
+                    | DeclData::TsImportEqualsDeclaration(_)
                     | DeclData::TsModuleDeclaration(_)
                     | DeclData::TsGlobalDeclaration(_)
             ) {
@@ -137,7 +138,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 DeclData::TsTypeAliasDeclaration(_)
                 | DeclData::TsInterfaceDeclaration(_)
                 | DeclData::TsModuleDeclaration(_)
-                | DeclData::TsGlobalDeclaration(_) => Ok(StatementBoundary::SourceEnd {
+                | DeclData::TsGlobalDeclaration(_)
+                | DeclData::TsImportEqualsDeclaration(_) => Ok(StatementBoundary::SourceEnd {
                     end,
                     has_terminator: self.source(span).ends_with(';'),
                 }
@@ -202,6 +204,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             DeclData::TsModuleDeclaration(node) => {
                 self.format_namespace_declaration(node, keyword, punctuation, writer)
+            }
+            DeclData::TsImportEqualsDeclaration(node) => {
+                self.format_import_equals_declaration(node, punctuation, writer)
             }
             DeclData::TsGlobalDeclaration(node) => {
                 self.format_global_declaration(node, keyword, writer)
@@ -664,7 +669,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .map_or(node.span(self.ast).end, |position| position + 1)
     }
 
-    fn module_operator(&self, span: Span, token: &str) -> Result<Span, FormatError> {
+    pub(super) fn module_operator(&self, span: Span, token: &str) -> Result<Span, FormatError> {
         let comments = self.comments.in_range(span);
         let Some(start) = self.find_token(span, comments, token) else {
             return Err(FormatError::unsupported(
@@ -1354,7 +1359,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.format_module_gap(comma.end, end, true, writer)
     }
 
-    fn format_module_gap(
+    pub(super) fn format_module_gap(
         &mut self,
         start: u32,
         end: u32,

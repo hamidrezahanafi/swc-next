@@ -5,6 +5,7 @@ mod declarations;
 mod modules;
 mod namespaces;
 mod tails;
+mod typescript_modules;
 
 pub(super) use declarations::DeclarationKeyword;
 
@@ -806,6 +807,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                             | DeclData::TsInterfaceDeclaration(_)
                             | DeclData::TsModuleDeclaration(_)
                             | DeclData::TsGlobalDeclaration(_)
+                            | DeclData::TsImportEqualsDeclaration(_)
                     )
                 }) {
                     boundary.type_declaration()

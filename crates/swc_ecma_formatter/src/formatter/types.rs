@@ -47,6 +47,7 @@ enum TypeBoundaryRole {
 
 enum TypeBoundaryTarget<'a> {
     Alias(&'a mut PreparedType),
+    ModuleReference,
     Qualified,
     Constraint {
         name: BindingIdentifier,
@@ -191,6 +192,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok((annotation_span.end, tail))
     }
 
+    pub(super) fn prepare_module_reference_boundary(
+        &self,
+        gap: Span,
+    ) -> Result<TypeBoundary<'ast>, FormatError> {
+        self.prepare_type_boundary(gap, TypeBoundaryTarget::ModuleReference)
+    }
+
     pub(super) fn prepare_qualified_name_boundary(
         &self,
         gap: Span,
@@ -204,7 +212,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         mut target: TypeBoundaryTarget<'_>,
     ) -> Result<TypeBoundary<'ast>, FormatError> {
         let (token, mut role) = match &target {
-            TypeBoundaryTarget::Alias(_) => ("=", TypeBoundaryRole::Alias),
+            TypeBoundaryTarget::Alias(_) | TypeBoundaryTarget::ModuleReference => {
+                ("=", TypeBoundaryRole::Alias)
+            }
             TypeBoundaryTarget::Qualified => (".", TypeBoundaryRole::Qualified),
             TypeBoundaryTarget::Constraint { name, .. } => {
                 // A modifier-token name before `extends` needs a line terminator
@@ -583,7 +593,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    fn format_type_name(
+    pub(super) fn format_type_name(
         &mut self,
         name: TsTypeName,
         mode: ContentMode,

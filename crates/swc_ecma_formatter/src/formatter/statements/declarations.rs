@@ -37,6 +37,13 @@ pub(in crate::formatter) struct DeclarationKeyword {
 }
 
 impl DeclarationKeyword {
+    pub(super) fn for_name(span: Span, name: BindingIdentifier, mode: ContentMode) -> Self {
+        Self {
+            span,
+            incoming: (mode == ContentMode::Verbatim).then_some(DeclarationLeading::Name(name)),
+        }
+    }
+
     pub(in crate::formatter) fn suppresses_name(self, name: BindingIdentifier) -> bool {
         matches!(self.incoming, Some(DeclarationLeading::Name(owner)) if owner == name)
     }

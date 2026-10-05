@@ -3,13 +3,13 @@ formatter * prettier 3.9.9 * typescript
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 657
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 202/804 (25.12%)
-Snapshot matched: 202/804
-AST parity: 327/327
-AST mismatched: 0/327
+Passed: 205/804 (25.50%)
+Snapshot matched: 205/804
+AST parity: 332/332
+AST mismatched: 0/332
 AST format errors: 0/804
-Mismatched: 125/804
-Format errors: 477/804
+Mismatched: 127/804
+Format errors: 472/804
 Panicked: 0/804
 Not idempotent: 0/804
 Ignored files: 76
@@ -173,7 +173,7 @@ Unsupported option sets: 7
 - typescript/comments/abstract-methods.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/comments/after-jsx-generic.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/comments/declare_function.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/comments/first-argument/first-argument.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
+- typescript/comments/first-argument/first-argument.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/comments/interface.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/comments/issues.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/comments/jsx.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -266,7 +266,6 @@ Unsupported option sets: 7
 - typescript/conformance/types/functions/functionOverloadCompatibilityWithVoid01.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/functions/functionOverloadCompatibilityWithVoid02.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/functions/functionOverloadCompatibilityWithVoid03.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/conformance/types/importEqualsDeclaration/importEqualsDeclaration.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/intersectionType/intersectionType.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/lastTypeNode/lastTypeNode.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/moduleDeclaration/kind-detection.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -343,9 +342,7 @@ Unsupported option sets: 7
 - typescript/generic/ungrouped-parameters.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/import-export/empty-import.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/import-export/type-modifier.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/import-require/comments.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/import-require/import-require.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/import-require/type-imports.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
+- typescript/import-require/comments.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/import-type/comma/comma.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/import-type/long-module-name/long-module-name3.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/import-type/long-module-name/long-module-name4.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
