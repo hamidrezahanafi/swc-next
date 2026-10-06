@@ -9,7 +9,7 @@ use swc_next_ecma_ast::{
 
 use super::callable::{
     AnnotationContent, CallableParameters, SignatureIncoming, SignatureReturn,
-    SignatureReturnDelimiter,
+    SignatureReturnDelimiter, SignatureReturnEolTarget,
 };
 use super::generics::TypeParameterContext;
 use super::{Formatter, PreparedType, TypeBoundaryLayout, TypeContext, TypeGap};
@@ -686,7 +686,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
         }
         let prefix = self.prepare_type_gap(head_gap, head_source);
-        let generics = parts
+        let mut generics = parts
             .generics
             .map(|generic| {
                 let gap = Span::new(generic.span(ast).end, parameter_span.start);
@@ -718,8 +718,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             })
             .transpose()?;
         let result = parts.result.map(|annotation| {
+            let eol_target = if parameters.has_parameters() {
+                SignatureReturnEolTarget::Parameter
+            } else if let Some((_, mode, _)) = &mut generics {
+                SignatureReturnEolTarget::Header(mode)
+            } else if let Some(key) = &mut key {
+                SignatureReturnEolTarget::Header(&mut key.mode)
+            } else {
+                SignatureReturnEolTarget::Annotation
+            };
             self.prepare_signature_return(
                 parameter_span.end,
+                eol_target,
                 annotation,
                 source_return,
                 SignatureReturnDelimiter::Colon,
@@ -813,6 +823,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         );
         let result = self.prepare_signature_return(
             closing + 1,
+            SignatureReturnEolTarget::Parameter,
             annotation,
             source_return,
             SignatureReturnDelimiter::Colon,

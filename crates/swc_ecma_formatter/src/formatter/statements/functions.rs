@@ -9,6 +9,7 @@ use crate::formatter::suppression::{ContentMode, SuppressionPosition};
 use crate::formatter::types::TypeGap;
 use crate::formatter::types::callable::{
     CallableParameters, SignatureIncoming, SignatureReturn, SignatureReturnDelimiter,
+    SignatureReturnEolTarget,
 };
 use crate::formatter::types::generics::{TypeListKind, TypeListPrefix, TypeParameterContext};
 use crate::{FormatError, document::Writer};
@@ -47,9 +48,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<PrintedStatement<'ast>, FormatError> {
         let ast = self.ast;
         let parameter_span = node.params(ast).span(ast);
-        let has_parameters = node.this_param(ast).is_some()
-            || !node.params(ast).items(ast).is_empty()
-            || node.params(ast).rest(ast).is_some();
+        let parameters = self.callable_parameters(node.params(ast), node.this_param(ast));
+        let has_parameters = parameters.has_parameters();
         let enclosing_prefix = self.has_suppression
             && node.id(ast).is_none()
             && node.type_parameters(ast).is_none()
@@ -72,7 +72,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             .into());
         }
-        let signature = self.prepare_bodyless_signature(node, ambient.as_ref())?;
+        let signature = self.prepare_bodyless_signature(node, ambient.as_ref(), parameters)?;
         if let Some(head) = ambient {
             self.format_ambient_declaration_prefix(&head, writer)?;
         }
@@ -134,6 +134,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &self,
         node: TsFunction,
         ambient: Option<&AmbientDeclarationHead<'ast>>,
+        mut parameters: CallableParameters,
     ) -> Result<BodylessSignature<'ast>, FormatError> {
         let ast = self.ast;
         let span = node.span(ast);
@@ -186,7 +187,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let prefix_start = name
             .as_ref()
             .map_or(head_start, |name| name.node.span(ast).end);
-        let mut parameters = self.callable_parameters(node.params(ast), node.this_param(ast));
         let mut incoming = None;
         let mut source_return = None;
         let mut generic_mode = ContentMode::Formatted;
@@ -293,8 +293,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             })
             .transpose()?;
         let result = node.return_type(ast).map(|annotation| {
+            let eol_target = if parameters.has_parameters() {
+                SignatureReturnEolTarget::Parameter
+            } else if let Some(generics) = &mut generics {
+                SignatureReturnEolTarget::Header(&mut generics.mode)
+            } else if let Some(name) = &mut name {
+                SignatureReturnEolTarget::Header(&mut name.mode)
+            } else {
+                SignatureReturnEolTarget::Annotation
+            };
             self.prepare_signature_return(
                 parameter_span.end,
+                eol_target,
                 annotation,
                 source_return,
                 SignatureReturnDelimiter::Colon,
@@ -304,18 +314,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .as_ref()
             .map_or(ContentMode::Formatted, |result| result.preceding_mode);
         self.prepare_callable_parameter_tail(&mut parameters, preceding)?;
-        if preceding == ContentMode::Verbatim
-            && matches!(
-                self.signature_incoming(&parameters, node.return_type(ast), &mut incoming)?,
-                SignatureIncoming::Return(_) | SignatureIncoming::Empty
-            )
-        {
-            if let Some(generic) = &mut generics {
-                generic.mode = ContentMode::Verbatim;
-            } else if let Some(name) = &mut name {
-                name.mode = ContentMode::Verbatim;
-            }
-        }
         let content_end = node
             .return_type(ast)
             .map_or(parameter_span.end, |annotation| annotation.span(ast).end);

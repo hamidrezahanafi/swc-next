@@ -5,7 +5,7 @@ pub(super) use methods::{MethodOwner, SourceMethodHeader};
 
 use swc_next_ecma_ast::{
     BindingIdentifier, Comment, CommentKind, Function, FunctionBody, GetSpan, PropertyKey, Span,
-    StmtData,
+    StmtData, TsTypeAnnotation,
 };
 
 use super::Formatter;
@@ -14,6 +14,7 @@ use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::parameters::SourceParameters;
 use super::statements::IncomingStatement;
 use super::suppression::{ContentMode, SuppressionPosition, is_suppression_comment};
+use super::types::callable::{SignatureReturn, SignatureReturnDelimiter, SignatureReturnEolTarget};
 use crate::{FormatError, document::Writer};
 
 pub(super) struct SourceFunctionSignature<'ast> {
@@ -21,6 +22,20 @@ pub(super) struct SourceFunctionSignature<'ast> {
     parameters: SourceParameters,
     body: SourceFunctionBody<'ast>,
     preceding: Option<SignaturePreceding>,
+    result: Option<FunctionReturnInput>,
+}
+
+pub(super) struct PreparedFunctionSignature<'ast> {
+    pub(super) span: Span,
+    parameters: SourceParameters,
+    body: SourceFunctionBody<'ast>,
+    preceding: Option<SignaturePreceding>,
+    result: Option<SignatureReturn<'ast>>,
+}
+
+struct FunctionReturnInput {
+    annotation: TsTypeAnnotation,
+    source_return: Option<TsTypeAnnotation>,
 }
 
 pub(super) enum FunctionSignatureOwner {
@@ -37,6 +52,7 @@ pub(super) enum MethodSignatureKind {
     Private,
 }
 
+#[derive(Clone, Copy)]
 enum SignaturePreceding {
     Name(BindingIdentifier),
     Key(PropertyKey),
@@ -64,7 +80,29 @@ impl SourceFunctionSignature<'_> {
         self.parameters.enclosing_mode()
     }
 
-    pub(super) fn name_mode(&self, name: BindingIdentifier) -> ContentMode {
+    pub(super) fn key_mode(&self, key: PropertyKey) -> ContentMode {
+        if matches!(self.preceding, Some(SignaturePreceding::Key(target)) if target == key) {
+            ContentMode::Verbatim
+        } else {
+            ContentMode::Formatted
+        }
+    }
+
+    pub(super) fn set_leading_mode(&mut self, mode: ContentMode) {
+        if self.parameters.has_parameters() {
+            self.parameters.set_leading_mode(mode);
+        } else if mode == ContentMode::Verbatim {
+            if let Some(result) = &mut self.result {
+                result.source_return = Some(result.annotation);
+            } else {
+                self.body.mode = mode;
+            }
+        }
+    }
+}
+
+impl PreparedFunctionSignature<'_> {
+    fn name_mode(&self, name: BindingIdentifier) -> ContentMode {
         if matches!(self.preceding, Some(SignaturePreceding::Name(target)) if target == name) {
             ContentMode::Verbatim
         } else {
@@ -79,14 +117,6 @@ impl SourceFunctionSignature<'_> {
             ContentMode::Formatted
         }
     }
-
-    pub(super) fn set_leading_mode(&mut self, mode: ContentMode) {
-        if self.parameters.has_parameters() {
-            self.parameters.set_leading_mode(mode);
-        } else if mode == ContentMode::Verbatim {
-            self.body.mode = mode;
-        }
-    }
 }
 
 pub(super) struct FunctionNameModes {
@@ -96,7 +126,7 @@ pub(super) struct FunctionNameModes {
 
 pub(super) struct SourceFunctionBody<'a> {
     body: FunctionBody,
-    parameter_end: u32,
+    signature_end: u32,
     comments: &'a [Comment],
     mode: ContentMode,
     first_statement: Option<IncomingStatement>,
@@ -176,12 +206,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             name_modes.name = ContentMode::Verbatim;
         }
+        signature.set_leading_mode(name_modes.following);
+        let signature = self.prepare_function_signature(signature)?;
         if let Some(name) = name
             && signature.name_mode(name) == ContentMode::Verbatim
         {
             name_modes.name = ContentMode::Verbatim;
         }
-        signature.set_leading_mode(name_modes.following);
         if let Some(function_start) = function_start {
             writer.text("async");
             self.format_source_token_gap(start + 5, function_start, true, writer)?;
@@ -230,10 +261,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         owner: FunctionSignatureOwner,
     ) -> Result<SourceFunctionSignature<'ast>, FormatError> {
         let ast = self.ast;
-        if function.type_parameters(ast).is_some()
-            || function.this_param(ast).is_some()
-            || function.return_type(ast).is_some()
-        {
+        if function.type_parameters(ast).is_some() || function.this_param(ast).is_some() {
             return Err(self.unsupported("typed function", function));
         }
         let params = function.params(ast);
@@ -254,9 +282,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let parameter_body_mode = parameters.body_mode(body);
         let span = params.span(ast);
         let body_span = body.span(ast);
-        let comments = self.comments.in_range(Span::new(span.end, body_span.start));
+        // Whole parameter-list suppression exits before annotation preparation.
+        let result = if parameters.enclosing_mode() == ContentMode::Formatted {
+            function.return_type(ast)
+        } else {
+            None
+        };
+        let signature_end = result.map_or(span.end, |annotation| annotation.span(ast).end);
+        let comments = self
+            .comments
+            .in_range(Span::new(signature_end, body_span.start));
         let previous = if parameter_key_mode == ContentMode::Verbatim
-            || self.content_mode(comments) == ContentMode::Verbatim
+            || (result.is_none() && self.content_mode(comments) == ContentMode::Verbatim)
         {
             match owner {
                 FunctionSignatureOwner::Function => function.id(ast).map(SignaturePreceding::Name),
@@ -269,14 +306,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             body,
             comments,
             body_span.start,
-            span.end,
+            signature_end,
             if private {
                 SignatureBoundaryRole::PrivateMethod {
-                    has_preceding: parameters.has_parameters() || previous.is_some(),
+                    has_preceding: result.is_some()
+                        || parameters.has_parameters()
+                        || previous.is_some(),
                 }
             } else {
                 SignatureBoundaryRole::Function {
-                    has_preceding: parameters.has_parameters() || previous.is_some(),
+                    has_preceding: result.is_some()
+                        || parameters.has_parameters()
+                        || previous.is_some(),
                 }
             },
         );
@@ -285,7 +326,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let preceding = if parameter_key_mode == ContentMode::Verbatim {
             previous
-        } else if modes.preceding == ContentMode::Verbatim {
+        } else if result.is_none() && modes.preceding == ContentMode::Verbatim {
             if parameters.has_parameters() {
                 parameters.suppress_last(ast)?;
                 None
@@ -295,18 +336,63 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             None
         };
+        let result = result.map(|annotation| FunctionReturnInput {
+            annotation,
+            source_return: (modes.preceding == ContentMode::Verbatim).then_some(annotation),
+        });
         Ok(SourceFunctionSignature {
             span,
             parameters,
             body: SourceFunctionBody {
                 body,
-                parameter_end: span.end,
+                signature_end,
                 comments,
                 mode: modes.body,
                 first_statement: modes.first_statement,
                 constraint: modes.constraint,
             },
             preceding,
+            result,
+        })
+    }
+
+    pub(super) fn prepare_function_signature(
+        &self,
+        signature: SourceFunctionSignature<'ast>,
+    ) -> Result<PreparedFunctionSignature<'ast>, FormatError> {
+        let SourceFunctionSignature {
+            span,
+            mut parameters,
+            body,
+            preceding,
+            result,
+        } = signature;
+        let result = if let Some(input) = result {
+            let eol_target = if parameters.has_parameters() {
+                SignatureReturnEolTarget::Parameter
+            } else {
+                SignatureReturnEolTarget::Annotation
+            };
+            let result = self.prepare_signature_return(
+                span.end,
+                eol_target,
+                input.annotation,
+                input.source_return,
+                SignatureReturnDelimiter::Colon,
+            );
+            if result.preceding_mode == ContentMode::Verbatim {
+                parameters.suppress_last(self.ast)?;
+            }
+            Some(result)
+        } else {
+            None
+        };
+        Ok(PreparedFunctionSignature {
+            span,
+            parameters,
+            body,
+            preceding,
+            result,
         })
     }
 
@@ -384,10 +470,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     pub(super) fn format_function_signature(
         &mut self,
-        signature: SourceFunctionSignature<'ast>,
+        signature: PreparedFunctionSignature<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<SourceFunctionBody<'ast>, FormatError> {
         self.format_source_parameters(signature.parameters, writer)?;
+        if let Some(result) = signature.result {
+            let tail = self.format_signature_return(result, writer)?;
+            self.format_expression_tail(tail, writer)?;
+        }
         Ok(signature.body)
     }
 
@@ -398,7 +488,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<(), FormatError> {
         let SourceFunctionBody {
             body,
-            parameter_end,
+            signature_end,
             comments,
             mode,
             first_statement,
@@ -407,7 +497,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.comments.claim(comments)?;
         self.format_comment_run(
             comments,
-            CommentRunLayout::SourceAfter(parameter_end),
+            CommentRunLayout::SourceAfter(signature_end),
             writer,
         )?;
         if comments

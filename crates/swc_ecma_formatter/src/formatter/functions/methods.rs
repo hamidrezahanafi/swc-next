@@ -6,7 +6,7 @@ use swc_next_ecma_ast::{
 };
 
 use super::{
-    FunctionNameModes, FunctionSignatureOwner, MethodSignatureKind, SourceFunctionSignature,
+    FunctionNameModes, FunctionSignatureOwner, MethodSignatureKind, PreparedFunctionSignature,
 };
 use crate::formatter::comments::{CommentBinding, CommentBoundary};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
@@ -39,7 +39,7 @@ pub(in crate::formatter) struct SourceMethodHeader<'ast> {
 }
 
 enum MethodSignature<'ast> {
-    Formatted(SourceFunctionSignature<'ast>),
+    Formatted(PreparedFunctionSignature<'ast>),
     FunctionValue {
         function: Function,
         prefix: MethodFunctionPrefix<'ast>,
@@ -129,6 +129,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 )
             }
         };
+        if function.return_type(ast).is_some()
+            && match owner {
+                MethodOwner::Object(property) => property.kind(ast) != PropertyKind::Init,
+                MethodOwner::Class(method) => method.kind(ast) != MethodDefinitionKind::Method,
+            }
+        {
+            return Err(self.unsupported("typed accessor or constructor header", function));
+        }
         // Babel's JS private methods use generic attachment. TS MethodDefinition
         // remains function-like, including private keys.
         let kind = if !ast.lang().is_typescript()
@@ -265,15 +273,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if function_prefix.is_none() {
             signature.set_leading_mode(modes.following);
         }
-        let key_mode = if signature.key_mode(key) == ContentMode::Verbatim
-            || modes.name == ContentMode::Verbatim
-        {
-            ContentMode::Verbatim
-        } else if self.has_suppression {
-            self.content_mode(self.comments.in_range(Span::new(start, key_span.start)))
-        } else {
-            ContentMode::Formatted
-        };
         let parameter_gap = (self.has_suppression
             && matches!(kind, MethodSignatureKind::Private)
             && self.content_mode(
@@ -281,16 +280,34 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .in_range(Span::new(key_span.end, signature.span.start)),
             ) == ContentMode::Verbatim)
             .then_some(Span::new(key_span.end, signature.span.start));
-        let key_context = if function_prefix.is_some() {
+        let (signature, signature_key_mode) = match function_prefix {
+            Some(prefix) => {
+                let key_mode = signature.key_mode(key);
+                (
+                    MethodSignature::FunctionValue { function, prefix },
+                    key_mode,
+                )
+            }
+            None => {
+                let signature = self.prepare_function_signature(signature)?;
+                let key_mode = signature.key_mode(key);
+                (MethodSignature::Formatted(signature), key_mode)
+            }
+        };
+        let key_mode =
+            if signature_key_mode == ContentMode::Verbatim || modes.name == ContentMode::Verbatim {
+                ContentMode::Verbatim
+            } else if self.has_suppression {
+                self.content_mode(self.comments.in_range(Span::new(start, key_span.start)))
+            } else {
+                ContentMode::Formatted
+            };
+        let key_context = if matches!(signature, MethodSignature::FunctionValue { .. }) {
             // Unquoting would turn the actual StringLiteral into an Identifier
             // and move this effective Function-value binding to the key.
             PropertyKeyContext::FunctionValueBinding
         } else {
             PropertyKeyContext::Ordinary
-        };
-        let signature = match function_prefix {
-            Some(prefix) => MethodSignature::FunctionValue { function, prefix },
-            None => MethodSignature::Formatted(signature),
         };
         Ok(SourceMethodHeader {
             owner,

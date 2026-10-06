@@ -104,6 +104,12 @@ pub(in crate::formatter) enum SignatureReturnDelimiter {
     Colon,
 }
 
+pub(in crate::formatter) enum SignatureReturnEolTarget<'mode> {
+    Parameter,
+    Header(&'mode mut ContentMode),
+    Annotation,
+}
+
 impl SignatureReturnDelimiter {
     fn token(self) -> &'static str {
         match self {
@@ -139,9 +145,16 @@ struct CallableTerminal {
 pub(in crate::formatter) struct CallableParameters {
     node: FormalParameters,
     this_parameter: Option<TsThisParameter>,
+    has_parameters: bool,
     pub(in crate::formatter) source_head: Option<CallableParameter>,
     suppressed_tail: Option<CallableParameter>,
     terminal: Option<CallableTerminal>,
+}
+
+impl CallableParameters {
+    pub(in crate::formatter) fn has_parameters(&self) -> bool {
+        self.has_parameters
+    }
 }
 
 enum ParameterBinding<'ast> {
@@ -208,17 +221,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let ast = self.ast;
         let parts = node.parts(ast);
         let parameters_span = parts.parameters.span(ast);
-        let has_parameters = parts.this_parameter.is_some()
-            || !parts.parameters.items(ast).is_empty()
-            || parts.parameters.rest(ast).is_some();
+        let mut parameters = self.callable_parameters(parts.parameters, parts.this_parameter);
         if self.has_suppression
-            && !has_parameters
+            && !parameters.has_parameters()
             && self.content_mode(self.comments.in_range(parameters_span)) == ContentMode::Verbatim
         {
             self.format_verbatim(node.span(ast), writer)?;
             return Ok(None);
         }
-        let mut parameters = self.callable_parameters(parts.parameters, parts.this_parameter);
         let head_end = parts
             .type_parameters
             .map_or(parameters_span.start, |node| node.span(ast).start);
@@ -297,8 +307,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             Some(CallableIncomingOwner::Return(annotation)) => Some(annotation),
             None => None,
         };
+        let eol_target = if parameters.has_parameters() {
+            SignatureReturnEolTarget::Parameter
+        } else {
+            SignatureReturnEolTarget::Annotation
+        };
         let return_type = self.prepare_signature_return(
             parameters_span.end,
+            eol_target,
             parts.return_type,
             source_return,
             SignatureReturnDelimiter::Arrow,
@@ -354,9 +370,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         node: FormalParameters,
         this_parameter: Option<TsThisParameter>,
     ) -> CallableParameters {
+        let has_parameters = this_parameter.is_some()
+            || !node.items(self.ast).is_empty()
+            || node.rest(self.ast).is_some();
         CallableParameters {
             node,
             this_parameter,
+            has_parameters,
             source_head: None,
             suppressed_tail: None,
             terminal: None,
@@ -439,6 +459,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(in crate::formatter) fn prepare_signature_return(
         &self,
         preceding_end: u32,
+        mut eol_target: SignatureReturnEolTarget<'_>,
         annotation: TsTypeAnnotation,
         source_return: Option<TsTypeAnnotation>,
         delimiter: SignatureReturnDelimiter,
@@ -449,12 +470,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .comments
             .in_range(Span::new(preceding_end, delimiter_start));
         let mut preceding_mode = ContentMode::Formatted;
+        let mut source_before = false;
         let mut wrapper_mode =
             source_return.map_or(ContentMode::Formatted, |_| ContentMode::Verbatim);
         if self.has_suppression && self.content_mode(before) == ContentMode::Verbatim {
             for (_, position) in self.suppressed_comment_runs(before, delimiter_start) {
                 if matches!(position, SuppressionPosition::EndOfLine) {
-                    preceding_mode = ContentMode::Verbatim;
+                    match &mut eol_target {
+                        SignatureReturnEolTarget::Parameter => {
+                            preceding_mode = ContentMode::Verbatim;
+                            source_before = true;
+                        }
+                        SignatureReturnEolTarget::Header(mode) => {
+                            **mode = ContentMode::Verbatim;
+                            source_before = true;
+                        }
+                        SignatureReturnEolTarget::Annotation => {
+                            wrapper_mode = ContentMode::Verbatim;
+                        }
+                    }
                 } else {
                     wrapper_mode = ContentMode::Verbatim;
                 }
@@ -475,7 +509,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             type_start,
         ));
         self.select_type_head_comments(&mut node, after, type_start);
-        let prefix = if preceding_mode == ContentMode::Verbatim || node.source_owner.is_some() {
+        let prefix = if source_before || node.source_owner.is_some() {
             TypeBoundaryLayout::Source(Span::new(preceding_end, type_start))
         } else {
             TypeBoundaryLayout::Formatted {
@@ -567,9 +601,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let ast = self.ast;
         let span = parameters.node.span(ast);
         let content = Span::new(span.start + 1, span.end - 1);
-        let has_parameters = parameters.this_parameter.is_some()
-            || !parameters.node.items(ast).is_empty()
-            || parameters.node.rest(ast).is_some();
+        let has_parameters = parameters.has_parameters();
         let members = parameters
             .this_parameter
             .into_iter()
