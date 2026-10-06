@@ -72,7 +72,7 @@ pub(in crate::formatter) enum CallableParameter {
 }
 
 impl CallableParameter {
-    fn span(self, ast: &Ast<'_>) -> Span {
+    pub(in crate::formatter) fn span(self, ast: &Ast<'_>) -> Span {
         match self {
             Self::This(node) => node.span(ast),
             Self::Formal(node) => node.span(ast),
@@ -741,6 +741,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             optional,
             ParameterConsumer::CallableSignature,
         )
+    }
+
+    pub(in crate::formatter) fn prepare_runtime_this_parameter(
+        &self,
+        receiver: TsThisParameter,
+        mode: ContentMode,
+    ) -> Result<PreparedParameterItem<'ast>, FormatError> {
+        let node = CallableParameter::This(receiver);
+        if mode == ContentMode::Verbatim {
+            return Ok(PreparedParameterItem(ParameterItemState::Source(node)));
+        }
+        let annotation = receiver.type_annotation(self.ast);
+        self.prepare_parameter_item(node, annotation, false, ParameterConsumer::Runtime)
     }
 
     pub(in crate::formatter) fn prepare_typed_formal_parameter(

@@ -312,9 +312,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         owner: FunctionSignatureOwner,
     ) -> Result<SourceFunctionSignature<'ast>, FormatError> {
         let ast = self.ast;
-        if function.this_param(ast).is_some() {
-            return Err(self.unsupported("typed function", function));
-        }
+        let receiver = function.this_param(ast);
         let params = function.params(ast);
         let body = function.body(ast);
         let private = matches!(
@@ -327,7 +325,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut parameters = if private {
             self.source_private_method_parameters(params, body)?
         } else {
-            self.source_function_parameters(params)?
+            self.source_function_parameters(params, receiver)?
         };
         let parameter_key_mode = parameters.key_mode();
         let parameter_body_mode = parameters.body_mode(body);

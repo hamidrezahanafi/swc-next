@@ -133,13 +133,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 )
             }
         };
-        if (function.return_type(ast).is_some() || function.type_parameters(ast).is_some())
-            && match owner {
-                MethodOwner::Object(property) => property.kind(ast) != PropertyKind::Init,
-                MethodOwner::Class(method) => method.kind(ast) != MethodDefinitionKind::Method,
-            }
+        let ordinary_header = match owner {
+            MethodOwner::Object(property) => property.kind(ast) == PropertyKind::Init,
+            MethodOwner::Class(method) => method.kind(ast) == MethodDefinitionKind::Method,
+        };
+        if !ordinary_header
+            && (function.return_type(ast).is_some() || function.type_parameters(ast).is_some())
         {
             return Err(self.unsupported("typed accessor or constructor header", function));
+        }
+        if !ordinary_header && function.this_param(ast).is_some() {
+            return Err(self.unsupported("typed function", function));
         }
         // Babel's JS private methods use generic attachment. TS MethodDefinition
         // remains function-like, including private keys.

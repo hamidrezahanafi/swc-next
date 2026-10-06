@@ -1,8 +1,8 @@
-//! Actual arrow parameter boundaries and typed formal/rest item ownership.
+//! Actual runtime parameter boundaries and receiver/formal/rest ownership.
 
 use swc_next_ecma_ast::{
     Ast, ExprData, FormalParameter, FormalParameterItemData, FormalParameterPatternData,
-    FormalParameterRest, FormalParameters, FunctionBody, GetSpan, Span,
+    FormalParameterRest, FormalParameters, FunctionBody, GetSpan, Span, TsThisParameter,
 };
 
 use super::Formatter;
@@ -10,6 +10,7 @@ use super::comments::{CommentRunLayout, ExpressionTail};
 use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::arguments::{ArgumentLayout, FollowingItem, Separator};
 use super::suppression::{ContentMode, DelimitedSuppression, SuppressionPosition};
+use super::types::callable::CallableParameter;
 use crate::{ArrowParentheses, FormatError, TrailingCommas, document::Writer};
 
 enum ParameterRole {
@@ -24,14 +25,8 @@ enum ParameterSource {
     PrivateEmpty(Span),
 }
 
-#[derive(Clone, Copy)]
-enum ParameterTail {
-    Formal(FormalParameter),
-    Rest(FormalParameterRest),
-}
-
 struct PrivateParameterBoundary {
-    parameter: ParameterTail,
+    parameter: CallableParameter,
     relation: DelimitedSuppression,
     closing: LineConstraint,
 }
@@ -39,13 +34,13 @@ struct PrivateParameterBoundary {
 pub(super) struct SourceParameters {
     node: FormalParameters,
     source: ParameterSource,
-    first: Option<FormalParameter>,
+    first: Option<CallableParameter>,
     rest: Option<FormalParameterRest>,
     omit_parentheses: bool,
     hug: bool,
     leading_mode: ContentMode,
     enclosing_mode: ContentMode,
-    suppressed_tail: Option<ParameterTail>,
+    suppressed_tail: Option<CallableParameter>,
     private_boundary: Option<PrivateParameterBoundary>,
     key_mode: ContentMode,
     body_target: Option<(FunctionBody, ContentMode)>,
@@ -71,12 +66,12 @@ impl SourceParameters {
 
     pub(super) fn suppress_last(&mut self, ast: &Ast<'_>) -> Result<(), FormatError> {
         self.suppressed_tail = if let Some(rest) = self.rest {
-            Some(ParameterTail::Rest(rest))
+            Some(CallableParameter::Rest(rest))
         } else if let Some(id) = self.node.items(ast).iter().next_back() {
             let item = ast.get_node_in_sub_range(id);
             match ast.formal_parameter_item_data(item) {
                 FormalParameterItemData::FormalParameter(parameter) => {
-                    Some(ParameterTail::Formal(parameter))
+                    Some(CallableParameter::Formal(parameter))
                 }
                 FormalParameterItemData::TsParameterProperty(_) => {
                     return Err(FormatError::unsupported(
@@ -87,7 +82,8 @@ impl SourceParameters {
                 }
             }
         } else {
-            None
+            self.first
+                .filter(|parameter| matches!(parameter, CallableParameter::This(_)))
         };
         Ok(())
     }
@@ -109,6 +105,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<SourceParameters, FormatError> {
         self.source_parameters(
             node,
+            None,
             ParameterRole::Arrow {
                 has_trailing_comments,
             },
@@ -118,8 +115,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn source_function_parameters(
         &self,
         node: FormalParameters,
+        receiver: Option<TsThisParameter>,
     ) -> Result<SourceParameters, FormatError> {
-        self.source_parameters(node, ParameterRole::Function)
+        self.source_parameters(node, receiver, ParameterRole::Function)
     }
 
     pub(super) fn source_private_method_parameters(
@@ -127,30 +125,37 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         node: FormalParameters,
         body: FunctionBody,
     ) -> Result<SourceParameters, FormatError> {
-        self.source_parameters(node, ParameterRole::PrivateMethod(body))
+        self.source_parameters(node, None, ParameterRole::PrivateMethod(body))
     }
 
     fn source_parameters(
         &self,
         node: FormalParameters,
+        receiver: Option<TsThisParameter>,
         role: ParameterRole,
     ) -> Result<SourceParameters, FormatError> {
         let ast = self.ast;
         let span = node.span(ast);
         let items = node.items(ast);
         let rest = node.rest(ast);
-        let first = items.iter().next().map(|id| ast.get_node_in_sub_range(id));
-        let first = match first.map(|item| ast.formal_parameter_item_data(item)) {
-            Some(FormalParameterItemData::FormalParameter(parameter)) => Some(parameter),
-            Some(FormalParameterItemData::TsParameterProperty(_)) => {
-                return Err(self.unsupported("arrow parameter property", node));
+        let first = if let Some(receiver) = receiver {
+            Some(CallableParameter::This(receiver))
+        } else {
+            let first = items.iter().next().map(|id| ast.get_node_in_sub_range(id));
+            match first.map(|item| ast.formal_parameter_item_data(item)) {
+                Some(FormalParameterItemData::FormalParameter(parameter)) => {
+                    Some(CallableParameter::Formal(parameter))
+                }
+                Some(FormalParameterItemData::TsParameterProperty(_)) => {
+                    return Err(self.unsupported("arrow parameter property", node));
+                }
+                None => None,
             }
-            None => None,
         };
         let mut source = if self.source(span).starts_with('(') && self.source(span).ends_with(')') {
             ParameterSource::Parenthesized(span)
         } else if matches!(role, ParameterRole::Arrow { .. })
-            && let Some(parameter) = first
+            && let Some(CallableParameter::Formal(parameter)) = first
             && items.len() == 1
             && rest.is_none()
             && parameter.span(ast) == span
@@ -174,7 +179,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ContentMode::Formatted
         };
         let single = match first {
-            Some(parameter) if items.len() == 1 && rest.is_none() => Some(parameter),
+            Some(CallableParameter::Formal(parameter)) if items.len() == 1 && rest.is_none() => {
+                Some(parameter)
+            }
             _ => None,
         };
         let omit_parentheses = matches!(
@@ -229,21 +236,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             let content = Span::new(span.start + 1, span.end - 1);
             let tail = if let Some(rest) = rest {
-                Some(ParameterTail::Rest(rest))
+                Some(CallableParameter::Rest(rest))
             } else {
                 items.iter().next_back().and_then(|id| {
                     match ast.formal_parameter_item_data(ast.get_node_in_sub_range(id)) {
                         FormalParameterItemData::FormalParameter(parameter) => {
-                            Some(ParameterTail::Formal(parameter))
+                            Some(CallableParameter::Formal(parameter))
                         }
                         FormalParameterItemData::TsParameterProperty(_) => None,
                     }
                 })
             };
-            let end = tail.map_or(content.start, |tail| match tail {
-                ParameterTail::Formal(parameter) => parameter.span(ast).end,
-                ParameterTail::Rest(rest) => rest.span(ast).end,
-            });
+            let end = tail.map_or(content.start, |tail| tail.span(ast).end);
             let gap = Span::new(end, content.end);
             let comments = self.comments.in_range(gap);
             if self.content_mode(comments) == ContentMode::Verbatim {
@@ -253,10 +257,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         SuppressionPosition::OwnLine => body_mode = ContentMode::Verbatim,
                         SuppressionPosition::Inline | SuppressionPosition::EndOfLine => {
                             if let Some(tail) = tail {
-                                preceding = Some(match tail {
-                                    ParameterTail::Formal(parameter) => parameter.span(ast),
-                                    ParameterTail::Rest(rest) => rest.span(ast),
-                                });
+                                preceding = Some(tail.span(ast));
                             } else {
                                 key_mode = ContentMode::Verbatim;
                             }
@@ -330,7 +331,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Span::new(span.start + 1, span.end - 1)
             }
         };
-        if omit_parentheses && let Some(parameter) = first {
+        if omit_parentheses && let Some(CallableParameter::Formal(parameter)) = first {
             let tail = self.format_formal_parameter(parameter, ContentMode::Formatted, writer)?;
             self.format_expression_tail(tail, writer)?;
             return Ok(());
@@ -345,99 +346,97 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         Writer::soft_line,
                     );
                 }
-                let mut formals = node
-                    .items(ast)
-                    .iter()
-                    .map(|id| ast.get_node_in_sub_range(id))
-                    .peekable();
+                let mut formal_ids = node.items(ast).iter();
+                if matches!(first, Some(CallableParameter::Formal(_))) {
+                    // The prepared head already carries this actual formal.
+                    formal_ids.next();
+                }
+                let formals = formal_ids.map(|id| {
+                    let item = ast.get_node_in_sub_range(id);
+                    match ast.formal_parameter_item_data(item) {
+                        FormalParameterItemData::FormalParameter(parameter) => {
+                            Ok(CallableParameter::Formal(parameter))
+                        }
+                        FormalParameterItemData::TsParameterProperty(_) => {
+                            Err(FormatError::unsupported(
+                                "arrow parameter property",
+                                Some(ast.node_kind(item.node_id())),
+                                item.span(ast),
+                            ))
+                        }
+                    }
+                });
+                let mut parameters = first
+                    .into_iter()
+                    .map(Ok)
+                    .chain(formals)
+                    .chain(rest.map(CallableParameter::Rest).into_iter().map(Ok));
+                let mut next = parameters.next().transpose()?;
                 let mut end = content.start;
                 let mut separator = Separator::Line;
                 let mut has_previous = false;
                 let mut following_mode =
                     (leading_mode == ContentMode::Verbatim).then_some(leading_mode);
-                while let Some(item) = formals.next() {
-                    let parameter = match ast.formal_parameter_item_data(item) {
-                        FormalParameterItemData::FormalParameter(parameter) => parameter,
-                        FormalParameterItemData::TsParameterProperty(_) => {
-                            return Err(self.unsupported("arrow parameter property", item));
-                        }
-                    };
+                while let Some(parameter) = next {
+                    next = parameters.next().transpose()?;
+                    let span = parameter.span(ast);
                     if has_previous {
                         if matches!(separator, Separator::EmptyLine) {
                             writer.break_parent();
                         }
                         let next = self
                             .comments
-                            .between(Span::new(end, parameter.span(ast).start))?
+                            .between(Span::new(end, span.start))?
                             .first()
-                            .map_or(parameter.span(ast).start, |comment| comment.span.start);
+                            .map_or(span.start, |comment| comment.span.start);
                         ArgumentLayout::Lines.separator(
                             separator,
                             self.line_constraint(end, next),
                             writer,
                         );
                     }
-                    let following = formals
-                        .peek()
-                        .map(|item| item.span(ast))
-                        .or_else(|| rest.map(|rest| rest.span(ast)))
+                    let following = next
+                        .map(|parameter| parameter.span(ast))
                         .map_or(FollowingItem::End, FollowingItem::Node);
-                    let following = private_boundary.as_ref()
-                        .filter(|source| matches!(source.parameter, ParameterTail::Formal(target) if target == parameter))
-                        .map_or(following, |source| FollowingItem::ResolvedTerminal(source.relation));
+                    let following = private_boundary
+                        .as_ref()
+                        .filter(|source| source.parameter == parameter)
+                        .map_or(following, |source| {
+                            FollowingItem::ResolvedTerminal(source.relation)
+                        });
                     let mut item = self.prepare_delimited_item(
-                        parameter.span(ast),
+                        span,
                         following,
                         Span::new(end, content.end),
-                        !hug && self.options.trailing_commas == TrailingCommas::All,
+                        !matches!(parameter, CallableParameter::Rest(_))
+                            && !hug
+                            && self.options.trailing_commas == TrailingCommas::All,
                         writer,
                     )?;
                     if let Some(mode) = following_mode {
                         item.set_leading_mode(mode);
                     }
-                    if matches!(suppressed_tail, Some(ParameterTail::Formal(target)) if target == parameter) {
+                    if suppressed_tail == Some(parameter) {
                         item.set_leading_mode(ContentMode::Verbatim);
                     }
-                    let tail = self.format_formal_parameter(parameter, item.mode, writer)?;
+                    let tail = match parameter {
+                        CallableParameter::Formal(parameter) => {
+                            self.format_formal_parameter(parameter, item.mode, writer)?
+                        }
+                        CallableParameter::Rest(rest) => {
+                            self.format_rest_parameter(rest, item.mode, writer)?
+                        }
+                        CallableParameter::This(receiver) => {
+                            let prepared =
+                                self.prepare_runtime_this_parameter(receiver, item.mode)?;
+                            self.format_prepared_parameter_item(prepared, writer)?
+                        }
+                    };
                     let boundary = self.finish_delimited_item(item, tail, writer)?;
                     end = boundary.end;
                     separator = boundary.separator;
                     following_mode = Some(boundary.following_mode);
                     has_previous = true;
-                }
-                if let Some(rest) = rest {
-                    if has_previous {
-                        if matches!(separator, Separator::EmptyLine) {
-                            writer.break_parent();
-                        }
-                        let next = self
-                            .comments
-                            .between(Span::new(end, rest.span(ast).start))?
-                            .first()
-                            .map_or(rest.span(ast).start, |comment| comment.span.start);
-                        ArgumentLayout::Lines.separator(
-                            separator,
-                            self.line_constraint(end, next),
-                            writer,
-                        );
-                    }
-                    let mut item = self.prepare_delimited_item(
-                        rest.span(ast),
-                        private_boundary.as_ref()
-                            .filter(|source| matches!(source.parameter, ParameterTail::Rest(target) if target == rest))
-                            .map_or(FollowingItem::End, |source| FollowingItem::ResolvedTerminal(source.relation)),
-                        Span::new(end, content.end),
-                        false,
-                        writer,
-                    )?;
-                    if let Some(mode) = following_mode {
-                        item.set_leading_mode(mode);
-                    }
-                    if matches!(suppressed_tail, Some(ParameterTail::Rest(target)) if target == rest) {
-                        item.set_leading_mode(ContentMode::Verbatim);
-                    }
-                    let tail = self.format_rest_parameter(rest, item.mode, writer)?;
-                    end = self.finish_delimited_item(item, tail, writer)?.end;
                 }
                 let dangling = self.comments.between(Span::new(end, content.end))?;
                 self.comments.claim(dangling)?;
@@ -456,13 +455,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.indent(write_items)?
             };
             if !hug && (has_parameters || end != content.start) {
-                private_boundary.as_ref().map_or_else(
-                    || self.line_constraint(end, content.end), |source| source.closing,
-                ).write(
-                    writer,
-                    FlatSeparator::Empty,
-                    Writer::soft_line,
-                );
+                private_boundary
+                    .as_ref()
+                    .map_or_else(
+                        || self.line_constraint(end, content.end),
+                        |source| source.closing,
+                    )
+                    .write(writer, FlatSeparator::Empty, Writer::soft_line);
             }
             writer.text(")");
             Ok(())
