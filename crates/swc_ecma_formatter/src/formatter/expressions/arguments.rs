@@ -54,17 +54,29 @@ impl FollowingItem {
     }
 }
 
+/// The real terminal item owns its comma before the following comments.
+#[derive(Clone, Copy)]
+pub(in crate::formatter) enum TrailingCommaPolicy {
+    Forbidden,
+    IfBreak,
+    Required,
+}
+
 pub(in crate::formatter) struct PreparedItem {
     item_span: Span,
     following: FollowingItem,
     span: Span,
     pub(in crate::formatter) mode: ContentMode,
     has_leading_comments: bool,
-    trailing_comma: bool,
+    trailing_comma: TrailingCommaPolicy,
     suppression: Option<DelimitedSuppression>,
 }
 
 impl PreparedItem {
+    pub(in crate::formatter) fn set_trailing_comma(&mut self, policy: TrailingCommaPolicy) {
+        self.trailing_comma = policy;
+    }
+
     pub(in crate::formatter) fn set_leading_mode(&mut self, mode: ContentMode) {
         self.mode = if mode == ContentMode::Verbatim
             || self
@@ -272,7 +284,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             span,
             mode,
             has_leading_comments,
-            trailing_comma,
+            trailing_comma: if trailing_comma {
+                TrailingCommaPolicy::IfBreak
+            } else {
+                TrailingCommaPolicy::Forbidden
+            },
             suppression,
         })
     }
@@ -437,7 +453,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             Separator::Line
         };
-        let required_comma = has_more || protected_comma.is_some();
+        let required_comma = has_more
+            || protected_comma.is_some()
+            || matches!(trailing_comma, TrailingCommaPolicy::Required);
         if required_comma {
             if let Some(comma) = comma
                 && let Some(last) = boundary.last()
@@ -469,7 +487,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     separator = Separator::EmptyLine;
                 }
             }
-        } else if trailing_comma {
+        } else if matches!(trailing_comma, TrailingCommaPolicy::IfBreak) {
             writer.if_break(",");
         }
         if let Some(run) = prepared_run {

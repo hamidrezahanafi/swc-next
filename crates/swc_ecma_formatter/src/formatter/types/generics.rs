@@ -8,7 +8,9 @@ use swc_next_ecma_ast::{
 use super::{Formatter, PreparedType, TypeBoundary, TypeBoundaryTarget, TypeContext};
 use crate::formatter::comments::{CommentBoundary, CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::FlatSeparator;
-use crate::formatter::expressions::arguments::{ArgumentLayout, FollowingItem, Separator};
+use crate::formatter::expressions::arguments::{
+    ArgumentLayout, FollowingItem, Separator, TrailingCommaPolicy,
+};
 use crate::formatter::suppression::{ContentMode, SuppressionPosition, is_suppression_comment};
 use crate::{FormatError, TrailingCommas, document::Writer};
 
@@ -37,10 +39,6 @@ impl TypeList {
             Self::Arguments(node) => node.span(ast),
             Self::Parameters(node) => node.span(ast),
         }
-    }
-
-    fn permits_trailing_comma(self) -> bool {
-        matches!(self, Self::Parameters(_))
     }
 }
 
@@ -181,7 +179,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .params(ast)
             .iter()
             .map(|id| GenericMember::Type(ast.get_node_in_sub_range(id)));
-        self.format_generic_list(TypeList::Arguments(node), members, writer)
+        self.format_generic_list(
+            TypeList::Arguments(node),
+            members,
+            TrailingCommaPolicy::Forbidden,
+            writer,
+        )
     }
 
     pub(in crate::formatter) fn format_type_parameters(
@@ -189,6 +192,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         node: TsTypeParameterDeclaration,
         context: TypeParameterContext,
         mode: ContentMode,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        let tail = if self.options.trailing_commas == TrailingCommas::None {
+            TrailingCommaPolicy::Forbidden
+        } else {
+            TrailingCommaPolicy::IfBreak
+        };
+        self.format_type_parameters_with_tail(node, context, mode, tail, writer)
+    }
+
+    pub(in crate::formatter) fn format_type_parameters_with_tail(
+        &mut self,
+        node: TsTypeParameterDeclaration,
+        context: TypeParameterContext,
+        mode: ContentMode,
+        tail: TrailingCommaPolicy,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         if mode == ContentMode::Verbatim {
@@ -199,20 +218,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .params(ast)
             .iter()
             .map(|id| GenericMember::Parameter(ast.get_node_in_sub_range(id), context));
-        self.format_generic_list(TypeList::Parameters(node), members, writer)
+        self.format_generic_list(TypeList::Parameters(node), members, tail, writer)
     }
 
     fn format_generic_list(
         &mut self,
         node: TypeList,
         members: impl Iterator<Item = GenericMember>,
+        tail: TrailingCommaPolicy,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let ast = self.ast;
         let span = node.span(ast);
         let content = Span::new(span.start + 1, span.end - 1);
-        let trailing_comma =
-            node.permits_trailing_comma() && self.options.trailing_commas != TrailingCommas::None;
         let mut members = members.peekable();
         let mut first_type = None;
         let leading_source = if self.has_suppression {
@@ -298,9 +316,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         member_span,
                         following,
                         Span::new(item_start, content.end),
-                        trailing_comma,
+                        false,
                         writer,
                     )?;
+                    item.set_trailing_comma(tail);
                     let selected_child = matches!(&prepared, PreparedGenericMember::Type(node) if node.source_owner.is_some_and(|owner| owner != node.node));
                     item.set_leading_mode(if selected_child { ContentMode::Formatted } else { mode });
                     let tail = match prepared {

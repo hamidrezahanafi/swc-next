@@ -53,6 +53,10 @@ pub(super) struct SourceParameters {
 }
 
 impl SourceParameters {
+    pub(super) fn span(&self, ast: &Ast<'_>) -> Span {
+        self.node.span(ast)
+    }
+
     pub(super) fn key_mode(&self) -> ContentMode {
         self.key_mode
     }

@@ -3,9 +3,10 @@
 use swc_next_ecma_ast::{
     ArrowFunctionBody, ArrowFunctionBodyData, ArrowFunctionExpression, Comment, CommentKind,
     ExprData, FormalParameterItemData, FormalParameterPatternData, FormalParameters, GetSpan, Span,
-    TsTypeAnnotation,
+    TsTypeAnnotation, TsTypeParameterDeclaration,
 };
 
+use super::arguments::TrailingCommaPolicy;
 use super::parentheses::SourceParentheses;
 use super::{ExpressionContext, ExpressionLayout, ExpressionPosition, Formatter, TailOwner};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
@@ -13,13 +14,14 @@ use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::functions::SignatureBoundaryRole;
 use crate::formatter::parameters::{ArrowParameterParentheses, SourceParameters};
 use crate::formatter::statements::IncomingStatement;
-use crate::formatter::suppression::ContentMode;
-use crate::formatter::types::TypeContext;
+use crate::formatter::suppression::{ContentMode, SuppressionPosition};
 use crate::formatter::types::callable::{
     SignatureReturn, SignatureReturnDelimiter, SignatureReturnEolTarget,
 };
+use crate::formatter::types::generics::TypeParameterContext;
+use crate::formatter::types::{TypeContext, TypeGap};
 use crate::{
-    ArrowParentheses, FormatError, Semicolons,
+    ArrowParentheses, FormatError, Semicolons, TrailingCommas,
     document::{Fragment, RecordedGroup, Writer},
 };
 
@@ -86,10 +88,25 @@ pub(super) struct VerbatimArrow {
     is_async: bool,
 }
 
+struct ArrowReturnInput {
+    annotation: TsTypeAnnotation,
+    mode: ContentMode,
+}
+
+struct PreparedArrowGenerics<'ast> {
+    node: TsTypeParameterDeclaration,
+    mode: ContentMode,
+    prefix: TypeGap<'ast>,
+    following: TypeGap<'ast>,
+    tail: TrailingCommaPolicy,
+}
+
 pub(super) struct FormattedArrowHead<'a> {
     arrow: ArrowFunctionExpression,
     parameters: SourceParameters,
-    result: Option<SignatureReturn<'a>>,
+    generics: Option<PreparedArrowGenerics<'a>>,
+    body_mode: ContentMode,
+    result: Option<ArrowReturnInput>,
     parameter_start: u32,
     signature_end: u32,
     body: ArrowFunctionBody,
@@ -108,6 +125,7 @@ pub(super) struct FormattedSourceArrow<'a> {
     arrow: ArrowFunctionExpression,
     next: Option<ArrowChainChild<'a>>,
     parameters: SourceParameters,
+    generics: Option<PreparedArrowGenerics<'a>>,
     parameter_start: u32,
     signature_end: u32,
     result: Option<SignatureReturn<'a>>,
@@ -151,11 +169,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return Ok(true);
         }
         let annotation = arrow.return_type(self.ast);
-        if annotation.is_some() {
-            self.check_arrow_header_domain(arrow, annotation)?;
+        let generics = arrow.type_parameters(self.ast);
+        if generics.is_some() || annotation.is_some() {
+            self.check_arrow_header_domain(arrow, generics, annotation)?;
+            // Generic heads start with `<`, nongeneric typed heads with `(`.
+            // Their ASI protection is separate from parameter parentheses.
             return Ok(true);
         }
-        let boundary = self.source_arrow_boundary(arrow, annotation)?;
+        let boundary = self.source_arrow_boundary(arrow, generics, annotation)?;
         let parentheses = if boundary.before_count == 0 {
             ArrowParameterParentheses::Optional
         } else {
@@ -168,10 +189,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn check_arrow_header_domain(
         &self,
         arrow: ArrowFunctionExpression,
+        generics: Option<TsTypeParameterDeclaration>,
         annotation: Option<TsTypeAnnotation>,
     ) -> Result<(), FormatError> {
-        if arrow.type_parameters(self.ast).is_some()
-            || (annotation.is_some() && (!self.ast.is_ts() || self.ast.is_jsx()))
+        if (generics.is_some() || annotation.is_some()) && !self.ast.is_ts()
+            || (annotation.is_some() && generics.is_none() && self.ast.is_jsx())
         {
             return Err(self.unsupported("typed arrow", arrow));
         }
@@ -182,9 +204,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn source_arrow_boundary(
         &self,
         arrow: ArrowFunctionExpression,
+        generics: Option<TsTypeParameterDeclaration>,
         annotation: Option<TsTypeAnnotation>,
     ) -> Result<ArrowBoundary<'ast>, FormatError> {
-        self.check_arrow_header_domain(arrow, annotation)?;
+        self.check_arrow_header_domain(arrow, generics, annotation)?;
         let params = arrow.params(self.ast);
         let parameter_span = params.span(self.ast);
         let body = arrow.body(self.ast);
@@ -213,12 +236,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         arrow: ArrowFunctionExpression,
     ) -> Result<SourceArrow<'ast>, FormatError> {
         let annotation = arrow.return_type(self.ast);
-        let boundary = self.source_arrow_boundary(arrow, annotation)?;
-        let parentheses = if annotation.is_some() || boundary.before_count != 0 {
-            ArrowParameterParentheses::Required
-        } else {
-            ArrowParameterParentheses::Optional
-        };
+        let generic_node = arrow.type_parameters(self.ast);
+        let boundary = self.source_arrow_boundary(arrow, generic_node, annotation)?;
+        let parentheses =
+            if generic_node.is_some() || annotation.is_some() || boundary.before_count != 0 {
+                ArrowParameterParentheses::Required
+            } else {
+                ArrowParameterParentheses::Optional
+            };
         let mut parameters = self.source_arrow_parameters(boundary.parameters, parentheses)?;
         if parameters.enclosing_mode() == ContentMode::Verbatim {
             return Ok(SourceArrow::Verbatim(VerbatimArrow {
@@ -226,29 +251,77 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 is_async: arrow.r#async(self.ast),
             }));
         }
-        let result = if let Some(annotation) = annotation {
-            let target = if parameters.has_parameters() {
-                SignatureReturnEolTarget::Parameter
+        let mut source_return = None;
+        let mut body_mode = ContentMode::Formatted;
+        let generics = generic_node.map(|node| {
+            let generic_span = node.span(self.ast);
+            let prefix_start =
+                arrow.span(self.ast).start + if arrow.r#async(self.ast) { 5 } else { 0 };
+            let prefix_gap = Span::new(prefix_start, generic_span.start);
+            let prefix_source = self.has_suppression
+                && self.content_mode(self.comments.in_range(prefix_gap)) == ContentMode::Verbatim;
+            let mut mode = if prefix_source {
+                ContentMode::Verbatim
             } else {
-                SignatureReturnEolTarget::Annotation
+                ContentMode::Formatted
             };
-            let result = self.prepare_signature_return(
-                boundary.parameter_span.end,
-                target,
-                annotation,
-                None,
-                SignatureReturnDelimiter::Colon,
-            );
-            if result.preceding_mode == ContentMode::Verbatim {
-                parameters.suppress_last(self.ast)?;
+            let following_gap = Span::new(generic_span.end, boundary.parameter_span.start);
+            let mut following_source = false;
+            if self.has_suppression {
+                let comments = self.comments.in_range(following_gap);
+                following_source = self.content_mode(comments) == ContentMode::Verbatim;
+                if following_source {
+                    for (_, position) in self.suppressed_comment_runs(comments, following_gap.end) {
+                        if matches!(position, SuppressionPosition::EndOfLine)
+                            || (!parameters.has_parameters()
+                                && matches!(position, SuppressionPosition::Inline))
+                        {
+                            mode = ContentMode::Verbatim;
+                        } else if parameters.has_parameters() {
+                            parameters.set_leading_mode(ContentMode::Verbatim);
+                        } else if let Some(annotation) = annotation {
+                            source_return = Some(annotation);
+                        } else {
+                            body_mode = ContentMode::Verbatim;
+                        }
+                    }
+                }
             }
-            Some(result)
-        } else {
-            None
-        };
+            let members = node.params(self.ast);
+            let requires_comma = self.ast.is_jsx()
+                && members.len() == 1
+                && members.iter().next().is_some_and(|id| {
+                    let member = self.ast.get_node_in_sub_range(id);
+                    member.constraint(self.ast).is_none()
+                });
+            let tail = if requires_comma {
+                TrailingCommaPolicy::Required
+            } else if self.options.trailing_commas == TrailingCommas::None {
+                TrailingCommaPolicy::Forbidden
+            } else {
+                TrailingCommaPolicy::IfBreak
+            };
+            PreparedArrowGenerics {
+                node,
+                mode,
+                prefix: self.prepare_type_gap(prefix_gap, prefix_source),
+                following: self.prepare_type_gap(following_gap, following_source),
+                tail,
+            }
+        });
+        let result = annotation.map(|annotation| ArrowReturnInput {
+            annotation,
+            mode: if source_return.is_some() {
+                ContentMode::Verbatim
+            } else {
+                ContentMode::Formatted
+            },
+        });
         Ok(SourceArrow::Formatted(FormattedArrowHead {
             arrow,
             parameters,
+            generics,
+            body_mode,
             result,
             parameter_start: boundary.parameter_span.start,
             signature_end: boundary.signature_end,
@@ -266,7 +339,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<FormattedSourceArrow<'ast>, FormatError> {
         let FormattedArrowHead {
             arrow,
-            parameters,
+            mut parameters,
+            mut generics,
+            body_mode,
             result,
             parameter_start,
             signature_end,
@@ -276,6 +351,29 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             comments,
             before_count,
         } = head;
+        let result = if let Some(input) = result {
+            let target = if parameters.has_parameters() {
+                SignatureReturnEolTarget::Parameter
+            } else if let Some(generic) = &mut generics {
+                SignatureReturnEolTarget::Header(&mut generic.mode)
+            } else {
+                SignatureReturnEolTarget::Annotation
+            };
+            let source_return = (input.mode == ContentMode::Verbatim).then_some(input.annotation);
+            let result = self.prepare_signature_return(
+                parameters.span(self.ast).end,
+                target,
+                input.annotation,
+                source_return,
+                SignatureReturnDelimiter::Colon,
+            );
+            if result.preceding_mode == ContentMode::Verbatim {
+                parameters.suppress_last(self.ast)?;
+            }
+            Some(result)
+        } else {
+            None
+        };
         let (before, leading) = comments.split_at(before_count);
         let body = self.ast.arrow_function_body_data(body);
         let (mode, first_statement, trailing_constraint) = match body {
@@ -344,11 +442,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             body_starts_line,
             hug_body,
         };
+        if body_mode == ContentMode::Verbatim {
+            body.mode = body_mode;
+        }
         let next = self.arrow_chain_child(&mut body)?;
         Ok(FormattedSourceArrow {
             arrow,
             next,
             parameters,
+            generics,
             parameter_start,
             signature_end,
             result,
@@ -437,7 +539,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     }
 
     fn arrow_chain_breaks(&self, source: &FormattedSourceArrow<'ast>) -> bool {
-        if source.result.is_some() && source.parameters.has_parameters() {
+        if source.generics.is_some()
+            || source.result.is_some() && source.parameters.has_parameters()
+        {
             return true;
         }
         let ast = self.ast;
@@ -642,6 +746,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let FormattedSourceArrow {
             arrow,
             parameters,
+            generics,
             parameter_start,
             signature_end,
             result,
@@ -652,18 +757,36 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if context.expression_start.needs_asi_guard()
             && self.options.semicolons == Semicolons::AsNeeded
             && !arrow.r#async(self.ast)
-            && parameters.starts_with_parenthesis()
+            && (generics.is_some() || parameters.starts_with_parenthesis())
         {
             writer.text(";");
         }
         if arrow.r#async(self.ast) {
             writer.text("async");
-            self.format_source_token_gap(
-                arrow.span(self.ast).start + 5,
-                parameter_start,
-                true,
+            if generics.is_none() {
+                self.format_source_token_gap(
+                    arrow.span(self.ast).start + 5,
+                    parameter_start,
+                    true,
+                    writer,
+                )?;
+            }
+        }
+        if let Some(generic) = generics {
+            let prefix_separator = if arrow.r#async(self.ast) {
+                FlatSeparator::Space
+            } else {
+                FlatSeparator::Empty
+            };
+            self.format_type_gap(generic.prefix, prefix_separator, writer)?;
+            self.format_type_parameters_with_tail(
+                generic.node,
+                TypeParameterContext::Callable,
+                generic.mode,
+                generic.tail,
                 writer,
             )?;
+            self.format_type_gap(generic.following, FlatSeparator::Empty, writer)?;
         }
         self.format_source_parameters(parameters, writer)?;
         if let Some(result) = result {
