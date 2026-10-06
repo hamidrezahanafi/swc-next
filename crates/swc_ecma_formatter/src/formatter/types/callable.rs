@@ -1,4 +1,4 @@
-//! Callable type signatures retain real parameters and annotation wrappers.
+//! Shared parameter items retain real bindings and annotation wrappers.
 
 use swc_next_ecma_ast::{
     Ast, BindingPattern, Expr, FormalParameter, FormalParameterItemData, FormalParameterRest,
@@ -144,7 +144,7 @@ pub(in crate::formatter) struct CallableParameters {
     terminal: Option<CallableTerminal>,
 }
 
-enum CallableBinding<'ast> {
+enum ParameterBinding<'ast> {
     Pattern {
         node: BindingPattern,
         mode: ContentMode,
@@ -153,26 +153,26 @@ enum CallableBinding<'ast> {
     This(TsThisParameter),
 }
 
-struct PreparedCallableDefault<'ast> {
+struct PreparedParameterDefault<'ast> {
     left: Span,
     right: Expr,
     left_mode: ContentMode,
     layout: InitializerLayout<'ast>,
 }
 
-struct CallableParameterLeft<'ast> {
-    node: CallableParameter,
-    binding: CallableBinding<'ast>,
+struct ParameterLeft<'ast> {
+    binding: ParameterBinding<'ast>,
+    optional: bool,
     annotation: Option<PreparedAnnotation<'ast>>,
     end: u32,
 }
 
-enum PreparedCallableLeft<'ast> {
+enum PreparedParameterLeft<'ast> {
     Source(Span),
-    Formatted(CallableParameterLeft<'ast>),
+    Formatted(ParameterLeft<'ast>),
 }
 
-impl PreparedCallableLeft<'_> {
+impl PreparedParameterLeft<'_> {
     fn end(&self) -> u32 {
         match self {
             Self::Source(span) => span.end,
@@ -181,14 +181,22 @@ impl PreparedCallableLeft<'_> {
     }
 }
 
-enum PreparedCallableParameter<'ast> {
+enum ParameterItemState<'ast> {
     Source(CallableParameter),
-    Formatted(CallableParameterLeft<'ast>),
+    Formatted(ParameterLeft<'ast>),
     Default {
-        left: PreparedCallableLeft<'ast>,
+        left: PreparedParameterLeft<'ast>,
         right: Expr,
         layout: InitializerLayout<'ast>,
     },
+}
+
+pub(in crate::formatter) struct PreparedParameterItem<'ast>(ParameterItemState<'ast>);
+
+#[derive(Clone, Copy)]
+enum ParameterConsumer {
+    CallableSignature,
+    Runtime,
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -649,7 +657,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         item.set_leading_mode(ContentMode::Verbatim);
                     }
                     let prepared = self.prepare_callable_parameter(member, item.mode)?;
-                    let tail = self.format_callable_parameter(prepared, writer)?;
+                    let tail = self.format_prepared_parameter_item(prepared, writer)?;
                     let boundary = self.finish_delimited_item(item, tail, writer)?;
                     end = boundary.end;
                     following_mode = Some(boundary.following_mode);
@@ -683,28 +691,88 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &self,
         node: CallableParameter,
         mode: ContentMode,
-    ) -> Result<PreparedCallableParameter<'ast>, FormatError> {
+    ) -> Result<PreparedParameterItem<'ast>, FormatError> {
         if mode == ContentMode::Verbatim {
-            return Ok(PreparedCallableParameter::Source(node));
+            return Ok(PreparedParameterItem(ParameterItemState::Source(node)));
         }
+        let ast = self.ast;
+        let (annotation, optional) = match node {
+            CallableParameter::This(this) => (this.type_annotation(ast), false),
+            CallableParameter::Formal(parameter) => {
+                (parameter.type_annotation(ast), parameter.optional(ast))
+            }
+            CallableParameter::Rest(rest) => (rest.type_annotation(ast), false),
+        };
+        self.prepare_parameter_item(
+            node,
+            annotation,
+            optional,
+            ParameterConsumer::CallableSignature,
+        )
+    }
+
+    pub(in crate::formatter) fn prepare_typed_formal_parameter(
+        &self,
+        parameter: FormalParameter,
+        mode: ContentMode,
+        annotation: Option<TsTypeAnnotation>,
+        optional: bool,
+    ) -> Result<PreparedParameterItem<'ast>, FormatError> {
+        let node = CallableParameter::Formal(parameter);
+        if mode == ContentMode::Verbatim {
+            return Ok(PreparedParameterItem(ParameterItemState::Source(node)));
+        }
+        self.prepare_parameter_item(node, annotation, optional, ParameterConsumer::Runtime)
+    }
+
+    pub(in crate::formatter) fn prepare_typed_rest_parameter(
+        &self,
+        rest: FormalParameterRest,
+        mode: ContentMode,
+        annotation: TsTypeAnnotation,
+    ) -> Result<PreparedParameterItem<'ast>, FormatError> {
+        let node = CallableParameter::Rest(rest);
+        if mode == ContentMode::Verbatim {
+            return Ok(PreparedParameterItem(ParameterItemState::Source(node)));
+        }
+        self.prepare_parameter_item(node, Some(annotation), false, ParameterConsumer::Runtime)
+    }
+
+    fn prepare_parameter_item(
+        &self,
+        node: CallableParameter,
+        annotation: Option<TsTypeAnnotation>,
+        optional: bool,
+        consumer: ParameterConsumer,
+    ) -> Result<PreparedParameterItem<'ast>, FormatError> {
         let ast = self.ast;
         let (binding, annotation, end, initializer) = match node {
             CallableParameter::This(this) => (
-                CallableBinding::This(this),
-                this.type_annotation(ast),
+                ParameterBinding::This(this),
+                annotation,
                 this.span(ast).start + 4,
                 None,
             ),
             CallableParameter::Formal(parameter) => {
                 if !parameter.decorators(ast).is_empty() {
+                    if matches!(consumer, ParameterConsumer::Runtime) {
+                        if let Some(right) = parameter.initializer(ast) {
+                            let pattern = self.parameter_binding(parameter.pattern(ast));
+                            let default =
+                                self.prepare_binding_default(pattern, right, parameter.span(ast))?;
+                            if default.is_verbatim() {
+                                return Ok(PreparedParameterItem(ParameterItemState::Source(node)));
+                            }
+                        }
+                        return Err(self.unsupported("typed or decorated parameter", parameter));
+                    }
                     return Err(self.unsupported("callable parameter decorator", parameter));
                 }
                 let pattern = self.parameter_binding(parameter.pattern(ast));
-                let annotation = parameter.type_annotation(ast);
                 let initializer = if let Some(right) = parameter.initializer(ast) {
                     let left_end = if let Some(annotation) = annotation {
                         annotation.span(ast).end
-                    } else if parameter.optional(ast) {
+                    } else if optional {
                         let gap = Span::new(pattern.span(ast).end, right.span(ast).start);
                         self.find_token(gap, self.comments.in_range(gap), "?")
                             .ok_or_else(|| {
@@ -717,7 +785,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     let left = Span::new(pattern.span(ast).start, left_end);
                     let owner = self.prepare_default_boundary(left, right)?;
                     let (left_mode, layout) = match owner {
-                        DefaultOwner::Whole => return Ok(PreparedCallableParameter::Source(node)),
+                        DefaultOwner::Whole => {
+                            return Ok(PreparedParameterItem(ParameterItemState::Source(node)));
+                        }
                         DefaultOwner::Bound {
                             gap,
                             left_mode,
@@ -734,7 +804,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                             },
                         ),
                     };
-                    Some(PreparedCallableDefault {
+                    Some(PreparedParameterDefault {
                         left,
                         right,
                         left_mode,
@@ -744,7 +814,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     None
                 };
                 (
-                    CallableBinding::Pattern {
+                    ParameterBinding::Pattern {
                         node: pattern,
                         mode: ContentMode::Formatted,
                         spread: None,
@@ -756,7 +826,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             CallableParameter::Rest(rest) => {
                 if !rest.decorators(ast).is_empty() {
-                    return Err(self.unsupported("callable type rest decorator", rest));
+                    let construct = match consumer {
+                        ParameterConsumer::CallableSignature => "callable type rest decorator",
+                        ParameterConsumer::Runtime => "typed or decorated rest parameter",
+                    };
+                    return Err(self.unsupported(construct, rest));
                 }
                 let pattern = self.parameter_binding(rest.argument(ast));
                 let gap = Span::new(rest.span(ast).start + 3, pattern.span(ast).start);
@@ -767,12 +841,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 };
                 let spread = self.prepare_type_gap(gap, mode == ContentMode::Verbatim);
                 (
-                    CallableBinding::Pattern {
+                    ParameterBinding::Pattern {
                         node: pattern,
                         mode,
                         spread: Some(spread),
                     },
-                    rest.type_annotation(ast),
+                    annotation,
                     pattern.span(ast).end,
                     None,
                 )
@@ -784,7 +858,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && self.content_mode(self.comments.in_range(Span::new(end, node.span(ast).end)))
                 == ContentMode::Verbatim
         {
-            return Ok(PreparedCallableParameter::Source(node));
+            return Ok(PreparedParameterItem(ParameterItemState::Source(node)));
         }
         let annotation = if initializer
             .as_ref()
@@ -796,48 +870,49 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .map(|annotation| self.prepare_annotation_content(end, annotation))
                 .transpose()?
         };
-        let left = CallableParameterLeft {
-            node,
+        let left = ParameterLeft {
             binding,
+            optional,
             annotation,
             end: initializer
                 .as_ref()
                 .map_or(node.span(ast).end, |initializer| initializer.left.end),
         };
-        match initializer {
-            Some(initializer) => Ok(PreparedCallableParameter::Default {
+        let parameter = match initializer {
+            Some(initializer) => ParameterItemState::Default {
                 left: if initializer.left_mode == ContentMode::Verbatim {
-                    PreparedCallableLeft::Source(initializer.left)
+                    PreparedParameterLeft::Source(initializer.left)
                 } else {
-                    PreparedCallableLeft::Formatted(left)
+                    PreparedParameterLeft::Formatted(left)
                 },
                 right: initializer.right,
                 layout: initializer.layout,
-            }),
-            None => Ok(PreparedCallableParameter::Formatted(left)),
-        }
+            },
+            None => ParameterItemState::Formatted(left),
+        };
+        Ok(PreparedParameterItem(parameter))
     }
 
-    fn format_callable_parameter(
+    pub(in crate::formatter) fn format_prepared_parameter_item(
         &mut self,
-        parameter: PreparedCallableParameter<'ast>,
+        parameter: PreparedParameterItem<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        match parameter {
-            PreparedCallableParameter::Source(node) => {
+        match parameter.0 {
+            ParameterItemState::Source(node) => {
                 self.format_verbatim(node.span(self.ast), writer)?;
                 Ok(None)
             }
-            PreparedCallableParameter::Formatted(left) => {
-                self.format_callable_left(PreparedCallableLeft::Formatted(left), writer)
+            ParameterItemState::Formatted(left) => {
+                self.format_parameter_left(PreparedParameterLeft::Formatted(left), writer)
             }
-            PreparedCallableParameter::Default {
+            ParameterItemState::Default {
                 left,
                 right,
                 layout,
             } => {
                 let end = left.end();
-                let tail = self.format_callable_left(left, writer)?;
+                let tail = self.format_parameter_left(left, writer)?;
                 self.format_expression_tail(tail, writer)?;
                 self.format_initializer_right(
                     end,
@@ -850,24 +925,24 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    fn format_callable_left(
+    fn format_parameter_left(
         &mut self,
-        left: PreparedCallableLeft<'ast>,
+        left: PreparedParameterLeft<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let left = match left {
-            PreparedCallableLeft::Source(span) => {
+            PreparedParameterLeft::Source(span) => {
                 self.format_verbatim(span, writer)?;
                 return Ok(None);
             }
-            PreparedCallableLeft::Formatted(left) => left,
+            PreparedParameterLeft::Formatted(left) => left,
         };
         let end = match left.binding {
-            CallableBinding::This(this) => {
+            ParameterBinding::This(this) => {
                 writer.text("this");
                 this.span(self.ast).start + 4
             }
-            CallableBinding::Pattern { node, mode, spread } => {
+            ParameterBinding::Pattern { node, mode, spread } => {
                 if let Some(gap) = spread {
                     writer.text("...");
                     self.format_type_gap(gap, FlatSeparator::Empty, writer)?;
@@ -877,7 +952,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 node.span(self.ast).end
             }
         };
-        let optional = matches!(left.node, CallableParameter::Formal(parameter) if parameter.optional(self.ast));
+        let optional = left.optional;
         if let Some(annotation) = left.annotation {
             if optional && matches!(&annotation.prefix, TypeBoundaryLayout::Formatted { .. }) {
                 writer.text("?");

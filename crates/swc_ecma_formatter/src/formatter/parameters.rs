@@ -479,6 +479,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.format_verbatim(parameter.span(self.ast), writer)?;
             return Ok(None);
         }
+        if self.ast.is_ts() {
+            let annotation = parameter.type_annotation(self.ast);
+            let optional = parameter.optional(self.ast);
+            if annotation.is_some() || optional {
+                let prepared =
+                    self.prepare_typed_formal_parameter(parameter, mode, annotation, optional)?;
+                return writer.group(false, |writer| {
+                    self.format_prepared_parameter_item(prepared, writer)
+                });
+            }
+        }
         let pattern = parameter.pattern(self.ast);
         let default = parameter
             .initializer(self.ast)
@@ -493,9 +504,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if default
             .as_ref()
             .is_none_or(|default| !default.is_verbatim())
-            && (parameter.type_annotation(self.ast).is_some()
-                || parameter.optional(self.ast)
-                || !parameter.decorators(self.ast).is_empty())
+            && !parameter.decorators(self.ast).is_empty()
         {
             return Err(self.unsupported("typed or decorated parameter", parameter));
         }
@@ -515,7 +524,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.format_verbatim(rest.span(self.ast), writer)?;
             return Ok(None);
         }
-        if rest.type_annotation(self.ast).is_some() || !rest.decorators(self.ast).is_empty() {
+        if self.ast.is_ts()
+            && let Some(annotation) = rest.type_annotation(self.ast)
+        {
+            let prepared = self.prepare_typed_rest_parameter(rest, mode, annotation)?;
+            return self.format_prepared_parameter_item(prepared, writer);
+        }
+        if !rest.decorators(self.ast).is_empty() {
             return Err(self.unsupported("typed or decorated rest parameter", rest));
         }
         let argument = rest.argument(self.ast);
