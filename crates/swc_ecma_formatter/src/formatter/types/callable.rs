@@ -1,7 +1,7 @@
 //! Callable type signatures retain real parameters and annotation wrappers.
 
 use swc_next_ecma_ast::{
-    Ast, BindingPattern, FormalParameter, FormalParameterItemData, FormalParameterRest,
+    Ast, BindingPattern, Expr, FormalParameter, FormalParameterItemData, FormalParameterRest,
     FormalParameters, GetSpan, Span, TsConstructorType, TsFunctionType, TsThisParameter,
     TsTypeAnnotation, TsTypeParameterDeclaration, TsTypePredicate, TsTypePredicateNameData,
 };
@@ -10,8 +10,10 @@ use super::generics::TypeParameterContext;
 use super::{
     Formatter, PreparedAnnotation, PreparedType, TypeBoundaryLayout, TypeContext, TypeGap,
 };
+use crate::formatter::bindings::{DefaultOwner, InitializerLayout};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
+use crate::formatter::expressions::ExpressionContext;
 use crate::formatter::expressions::arguments::{ArgumentLayout, FollowingItem, Separator};
 use crate::formatter::suppression::{ContentMode, DelimitedSuppression, SuppressionPosition};
 use crate::{FormatError, TrailingCommas, document::Writer};
@@ -151,12 +153,41 @@ enum CallableBinding<'ast> {
     This(TsThisParameter),
 }
 
+struct PreparedCallableDefault<'ast> {
+    left: Span,
+    right: Expr,
+    left_mode: ContentMode,
+    layout: InitializerLayout<'ast>,
+}
+
+struct CallableParameterLeft<'ast> {
+    node: CallableParameter,
+    binding: CallableBinding<'ast>,
+    annotation: Option<PreparedAnnotation<'ast>>,
+    end: u32,
+}
+
+enum PreparedCallableLeft<'ast> {
+    Source(Span),
+    Formatted(CallableParameterLeft<'ast>),
+}
+
+impl PreparedCallableLeft<'_> {
+    fn end(&self) -> u32 {
+        match self {
+            Self::Source(span) => span.end,
+            Self::Formatted(left) => left.end,
+        }
+    }
+}
+
 enum PreparedCallableParameter<'ast> {
     Source(CallableParameter),
-    Formatted {
-        node: CallableParameter,
-        binding: CallableBinding<'ast>,
-        annotation: Option<PreparedAnnotation<'ast>>,
+    Formatted(CallableParameterLeft<'ast>),
+    Default {
+        left: PreparedCallableLeft<'ast>,
+        right: Expr,
+        layout: InitializerLayout<'ast>,
     },
 }
 
@@ -657,28 +688,70 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return Ok(PreparedCallableParameter::Source(node));
         }
         let ast = self.ast;
-        let (binding, annotation, end) = match node {
+        let (binding, annotation, end, initializer) = match node {
             CallableParameter::This(this) => (
                 CallableBinding::This(this),
                 this.type_annotation(ast),
                 this.span(ast).start + 4,
+                None,
             ),
             CallableParameter::Formal(parameter) => {
-                if parameter.initializer(ast).is_some() || !parameter.decorators(ast).is_empty() {
-                    return Err(self.unsupported(
-                        "callable type parameter initializer or decorator",
-                        parameter,
-                    ));
+                if !parameter.decorators(ast).is_empty() {
+                    return Err(self.unsupported("callable parameter decorator", parameter));
                 }
                 let pattern = self.parameter_binding(parameter.pattern(ast));
+                let annotation = parameter.type_annotation(ast);
+                let initializer = if let Some(right) = parameter.initializer(ast) {
+                    let left_end = if let Some(annotation) = annotation {
+                        annotation.span(ast).end
+                    } else if parameter.optional(ast) {
+                        let gap = Span::new(pattern.span(ast).end, right.span(ast).start);
+                        self.find_token(gap, self.comments.in_range(gap), "?")
+                            .ok_or_else(|| {
+                                self.unsupported("optional callable default", parameter)
+                            })?
+                            + 1
+                    } else {
+                        pattern.span(ast).end
+                    };
+                    let left = Span::new(pattern.span(ast).start, left_end);
+                    let owner = self.prepare_default_boundary(left, right)?;
+                    let (left_mode, layout) = match owner {
+                        DefaultOwner::Whole => return Ok(PreparedCallableParameter::Source(node)),
+                        DefaultOwner::Bound {
+                            gap,
+                            left_mode,
+                            right_mode,
+                        } => (left_mode, InitializerLayout::Bound { gap, right_mode }),
+                        DefaultOwner::Formatted {
+                            boundary,
+                            break_after,
+                        } => (
+                            ContentMode::Formatted,
+                            InitializerLayout::Formatted {
+                                boundary,
+                                break_after,
+                            },
+                        ),
+                    };
+                    Some(PreparedCallableDefault {
+                        left,
+                        right,
+                        left_mode,
+                        layout,
+                    })
+                } else {
+                    None
+                };
                 (
                     CallableBinding::Pattern {
                         node: pattern,
                         mode: ContentMode::Formatted,
                         spread: None,
                     },
-                    parameter.type_annotation(ast),
+                    annotation,
                     pattern.span(ast).end,
+                    initializer,
                 )
             }
             CallableParameter::Rest(rest) => {
@@ -701,24 +774,48 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     },
                     rest.type_annotation(ast),
                     pattern.span(ast).end,
+                    None,
                 )
             }
         };
-        if annotation.is_none()
+        if initializer.is_none()
+            && annotation.is_none()
             && self.has_suppression
             && self.content_mode(self.comments.in_range(Span::new(end, node.span(ast).end)))
                 == ContentMode::Verbatim
         {
             return Ok(PreparedCallableParameter::Source(node));
         }
-        let annotation = annotation
-            .map(|annotation| self.prepare_annotation_content(end, annotation))
-            .transpose()?;
-        Ok(PreparedCallableParameter::Formatted {
+        let annotation = if initializer
+            .as_ref()
+            .is_some_and(|initializer| initializer.left_mode == ContentMode::Verbatim)
+        {
+            None
+        } else {
+            annotation
+                .map(|annotation| self.prepare_annotation_content(end, annotation))
+                .transpose()?
+        };
+        let left = CallableParameterLeft {
             node,
             binding,
             annotation,
-        })
+            end: initializer
+                .as_ref()
+                .map_or(node.span(ast).end, |initializer| initializer.left.end),
+        };
+        match initializer {
+            Some(initializer) => Ok(PreparedCallableParameter::Default {
+                left: if initializer.left_mode == ContentMode::Verbatim {
+                    PreparedCallableLeft::Source(initializer.left)
+                } else {
+                    PreparedCallableLeft::Formatted(left)
+                },
+                right: initializer.right,
+                layout: initializer.layout,
+            }),
+            None => Ok(PreparedCallableParameter::Formatted(left)),
+        }
     }
 
     fn format_callable_parameter(
@@ -726,18 +823,46 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         parameter: PreparedCallableParameter<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        let (node, binding, annotation) = match parameter {
+        match parameter {
             PreparedCallableParameter::Source(node) => {
                 self.format_verbatim(node.span(self.ast), writer)?;
+                Ok(None)
+            }
+            PreparedCallableParameter::Formatted(left) => {
+                self.format_callable_left(PreparedCallableLeft::Formatted(left), writer)
+            }
+            PreparedCallableParameter::Default {
+                left,
+                right,
+                layout,
+            } => {
+                let end = left.end();
+                let tail = self.format_callable_left(left, writer)?;
+                self.format_expression_tail(tail, writer)?;
+                self.format_initializer_right(
+                    end,
+                    right,
+                    layout,
+                    ExpressionContext::binding_initializer(),
+                    writer,
+                )
+            }
+        }
+    }
+
+    fn format_callable_left(
+        &mut self,
+        left: PreparedCallableLeft<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let left = match left {
+            PreparedCallableLeft::Source(span) => {
+                self.format_verbatim(span, writer)?;
                 return Ok(None);
             }
-            PreparedCallableParameter::Formatted {
-                node,
-                binding,
-                annotation,
-            } => (node, binding, annotation),
+            PreparedCallableLeft::Formatted(left) => left,
         };
-        let end = match binding {
+        let end = match left.binding {
             CallableBinding::This(this) => {
                 writer.text("this");
                 this.span(self.ast).start + 4
@@ -752,9 +877,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 node.span(self.ast).end
             }
         };
-        let optional =
-            matches!(node,CallableParameter::Formal(parameter) if parameter.optional(self.ast));
-        if let Some(annotation) = annotation {
+        let optional = matches!(left.node, CallableParameter::Formal(parameter) if parameter.optional(self.ast));
+        if let Some(annotation) = left.annotation {
             if optional && matches!(&annotation.prefix, TypeBoundaryLayout::Formatted { .. }) {
                 writer.text("?");
             }
@@ -763,7 +887,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             if optional {
                 writer.text("?");
             }
-            self.format_source_token_gap(end, node.span(self.ast).end, false, writer)?;
+            self.format_source_token_gap(end, left.end, false, writer)?;
             Ok(None)
         }
     }

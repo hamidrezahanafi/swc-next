@@ -15,7 +15,7 @@ use super::expressions::{ExpressionContext, ExpressionPosition};
 use super::suppression::{ContentMode, SuppressionPosition};
 use crate::{FormatError, TrailingCommas, document::Writer};
 
-enum DefaultOwner<'ast> {
+pub(super) enum DefaultOwner<'ast> {
     Whole,
     Bound {
         gap: Span,
@@ -176,7 +176,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         right: Expr,
         span: Span,
     ) -> Result<PreparedBindingDefault<'ast>, FormatError> {
-        let left_end = left.span(self.ast).end;
+        let owner = self.prepare_default_boundary(left.span(self.ast), right)?;
+        Ok(PreparedBindingDefault {
+            left,
+            right,
+            span,
+            owner,
+        })
+    }
+
+    pub(super) fn prepare_default_boundary(
+        &self,
+        left: Span,
+        right: Expr,
+    ) -> Result<DefaultOwner<'ast>, FormatError> {
+        let left_end = left.end;
         let right_start = right.span(self.ast).start;
         let gap = Span::new(left_end, right_start);
         let comments = self.comments.in_range(gap);
@@ -225,12 +239,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 break_after,
             }
         };
-        Ok(PreparedBindingDefault {
-            left,
-            right,
-            span,
-            owner,
-        })
+        Ok(owner)
     }
 
     pub(super) fn format_binding_default(
