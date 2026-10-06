@@ -133,12 +133,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 )
             }
         };
-        let ordinary_header = match owner {
-            MethodOwner::Object(property) => property.kind(ast) == PropertyKind::Init,
-            MethodOwner::Class(method) => method.kind(ast) == MethodDefinitionKind::Method,
+        let (ordinary_header, getter_header) = match owner {
+            MethodOwner::Object(property) => match property.kind(ast) {
+                PropertyKind::Init => (true, false),
+                PropertyKind::Get => (false, true),
+                PropertyKind::Set => (false, false),
+            },
+            MethodOwner::Class(method) => match method.kind(ast) {
+                MethodDefinitionKind::Method => (true, false),
+                MethodDefinitionKind::Get => (false, true),
+                MethodDefinitionKind::Set | MethodDefinitionKind::Constructor => (false, false),
+            },
         };
         if !ordinary_header
-            && (function.return_type(ast).is_some() || function.type_parameters(ast).is_some())
+            && (function.type_parameters(ast).is_some()
+                || (!getter_header && function.return_type(ast).is_some()))
         {
             return Err(self.unsupported("typed accessor or constructor header", function));
         }
