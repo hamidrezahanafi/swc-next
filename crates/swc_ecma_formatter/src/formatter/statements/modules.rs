@@ -160,10 +160,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             DeclData::TsInterfaceDeclaration(node) => node.declare(self.ast),
             DeclData::TsModuleDeclaration(node) => node.declare(self.ast),
             DeclData::TsGlobalDeclaration(node) => node.declare(self.ast),
+            DeclData::TsEnumDeclaration(node) => node.declare(self.ast),
             _ => false,
         };
-        let keyword = if ambient {
-            let head = self.prepare_ambient_declaration_keyword(declaration)?;
+        let head = if ambient {
+            Some(self.prepare_ambient_declaration_keyword(declaration)?)
+        } else {
+            None
+        };
+        if let DeclData::TsEnumDeclaration(node) = data {
+            self.format_enum(node, head, writer)?;
+            return Ok(StatementBoundary::TypeDeclarationEnd {
+                end: node.body(self.ast).span(self.ast).end,
+                has_terminator: false,
+            }
+            .into());
+        }
+        let keyword = if let Some(head) = head {
             self.format_ambient_declaration_prefix(&head, writer)?;
             Some(head.keyword)
         } else {
@@ -189,14 +202,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             DeclData::VariableDeclaration(variable) => {
                 let (end, tail) = self.format_variable_declaration(variable, keyword, writer)?;
                 self.finish_statement(end, tail, punctuation, writer)
-            }
-            DeclData::TsEnumDeclaration(node) => {
-                self.format_enum(node, keyword, writer)?;
-                Ok(StatementBoundary::TypeDeclarationEnd {
-                    end: node.body(self.ast).span(self.ast).end,
-                    has_terminator: false,
-                }
-                .into())
             }
             DeclData::TsInterfaceDeclaration(interface) => {
                 self.format_interface(interface, keyword, writer)?;
@@ -412,9 +417,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let span = node.span(ast);
         let keyword_end = span.start + 6;
         if let Some(declaration) = node.declaration(ast) {
-            if matches!(ast.decl_data(declaration), DeclData::TsEnumDeclaration(_)) {
-                return Err(self.unsupported("export enum declaration", node));
-            }
             let mode = self.content_mode(
                 self.comments
                     .in_range(Span::new(keyword_end, declaration.span(ast).start)),

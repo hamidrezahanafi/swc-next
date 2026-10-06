@@ -5,9 +5,10 @@ use swc_next_ecma_ast::{
     TsEnumMemberName, TsEnumMemberNameData,
 };
 
-use super::{DeclarationKeyword, Formatter};
+use super::Formatter;
+use super::declarations::AmbientDeclarationHead;
 use crate::formatter::bindings::{InitializerLayout, InitializerLeft, PreparedInitializer};
-use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
+use crate::formatter::comments::{CommentBoundary, CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::expressions::arguments::{ArgumentLayout, FollowingItem, ItemBoundary};
 use crate::formatter::expressions::objects::PropertyKeyContext;
@@ -17,10 +18,21 @@ use crate::formatter::suppression::{ContentMode, SuppressionPosition};
 use crate::formatter::types::TypeGap;
 use crate::{FormatError, TrailingCommas, document::Writer};
 
+enum EnumPrefix<'ast> {
+    Name(CommentBoundary<'ast>),
+    Source {
+        ambient: Option<AmbientDeclarationHead<'ast>>,
+        modifier: Option<TypeGap<'ast>>,
+        name: TypeGap<'ast>,
+    },
+}
+
 struct EnumHead<'ast> {
+    declare: bool,
+    constant: bool,
     name: BindingIdentifier,
     name_mode: ContentMode,
-    prefix: TypeGap<'ast>,
+    prefix: EnumPrefix<'ast>,
     body: TsEnumBody,
     body_prefix: TypeGap<'ast>,
     body_mode: ContentMode,
@@ -42,15 +54,42 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_enum(
         &mut self,
         node: TsEnumDeclaration,
-        keyword: Option<DeclarationKeyword>,
+        ambient: Option<AmbientDeclarationHead<'ast>>,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        if node.is_const(self.ast) || node.declare(self.ast) {
-            return Err(self.unsupported("enum declaration modifiers", node));
+        if node.declare(self.ast) && ambient.is_none() {
+            return Err(self.unsupported("ambient enum declaration keyword", node));
         }
-        let head = self.prepare_enum_head(node, keyword)?;
-        writer.text("enum");
-        self.format_type_gap(head.prefix, FlatSeparator::Space, writer)?;
+        let head = self.prepare_enum_head(node, ambient)?;
+        match head.prefix {
+            EnumPrefix::Name(boundary) => {
+                if head.declare {
+                    writer.text("declare");
+                    writer.space();
+                }
+                if head.constant {
+                    writer.text("const");
+                    writer.space();
+                }
+                writer.text("enum");
+                self.format_type_gap(TypeGap::Formatted(boundary), FlatSeparator::Space, writer)?;
+            }
+            EnumPrefix::Source {
+                ambient,
+                modifier,
+                name,
+            } => {
+                if let Some(ambient) = ambient {
+                    self.format_ambient_declaration_prefix(&ambient, writer)?;
+                }
+                if let Some(modifier) = modifier {
+                    writer.text("const");
+                    self.format_type_gap(modifier, FlatSeparator::Space, writer)?;
+                }
+                writer.text("enum");
+                self.format_type_gap(name, FlatSeparator::Space, writer)?;
+            }
+        }
         if head.name_mode == ContentMode::Verbatim {
             self.format_verbatim(head.name.span(self.ast), writer)?;
         } else {
@@ -67,29 +106,72 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn prepare_enum_head(
         &self,
         node: TsEnumDeclaration,
-        keyword: Option<DeclarationKeyword>,
+        ambient: Option<AmbientDeclarationHead<'ast>>,
     ) -> Result<EnumHead<'ast>, FormatError> {
         let ast = self.ast;
         let name = node.id(ast);
         let name_span = name.span(ast);
-        let keyword_end = keyword.map_or(node.span(ast).start + "enum".len() as u32, |keyword| {
-            keyword.span.end
-        });
-        let prefix_span = Span::new(keyword_end, name_span.start);
+        let declare = node.declare(ast);
+        let constant = node.is_const(ast);
+        let keyword = ambient.as_ref().map(|head| head.keyword);
+        let start = keyword.map_or(node.span(ast).start, |keyword| keyword.span.start);
+        let (modifier, enum_end) = if constant {
+            let const_end = start + "const".len() as u32;
+            let search = Span::new(const_end, name_span.start);
+            let enum_start = self
+                .find_token(search, self.comments.in_range(search), "enum")
+                .ok_or_else(|| self.unsupported("const enum keyword boundary", node))?;
+            (
+                Some(Span::new(const_end, enum_start)),
+                enum_start + "enum".len() as u32,
+            )
+        } else {
+            (None, start + "enum".len() as u32)
+        };
+        let prefix_start = if declare {
+            node.span(ast).start + "declare".len() as u32
+        } else {
+            modifier.map_or(enum_end, |span| span.start)
+        };
+        let prefix_span = Span::new(prefix_start, name_span.start);
         let prefix_comments = self.comments.in_range(prefix_span);
         let name_mode = if keyword.is_some_and(|keyword| keyword.suppresses_name(name)) {
             ContentMode::Verbatim
         } else {
             self.content_mode(prefix_comments)
         };
+        let binding = self.comment_binding(prefix_comments, prefix_span, Some(name_span));
+        let prefix = if binding.allows_relocation(Some(name_span)) {
+            EnumPrefix::Name(self.prepare_comment_boundary(
+                prefix_comments,
+                prefix_start,
+                name_span.start,
+            ))
+        } else {
+            let name_prefix = Span::new(enum_end, name_span.start);
+            let name_comments = self.comments.in_range(name_prefix);
+            EnumPrefix::Source {
+                ambient,
+                modifier: modifier.map(|span| {
+                    let mode = self.content_mode(self.comments.in_range(span));
+                    self.prepare_type_gap(span, mode == ContentMode::Verbatim)
+                }),
+                name: self.prepare_type_gap(
+                    name_prefix,
+                    self.content_mode(name_comments) == ContentMode::Verbatim,
+                ),
+            }
+        };
         let body = node.body(ast);
         let body_span = Span::new(name_span.end, body.span(ast).start);
         let body_comments = self.comments.in_range(body_span);
         let body_mode = self.content_mode(body_comments);
         Ok(EnumHead {
+            declare,
+            constant,
             name,
             name_mode,
-            prefix: self.prepare_type_gap(prefix_span, name_mode == ContentMode::Verbatim),
+            prefix,
             body,
             body_prefix: self.prepare_type_gap(body_span, body_mode == ContentMode::Verbatim),
             body_mode,

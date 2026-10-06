@@ -77,6 +77,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         declaration: Decl,
     ) -> Result<AmbientDeclarationHead<'ast>, FormatError> {
         let (keyword, following) = match self.ast.decl_data(declaration) {
+            DeclData::TsEnumDeclaration(node) => (
+                if node.is_const(self.ast) {
+                    "const"
+                } else {
+                    "enum"
+                },
+                DeclarationLeading::Name(node.id(self.ast)),
+            ),
             DeclData::TsTypeAliasDeclaration(node) => {
                 ("type", DeclarationLeading::Name(node.id(self.ast)))
             }
