@@ -194,8 +194,23 @@ impl PreparedParameterLeft<'_> {
     }
 }
 
+#[derive(Clone, Copy)]
+enum ParameterItemSource {
+    Callable(CallableParameter),
+    Property(swc_next_ecma_ast::TsParameterProperty),
+}
+
+impl ParameterItemSource {
+    fn span(self, ast: &Ast<'_>) -> Span {
+        match self {
+            Self::Callable(node) => node.span(ast),
+            Self::Property(node) => node.span(ast),
+        }
+    }
+}
+
 enum ParameterItemState<'ast> {
-    Source(CallableParameter),
+    Source(ParameterItemSource),
     Formatted(ParameterLeft<'ast>),
     Default {
         left: PreparedParameterLeft<'ast>,
@@ -206,10 +221,26 @@ enum ParameterItemState<'ast> {
 
 pub(in crate::formatter) struct PreparedParameterItem<'ast>(ParameterItemState<'ast>);
 
+impl PreparedParameterItem<'_> {
+    pub(in crate::formatter) fn is_source(&self) -> bool {
+        matches!(self.0, ParameterItemState::Source(_))
+    }
+}
+
 #[derive(Clone, Copy)]
 enum ParameterConsumer {
     CallableSignature,
     Runtime,
+    ConstructorProperty(swc_next_ecma_ast::TsParameterProperty),
+}
+
+impl ParameterConsumer {
+    fn source(self, node: CallableParameter) -> ParameterItemSource {
+        match self {
+            Self::ConstructorProperty(property) => ParameterItemSource::Property(property),
+            Self::CallableSignature | Self::Runtime => ParameterItemSource::Callable(node),
+        }
+    }
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -733,7 +764,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         mode: ContentMode,
     ) -> Result<PreparedParameterItem<'ast>, FormatError> {
         if mode == ContentMode::Verbatim {
-            return Ok(PreparedParameterItem(ParameterItemState::Source(node)));
+            return Ok(PreparedParameterItem(ParameterItemState::Source(
+                ParameterItemSource::Callable(node),
+            )));
         }
         let ast = self.ast;
         let (annotation, optional) = match node {
@@ -758,7 +791,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<PreparedParameterItem<'ast>, FormatError> {
         let node = CallableParameter::This(receiver);
         if mode == ContentMode::Verbatim {
-            return Ok(PreparedParameterItem(ParameterItemState::Source(node)));
+            return Ok(PreparedParameterItem(ParameterItemState::Source(
+                ParameterItemSource::Callable(node),
+            )));
         }
         let annotation = receiver.type_annotation(self.ast);
         self.prepare_parameter_item(node, annotation, false, ParameterConsumer::Runtime)
@@ -773,7 +808,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<PreparedParameterItem<'ast>, FormatError> {
         let node = CallableParameter::Formal(parameter);
         if mode == ContentMode::Verbatim {
-            return Ok(PreparedParameterItem(ParameterItemState::Source(node)));
+            return Ok(PreparedParameterItem(ParameterItemState::Source(
+                ParameterItemSource::Callable(node),
+            )));
         }
         self.prepare_parameter_item(node, annotation, optional, ParameterConsumer::Runtime)
     }
@@ -786,9 +823,24 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<PreparedParameterItem<'ast>, FormatError> {
         let node = CallableParameter::Rest(rest);
         if mode == ContentMode::Verbatim {
-            return Ok(PreparedParameterItem(ParameterItemState::Source(node)));
+            return Ok(PreparedParameterItem(ParameterItemState::Source(
+                ParameterItemSource::Callable(node),
+            )));
         }
         self.prepare_parameter_item(node, Some(annotation), false, ParameterConsumer::Runtime)
+    }
+
+    pub(in crate::formatter) fn prepare_constructor_parameter_item(
+        &self,
+        property: swc_next_ecma_ast::TsParameterProperty,
+    ) -> Result<PreparedParameterItem<'ast>, FormatError> {
+        let parameter = property.parameter(self.ast);
+        self.prepare_parameter_item(
+            CallableParameter::Formal(parameter),
+            parameter.type_annotation(self.ast),
+            parameter.optional(self.ast),
+            ParameterConsumer::ConstructorProperty(property),
+        )
     }
 
     fn prepare_parameter_item(
@@ -808,13 +860,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ),
             CallableParameter::Formal(parameter) => {
                 if !parameter.decorators(ast).is_empty() {
-                    if matches!(consumer, ParameterConsumer::Runtime) {
+                    if matches!(
+                        consumer,
+                        ParameterConsumer::Runtime | ParameterConsumer::ConstructorProperty(_)
+                    ) {
                         if let Some(right) = parameter.initializer(ast) {
                             let pattern = self.parameter_binding(parameter.pattern(ast));
                             let default =
                                 self.prepare_binding_default(pattern, right, parameter.span(ast))?;
                             if default.is_verbatim() {
-                                return Ok(PreparedParameterItem(ParameterItemState::Source(node)));
+                                return Ok(PreparedParameterItem(ParameterItemState::Source(
+                                    consumer.source(node),
+                                )));
                             }
                         }
                         return Err(self.unsupported("typed or decorated parameter", parameter));
@@ -839,7 +896,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     let owner = self.prepare_default_boundary(left, right)?;
                     let (left_mode, layout) = match owner {
                         DefaultOwner::Whole => {
-                            return Ok(PreparedParameterItem(ParameterItemState::Source(node)));
+                            return Ok(PreparedParameterItem(ParameterItemState::Source(
+                                consumer.source(node),
+                            )));
                         }
                         DefaultOwner::Bound {
                             gap,
@@ -881,7 +940,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 if !rest.decorators(ast).is_empty() {
                     let construct = match consumer {
                         ParameterConsumer::CallableSignature => "callable type rest decorator",
-                        ParameterConsumer::Runtime => "typed or decorated rest parameter",
+                        ParameterConsumer::Runtime | ParameterConsumer::ConstructorProperty(_) => {
+                            "typed or decorated rest parameter"
+                        }
                     };
                     return Err(self.unsupported(construct, rest));
                 }
@@ -911,7 +972,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && self.content_mode(self.comments.in_range(Span::new(end, node.span(ast).end)))
                 == ContentMode::Verbatim
         {
-            return Ok(PreparedParameterItem(ParameterItemState::Source(node)));
+            return Ok(PreparedParameterItem(ParameterItemState::Source(
+                consumer.source(node),
+            )));
         }
         let annotation = if initializer
             .as_ref()

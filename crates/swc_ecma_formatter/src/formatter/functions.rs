@@ -66,6 +66,10 @@ pub(super) enum FunctionSignatureOwner {
         key: PropertyKey,
         kind: MethodSignatureKind,
     },
+    Constructor {
+        method: swc_next_ecma_ast::MethodDefinition,
+        key: PropertyKey,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -322,10 +326,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ..
             }
         );
-        let mut parameters = if private {
-            self.source_private_method_parameters(params, body)?
-        } else {
-            self.source_function_parameters(params, receiver)?
+        let mut parameters = match owner {
+            FunctionSignatureOwner::Constructor { method, .. } => {
+                self.source_constructor_parameters(params, method)?
+            }
+            _ if private => self.source_private_method_parameters(params, body)?,
+            _ => self.source_function_parameters(params, receiver)?,
         };
         let parameter_key_mode = parameters.key_mode();
         let parameter_body_mode = parameters.body_mode(body);
@@ -343,7 +349,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     FunctionSignatureOwner::Function => {
                         function.id(ast).map(SignaturePreceding::Name)
                     }
-                    FunctionSignatureOwner::Method { key, .. } => {
+                    FunctionSignatureOwner::Method { key, .. }
+                    | FunctionSignatureOwner::Constructor { key, .. } => {
                         Some(SignaturePreceding::Key(key))
                     }
                 };
@@ -370,7 +377,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     FunctionSignatureOwner::Function => {
                         function.id(ast).map(SignaturePreceding::Name)
                     }
-                    FunctionSignatureOwner::Method { key, .. } => {
+                    FunctionSignatureOwner::Method { key, .. }
+                    | FunctionSignatureOwner::Constructor { key, .. } => {
                         Some(SignaturePreceding::Key(key))
                     }
                 }
