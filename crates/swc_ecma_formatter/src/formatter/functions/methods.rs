@@ -38,6 +38,10 @@ pub(in crate::formatter) struct SourceMethodHeader<'ast> {
     signature: MethodSignature<'ast>,
 }
 
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Keep the prepared borrowed header inline instead of allocating per method."
+)]
 enum MethodSignature<'ast> {
     Formatted(PreparedFunctionSignature<'ast>),
     FunctionValue {
@@ -129,7 +133,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 )
             }
         };
-        if function.return_type(ast).is_some()
+        if (function.return_type(ast).is_some() || function.type_parameters(ast).is_some())
             && match owner {
                 MethodOwner::Object(property) => property.kind(ast) != PropertyKind::Init,
                 MethodOwner::Class(method) => method.kind(ast) != MethodDefinitionKind::Method,
@@ -149,6 +153,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         let mut signature =
             self.source_function_signature(function, FunctionSignatureOwner::Method { key, kind })?;
+        let header_start = signature.header_start(ast);
+        let has_generics = signature.has_generics();
         let start = owner.span(ast).start;
         let static_end = is_static.then_some(start + 6);
         let prefix_end = static_end.unwrap_or(start);
@@ -184,7 +190,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let opening = self
                 .find_token(before, self.comments.in_range(before), "[")
                 .ok_or_else(|| self.unsupported("computed method opening boundary", key))?;
-            let after = Span::new(key_span.end, signature.span.start);
+            let after = Span::new(key_span.end, header_start);
             let closing = self
                 .find_token(after, self.comments.in_range(after), "]")
                 .ok_or_else(|| self.unsupported("computed method closing boundary", key))?;
@@ -193,6 +199,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             None
         };
         let modes = match kind {
+            _ if has_generics => FunctionNameModes {
+                name: ContentMode::Formatted,
+                following: ContentMode::Formatted,
+            },
             MethodSignatureKind::Public
                 if self.has_suppression
                     && matches!(owner, MethodOwner::Object(_))
@@ -207,13 +217,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 FunctionNameModes {
                     name: self.content_mode(
                         self.comments
-                            .in_range(Span::new(key_span.end, signature.span.start)),
+                            .in_range(Span::new(key_span.end, header_start)),
                     ),
                     following: ContentMode::Formatted,
                 }
             }
             MethodSignatureKind::Public => {
-                self.function_name_modes(Span::new(key_span.end, signature.span.start))
+                self.function_name_modes(Span::new(key_span.end, header_start))
             }
             MethodSignatureKind::Private => {
                 let mut modes = FunctionNameModes {
@@ -223,8 +233,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 if self.has_suppression {
                     let comments = self
                         .comments
-                        .in_range(Span::new(key_span.end, signature.span.start));
-                    for position in self.suppression_positions(comments, signature.span.start) {
+                        .in_range(Span::new(key_span.end, header_start));
+                    for position in self.suppression_positions(comments, header_start) {
                         match position {
                             SuppressionPosition::OwnLine => modes.following = ContentMode::Verbatim,
                             SuppressionPosition::Inline if signature.has_parameters() => {
@@ -242,16 +252,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && enclosing_mode == ContentMode::Formatted
             && matches!(owner, MethodOwner::Object(_))
             && computed.is_none()
-            && matches!(ast.property_key_data(key), PropertyKeyData::Expr(expression)
-                if matches!(ast.expr_data(expression), ExprData::StringLiteral(_)))
-        {
+            && match ast.property_key_data(key) {
+                PropertyKeyData::IdentifierName(_) => has_generics,
+                PropertyKeyData::Expr(expression) => {
+                    matches!(ast.expr_data(expression), ExprData::StringLiteral(_))
+                }
+            } {
             let function_span = function.span(ast);
             let key_end = computed.map_or(key_span.end, |span| span.end);
             let gap = Span::new(key_end, function_span.start);
             let comments = self.comments.in_range(gap);
             if self
                 .suppression_positions(comments, function_span.start)
-                .any(|position| matches!(position, SuppressionPosition::OwnLine))
+                .any(|position| {
+                    if has_generics {
+                        !matches!(position, SuppressionPosition::EndOfLine)
+                    } else {
+                        matches!(position, SuppressionPosition::OwnLine)
+                    }
+                })
             {
                 // This real ObjectProperty value owns the complete Function,
                 // including its parameters and body, rather than a first formal.
@@ -277,9 +296,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && matches!(kind, MethodSignatureKind::Private)
             && self.content_mode(
                 self.comments
-                    .in_range(Span::new(key_span.end, signature.span.start)),
+                    .in_range(Span::new(key_span.end, header_start)),
             ) == ContentMode::Verbatim)
-            .then_some(Span::new(key_span.end, signature.span.start));
+            .then_some(Span::new(key_span.end, header_start));
         let (signature, signature_key_mode) = match function_prefix {
             Some(prefix) => {
                 let key_mode = signature.key_mode(key);
@@ -289,7 +308,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 )
             }
             None => {
-                let signature = self.prepare_function_signature(signature)?;
+                let prefix_end = computed.map_or(key_span.end, |span| span.end);
+                let signature = self.prepare_function_signature(signature, prefix_end)?;
                 let key_mode = signature.key_mode(key);
                 (MethodSignature::Formatted(signature), key_mode)
             }
@@ -384,7 +404,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         self.format_delimited_source_gap(gap, DelimitedFollowing::Node, writer)?;
                     source.following.write(writer, FlatSeparator::Empty, |_| {});
                 } else {
-                    self.format_source_token_gap(key_end, signature_span.start, false, writer)?;
+                    if !signature.has_generics() {
+                        self.format_source_token_gap(key_end, signature_span.start, false, writer)?;
+                    }
                 }
                 let body = self.format_function_signature(signature, writer)?;
                 self.format_function_body_boundary(body, writer)
