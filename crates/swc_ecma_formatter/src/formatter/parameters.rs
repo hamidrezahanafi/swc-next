@@ -13,8 +13,14 @@ use super::suppression::{ContentMode, DelimitedSuppression, SuppressionPosition}
 use super::types::callable::CallableParameter;
 use crate::{ArrowParentheses, FormatError, TrailingCommas, document::Writer};
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ArrowParameterParentheses {
+    Optional,
+    Required,
+}
+
 enum ParameterRole {
-    Arrow { has_trailing_comments: bool },
+    Arrow(ArrowParameterParentheses),
     Function,
     PrivateMethod(FunctionBody),
 }
@@ -101,15 +107,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn source_arrow_parameters(
         &self,
         node: FormalParameters,
-        has_trailing_comments: bool,
+        parentheses: ArrowParameterParentheses,
     ) -> Result<SourceParameters, FormatError> {
-        self.source_parameters(
-            node,
-            None,
-            ParameterRole::Arrow {
-                has_trailing_comments,
-            },
-        )
+        self.source_parameters(node, None, ParameterRole::Arrow(parentheses))
     }
 
     pub(super) fn source_function_parameters(
@@ -154,7 +154,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         let mut source = if self.source(span).starts_with('(') && self.source(span).ends_with(')') {
             ParameterSource::Parenthesized(span)
-        } else if matches!(role, ParameterRole::Arrow { .. })
+        } else if matches!(role, ParameterRole::Arrow(_))
             && let Some(CallableParameter::Formal(parameter)) = first
             && items.len() == 1
             && rest.is_none()
@@ -186,9 +186,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         let omit_parentheses = matches!(
             role,
-            ParameterRole::Arrow {
-                has_trailing_comments: false
-            }
+            ParameterRole::Arrow(ArrowParameterParentheses::Optional)
         ) && self.options.arrow_parentheses == ArrowParentheses::AsNeeded
             && single.is_some_and(|parameter| {
                 matches!(

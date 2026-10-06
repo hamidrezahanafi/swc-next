@@ -5,6 +5,7 @@ use swc_next_ecma_ast::{Ast, TsType, TsTypeData};
 #[derive(Clone, Copy)]
 pub(in crate::formatter) enum TypeContext {
     Root,
+    ArrowReturn,
     PostfixOperand,
     ModifierOperand,
     CompoundMember,
@@ -28,6 +29,7 @@ impl TypeContext {
     pub(super) fn needs_parentheses(self, data: TsTypeData, ast: &Ast<'_>) -> bool {
         let minimum = match self {
             Self::Root => return false,
+            Self::ArrowReturn => return matches!(data, TsTypeData::TsFunctionType(_)),
             Self::ConditionalCheck => {
                 return matches!(
                     data,

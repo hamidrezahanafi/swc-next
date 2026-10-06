@@ -3,6 +3,7 @@
 use swc_next_ecma_ast::{
     ArrowFunctionBody, ArrowFunctionBodyData, ArrowFunctionExpression, Comment, CommentKind,
     ExprData, FormalParameterItemData, FormalParameterPatternData, FormalParameters, GetSpan, Span,
+    TsTypeAnnotation,
 };
 
 use super::parentheses::SourceParentheses;
@@ -10,8 +11,13 @@ use super::{ExpressionContext, ExpressionLayout, ExpressionPosition, Formatter, 
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::functions::SignatureBoundaryRole;
+use crate::formatter::parameters::{ArrowParameterParentheses, SourceParameters};
 use crate::formatter::statements::IncomingStatement;
-use crate::formatter::{parameters::SourceParameters, suppression::ContentMode};
+use crate::formatter::suppression::ContentMode;
+use crate::formatter::types::TypeContext;
+use crate::formatter::types::callable::{
+    SignatureReturn, SignatureReturnDelimiter, SignatureReturnEolTarget,
+};
 use crate::{
     ArrowParentheses, FormatError, Semicolons,
     document::{Fragment, RecordedGroup, Writer},
@@ -82,8 +88,15 @@ pub(super) struct VerbatimArrow {
 
 pub(super) struct FormattedArrowHead<'a> {
     arrow: ArrowFunctionExpression,
-    boundary: ArrowBoundary<'a>,
     parameters: SourceParameters,
+    result: Option<SignatureReturn<'a>>,
+    parameter_start: u32,
+    signature_end: u32,
+    body: ArrowFunctionBody,
+    body_span: Span,
+    operator: u32,
+    comments: &'a [Comment],
+    before_count: usize,
 }
 
 pub(super) enum SourceArrow<'a> {
@@ -95,7 +108,9 @@ pub(super) struct FormattedSourceArrow<'a> {
     arrow: ArrowFunctionExpression,
     next: Option<ArrowChainChild<'a>>,
     parameters: SourceParameters,
-    parameter_span: Span,
+    parameter_start: u32,
+    signature_end: u32,
+    result: Option<SignatureReturn<'a>>,
     before: &'a [Comment],
     body: SourceArrowBody<'a>,
 }
@@ -103,11 +118,12 @@ pub(super) struct FormattedSourceArrow<'a> {
 struct ArrowBoundary<'ast> {
     parameters: FormalParameters,
     parameter_span: Span,
+    signature_end: u32,
     body: ArrowFunctionBody,
     body_span: Span,
     operator: u32,
-    before: &'ast [Comment],
-    leading: &'ast [Comment],
+    comments: &'ast [Comment],
+    before_count: usize,
 }
 
 pub(super) struct SourceArrowBody<'a> {
@@ -134,39 +150,61 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if self.options.arrow_parentheses == ArrowParentheses::Always {
             return Ok(true);
         }
-        let boundary = self.source_arrow_boundary(arrow)?;
-        let parameters =
-            self.source_arrow_parameters(boundary.parameters, !boundary.before.is_empty())?;
+        let annotation = arrow.return_type(self.ast);
+        if annotation.is_some() {
+            self.check_arrow_header_domain(arrow, annotation)?;
+            return Ok(true);
+        }
+        let boundary = self.source_arrow_boundary(arrow, annotation)?;
+        let parentheses = if boundary.before_count == 0 {
+            ArrowParameterParentheses::Optional
+        } else {
+            ArrowParameterParentheses::Required
+        };
+        let parameters = self.source_arrow_parameters(boundary.parameters, parentheses)?;
         Ok(parameters.starts_with_parenthesis())
+    }
+
+    fn check_arrow_header_domain(
+        &self,
+        arrow: ArrowFunctionExpression,
+        annotation: Option<TsTypeAnnotation>,
+    ) -> Result<(), FormatError> {
+        if arrow.type_parameters(self.ast).is_some()
+            || (annotation.is_some() && (!self.ast.is_ts() || self.ast.is_jsx()))
+        {
+            return Err(self.unsupported("typed arrow", arrow));
+        }
+        Ok(())
     }
 
     #[inline(always)]
     fn source_arrow_boundary(
         &self,
         arrow: ArrowFunctionExpression,
+        annotation: Option<TsTypeAnnotation>,
     ) -> Result<ArrowBoundary<'ast>, FormatError> {
-        if arrow.type_parameters(self.ast).is_some() || arrow.return_type(self.ast).is_some() {
-            return Err(self.unsupported("typed arrow", arrow));
-        }
+        self.check_arrow_header_domain(arrow, annotation)?;
         let params = arrow.params(self.ast);
         let parameter_span = params.span(self.ast);
         let body = arrow.body(self.ast);
         let body_span = body.span(self.ast);
-        let gap = Span::new(parameter_span.end, body_span.start);
+        let signature_end = annotation.map_or(parameter_span.end, |node| node.span(self.ast).end);
+        let gap = Span::new(signature_end, body_span.start);
         let comments = self.comments.in_range(gap);
         let Some(operator) = self.find_token(gap, comments, "=>") else {
             return Err(self.unsupported("arrow token boundary", arrow));
         };
-        let (before, leading) =
-            comments.split_at(comments.partition_point(|comment| comment.span.end <= operator));
+        let before_count = comments.partition_point(|comment| comment.span.end <= operator);
         Ok(ArrowBoundary {
             parameters: params,
             parameter_span,
+            signature_end,
             body,
             body_span,
             operator,
-            before,
-            leading,
+            comments,
+            before_count,
         })
     }
 
@@ -174,19 +212,51 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &self,
         arrow: ArrowFunctionExpression,
     ) -> Result<SourceArrow<'ast>, FormatError> {
-        let boundary = self.source_arrow_boundary(arrow)?;
-        let parameters =
-            self.source_arrow_parameters(boundary.parameters, !boundary.before.is_empty())?;
+        let annotation = arrow.return_type(self.ast);
+        let boundary = self.source_arrow_boundary(arrow, annotation)?;
+        let parentheses = if annotation.is_some() || boundary.before_count != 0 {
+            ArrowParameterParentheses::Required
+        } else {
+            ArrowParameterParentheses::Optional
+        };
+        let mut parameters = self.source_arrow_parameters(boundary.parameters, parentheses)?;
         if parameters.enclosing_mode() == ContentMode::Verbatim {
             return Ok(SourceArrow::Verbatim(VerbatimArrow {
                 span: arrow.span(self.ast),
                 is_async: arrow.r#async(self.ast),
             }));
         }
+        let result = if let Some(annotation) = annotation {
+            let target = if parameters.has_parameters() {
+                SignatureReturnEolTarget::Parameter
+            } else {
+                SignatureReturnEolTarget::Annotation
+            };
+            let result = self.prepare_signature_return(
+                boundary.parameter_span.end,
+                target,
+                annotation,
+                None,
+                SignatureReturnDelimiter::Colon,
+            );
+            if result.preceding_mode == ContentMode::Verbatim {
+                parameters.suppress_last(self.ast)?;
+            }
+            Some(result)
+        } else {
+            None
+        };
         Ok(SourceArrow::Formatted(FormattedArrowHead {
             arrow,
-            boundary,
             parameters,
+            result,
+            parameter_start: boundary.parameter_span.start,
+            signature_end: boundary.signature_end,
+            body: boundary.body,
+            body_span: boundary.body_span,
+            operator: boundary.operator,
+            comments: boundary.comments,
+            before_count: boundary.before_count,
         }))
     }
 
@@ -196,18 +266,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<FormattedSourceArrow<'ast>, FormatError> {
         let FormattedArrowHead {
             arrow,
-            boundary,
             parameters,
-        } = head;
-        let ArrowBoundary {
-            parameter_span,
+            result,
+            parameter_start,
+            signature_end,
             body,
             body_span,
             operator,
-            before,
-            leading,
-            ..
-        } = boundary;
+            comments,
+            before_count,
+        } = head;
+        let (before, leading) = comments.split_at(before_count);
         let body = self.ast.arrow_function_body_data(body);
         let (mode, first_statement, trailing_constraint) = match body {
             ArrowFunctionBodyData::FunctionBody(body) if self.has_suppression => {
@@ -280,7 +349,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             arrow,
             next,
             parameters,
-            parameter_span,
+            parameter_start,
+            signature_end,
+            result,
             before,
             body,
         })
@@ -365,9 +436,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }))
     }
 
-    fn arrow_chain_breaks(&self, arrow: ArrowFunctionExpression) -> bool {
+    fn arrow_chain_breaks(&self, source: &FormattedSourceArrow<'ast>) -> bool {
+        if source.result.is_some() && source.parameters.has_parameters() {
+            return true;
+        }
         let ast = self.ast;
-        let params = arrow.params(ast);
+        let params = source.arrow.params(ast);
         params.rest(ast).is_some()
             || params.items(ast).iter().any(|id| {
                 let parameter = ast.get_node_in_sub_range(id);
@@ -453,7 +527,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<RecordedArrowChain<'ast>, FormatError> {
-        let mut should_break = self.arrow_chain_breaks(source.arrow);
+        let mut should_break = self.arrow_chain_breaks(&source);
         let (signature, source_body) = writer
             .record_with_value(|writer| self.format_arrow_signature(source, context, writer))?;
         let (following, ()) = writer.record_with_value(|writer| {
@@ -469,7 +543,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         source = self.source_formatted_arrow(first_child.head)?;
         let mut links = Vec::new();
         let (body, mut tail, hug_body) = loop {
-            should_break |= self.arrow_chain_breaks(source.arrow);
+            should_break |= self.arrow_chain_breaks(&source);
             let next = source.next.take();
             let (signature, source_body) = writer.record_with_value(|writer| {
                 self.format_arrow_signature(
@@ -568,7 +642,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let FormattedSourceArrow {
             arrow,
             parameters,
-            parameter_span,
+            parameter_start,
+            signature_end,
+            result,
             before,
             body,
             ..
@@ -584,21 +660,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text("async");
             self.format_source_token_gap(
                 arrow.span(self.ast).start + 5,
-                parameter_span.start,
+                parameter_start,
                 true,
                 writer,
             )?;
         }
         self.format_source_parameters(parameters, writer)?;
+        if let Some(result) = result {
+            let tail = self.format_signature_return_with_context(
+                result,
+                TypeContext::ArrowReturn,
+                writer,
+            )?;
+            self.format_expression_tail(tail, writer)?;
+        }
         self.comments.claim(before)?;
-        self.format_comment_run(
-            before,
-            CommentRunLayout::SourceAfter(parameter_span.end),
-            writer,
-        )?;
+        self.format_comment_run(before, CommentRunLayout::SourceAfter(signature_end), writer)?;
         let before_end = before
             .last()
-            .map_or(parameter_span.end, |comment| comment.span.end);
+            .map_or(signature_end, |comment| comment.span.end);
         self.line_constraint(before_end, body.operator).write(
             writer,
             FlatSeparator::Space,

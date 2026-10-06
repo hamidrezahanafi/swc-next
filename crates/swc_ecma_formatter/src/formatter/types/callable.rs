@@ -534,6 +534,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         result: SignatureReturn<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_signature_return_with_context(result, TypeContext::Root, writer)
+    }
+
+    pub(in crate::formatter) fn format_signature_return_with_context(
+        &mut self,
+        result: SignatureReturn<'ast>,
+        context: TypeContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         match result.prefix {
             TypeBoundaryLayout::Source(gap) => self.format_verbatim(gap, writer)?,
             TypeBoundaryLayout::Formatted { before, after } => {
@@ -552,12 +561,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .write(writer, FlatSeparator::Space, Writer::space);
             }
         }
-        self.format_annotation_owner(result.content, writer)
+        self.format_annotation_owner(result.content, context, writer)
     }
 
     fn format_annotation_owner(
         &mut self,
         content: AnnotationContent,
+        context: TypeContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         match content {
@@ -565,9 +575,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_verbatim(annotation.span(self.ast), writer)?;
                 Ok(None)
             }
-            AnnotationContent::Type(node) => {
-                self.format_prepared_type(node, TypeContext::Root, writer)
-            }
+            AnnotationContent::Type(node) => self.format_prepared_type(node, context, writer),
         }
     }
 
@@ -1107,7 +1115,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         .write(writer, FlatSeparator::Space, Writer::space);
                 }
             }
-            return self.format_annotation_owner(bound.content, writer);
+            return self.format_annotation_owner(bound.content, TypeContext::Root, writer);
         }
         Ok(None)
     }
