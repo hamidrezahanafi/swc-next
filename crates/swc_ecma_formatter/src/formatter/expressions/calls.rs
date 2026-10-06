@@ -50,9 +50,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return Ok(self.source_call(call, context)?.callee_head());
         }
         let ast = self.ast;
-        if call.type_arguments(ast).is_some() {
-            return Err(self.unsupported("call suffix", call));
-        }
         let expression = call.callee(ast);
         let access = if call.optional(ast) {
             AccessKind::Optional
@@ -97,9 +94,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: ExpressionContext,
     ) -> Result<SourceArguments<'ast>, FormatError> {
         let ast = self.ast;
-        if call.type_arguments(ast).is_some() {
-            return Err(self.unsupported("call suffix", call));
-        }
         let callee = call.callee(ast);
         let call_arguments = call.arguments(ast);
         let access = if call.optional(ast) {
@@ -107,9 +101,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             AccessKind::Ordinary
         };
-        let mut arguments = self
-            .source_arguments(call_arguments, callee, call.span(ast).end, access)
-            .ok_or_else(|| self.unsupported("call opening boundary", call))?;
+        let source = if let Some(node) = call.type_arguments(ast) {
+            let types = self.prepare_expression_type_arguments(callee, node, access)?;
+            self.source_arguments_after_types(call_arguments, callee, call.span(ast).end, types)
+        } else {
+            self.source_arguments(call_arguments, callee, call.span(ast).end, access)
+        };
+        let mut arguments =
+            source.ok_or_else(|| self.unsupported("call opening boundary", call))?;
         arguments.test_callback = self.test_call_callback(call);
         arguments.group = if matches!(context.position,
             ExpressionPosition::CallCallee { curried_call: Some(curried), .. } if curried == call)

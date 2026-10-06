@@ -9,6 +9,7 @@ use swc_next_ecma_ast::{
 };
 use unicode_width::UnicodeWidthStr;
 
+use super::arguments::ArgumentHead;
 use super::arrays::{ArrayArgumentArity, RecordedArray, RecordedArrayArgument};
 use super::arrows::RecordedArrow;
 use super::objects::RecordedObject;
@@ -621,23 +622,36 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         arguments: SubRange<Argument>,
         content: Span,
-        first_mode: ContentMode,
+        head: ArgumentHead,
         selected: SelectedArgument,
         mut missing_function: Option<&mut bool>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let ast = self.ast;
+        let source_opening = head
+            .source_opening
+            .map(|opening| {
+                writer.record_with_value(|writer| self.format_verbatim(opening.span, writer))
+            })
+            .transpose()?
+            .map(|(fragment, ())| fragment);
         let mut outcome = match &selected {
             SelectedArgument::Callback(selected) => SelectionOutcome::Callback(selected.role),
             SelectedArgument::FinalObject(_) => SelectionOutcome::FinalObject { has_forced: false },
             SelectedArgument::FinalArray(_) => SelectionOutcome::FinalArray { has_forced: false },
         };
         let (opening, ()) = writer.record_with_value(|writer| {
-            self.opening_line_constraint(content).write(
-                writer,
-                FlatSeparator::Empty,
-                Writer::soft_line,
-            );
+            if let Some(opening) = head.source_opening {
+                opening
+                    .following
+                    .write(writer, FlatSeparator::Empty, Writer::soft_line);
+            } else {
+                self.opening_line_constraint(content).write(
+                    writer,
+                    FlatSeparator::Empty,
+                    Writer::soft_line,
+                );
+            }
             Ok::<_, FormatError>(())
         })?;
         let mut recorded = Vec::with_capacity(arguments.len());
@@ -657,8 +671,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     writer,
                 )
             })?;
-            if previous.is_none() && first_mode == ContentMode::Verbatim {
-                item.set_leading_mode(first_mode);
+            if previous.is_none() && head.first_mode == ContentMode::Verbatim {
+                item.set_leading_mode(head.first_mode);
             }
             let (value, tail) = match &selected {
                 SelectedArgument::Callback(selected)
@@ -750,7 +764,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })?;
         let (fallback, ()) = writer.record_with_value(|writer| {
             writer.group(false, |writer| {
-                writer.text("(");
+                if let Some(opening) = source_opening {
+                    writer.write_fragment(opening);
+                } else {
+                    writer.text("(");
+                }
                 writer.indent(|writer| {
                     writer.write_fragment(opening);
                     for item in &recorded {
@@ -782,10 +800,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 return Ok(None);
             }
         };
-        if let Some(grouped_items) = recorded
-            .iter()
-            .map(|item| item.try_group(policy))
-            .collect::<Option<Vec<_>>>()
+        if source_opening.is_none()
+            && let Some(grouped_items) = recorded
+                .iter()
+                .map(|item| item.try_group(policy))
+                .collect::<Option<Vec<_>>>()
             && let Some(opening) = grouping_view(opening, policy)
             && let Some(closing) = grouping_view(closing, policy)
         {

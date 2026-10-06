@@ -2,11 +2,11 @@
 
 use swc_next_ecma_ast::{
     BinaryOperator, Expr, ExprData, GetSpan, Span, TsNonNullExpression, TsType, TsTypeAssertion,
-    TsTypeData,
+    TsTypeData, TsTypeParameterInstantiation,
 };
 
 use super::binary::{BinaryOperatorKind, OperandSide};
-use super::{ExpressionContext, ExpressionPosition, TailOwner};
+use super::{AccessKind, ExpressionContext, ExpressionPosition, TailOwner};
 use crate::formatter::Formatter;
 use crate::formatter::comments::{CommentBoundary, ExpressionTail};
 use crate::formatter::diagnostics::FlatSeparator;
@@ -29,6 +29,30 @@ impl TypeBinaryOperator {
     }
 }
 
+/// A real runtime angle-list suffix, prepared before its callee consumes comments.
+pub(super) struct ExpressionTypeArguments<'ast> {
+    pub(super) node: TsTypeParameterInstantiation,
+    pub(super) callee_mode: ContentMode,
+    pub(super) mode: ContentMode,
+    pub(super) access: AccessKind,
+    has_comments: bool,
+    prefix: ExpressionTypeArgumentPrefix<'ast>,
+}
+
+impl ExpressionTypeArguments<'_> {
+    pub(super) fn has_comments(&self) -> bool {
+        self.has_comments
+    }
+}
+
+enum ExpressionTypeArgumentPrefix<'ast> {
+    Source(Span),
+    Formatted {
+        before: CommentBoundary<'ast>,
+        optional: Option<CommentBoundary<'ast>>,
+    },
+}
+
 enum TypeExpressionGap<'ast> {
     Source(Span),
     Formatted(CommentBoundary<'ast>),
@@ -49,6 +73,92 @@ enum BinaryTypeLayout<'ast> {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    pub(super) fn prepare_expression_type_arguments(
+        &self,
+        expression: Expr,
+        node: TsTypeParameterInstantiation,
+        access: AccessKind,
+    ) -> Result<ExpressionTypeArguments<'ast>, FormatError> {
+        let gap = Span::new(expression.span(self.ast).end, node.span(self.ast).start);
+        let comments = self.comments.in_range(gap);
+        let optional = if access == AccessKind::Optional {
+            let Some(start) = self.find_token(gap, comments, "?.") else {
+                return Err(FormatError::unsupported(
+                    "optional type arguments token",
+                    None,
+                    gap,
+                ));
+            };
+            Some(Span::new(start, start + 2))
+        } else {
+            None
+        };
+        let split = optional.map_or(0, |token| {
+            comments.partition_point(|comment| comment.span.end <= token.start)
+        });
+        let (before, after) = comments.split_at(split);
+        let mut callee_mode = ContentMode::Formatted;
+        let mut mode = ContentMode::Formatted;
+        if self.has_suppression && self.content_mode(comments) == ContentMode::Verbatim {
+            for (_, position) in self.suppressed_comment_runs(comments, gap.end) {
+                if matches!(position, SuppressionPosition::EndOfLine) {
+                    callee_mode = ContentMode::Verbatim;
+                } else {
+                    mode = ContentMode::Verbatim;
+                }
+            }
+        }
+        let prefix = if callee_mode == ContentMode::Verbatim || mode == ContentMode::Verbatim {
+            ExpressionTypeArgumentPrefix::Source(gap)
+        } else if let Some(token) = optional {
+            ExpressionTypeArgumentPrefix::Formatted {
+                before: self.prepare_comment_boundary(before, gap.start, token.start),
+                optional: Some(self.prepare_comment_boundary(after, token.end, gap.end)),
+            }
+        } else {
+            ExpressionTypeArgumentPrefix::Formatted {
+                before: self.prepare_comment_boundary(comments, gap.start, gap.end),
+                optional: None,
+            }
+        };
+        Ok(ExpressionTypeArguments {
+            node,
+            callee_mode,
+            mode,
+            access,
+            has_comments: !comments.is_empty(),
+            prefix,
+        })
+    }
+
+    pub(super) fn format_expression_type_arguments(
+        &mut self,
+        arguments: ExpressionTypeArguments<'ast>,
+        tail: Option<ExpressionTail<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        self.format_expression_tail(tail, writer)?;
+        match arguments.prefix {
+            ExpressionTypeArgumentPrefix::Source(gap) => self.format_verbatim(gap, writer)?,
+            ExpressionTypeArgumentPrefix::Formatted { before, optional } => {
+                self.format_type_expression_gap(
+                    TypeExpressionGap::Formatted(before),
+                    FlatSeparator::Empty,
+                    writer,
+                )?;
+                if let Some(after) = optional {
+                    writer.text("?.");
+                    self.format_type_expression_gap(
+                        TypeExpressionGap::Formatted(after),
+                        FlatSeparator::Empty,
+                        writer,
+                    )?;
+                }
+            }
+        }
+        self.format_type_arguments(arguments.node, arguments.mode, writer)
+    }
+
     /// These identifier tokens could expose a declaration or reserved statement head.
     pub(super) fn type_binary_head_needs_parentheses(&self, data: ExprData) -> bool {
         let ExprData::IdentifierReference(identifier) = data else {

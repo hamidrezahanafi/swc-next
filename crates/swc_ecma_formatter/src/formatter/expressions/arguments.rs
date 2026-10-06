@@ -2,6 +2,7 @@
 
 use super::callbacks::{SelectedArgument, SelectedCallback};
 use super::calls::CallCallee;
+use super::typescript::ExpressionTypeArguments;
 use super::{AccessKind, ExpressionContext, Formatter};
 use crate::formatter::comments::{ArrayCommentOwner, CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
@@ -525,6 +526,8 @@ pub(super) struct SourceArguments<'ast> {
     delimiters: Span,
     pub(super) callee: Expr,
     callee_span: Span,
+    type_arguments: Option<ExpressionTypeArguments<'ast>>,
+    source_opening: Option<SourceArgumentOpening>,
     prefix: SourceArgumentPrefix<'ast>,
     pub(super) callee_mode: ContentMode,
     pub(super) test_callback: Option<SelectedCallback>,
@@ -536,6 +539,17 @@ pub(super) struct SourceArguments<'ast> {
 struct SourceFirstArgument {
     node: Argument,
     mode: ContentMode,
+}
+
+pub(super) struct ArgumentHead {
+    pub(super) first_mode: ContentMode,
+    pub(super) source_opening: Option<SourceArgumentOpening>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct SourceArgumentOpening {
+    pub(super) span: Span,
+    pub(super) following: LineConstraint,
 }
 
 #[derive(Clone, Copy)]
@@ -564,6 +578,9 @@ impl SourceArguments<'_> {
     }
 
     pub(super) fn access(&self) -> AccessKind {
+        if let Some(types) = &self.type_arguments {
+            return types.access;
+        }
         match self.prefix {
             SourceArgumentPrefix::Direct(_) => AccessKind::Ordinary,
             SourceArgumentPrefix::Optional { .. } => AccessKind::Optional,
@@ -578,6 +595,13 @@ impl SourceArguments<'_> {
     }
 
     pub(super) fn has_outside_prefix(&self) -> bool {
+        if self
+            .type_arguments
+            .as_ref()
+            .is_some_and(ExpressionTypeArguments::has_comments)
+        {
+            return true;
+        }
         match &self.prefix {
             SourceArgumentPrefix::Direct(prefix) => {
                 !prefix.belongs_to_arguments() && !prefix.comments().is_empty()
@@ -653,17 +677,38 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         end: u32,
         access: AccessKind,
     ) -> Option<SourceArguments<'ast>> {
+        self.prepare_source_arguments(arguments, callee, end, access, None)
+    }
+
+    pub(super) fn source_arguments_after_types(
+        &self,
+        arguments: SubRange<Argument>,
+        callee: Expr,
+        end: u32,
+        types: ExpressionTypeArguments<'ast>,
+    ) -> Option<SourceArguments<'ast>> {
+        self.prepare_source_arguments(arguments, callee, end, AccessKind::Ordinary, Some(types))
+    }
+
+    fn prepare_source_arguments(
+        &self,
+        arguments: SubRange<Argument>,
+        callee: Expr,
+        end: u32,
+        access: AccessKind,
+        mut type_arguments: Option<ExpressionTypeArguments<'ast>>,
+    ) -> Option<SourceArguments<'ast>> {
         let ast = self.ast;
         let callee_span = callee.span(ast);
+        let prefix_start = type_arguments
+            .as_ref()
+            .map_or(callee_span.end, |types| types.node.span(ast).end);
         let mut first = arguments.iter().next().map(|id| SourceFirstArgument {
             node: ast.get_node_in_sub_range(id),
             mode: ContentMode::Formatted,
         });
         let first_span = first.map(|argument| argument.node.span(ast));
-        let gap = Span::new(
-            callee_span.end,
-            first_span.map_or(end - 1, |span| span.start),
-        );
+        let gap = Span::new(prefix_start, first_span.map_or(end - 1, |span| span.start));
         let boundary_comments = self.comments.in_range(gap);
         let operator = match access {
             AccessKind::Ordinary => None,
@@ -672,14 +717,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Some(Span::new(start, start + 2))
             }
         };
-        let opening_start = operator.map_or(callee_span.end, |operator| operator.end);
+        let opening_start = operator.map_or(prefix_start, |operator| operator.end);
         let opening_gap = Span::new(opening_start, gap.end);
         let opening = self.find_token(opening_gap, boundary_comments, "(")?;
         let prefix_count = boundary_comments.partition_point(|comment| comment.span.end <= opening);
         let prefix_comments = &boundary_comments[..prefix_count];
-        let (prefix, callee_mode) = match operator {
+        let (prefix, mut callee_mode) = match operator {
             None => {
-                let span = Span::new(callee_span.end, opening);
+                let span = Span::new(prefix_start, opening);
                 let prefix = self.argument_prefix(first.as_mut(), span, prefix_comments);
                 let mode = if prefix.belongs_to_arguments() {
                     ContentMode::Formatted
@@ -692,7 +737,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let before_count =
                     prefix_comments.partition_point(|comment| comment.span.end <= operator.start);
                 let (before, after) = prefix_comments.split_at(before_count);
-                let before_span = Span::new(callee_span.end, operator.start);
+                let before_span = Span::new(prefix_start, operator.start);
                 self.prepare_first_argument_suppression(first.as_mut(), before, operator.start);
                 let before_mode = self.trailing_content_mode(before_span, false);
                 let after_span = Span::new(operator.end, opening);
@@ -744,12 +789,52 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             } else {
                 prefix
             };
+        let mut source_opening = None;
+        if let Some(types) = &mut type_arguments {
+            let empty_prefix_mode = if first.is_none() && self.has_suppression {
+                self.content_mode(prefix_comments)
+            } else {
+                ContentMode::Formatted
+            };
+            if callee_mode == ContentMode::Verbatim || empty_prefix_mode == ContentMode::Verbatim {
+                types.mode = ContentMode::Verbatim;
+            }
+            if self.has_suppression
+                && let Some(first) = &mut first
+            {
+                let inside = &boundary_comments[prefix_count..];
+                let mut trailing_types = false;
+                for position in self.suppression_positions(inside, gap.end) {
+                    match position {
+                        SuppressionPosition::EndOfLine => {
+                            types.mode = ContentMode::Verbatim;
+                            trailing_types = true;
+                        }
+                        SuppressionPosition::OwnLine | SuppressionPosition::Inline => {
+                            first.mode = ContentMode::Verbatim;
+                        }
+                    }
+                }
+                if trailing_types && let Some(last) = inside.last() {
+                    // The actual angle owner precedes this end-of-line packet.
+                    // Carry only the opener and leading comments; argument values
+                    // and their selected layouts keep their independent modes.
+                    source_opening = Some(SourceArgumentOpening {
+                        span: Span::new(opening, last.span.end),
+                        following: self.source_line_constraint(last.span.end, gap.end),
+                    });
+                }
+            }
+            callee_mode = types.callee_mode;
+        }
         Some(SourceArguments {
             arguments,
             first,
             delimiters: Span::new(opening, end),
             callee,
             callee_span,
+            type_arguments,
+            source_opening,
             prefix,
             callee_mode,
             test_callback: None,
@@ -896,6 +981,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             first,
             delimiters,
             callee_span,
+            type_arguments,
+            source_opening,
             prefix,
             test_callback,
             group,
@@ -903,9 +990,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } = list;
         let first_mode = first.map_or(ContentMode::Formatted, |argument| argument.mode);
         let opening = delimiters.start;
-        let source_end = tail
-            .as_ref()
-            .map_or(callee_span.end, |tail| tail.source_end);
+        let (prefix_start, tail) = if let Some(types) = type_arguments {
+            let end = types.node.span(ast).end;
+            self.format_expression_type_arguments(types, tail, writer)?;
+            (end, None)
+        } else {
+            (callee_span.end, tail)
+        };
+        let source_end = tail.as_ref().map_or(prefix_start, |tail| tail.source_end);
         let content_start = match prefix {
             SourceArgumentPrefix::Empty { operator, comments } => {
                 let comments = if tail.is_some() {
@@ -953,7 +1045,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 } else if move_tail {
                     source_end
                 } else {
-                    callee_span.end
+                    prefix_start
                 }
             }
             SourceArgumentPrefix::Optional {
@@ -982,6 +1074,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
             }
         };
+        let content_start = source_opening.map_or(content_start, |opening| opening.span.end);
         let content = Span::new(content_start, delimiters.end - 1);
         if first.is_none() {
             let comments = self.comments.in_range(content);
@@ -996,7 +1089,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 return Ok(None);
             }
         }
-        let hugged = arguments.len() == 1
+        let hugged = source_opening.is_none()
+            && arguments.len() == 1
             && self.comments.in_range(content).is_empty()
             && !self.diagnostic_range_is_sensitive(content)
             && first.is_some_and(|argument| match ast.argument_data(argument.node) {
@@ -1025,21 +1119,34 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return self.format_selected_arguments(
                 arguments,
                 content,
-                first_mode,
+                ArgumentHead {
+                    first_mode,
+                    source_opening,
+                },
                 selected,
                 missing_function,
                 writer,
             );
         }
         group.write(expand, writer, |writer| {
-            writer.text("(");
+            if let Some(opening) = source_opening {
+                self.format_verbatim(opening.span, writer)?;
+            } else {
+                writer.text("(");
+            }
             let mut write_items = |writer: &mut Writer<'ast>| {
                 if !hugged && (first.is_some() || !self.comments.in_range(content).is_empty()) {
-                    self.opening_line_constraint(content).write(
-                        writer,
-                        FlatSeparator::Empty,
-                        Writer::soft_line,
-                    );
+                    if let Some(opening) = source_opening {
+                        opening
+                            .following
+                            .write(writer, FlatSeparator::Empty, Writer::soft_line);
+                    } else {
+                        self.opening_line_constraint(content).write(
+                            writer,
+                            FlatSeparator::Empty,
+                            Writer::soft_line,
+                        );
+                    }
                 }
                 let mut arguments = arguments
                     .iter()

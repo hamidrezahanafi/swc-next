@@ -167,7 +167,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(None)
     }
 
-    pub(super) fn format_type_arguments(
+    pub(in crate::formatter) fn format_type_arguments(
         &mut self,
         node: TsTypeParameterInstantiation,
         mode: ContentMode,

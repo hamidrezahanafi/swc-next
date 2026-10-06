@@ -16,23 +16,37 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         constructor: NewExpression,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        if constructor.type_arguments(self.ast).is_some() {
-            return Err(self.unsupported("constructor type arguments", constructor));
-        }
         let callee = constructor.callee(self.ast);
         let callee_span = callee.span(self.ast);
         let span = constructor.span(self.ast);
-        let arguments = if span.end == callee_span.end {
+        let mut types = constructor
+            .type_arguments(self.ast)
+            .map(|node| self.prepare_expression_type_arguments(callee, node, AccessKind::Ordinary))
+            .transpose()?;
+        let suffix_end = types
+            .as_ref()
+            .map_or(callee_span.end, |types| types.node.span(self.ast).end);
+        let arguments = if span.end == suffix_end {
             None
         } else {
-            Some(
+            let source = if let Some(types) = types.take() {
+                self.source_arguments_after_types(
+                    constructor.arguments(self.ast),
+                    callee,
+                    span.end,
+                    types,
+                )
+            } else {
                 self.source_arguments(
                     constructor.arguments(self.ast),
                     callee,
                     span.end,
                     AccessKind::Ordinary,
                 )
-                .ok_or_else(|| self.unsupported("constructor opening boundary", constructor))?,
+            };
+            Some(
+                source
+                    .ok_or_else(|| self.unsupported("constructor opening boundary", constructor))?,
             )
         };
         let keyword_end = span.start + 3;
@@ -42,10 +56,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let leading_mode = self.content_mode(leading);
         let mode = if leading_mode == ContentMode::Verbatim {
             leading_mode
+        } else if let Some(arguments) = &arguments {
+            arguments.callee_mode
+        } else if let Some(types) = &types {
+            types.callee_mode
         } else {
-            arguments
-                .as_ref()
-                .map_or(ContentMode::Formatted, |arguments| arguments.callee_mode)
+            ContentMode::Formatted
         };
         writer.text("new");
         let next = leading
@@ -71,7 +87,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if let Some(arguments) = arguments {
             self.format_source_arguments(arguments, tail, writer)
         } else {
-            self.format_expression_tail(tail, writer)?;
+            if let Some(types) = types {
+                self.format_expression_type_arguments(types, tail, writer)?;
+            } else {
+                self.format_expression_tail(tail, writer)?;
+            }
             writer.text("()");
             Ok(None)
         }
