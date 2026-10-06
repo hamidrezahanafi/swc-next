@@ -85,6 +85,7 @@ pub(super) enum ExpressionPosition {
     ConditionalConsequent,
     ConditionalAlternate,
     AssignmentRight(AssignmentParent),
+    EnumInitializer,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1095,6 +1096,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ExpressionPosition::Statement
                     | ExpressionPosition::ExportDefault
                     | ExpressionPosition::AssignmentRight(_)
+                    | ExpressionPosition::EnumInitializer
                     | ExpressionPosition::ForHead
                     | ExpressionPosition::ForInitializer { .. }
             ),

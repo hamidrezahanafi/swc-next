@@ -3,6 +3,7 @@
 use swc_next_ecma_ast::{
     ArrayPattern, BindingPattern, BindingPatternData, BindingProperty, CommentKind, Expr,
     FormalParameterPattern, FormalParameterPatternData, GetSpan, ObjectPattern, PropertyKey, Span,
+    TsEnumMemberName,
 };
 
 use super::Formatter;
@@ -30,6 +31,10 @@ enum DefaultOwner<'ast> {
 #[derive(Clone, Copy)]
 pub(super) enum InitializerLeft {
     Binding(BindingPattern),
+    Enum {
+        name: TsEnumMemberName,
+        computed: Option<Span>,
+    },
     Property {
         key: PropertyKey,
         computed: Option<Span>,
@@ -293,6 +298,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             context,
         } = initializer;
         let left_end = match left {
+            InitializerLeft::Enum { name, computed } => {
+                self.format_enum_member_key(name, computed, left_mode, writer)?;
+                computed.map_or(name.span(self.ast).end, |span| span.end)
+            }
             InitializerLeft::Binding(binding) => {
                 let tail = self.format_declaration_binding(binding, left_mode, writer)?;
                 self.format_expression_tail(tail, writer)?;

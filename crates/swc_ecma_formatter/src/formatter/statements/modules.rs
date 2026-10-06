@@ -123,6 +123,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 DeclData::TsTypeAliasDeclaration(_)
                     | DeclData::TsInterfaceDeclaration(_)
                     | DeclData::TsImportEqualsDeclaration(_)
+                    | DeclData::TsEnumDeclaration(_)
                     | DeclData::TsModuleDeclaration(_)
                     | DeclData::TsGlobalDeclaration(_)
             ) {
@@ -139,7 +140,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 | DeclData::TsInterfaceDeclaration(_)
                 | DeclData::TsModuleDeclaration(_)
                 | DeclData::TsGlobalDeclaration(_)
-                | DeclData::TsImportEqualsDeclaration(_) => Ok(StatementBoundary::SourceEnd {
+                | DeclData::TsImportEqualsDeclaration(_)
+                | DeclData::TsEnumDeclaration(_) => Ok(StatementBoundary::SourceEnd {
                     end,
                     has_terminator: self.source(span).ends_with(';'),
                 }
@@ -187,6 +189,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             DeclData::VariableDeclaration(variable) => {
                 let (end, tail) = self.format_variable_declaration(variable, keyword, writer)?;
                 self.finish_statement(end, tail, punctuation, writer)
+            }
+            DeclData::TsEnumDeclaration(node) => {
+                self.format_enum(node, keyword, writer)?;
+                Ok(StatementBoundary::TypeDeclarationEnd {
+                    end: node.body(self.ast).span(self.ast).end,
+                    has_terminator: false,
+                }
+                .into())
             }
             DeclData::TsInterfaceDeclaration(interface) => {
                 self.format_interface(interface, keyword, writer)?;
@@ -402,6 +412,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let span = node.span(ast);
         let keyword_end = span.start + 6;
         if let Some(declaration) = node.declaration(ast) {
+            if matches!(ast.decl_data(declaration), DeclData::TsEnumDeclaration(_)) {
+                return Err(self.unsupported("export enum declaration", node));
+            }
             let mode = self.content_mode(
                 self.comments
                     .in_range(Span::new(keyword_end, declaration.span(ast).start)),

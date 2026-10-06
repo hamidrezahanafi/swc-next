@@ -2,6 +2,7 @@
 
 mod control_flow;
 mod declarations;
+mod enums;
 mod modules;
 mod namespaces;
 mod tails;

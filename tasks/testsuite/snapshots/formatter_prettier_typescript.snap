@@ -3,13 +3,13 @@ formatter * prettier 3.9.9 * typescript
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 657
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 222/804 (27.61%)
-Snapshot matched: 222/804
-AST parity: 356/356
-AST mismatched: 0/356
+Passed: 225/804 (27.99%)
+Snapshot matched: 225/804
+AST parity: 359/359
+AST mismatched: 0/359
 AST format errors: 0/804
 Mismatched: 134/804
-Format errors: 448/804
+Format errors: 445/804
 Panicked: 0/804
 Not idempotent: 0/804
 Ignored files: 76
@@ -257,7 +257,6 @@ Unsupported option sets: 7
 - typescript/conformance/types/ambient/ambientDeclarations.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/any/anyAsGenericFunctionCall.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/constKeyword/constKeyword.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/conformance/types/enumDeclaration/enumDeclaration.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/firstTypeNode/firstTypeNode.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/functions/TSFunctionTypeNoUnnecessaryParentheses.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/functions/functionImplementationErrors.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -408,7 +407,6 @@ Unsupported option sets: 7
 - typescript/private-fields-in-in/basic.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/property-signature/consistent-with-flow/comments.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/property-signature/consistent-with-flow/union.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/quote-props/enums.ts: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - typescript/readonly/readonly.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/rest-type/infer-type.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/satisfies-operators/argument-expansion.ts: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
