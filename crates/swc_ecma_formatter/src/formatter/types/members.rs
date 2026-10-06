@@ -8,7 +8,7 @@ use swc_next_ecma_ast::{
 };
 
 use super::callable::{
-    AnnotationContent, CallableParameter, CallableParameters, SignatureReturn,
+    AnnotationContent, CallableParameters, SignatureIncoming, SignatureReturn,
     SignatureReturnDelimiter,
 };
 use super::generics::TypeParameterContext;
@@ -74,13 +74,6 @@ impl MemberSignatureOwner {
             },
         }
     }
-}
-
-#[derive(Clone, Copy)]
-enum SignatureIncoming {
-    Parameter(CallableParameter),
-    Return(TsTypeAnnotation),
-    Empty,
 }
 
 struct SignatureMember<'ast> {
@@ -753,26 +746,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }),
             content_end,
         ))
-    }
-
-    fn signature_incoming(
-        &self,
-        parameters: &CallableParameters,
-        result: Option<TsTypeAnnotation>,
-        selected: &mut Option<SignatureIncoming>,
-    ) -> Result<SignatureIncoming, FormatError> {
-        if let Some(owner) = *selected {
-            return Ok(owner);
-        }
-        let owner = if let Some(first) = self.first_callable_parameter(parameters)? {
-            SignatureIncoming::Parameter(first)
-        } else if let Some(annotation) = result {
-            SignatureIncoming::Return(annotation)
-        } else {
-            SignatureIncoming::Empty
-        };
-        *selected = Some(owner);
-        Ok(owner)
     }
 
     fn prepare_index_member(

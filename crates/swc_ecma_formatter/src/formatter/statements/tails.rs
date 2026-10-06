@@ -246,7 +246,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     return self.module_named_content_end(node);
                 }
                 StmtData::ExportDefaultDeclaration(node) => {
-                    return node.declaration(self.ast).span(self.ast).end;
+                    let declaration = node.declaration(self.ast);
+                    return match self.ast.export_default_declaration_kind_data(declaration) {
+                        swc_next_ecma_ast::ExportDefaultDeclarationKindData::TsFunction(
+                            function,
+                        ) => self.declaration_content_end(Decl::TsFunction(function)),
+                        _ => declaration.span(self.ast).end,
+                    };
                 }
                 StmtData::TsExportAssignment(node) => {
                     return node.expression(self.ast).span(self.ast).end;
@@ -264,6 +270,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     pub(super) fn declaration_content_end(&self, declaration: Decl) -> u32 {
         let variable = match self.ast.decl_data(declaration) {
+            DeclData::TsFunction(function) => {
+                return function
+                    .return_type(self.ast)
+                    .map_or(function.params(self.ast).span(self.ast).end, |annotation| {
+                        annotation.span(self.ast).end
+                    });
+            }
             DeclData::VariableDeclaration(variable) => variable,
             DeclData::TsTypeAliasDeclaration(alias) => {
                 return alias.type_annotation(self.ast).span(self.ast).end;

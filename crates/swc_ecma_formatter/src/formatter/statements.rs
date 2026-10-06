@@ -3,6 +3,7 @@
 mod control_flow;
 mod declarations;
 mod enums;
+mod functions;
 mod modules;
 mod namespaces;
 mod tails;
@@ -805,13 +806,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let declaration = match data {
                     StmtData::Declaration(declaration) => Some(declaration),
                     StmtData::ExportNamedDeclaration(node) => node.declaration(self.ast),
+                    StmtData::ExportDefaultDeclaration(node) => match self
+                        .ast
+                        .export_default_declaration_kind_data(node.declaration(self.ast))
+                    {
+                        swc_next_ecma_ast::ExportDefaultDeclarationKindData::TsFunction(
+                            function,
+                        ) => Some(swc_next_ecma_ast::Decl::TsFunction(function)),
+                        _ => None,
+                    },
                     _ => None,
                 };
                 let boundary = if matches!(data, StmtData::TsNamespaceExportDeclaration(_))
                     || declaration.is_some_and(|declaration| {
                         matches!(
                             self.ast.decl_data(declaration),
-                            DeclData::TsTypeAliasDeclaration(_)
+                            DeclData::TsFunction(_)
+                                | DeclData::TsTypeAliasDeclaration(_)
                                 | DeclData::TsInterfaceDeclaration(_)
                                 | DeclData::TsModuleDeclaration(_)
                                 | DeclData::TsGlobalDeclaration(_)

@@ -13,13 +13,13 @@ use crate::formatter::suppression::{ContentMode, SuppressionPosition, is_suppres
 use crate::{FormatError, TrailingCommas, document::Writer};
 
 #[derive(Clone, Copy)]
-pub(super) enum TypeListKind {
+pub(in crate::formatter) enum TypeListKind {
     Arguments,
     Parameters,
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum TypeParameterContext {
+pub(in crate::formatter) enum TypeParameterContext {
     TypeDeclaration,
     Callable,
     Infer,
@@ -69,9 +69,9 @@ enum TypeListPrefixLayout<'ast> {
     Formatted(CommentBoundary<'ast>),
 }
 
-pub(super) struct TypeListPrefix<'ast> {
-    pub(super) left_mode: ContentMode,
-    pub(super) right_mode: ContentMode,
+pub(in crate::formatter) struct TypeListPrefix<'ast> {
+    pub(in crate::formatter) left_mode: ContentMode,
+    pub(in crate::formatter) right_mode: ContentMode,
     layout: TypeListPrefixLayout<'ast>,
 }
 
@@ -89,7 +89,7 @@ pub(super) struct PreparedParameter<'ast> {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
-    pub(super) fn prepare_type_list_prefix(
+    pub(in crate::formatter) fn prepare_type_list_prefix(
         &self,
         gap: Span,
         kind: TypeListKind,
@@ -128,7 +128,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    pub(super) fn format_type_list_prefix(
+    pub(in crate::formatter) fn format_type_list_prefix(
         &mut self,
         prefix: TypeListPrefix<'ast>,
         writer: &mut Writer<'ast>,
@@ -184,7 +184,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.format_generic_list(TypeList::Arguments(node), members, writer)
     }
 
-    pub(super) fn format_type_parameters(
+    pub(in crate::formatter) fn format_type_parameters(
         &mut self,
         node: TsTypeParameterDeclaration,
         context: TypeParameterContext,

@@ -1,10 +1,10 @@
 //! Borrowed TypeScript type owners and their declaration punctuation boundaries.
 
-mod callable;
+pub(super) mod callable;
 mod compound;
 mod conditional;
 mod context;
-mod generics;
+pub(super) mod generics;
 mod imports;
 mod infer;
 mod interfaces;

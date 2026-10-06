@@ -55,8 +55,15 @@ impl CallableType {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(in crate::formatter) enum SignatureIncoming {
+    Parameter(CallableParameter),
+    Return(TsTypeAnnotation),
+    Empty,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum CallableParameter {
+pub(in crate::formatter) enum CallableParameter {
     This(TsThisParameter),
     Formal(FormalParameter),
     Rest(FormalParameterRest),
@@ -82,15 +89,15 @@ struct PredicateBound<'ast> {
     prefix: TypeBoundaryLayout<'ast>,
 }
 
-pub(super) struct SignatureReturn<'ast> {
+pub(in crate::formatter) struct SignatureReturn<'ast> {
     pub(super) content: AnnotationContent,
     prefix: TypeBoundaryLayout<'ast>,
-    pub(super) preceding_mode: ContentMode,
+    pub(in crate::formatter) preceding_mode: ContentMode,
     delimiter: SignatureReturnDelimiter,
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum SignatureReturnDelimiter {
+pub(in crate::formatter) enum SignatureReturnDelimiter {
     Arrow,
     Colon,
 }
@@ -127,10 +134,10 @@ struct CallableTerminal {
     closing: LineConstraint,
 }
 
-pub(super) struct CallableParameters {
+pub(in crate::formatter) struct CallableParameters {
     node: FormalParameters,
     this_parameter: Option<TsThisParameter>,
-    pub(super) source_head: Option<CallableParameter>,
+    pub(in crate::formatter) source_head: Option<CallableParameter>,
     suppressed_tail: Option<CallableParameter>,
     terminal: Option<CallableTerminal>,
 }
@@ -283,7 +290,27 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    pub(super) fn callable_parameters(
+    pub(in crate::formatter) fn signature_incoming(
+        &self,
+        parameters: &CallableParameters,
+        result: Option<TsTypeAnnotation>,
+        selected: &mut Option<SignatureIncoming>,
+    ) -> Result<SignatureIncoming, FormatError> {
+        if let Some(owner) = *selected {
+            return Ok(owner);
+        }
+        let owner = if let Some(first) = self.first_callable_parameter(parameters)? {
+            SignatureIncoming::Parameter(first)
+        } else if let Some(annotation) = result {
+            SignatureIncoming::Return(annotation)
+        } else {
+            SignatureIncoming::Empty
+        };
+        *selected = Some(owner);
+        Ok(owner)
+    }
+
+    pub(in crate::formatter) fn callable_parameters(
         &self,
         node: FormalParameters,
         this_parameter: Option<TsThisParameter>,
@@ -297,7 +324,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    pub(super) fn first_callable_parameter(
+    pub(in crate::formatter) fn first_callable_parameter(
         &self,
         parameters: &CallableParameters,
     ) -> Result<Option<CallableParameter>, FormatError> {
@@ -320,7 +347,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(first)
     }
 
-    pub(super) fn prepare_callable_parameter_tail(
+    pub(in crate::formatter) fn prepare_callable_parameter_tail(
         &self,
         parameters: &mut CallableParameters,
         preceding_mode: ContentMode,
@@ -370,7 +397,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(())
     }
 
-    pub(super) fn prepare_signature_return(
+    pub(in crate::formatter) fn prepare_signature_return(
         &self,
         preceding_end: u32,
         annotation: TsTypeAnnotation,
@@ -429,7 +456,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    pub(super) fn format_signature_return(
+    pub(in crate::formatter) fn format_signature_return(
         &mut self,
         result: SignatureReturn<'ast>,
         writer: &mut Writer<'ast>,
@@ -493,7 +520,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(parameters.this_parameter.map(CallableParameter::This))
     }
 
-    pub(super) fn format_callable_parameters(
+    pub(in crate::formatter) fn format_callable_parameters(
         &mut self,
         parameters: CallableParameters,
         writer: &mut Writer<'ast>,
