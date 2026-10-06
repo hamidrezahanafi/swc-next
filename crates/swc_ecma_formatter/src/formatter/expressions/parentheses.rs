@@ -937,7 +937,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .is_none_or(|child| !operator.flattens(child.operator)),
             ExpressionPosition::ConditionalTest
             | ExpressionPosition::TypeBinaryOperand
-            | ExpressionPosition::NonNullOperand => true,
+            | ExpressionPosition::NonNullOperand
+            | ExpressionPosition::InstantiationOperand => true,
             _ => false,
         }
     }

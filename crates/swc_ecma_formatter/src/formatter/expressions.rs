@@ -59,6 +59,7 @@ pub(super) enum ExpressionPosition {
     TypeBinaryOperand,
     TypeAssertionOperand,
     NonNullOperand,
+    InstantiationOperand,
     SpreadArgument,
     PropertyValue,
     MemberObject(AccessKind),
@@ -702,6 +703,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ),
             ExprData::TsTypeAssertion(node) => self.format_type_assertion(node, context, writer),
             ExprData::TsNonNullExpression(node) => self.format_non_null(node, context, writer),
+            ExprData::TsInstantiationExpression(node) => {
+                self.format_instantiation(node, context, writer)
+            }
             _ => Err(self.unsupported("expression", expression)),
         }?;
         if parenthesize {
@@ -785,6 +789,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     expression = node.expression(self.ast);
                     context.position = ExpressionPosition::NonNullOperand;
                 }
+                ExprData::TsInstantiationExpression(node) => {
+                    expression = node.expression(self.ast);
+                    context.position = ExpressionPosition::InstantiationOperand;
+                    if self.has_suppression {
+                        let arguments = self.prepare_expression_type_arguments(
+                            expression,
+                            node.type_arguments(self.ast),
+                            AccessKind::Ordinary,
+                        )?;
+                        context.content_mode = arguments.callee_mode;
+                    }
+                }
                 ExprData::ChainExpression(chain) => {
                     expression = chain.expression(self.ast);
                     context.position = ExpressionPosition::Nested;
@@ -861,6 +877,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         node.expression(self.ast),
                         ExpressionPosition::NonNullOperand,
                     ),
+                    ExprData::TsInstantiationExpression(node) => (
+                        node.expression(self.ast),
+                        ExpressionPosition::InstantiationOperand,
+                    ),
                     ExprData::ChainExpression(chain) => {
                         (chain.expression(self.ast), ExpressionPosition::Nested)
                     }
@@ -932,6 +952,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ExpressionPosition::TypeBinaryOperand
                 | ExpressionPosition::TypeAssertionOperand
                 | ExpressionPosition::NonNullOperand
+                | ExpressionPosition::InstantiationOperand
         ) && matches!(
             data,
             ExprData::ArrowFunctionExpression(_)
@@ -1041,7 +1062,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             | ExprData::ConditionalExpression(_)
             | ExprData::AssignmentExpression(_)
             | ExprData::ParenthesizedExpression(_)
-            | ExprData::TsNonNullExpression(_) => {}
+            | ExprData::TsNonNullExpression(_)
+            | ExprData::TsInstantiationExpression(_) => {}
             _ => return None,
         }
         if matches!(position, ExpressionPosition::NewCallee)

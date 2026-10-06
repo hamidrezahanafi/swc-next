@@ -1,8 +1,8 @@
 //! TypeScript expression operators keep real operand owners apart from token gaps.
 
 use swc_next_ecma_ast::{
-    BinaryOperator, Expr, ExprData, GetSpan, Span, TsNonNullExpression, TsType, TsTypeAssertion,
-    TsTypeData, TsTypeParameterInstantiation,
+    BinaryOperator, Expr, ExprData, GetSpan, Span, TsInstantiationExpression, TsNonNullExpression,
+    TsType, TsTypeAssertion, TsTypeData, TsTypeParameterInstantiation,
 };
 
 use super::binary::{BinaryOperatorKind, OperandSide};
@@ -157,6 +157,30 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
         }
         self.format_type_arguments(arguments.node, arguments.mode, writer)
+    }
+
+    pub(super) fn format_instantiation(
+        &mut self,
+        node: TsInstantiationExpression,
+        context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let expression = node.expression(self.ast);
+        let arguments = self.prepare_expression_type_arguments(
+            expression,
+            node.type_arguments(self.ast),
+            AccessKind::Ordinary,
+        )?;
+        let tail = self.format_expression(
+            expression,
+            ExpressionContext::at(ExpressionPosition::InstantiationOperand)
+                .with_expression_start(context.expression_start)
+                .with_content_mode(arguments.callee_mode)
+                .with_tail_owner(TailOwner::ParentOperation),
+            writer,
+        )?;
+        self.format_expression_type_arguments(arguments, tail, writer)?;
+        Ok(None)
     }
 
     /// These identifier tokens could expose a declaration or reserved statement head.
@@ -445,6 +469,7 @@ pub(super) fn type_expression_needs_parentheses(
                 | ExpressionPosition::ConditionalTest
                 | ExpressionPosition::TypeAssertionOperand
                 | ExpressionPosition::NonNullOperand
+                | ExpressionPosition::InstantiationOperand
         )),
         ExprData::TsTypeAssertion(_) => Some(matches!(
             position,
@@ -455,11 +480,30 @@ pub(super) fn type_expression_needs_parentheses(
                 | ExpressionPosition::Superclass
                 | ExpressionPosition::TypeBinaryOperand
                 | ExpressionPosition::NonNullOperand
+                | ExpressionPosition::InstantiationOperand
                 | ExpressionPosition::BinaryOperand {
                     operator: BinaryOperatorKind::Binary(BinaryOperator::Exponent),
                     side: OperandSide::Left,
                 }
         )),
+        ExprData::TsInstantiationExpression(_)
+            if matches!(
+                position,
+                ExpressionPosition::MemberObject(_)
+                    | ExpressionPosition::MemberAssignmentObject
+                    | ExpressionPosition::CallCallee { .. }
+                    | ExpressionPosition::NewCallee
+                    | ExpressionPosition::Superclass
+                    | ExpressionPosition::NonNullOperand
+                    | ExpressionPosition::InstantiationOperand
+                    | ExpressionPosition::BinaryOperand {
+                        operator: BinaryOperatorKind::Binary(_),
+                        side: OperandSide::Left,
+                    }
+            ) =>
+        {
+            Some(true)
+        }
         _ => None,
     }
 }
