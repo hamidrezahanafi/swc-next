@@ -134,10 +134,18 @@ struct SourceClassField<'ast> {
     key_start: u32,
     key_mode: ContentMode,
     prefix: ClassMemberPrefix,
+    accessor: Option<ClassFieldAccessor>,
+    key_context: PropertyKeyContext,
     suffix: Option<FieldSuffix<'ast>>,
     left_end: u32,
     initializer: Option<FieldInitializer<'ast>>,
     terminal: FieldTerminal,
+}
+
+#[derive(Clone, Copy)]
+enum ClassFieldAccessor {
+    Token(Span),
+    SourcePrefix,
 }
 
 struct FieldInitializer<'ast> {
@@ -1010,19 +1018,36 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         source_sibling: Option<DelimitedSuppression>,
     ) -> Result<Option<SourceClassField<'ast>>, FormatError> {
         let ast = self.ast;
-        if !node.decorators(ast).is_empty() || node.accessor(ast) {
-            return Err(self.unsupported("typed or decorated class field", node));
+        if !node.decorators(ast).is_empty() {
+            return Err(self.unsupported("decorated class field", node));
         }
         let span = node.span(ast);
         let key = node.key(ast);
         let key_span = key.span(ast);
         let parts = self.source_class_member_prefix(ClassMemberPrefixOwner::Field(node))?;
         let opening = parts.as_ref().and_then(|parts| parts.opening);
+        let accessor = parts.as_ref().and_then(|parts| {
+            parts.keyword.map(|(_, span)| {
+                if parts.member.is_source() && parts.member.end() > span.start {
+                    ClassFieldAccessor::SourcePrefix
+                } else {
+                    ClassFieldAccessor::Token(span)
+                }
+            })
+        });
+        let key_context = if accessor.is_some() {
+            PropertyKeyContext::Ordinary
+        } else {
+            PropertyKeyContext::ClassField
+        };
         let prefix = parts.map_or_else(
             || ClassMemberPrefix::ordinary(span.start, node.r#static(ast)),
             |parts| parts.member,
         );
-        let prefix_end = prefix.end();
+        let prefix_end = match accessor {
+            Some(ClassFieldAccessor::Token(span)) => span.end,
+            _ => prefix.end(),
+        };
         let value = node.value(ast);
         let annotation = node.type_annotation(ast);
         let end = value.map_or_else(
@@ -1035,6 +1060,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let tail_end = semicolon.unwrap_or(span.end);
         let mut key_mode = ContentMode::Formatted;
         let mut right_mode = ContentMode::Formatted;
+        let mut annotation_mode = ContentMode::Formatted;
         let mut tail_source = false;
         let computed = if node.computed(ast) {
             let before = Span::new(prefix_end, key_span.start);
@@ -1061,6 +1087,37 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let key_start = computed.map_or(key_span.start, |span| span.start);
         let key_end = computed.map_or(key_span.end, |span| span.end);
         let suffix = self.source_field_suffix(node, key_end, tail_end)?;
+        if self.has_suppression
+            && let Some((marker, _)) = suffix.as_ref().and_then(|suffix| suffix.marker)
+        {
+            let before = self.comments.in_range(Span::new(key_end, marker.start));
+            for position in self.suppression_positions(before, marker.start) {
+                match position {
+                    SuppressionPosition::OwnLine if annotation.is_some() => {
+                        annotation_mode = ContentMode::Verbatim;
+                    }
+                    SuppressionPosition::OwnLine if value.is_some() => {
+                        right_mode = ContentMode::Verbatim;
+                    }
+                    _ => key_mode = ContentMode::Verbatim,
+                }
+            }
+        }
+        if self.has_suppression
+            && suffix
+                .as_ref()
+                .is_some_and(|suffix| suffix.marker.is_none())
+            && let Some(annotation) = annotation
+        {
+            let colon = annotation.span(ast).start;
+            let before = self.comments.in_range(Span::new(key_end, colon));
+            if self
+                .suppression_positions(before, colon)
+                .any(|position| matches!(position, SuppressionPosition::EndOfLine))
+            {
+                key_mode = ContentMode::Verbatim;
+            }
+        }
         let left_end = suffix.as_ref().map_or(key_end, |suffix| suffix.end);
         let end = value.map_or(left_end, |value| value.span(ast).end);
         let internal = Span::new(end, span.end);
@@ -1105,6 +1162,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .in_range(Span::new(key_span.end, computed.end - 1));
                 for position in self.suppression_positions(trailing, computed.end - 1) {
                     match position {
+                        SuppressionPosition::OwnLine if annotation.is_some() => {
+                            annotation_mode = ContentMode::Verbatim
+                        }
                         SuppressionPosition::OwnLine if value.is_some() => {
                             right_mode = ContentMode::Verbatim
                         }
@@ -1114,7 +1174,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
         }
         let has_suffix = suffix.is_some();
-        let mut annotation_mode = ContentMode::Formatted;
         let initializer = if let Some(right) = value {
             let right_start = right.span(ast).start;
             let gap = Span::new(left_end, right_start);
@@ -1168,6 +1227,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let suffix = suffix
             .map(|suffix| self.prepare_field_suffix(suffix, annotation_mode))
             .transpose()?;
+        if accessor.is_some() {
+            key_mode = self.unquoted_key_mode(key, computed, key_context, key_mode);
+        }
         let terminal = if tail_source || source_sibling.is_some() && semicolon.is_some() {
             FieldTerminal::Source(internal)
         } else {
@@ -1178,11 +1240,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         && !has_suffix
                         && computed.is_none()
                         && matches!(
-                            self.property_key_identifier(
-                                key,
-                                PropertyKeyContext::ClassField,
-                                key_mode
-                            ),
+                            self.property_key_identifier(key, key_context, key_mode),
                             Some("static" | "get" | "set")
                         ),
             }
@@ -1193,6 +1251,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             key_start,
             key_mode,
             prefix,
+            accessor,
+            key_context,
             suffix,
             left_end,
             initializer,
@@ -1285,20 +1345,36 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             key_start,
             key_mode,
             prefix,
+            accessor,
+            key_context,
             suffix,
             left_end,
             initializer,
             terminal,
         } = field;
         self.format_class_member_prefix(&prefix, writer)?;
+        let prefix_end = if let Some(ClassFieldAccessor::Token(accessor)) = accessor {
+            if !prefix.is_formatted() && (prefix.has_modifiers() || prefix.is_source()) {
+                self.format_source_token_gap(
+                    prefix.end(),
+                    accessor.start,
+                    prefix.has_modifiers() || prefix.source_span().is_some(),
+                    writer,
+                )?;
+            }
+            writer.text("accessor");
+            accessor.end
+        } else {
+            prefix.end()
+        };
         self.format_class_member_key_gap(
             &prefix,
-            prefix.end(),
+            prefix_end,
             key_start,
-            prefix.has_modifiers() && !prefix.is_formatted(),
+            accessor.is_some() || prefix.has_modifiers() && !prefix.is_formatted(),
             writer,
         )?;
-        self.format_field_key(key, computed, key_mode, writer)?;
+        self.format_property_key_context(key, computed, key_mode, key_context, writer)?;
         let tail = if let Some(suffix) = suffix {
             self.format_field_suffix(suffix, writer)?
         } else {
@@ -1341,11 +1417,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     return self.source_class_member_needs_field_separator(span, field.key);
                 }
                 !field.prefix.has_modifiers()
-                    && (field.computed.is_some()
+                    && (field.accessor.is_none() && field.computed.is_some()
                         || matches!(
                             self.property_key_identifier(
                                 field.key,
-                                PropertyKeyContext::ClassField,
+                                field.key_context,
                                 field.key_mode
                             ),
                             Some("in" | "instanceof")

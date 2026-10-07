@@ -558,19 +558,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         prefix: &SourceMethodPrefix,
         mode: ContentMode,
     ) -> ContentMode {
-        if prefix.question.is_none() || prefix.computed.is_some() || mode == ContentMode::Formatted
-        {
+        if prefix.question.is_none() {
             return mode;
         }
-        if let PropertyKeyData::Expr(expression) = self.ast.property_key_data(prefix.key)
-            && let ExprData::StringLiteral(literal) = self.ast.expr_data(expression)
-            && self
-                .unquoted_string_key(literal, prefix.key_context)
-                .is_some()
-        {
-            return ContentMode::Formatted;
-        }
-        mode
+        self.unquoted_key_mode(prefix.key, prefix.computed, prefix.key_context, mode)
     }
 
     pub(in crate::formatter) fn format_method_header(

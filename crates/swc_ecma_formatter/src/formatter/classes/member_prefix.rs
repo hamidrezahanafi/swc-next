@@ -199,9 +199,15 @@ impl ClassMemberPrefixOwner {
             | if is_override { OVERRIDE } else { 0 }
             | if readonly { READONLY } else { 0 }
     }
-    fn method_tokens(self, ast: &Ast<'_>) -> (Option<&'static str>, bool, bool) {
+    fn prefix_tokens(self, ast: &Ast<'_>) -> (Option<&'static str>, bool, bool) {
         let (kind, is_async, generator, computed) = match self {
-            Self::Field(node) => return (None, false, node.computed(ast)),
+            Self::Field(node) => {
+                return (
+                    node.accessor(ast).then_some("accessor"),
+                    false,
+                    node.computed(ast),
+                );
+            }
             Self::Method(node) => {
                 let function = node.value(ast);
                 (
@@ -237,14 +243,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         owner: ClassMemberPrefixOwner,
     ) -> Result<Option<ClassMemberPrefixParts>, FormatError> {
         let ast = self.ast;
-        if !ast.is_ts() {
+        if !ast.is_ts()
+            && !matches!(owner, ClassMemberPrefixOwner::Field(node) if node.accessor(ast))
+        {
             return Ok(None);
         }
         let expected = owner.modifiers(ast);
         let key = owner.key(ast);
         let span = Span::new(owner.span(ast).start, key.span(ast).start);
         let comments = self.comments.in_range(span);
-        let (expected_keyword, generator, computed) = owner.method_tokens(ast);
+        let (expected_keyword, generator, computed) = owner.prefix_tokens(ast);
         // A canonical AST prefix avoids locating its tokens individually.
         if comments.is_empty()
             && !self.diagnostic_range_is_sensitive(span)
@@ -259,6 +267,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             return Ok(Some(parts));
         }
+        let field_keyword =
+            matches!(owner, ClassMemberPrefixOwner::Field(node) if node.accessor(ast));
         let mut lexical_comments = comments.iter().peekable();
         let mut cursor = span.start;
         let mut end = cursor;
@@ -309,7 +319,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             // The AST selects flags; this span retains the existing source prefix layout.
             cursor += length;
-            if keyword.is_none() && star.is_none() && opening.is_none() {
+            if star.is_none() && opening.is_none() && (keyword.is_none() || field_keyword) {
                 end = cursor;
             }
         }

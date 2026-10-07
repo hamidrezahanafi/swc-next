@@ -735,22 +735,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.format_property_key_context(key, computed, mode, PropertyKeyContext::Ordinary, writer)
     }
 
-    pub(in crate::formatter) fn format_field_key(
-        &mut self,
-        key: PropertyKey,
-        computed: Option<Span>,
-        mode: ContentMode,
-        writer: &mut Writer<'ast>,
-    ) -> Result<(), FormatError> {
-        self.format_property_key_context(
-            key,
-            computed,
-            mode,
-            PropertyKeyContext::ClassField,
-            writer,
-        )
-    }
-
     pub(in crate::formatter) fn property_key_identifier(
         &self,
         key: PropertyKey,
@@ -770,6 +754,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             _ => None,
         }
+    }
+
+    pub(in crate::formatter) fn unquoted_key_mode(
+        &self,
+        key: PropertyKey,
+        computed: Option<Span>,
+        context: PropertyKeyContext,
+        mode: ContentMode,
+    ) -> ContentMode {
+        if computed.is_some() || mode == ContentMode::Formatted {
+            return mode;
+        }
+        if let PropertyKeyData::Expr(expression) = self.ast.property_key_data(key)
+            && let ExprData::StringLiteral(literal) = self.ast.expr_data(expression)
+            && self.unquoted_string_key(literal, context).is_some()
+        {
+            return ContentMode::Formatted;
+        }
+        mode
     }
 
     pub(in crate::formatter) fn unquoted_string_key(

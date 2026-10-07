@@ -3,13 +3,13 @@ formatter * prettier 3.9.9 * typescript
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 657
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 407/804 (50.62%)
-Snapshot matched: 407/804
-AST parity: 593/593
-AST mismatched: 0/593
+Passed: 408/804 (50.75%)
+Snapshot matched: 408/804
+AST parity: 594/594
+AST mismatched: 0/594
 AST format errors: 0/804
 Mismatched: 186/804
-Format errors: 211/804
+Format errors: 210/804
 Panicked: 0/804
 Not idempotent: 0/804
 Ignored files: 76
@@ -177,7 +177,6 @@ Unsupported option sets: 7
 - typescript/const/initializer-ambient-context.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/custom/typeParameters/variables.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/declare/object-type-in-declare-function.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/decorator-auto-accessors/decorator-auto-accessors-type-annotations.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/decorators-ts/accessor-decorator.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/decorators-ts/class-decorator.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/decorators-ts/method-decorator.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
