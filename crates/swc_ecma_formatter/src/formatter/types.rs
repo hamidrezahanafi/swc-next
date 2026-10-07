@@ -85,11 +85,14 @@ struct PreparedTypeAnnotation<'ast> {
     content: PreparedAnnotation<'ast>,
 }
 
-struct PreparedAnnotation<'ast> {
-    annotation: TsTypeAnnotation,
-    wrapper_mode: ContentMode,
-    type_node: PreparedType,
+pub(super) struct PreparedAnnotation<'ast> {
+    content: AnnotationContent,
     prefix: TypeBoundaryLayout<'ast>,
+}
+
+enum AnnotationContent {
+    Source(TsTypeAnnotation),
+    Formatted(PreparedType),
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -714,7 +717,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         preceding_end: u32,
         annotation: TsTypeAnnotation,
     ) -> Result<PreparedAnnotation<'ast>, FormatError> {
+        self.prepare_annotation_content_mode(preceding_end, annotation, ContentMode::Formatted)
+    }
+
+    pub(super) fn prepare_annotation_content_mode(
+        &self,
+        preceding_end: u32,
+        annotation: TsTypeAnnotation,
+        mode: ContentMode,
+    ) -> Result<PreparedAnnotation<'ast>, FormatError> {
         let ast = self.ast;
+        if mode == ContentMode::Verbatim {
+            return Ok(PreparedAnnotation {
+                content: AnnotationContent::Source(annotation),
+                prefix: TypeBoundaryLayout::Source(Span::new(
+                    preceding_end,
+                    annotation.span(ast).start,
+                )),
+            });
+        }
         let type_node = annotation.type_annotation(ast);
         let gap = Span::new(preceding_end, type_node.span(ast).start);
         let comments = self.comments.in_range(gap);
@@ -723,14 +744,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         let split = comments.partition_point(|comment| comment.span.end <= colon_start);
         let (before, after) = comments.split_at(split);
-        let wrapper_mode = self.content_mode(before);
-        let mut type_node = self.prepare_type(type_node, ContentMode::Formatted);
-        if wrapper_mode == ContentMode::Formatted {
-            self.select_type_head_comments(&mut type_node, after, gap.end);
+        if self.content_mode(before) == ContentMode::Verbatim {
+            return Ok(PreparedAnnotation {
+                content: AnnotationContent::Source(annotation),
+                prefix: TypeBoundaryLayout::Source(Span::new(
+                    gap.start,
+                    annotation.span(ast).start,
+                )),
+            });
         }
-        let prefix = if wrapper_mode == ContentMode::Verbatim {
-            TypeBoundaryLayout::Source(Span::new(gap.start, annotation.span(ast).start))
-        } else if type_node.source_owner.is_some() {
+        let mut type_node = self.prepare_type(type_node, ContentMode::Formatted);
+        self.select_type_head_comments(&mut type_node, after, gap.end);
+        let prefix = if type_node.source_owner.is_some() {
             TypeBoundaryLayout::Source(gap)
         } else {
             TypeBoundaryLayout::Formatted {
@@ -739,14 +764,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
         };
         Ok(PreparedAnnotation {
-            annotation,
-            wrapper_mode,
-            type_node,
+            content: AnnotationContent::Formatted(type_node),
             prefix,
         })
     }
 
-    fn format_annotation_content(
+    pub(super) fn format_annotation_content(
         &mut self,
         content: PreparedAnnotation<'ast>,
         writer: &mut Writer<'ast>,
@@ -763,11 +786,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .write(writer, FlatSeparator::Space, Writer::space);
             }
         }
-        if content.wrapper_mode == ContentMode::Verbatim {
-            self.format_verbatim(content.annotation.span(self.ast), writer)?;
-            Ok(None)
-        } else {
-            self.format_prepared_type(content.type_node, TypeContext::Root, writer)
+        match content.content {
+            AnnotationContent::Source(annotation) => {
+                self.format_verbatim(annotation.span(self.ast), writer)?;
+                Ok(None)
+            }
+            AnnotationContent::Formatted(type_node) => {
+                self.format_prepared_type(type_node, TypeContext::Root, writer)
+            }
         }
     }
 

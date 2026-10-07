@@ -2,7 +2,7 @@
 
 use swc_next_ecma_ast::{
     ArrayPattern, BindingPattern, BindingPatternData, BindingProperty, CommentKind, Expr,
-    FormalParameterPattern, FormalParameterPatternData, GetSpan, ObjectPattern, PropertyKey, Span,
+    FormalParameterPattern, FormalParameterPatternData, GetSpan, ObjectPattern, Span,
     TsEnumMemberName,
 };
 
@@ -33,10 +33,6 @@ pub(super) enum InitializerLeft {
     Binding(BindingPattern),
     Enum {
         name: TsEnumMemberName,
-        computed: Option<Span>,
-    },
-    Property {
-        key: PropertyKey,
         computed: Option<Span>,
     },
 }
@@ -315,10 +311,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let tail = self.format_declaration_binding(binding, left_mode, writer)?;
                 self.format_expression_tail(tail, writer)?;
                 binding.span(self.ast).end
-            }
-            InitializerLeft::Property { key, computed } => {
-                self.format_field_key(key, computed, left_mode, writer)?;
-                computed.map_or(key.span(self.ast).end, |span| span.end)
             }
         };
         self.format_initializer_right(left_end, right, layout, context, writer)

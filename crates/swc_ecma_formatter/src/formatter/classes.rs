@@ -4,11 +4,11 @@ use swc_next_ecma_ast::{
     Accessibility, BindingIdentifier, Class, ClassBody, ClassElement, ClassElementData, Comment,
     CommentKind, Expr, GetSpan, MethodDefinitionKind, PropertyDefinition, PropertyKey, Span,
     StaticBlock, StmtData, SubRange, TsClassImplements, TsFunction, TsIndexSignature,
-    TsMethodDefinition, TsTypeParameterDeclaration,
+    TsMethodDefinition, TsTypeAnnotation, TsTypeParameterDeclaration,
 };
 
 use super::Formatter;
-use super::bindings::{InitializerLayout, InitializerLeft, PreparedInitializer};
+use super::bindings::InitializerLayout;
 use super::comments::{CommentBoundary, CommentGap, CommentRunLayout, ExpressionTail, NodeHead};
 use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::arguments::{ArgumentLayout, FollowingItem, ItemBoundary};
@@ -24,7 +24,7 @@ use super::suppression::{
     is_suppression_comment,
 };
 use super::types::generics::{TypeListKind, TypeListPrefix, TypeParameterContext};
-use super::types::{PreparedIndexSignature, TypeGap};
+use super::types::{PreparedAnnotation, PreparedIndexSignature, TypeGap};
 use crate::{FormatError, Semicolons, document::Writer};
 
 #[expect(
@@ -132,8 +132,28 @@ struct SourceClassField<'ast> {
     key_start: u32,
     key_mode: ContentMode,
     static_end: Option<u32>,
-    initializer: Option<PreparedInitializer<'ast>>,
+    suffix: Option<FieldSuffix<'ast>>,
+    left_end: u32,
+    initializer: Option<FieldInitializer<'ast>>,
     terminal: FieldTerminal,
+}
+
+struct FieldInitializer<'ast> {
+    right: Expr,
+    layout: InitializerLayout<'ast>,
+}
+
+struct SourceFieldSuffix {
+    key_end: u32,
+    marker: Option<(Span, &'static str)>,
+    annotation: Option<TsTypeAnnotation>,
+    end: u32,
+}
+
+struct FieldSuffix<'ast> {
+    key_end: u32,
+    marker: Option<(Span, &'static str)>,
+    annotation: Option<PreparedAnnotation<'ast>>,
 }
 
 enum FieldTerminal {
@@ -978,12 +998,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<Option<SourceClassField<'ast>>, FormatError> {
         let ast = self.ast;
         if !node.decorators(ast).is_empty()
-            || node.type_annotation(ast).is_some()
             || node.accessor(ast)
             || node.declare(ast)
             || node.r#override(ast)
-            || node.optional(ast)
-            || node.definite(ast)
             || node.readonly(ast)
             || node.r#abstract(ast)
             || node.accessibility(ast) != Accessibility::None
@@ -996,7 +1013,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let static_end = node.r#static(ast).then_some(span.start + 6);
         let prefix_end = static_end.unwrap_or(span.start);
         let value = node.value(ast);
-        let end = value.map_or(key_span.end, |value| value.span(ast).end);
+        let annotation = node.type_annotation(ast);
+        let end = value.map_or_else(
+            || annotation.map_or(key_span.end, |annotation| annotation.span(ast).end),
+            |value| value.span(ast).end,
+        );
         let internal = Span::new(end, span.end);
         let comments = self.comments.in_range(internal);
         let semicolon = self.find_token(internal, comments, ";");
@@ -1011,7 +1032,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .ok_or_else(|| self.unsupported("computed field opening boundary", node))?;
             let after = Span::new(
                 key_span.end,
-                value.map_or(tail_end, |value| value.span(ast).start),
+                annotation.map_or_else(
+                    || value.map_or(tail_end, |value| value.span(ast).start),
+                    |annotation| annotation.span(ast).start,
+                ),
             );
             let closing = self
                 .find_token(after, self.comments.in_range(after), "]")
@@ -1022,7 +1046,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         let key_start = computed.map_or(key_span.start, |span| span.start);
         let key_end = computed.map_or(key_span.end, |span| span.end);
-        let end = value.map_or(key_end, |value| value.span(ast).end);
+        let suffix = self.source_field_suffix(node, key_end, tail_end)?;
+        let left_end = suffix.as_ref().map_or(key_end, |suffix| suffix.end);
+        let end = value.map_or(left_end, |value| value.span(ast).end);
         let internal = Span::new(end, span.end);
         if self.has_suppression {
             let tail = self.comments.in_range(Span::new(end, tail_end));
@@ -1073,9 +1099,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
             }
         }
+        let has_suffix = suffix.is_some();
+        let mut annotation_mode = ContentMode::Formatted;
         let initializer = if let Some(right) = value {
             let right_start = right.span(ast).start;
-            let gap = Span::new(key_end, right_start);
+            let gap = Span::new(left_end, right_start);
             let comments = self.comments.in_range(gap);
             let operator = self
                 .find_token(gap, comments, "=")
@@ -1086,6 +1114,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 for position in self.suppression_positions(&comments[..split], operator) {
                     match position {
                         SuppressionPosition::OwnLine => right_mode = ContentMode::Verbatim,
+                        _ if annotation.is_some() => annotation_mode = ContentMode::Verbatim,
                         _ => key_mode = ContentMode::Verbatim,
                     }
                     source_gap = true;
@@ -1102,8 +1131,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 InitializerLayout::Bound { gap, right_mode }
             } else {
                 let content = self.expression_content(right);
-                let mut boundary =
-                    self.assignment_boundary(key_end, &content, Span::new(operator, operator + 1))?;
+                let mut boundary = self.assignment_boundary(
+                    left_end,
+                    &content,
+                    Span::new(operator, operator + 1),
+                )?;
                 if right_mode == ContentMode::Verbatim {
                     boundary.mode = right_mode;
                 }
@@ -1115,23 +1147,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     break_after,
                 }
             };
-            Some(PreparedInitializer {
-                left: InitializerLeft::Property { key, computed },
-                right,
-                layout,
-                left_mode: key_mode,
-                context: ExpressionContext::variable_initializer(),
-            })
+            Some(FieldInitializer { right, layout })
         } else {
             None
         };
+        let suffix = suffix
+            .map(|suffix| self.prepare_field_suffix(suffix, annotation_mode))
+            .transpose()?;
         let terminal = if tail_source || source_sibling.is_some() && semicolon.is_some() {
             FieldTerminal::Source(internal)
         } else {
             FieldTerminal::Canonical {
                 span: Span::new(end, tail_end),
                 semicolon: self.options.semicolons == Semicolons::Always
-                    || value.is_none()
+                    || initializer.is_none()
+                        && !has_suffix
                         && computed.is_none()
                         && matches!(
                             self.property_key_identifier(
@@ -1150,9 +1180,84 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             key_start,
             key_mode,
             static_end,
+            suffix,
+            left_end,
             initializer,
             terminal,
         }))
+    }
+
+    fn source_field_suffix(
+        &self,
+        node: PropertyDefinition,
+        key_end: u32,
+        terminal_start: u32,
+    ) -> Result<Option<SourceFieldSuffix>, FormatError> {
+        let ast = self.ast;
+        let annotation = node.type_annotation(ast);
+        if !node.optional(ast) && !node.definite(ast) && annotation.is_none() {
+            return Ok(None);
+        }
+        let marker = if node.optional(ast) || node.definite(ast) {
+            let gap_end = annotation.map_or_else(
+                || {
+                    node.value(ast)
+                        .map_or(terminal_start, |value| value.span(ast).start)
+                },
+                |annotation| annotation.span(ast).start,
+            );
+            let gap = Span::new(key_end, gap_end);
+            let token = if node.optional(ast) { "?" } else { "!" };
+            let start = self
+                .find_token(gap, self.comments.in_range(gap), token)
+                .ok_or_else(|| self.unsupported("class field suffix marker", node))?;
+            Some((Span::new(start, start + 1), token))
+        } else {
+            None
+        };
+        let preceding_end = marker.map_or(key_end, |(span, _)| span.end);
+        let end = annotation.map_or(preceding_end, |annotation| annotation.span(ast).end);
+        Ok(Some(SourceFieldSuffix {
+            key_end,
+            marker,
+            annotation,
+            end,
+        }))
+    }
+
+    fn prepare_field_suffix(
+        &self,
+        suffix: SourceFieldSuffix,
+        annotation_mode: ContentMode,
+    ) -> Result<FieldSuffix<'ast>, FormatError> {
+        let preceding_end = suffix.marker.map_or(suffix.key_end, |(span, _)| span.end);
+        let annotation = suffix
+            .annotation
+            .map(|annotation| {
+                self.prepare_annotation_content_mode(preceding_end, annotation, annotation_mode)
+            })
+            .transpose()?;
+        Ok(FieldSuffix {
+            key_end: suffix.key_end,
+            marker: suffix.marker,
+            annotation,
+        })
+    }
+
+    fn format_field_suffix(
+        &mut self,
+        suffix: FieldSuffix<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        if let Some((marker, token)) = suffix.marker {
+            self.format_source_token_gap(suffix.key_end, marker.start, false, writer)?;
+            writer.text(token);
+        }
+        if let Some(annotation) = suffix.annotation {
+            self.format_annotation_content(annotation, writer)
+        } else {
+            Ok(None)
+        }
     }
 
     fn format_class_field(
@@ -1168,6 +1273,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             key_start,
             key_mode,
             static_end,
+            suffix,
+            left_end,
             initializer,
             terminal,
         } = field;
@@ -1177,12 +1284,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             self.format_source_token_gap(node.span(self.ast).start, key_start, false, writer)?;
         }
-        let tail = match initializer {
-            Some(initializer) => self.format_initializer(initializer, writer)?,
-            None => {
-                self.format_field_key(key, computed, key_mode, writer)?;
-                None
-            }
+        self.format_field_key(key, computed, key_mode, writer)?;
+        let tail = if let Some(suffix) = suffix {
+            self.format_field_suffix(suffix, writer)?
+        } else {
+            None
+        };
+        let tail = if let Some(FieldInitializer { right, layout }) = initializer {
+            self.format_expression_tail(tail, writer)?;
+            self.format_initializer_right(
+                left_end,
+                right,
+                layout,
+                ExpressionContext::variable_initializer(),
+                writer,
+            )?
+        } else {
+            tail
         };
         match terminal {
             FieldTerminal::Source(span) => self.format_verbatim(span, writer),
