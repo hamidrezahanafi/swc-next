@@ -4,6 +4,7 @@ use swc_next_ecma_ast::{
     Accessibility, BindingIdentifier, Class, ClassBody, ClassElement, ClassElementData, Comment,
     CommentKind, Expr, GetSpan, MethodDefinitionKind, PropertyDefinition, PropertyKey, Span,
     StaticBlock, StmtData, TsFunction, TsIndexSignature, TsMethodDefinition,
+    TsTypeParameterDeclaration,
 };
 
 use super::Formatter;
@@ -20,11 +21,13 @@ use super::suppression::{
     is_suppression_comment,
 };
 use super::types::PreparedIndexSignature;
+use super::types::generics::{TypeListKind, TypeListPrefix, TypeParameterContext};
 use crate::{FormatError, Semicolons, document::Writer};
 
 struct SourceClassHead<'ast> {
     name: Option<BindingIdentifier>,
     name_mode: ContentMode,
+    parameters: Option<SourceClassParameters<'ast>>,
     heritage: Option<SourceClassHeritage>,
     body: ClassBody,
     body_mode: ContentMode,
@@ -34,6 +37,12 @@ struct SourceClassHead<'ast> {
     body_gap: CommentGap,
 }
 
+struct SourceClassParameters<'ast> {
+    node: TsTypeParameterDeclaration,
+    prefix: TypeListPrefix<'ast>,
+    mode: ContentMode,
+}
+
 #[derive(Clone, Copy)]
 struct IncomingClassMember {
     node: ClassElement,
@@ -41,6 +50,7 @@ struct IncomingClassMember {
 }
 
 struct SourceClassHeritage {
+    preceding_end: u32,
     keyword: u32,
     expression: Expr,
     mode: ContentMode,
@@ -117,6 +127,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let SourceClassHead {
             name,
             name_mode,
+            parameters,
             heritage,
             body,
             body_mode,
@@ -135,15 +146,24 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.text(self.ast.get_utf8(name.name(self.ast)));
             }
         }
+        if let Some(parameters) = parameters {
+            self.format_type_list_prefix(parameters.prefix, writer)?;
+            self.format_type_parameters(
+                parameters.node,
+                TypeParameterContext::Class,
+                parameters.mode,
+                writer,
+            )?;
+        }
         if let Some(SourceClassHeritage {
+            preceding_end,
             keyword,
             expression,
             mode,
             boundary,
         }) = heritage
         {
-            let previous = name.map_or(keyword_end, |name| name.span(self.ast).end);
-            self.format_source_token_gap(previous, keyword, true, writer)?;
+            self.format_source_token_gap(preceding_end, keyword, true, writer)?;
             writer.text("extends");
             let span = expression.span(self.ast);
             let context =
@@ -189,7 +209,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn source_class_head(&self, class: Class) -> Result<SourceClassHead<'ast>, FormatError> {
         let ast = self.ast;
         if !class.decorators(ast).is_empty()
-            || class.type_parameters(ast).is_some()
             || class.super_type_arguments(ast).is_some()
             || !class.implements(ast).is_empty()
             || class.r#abstract(ast)
@@ -210,26 +229,52 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             );
         }
         let mut end = name.map_or(start, |name| name.span(ast).end);
+        let mut parameters = class.type_parameters(ast).map(|node| {
+            let prefix = self.prepare_type_list_prefix(
+                Span::new(end, node.span(ast).start),
+                TypeListKind::Parameters {
+                    has_left_owner: name.is_some(),
+                },
+            );
+            if prefix.left_mode == ContentMode::Verbatim {
+                name_mode = ContentMode::Verbatim;
+            }
+            end = node.span(ast).end;
+            SourceClassParameters {
+                node,
+                mode: prefix.right_mode,
+                prefix,
+            }
+        });
         let heritage = if let Some(expression) = class.super_class(ast) {
-            let gap = Span::new(end, expression.span(ast).start);
+            let preceding_end = end;
+            let gap = Span::new(preceding_end, expression.span(ast).start);
             let comments = self.comments.in_range(gap);
             let extends = self
                 .find_token(gap, comments, "extends")
                 .ok_or_else(|| self.unsupported("class extends boundary", class))?;
             let mut mode = ContentMode::Formatted;
             if self.has_suppression {
+                let has_preceding = parameters.is_some() || name.is_some();
                 let split = comments.partition_point(|comment| comment.span.end <= extends);
-                if name.is_some() && self.content_mode(&comments[..split]) == ContentMode::Verbatim
-                {
-                    name_mode = ContentMode::Verbatim;
+                let mut preceding_mode = ContentMode::Formatted;
+                if has_preceding && self.content_mode(&comments[..split]) == ContentMode::Verbatim {
+                    preceding_mode = ContentMode::Verbatim;
                 }
                 for position in
                     self.suppression_positions(&comments[split..], expression.span(ast).start)
                 {
                     match position {
                         SuppressionPosition::Inline => mode = ContentMode::Verbatim,
-                        _ if name.is_some() => name_mode = ContentMode::Verbatim,
+                        _ if has_preceding => preceding_mode = ContentMode::Verbatim,
                         _ => mode = ContentMode::Verbatim,
+                    }
+                }
+                if preceding_mode == ContentMode::Verbatim {
+                    if let Some(parameters) = &mut parameters {
+                        parameters.mode = ContentMode::Verbatim;
+                    } else {
+                        name_mode = ContentMode::Verbatim;
                     }
                 }
             }
@@ -241,6 +286,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ) == ContentMode::Verbatim)
                 .then_some(Span::new(extends + 7, expression.span(ast).start));
             Some(SourceClassHeritage {
+                preceding_end,
                 keyword: extends,
                 expression,
                 mode,
@@ -281,6 +327,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(SourceClassHead {
             name,
             name_mode,
+            parameters,
             heritage,
             body,
             body_mode,

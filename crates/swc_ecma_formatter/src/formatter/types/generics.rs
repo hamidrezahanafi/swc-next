@@ -17,13 +17,14 @@ use crate::{FormatError, TrailingCommas, document::Writer};
 #[derive(Clone, Copy)]
 pub(in crate::formatter) enum TypeListKind {
     Arguments,
-    Parameters,
+    Parameters { has_left_owner: bool },
 }
 
 #[derive(Clone, Copy)]
 pub(in crate::formatter) enum TypeParameterContext {
     TypeDeclaration,
     Callable,
+    Class,
     Infer,
 }
 
@@ -101,8 +102,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     if !is_suppression_comment(self.ast, comment) {
                         continue;
                     }
-                    if matches!(kind, TypeListKind::Parameters)
-                        && matches!(position, SuppressionPosition::EndOfLine)
+                    if matches!(
+                        kind,
+                        TypeListKind::Parameters {
+                            has_left_owner: true
+                        }
+                    ) && matches!(position, SuppressionPosition::EndOfLine)
                         && comment.kind == CommentKind::Line
                     {
                         left_mode = ContentMode::Verbatim;
