@@ -12,7 +12,9 @@ use super::bindings::{InitializerLayout, InitializerLeft, PreparedInitializer};
 use super::comments::{CommentGap, CommentRunLayout, ExpressionTail, NodeHead};
 use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::objects::PropertyKeyContext;
-use super::expressions::{ExpressionContext, ExpressionPosition};
+use super::expressions::{
+    AccessKind, ExpressionContext, ExpressionPosition, ExpressionTypeArguments, TailOwner,
+};
 use super::functions::bodyless::PreparedBodylessSignature;
 use super::functions::{MethodOwner, SignaturePreceding, SourceMethodHeader, SourceMethodPrefix};
 use super::statements::IncomingStatement;
@@ -28,7 +30,7 @@ struct SourceClassHead<'ast> {
     name: Option<BindingIdentifier>,
     name_mode: ContentMode,
     parameters: Option<SourceClassParameters<'ast>>,
-    heritage: Option<SourceClassHeritage>,
+    heritage: Option<SourceClassHeritage<'ast>>,
     body: ClassBody,
     body_mode: ContentMode,
     incoming: Option<IncomingClassMember>,
@@ -49,12 +51,13 @@ struct IncomingClassMember {
     mode: ContentMode,
 }
 
-struct SourceClassHeritage {
+struct SourceClassHeritage<'ast> {
     preceding_end: u32,
     keyword: u32,
     expression: Expr,
     mode: ContentMode,
     boundary: Option<Span>,
+    arguments: Option<ExpressionTypeArguments<'ast>>,
 }
 
 struct PreparedClassMember<'ast> {
@@ -161,6 +164,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             expression,
             mode,
             boundary,
+            arguments,
         }) = heritage
         {
             self.format_source_token_gap(preceding_end, keyword, true, writer)?;
@@ -168,6 +172,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let span = expression.span(self.ast);
             let context =
                 ExpressionContext::at(ExpressionPosition::Superclass).with_content_mode(mode);
+            let context = if arguments.is_some() {
+                context.with_tail_owner(TailOwner::ParentOperation)
+            } else {
+                context
+            };
             let tail = if let Some(boundary) = boundary {
                 let source =
                     self.format_delimited_source_gap(boundary, DelimitedFollowing::Node, writer)?;
@@ -198,7 +207,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     writer,
                 )?
             };
-            self.format_expression_tail(tail, writer)?;
+            if let Some(arguments) = arguments {
+                self.format_expression_type_arguments(arguments, tail, writer)?;
+            } else {
+                self.format_expression_tail(tail, writer)?;
+            }
         }
         self.comments.claim(body_comments)?;
         self.format_comment_run(body_comments, CommentRunLayout::SourceAfter(end), writer)?;
@@ -209,7 +222,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn source_class_head(&self, class: Class) -> Result<SourceClassHead<'ast>, FormatError> {
         let ast = self.ast;
         if !class.decorators(ast).is_empty()
-            || class.super_type_arguments(ast).is_some()
             || !class.implements(ast).is_empty()
             || class.r#abstract(ast)
             || class.declare(ast)
@@ -279,6 +291,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
             }
             end = expression.span(ast).end;
+            let arguments = if let Some(node) = class.super_type_arguments(ast) {
+                let arguments =
+                    self.prepare_expression_type_arguments(expression, node, AccessKind::Ordinary)?;
+                if arguments.callee_mode == ContentMode::Verbatim {
+                    mode = ContentMode::Verbatim;
+                }
+                end = node.span(ast).end;
+                Some(arguments)
+            } else {
+                None
+            };
             let boundary = (self.has_suppression
                 && self.content_mode(
                     self.comments
@@ -291,6 +314,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 expression,
                 mode,
                 boundary,
+                arguments,
             })
         } else {
             None

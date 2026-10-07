@@ -30,9 +30,9 @@ impl TypeBinaryOperator {
 }
 
 /// A real runtime angle-list suffix, prepared before its callee consumes comments.
-pub(super) struct ExpressionTypeArguments<'ast> {
+pub(in crate::formatter) struct ExpressionTypeArguments<'ast> {
     pub(super) node: TsTypeParameterInstantiation,
-    pub(super) callee_mode: ContentMode,
+    pub(in crate::formatter) callee_mode: ContentMode,
     pub(super) mode: ContentMode,
     pub(super) access: AccessKind,
     has_comments: bool,
@@ -73,7 +73,7 @@ enum BinaryTypeLayout<'ast> {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
-    pub(super) fn prepare_expression_type_arguments(
+    pub(in crate::formatter) fn prepare_expression_type_arguments(
         &self,
         expression: Expr,
         node: TsTypeParameterInstantiation,
@@ -131,7 +131,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    pub(super) fn format_expression_type_arguments(
+    pub(in crate::formatter) fn format_expression_type_arguments(
         &mut self,
         arguments: ExpressionTypeArguments<'ast>,
         tail: Option<ExpressionTail<'ast>>,

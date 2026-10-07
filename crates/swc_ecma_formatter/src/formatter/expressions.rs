@@ -26,6 +26,8 @@ use swc_next_ecma_ast::{
     GetSpan, ObjectExpression, SimpleAssignmentTargetData, Span, UnaryOperator, UpdateOperator,
 };
 
+pub(in crate::formatter) use self::typescript::ExpressionTypeArguments;
+
 use self::arrays::{ArrayArgumentArity, RecordedArray, RecordedArrayArgument};
 use self::assignment::AssignmentParent;
 use self::binary::{BinaryLike, BinaryOperatorKind, OperandSide};
