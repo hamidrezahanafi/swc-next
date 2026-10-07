@@ -2,7 +2,7 @@
 
 use swc_next_ecma_ast::{
     Accessibility, ExprData, Function, GetSpan, MethodDefinition, MethodDefinitionKind,
-    ObjectProperty, PropertyKey, PropertyKeyData, PropertyKind, Span,
+    ObjectProperty, PropertyKey, PropertyKeyData, PropertyKind, Span, TsMethodDefinition,
 };
 
 use super::{
@@ -25,17 +25,31 @@ pub(in crate::formatter) enum MethodOwner {
 
 pub(in crate::formatter) struct SourceMethodHeader<'ast> {
     owner: MethodOwner,
+    prefix: SourceMethodPrefix,
+    parameter_gap: Option<Span>,
+    enclosing_mode: ContentMode,
+    signature: MethodSignature<'ast>,
+}
+
+pub(in crate::formatter) struct SourceMethodPrefix {
     start: u32,
     static_end: Option<u32>,
     keyword: Option<(&'static str, Span)>,
     star: Option<u32>,
-    key: PropertyKey,
+    pub(in crate::formatter) key: PropertyKey,
     computed: Option<Span>,
-    key_mode: ContentMode,
+    pub(in crate::formatter) key_mode: ContentMode,
     key_context: PropertyKeyContext,
-    parameter_gap: Option<Span>,
-    enclosing_mode: ContentMode,
-    signature: MethodSignature<'ast>,
+}
+
+struct MethodKeyInput {
+    start: u32,
+    key: PropertyKey,
+    computed: bool,
+    is_static: bool,
+    keyword: Option<&'static str>,
+    generator: bool,
+    header_start: u32,
 }
 
 #[expect(
@@ -66,6 +80,19 @@ impl MethodOwner {
 }
 
 impl SourceMethodHeader<'_> {
+    pub(in crate::formatter) fn needs_field_separator(
+        &self,
+        formatter: &Formatter<'_, '_>,
+    ) -> bool {
+        self.prefix.needs_field_separator(formatter)
+    }
+}
+
+impl SourceMethodPrefix {
+    pub(in crate::formatter) fn end(&self, ast: &swc_next_ecma_ast::Ast<'_>) -> u32 {
+        self.computed
+            .map_or(self.key.span(ast).end, |span| span.end)
+    }
     pub(in crate::formatter) fn needs_field_separator(
         &self,
         formatter: &Formatter<'_, '_>,
@@ -174,48 +201,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let header_start = signature.header_start(ast);
         let has_generics = signature.has_generics();
         let start = owner.span(ast).start;
-        let static_end = is_static.then_some(start + 6);
-        let prefix_end = static_end.unwrap_or(start);
+        let mut prefix = self.source_method_key_prefix(MethodKeyInput {
+            start,
+            key,
+            computed,
+            is_static,
+            keyword,
+            generator: function.generator(ast),
+            header_start,
+        })?;
+        let computed = prefix.computed;
         let key_span = key.span(ast);
-        let keyword = keyword
-            .map(|keyword| {
-                let position = if is_static {
-                    let gap = Span::new(prefix_end, key_span.start);
-                    self.find_token(gap, self.comments.in_range(gap), keyword)
-                        .ok_or_else(|| self.unsupported("method keyword boundary", key))?
-                } else {
-                    start
-                };
-                Ok::<_, FormatError>((
-                    keyword,
-                    Span::new(position, position + keyword.len() as u32),
-                ))
-            })
-            .transpose()?;
-        let keyword_end = keyword.map_or(prefix_end, |(_, span)| span.end);
-        let star = if function.generator(ast) {
-            let gap = Span::new(keyword_end, key_span.start);
-            Some(
-                self.find_token(gap, self.comments.in_range(gap), "*")
-                    .ok_or_else(|| self.unsupported("method generator boundary", key))?,
-            )
-        } else {
-            None
-        };
-        let head_end = star.map_or(keyword_end, |star| star + 1);
-        let computed = if computed {
-            let before = Span::new(head_end, key_span.start);
-            let opening = self
-                .find_token(before, self.comments.in_range(before), "[")
-                .ok_or_else(|| self.unsupported("computed method opening boundary", key))?;
-            let after = Span::new(key_span.end, header_start);
-            let closing = self
-                .find_token(after, self.comments.in_range(after), "]")
-                .ok_or_else(|| self.unsupported("computed method closing boundary", key))?;
-            Some(Span::new(opening, closing + 1))
-        } else {
-            None
-        };
         let modes = match kind {
             _ if has_generics => FunctionNameModes {
                 name: ContentMode::Formatted,
@@ -347,20 +343,107 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             PropertyKeyContext::Ordinary
         };
+        prefix.key_mode = key_mode;
+        prefix.key_context = key_context;
         Ok(SourceMethodHeader {
             owner,
+            prefix,
+            parameter_gap,
+            enclosing_mode,
+            signature,
+        })
+    }
+
+    fn source_method_key_prefix(
+        &self,
+        input: MethodKeyInput,
+    ) -> Result<SourceMethodPrefix, FormatError> {
+        let ast = self.ast;
+        let MethodKeyInput {
+            start,
+            key,
+            computed,
+            is_static,
+            keyword,
+            generator,
+            header_start,
+        } = input;
+        let static_end = is_static.then_some(start + 6);
+        let prefix_end = static_end.unwrap_or(start);
+        let key_span = key.span(ast);
+        let keyword = keyword
+            .map(|keyword| {
+                let position = if is_static {
+                    let gap = Span::new(prefix_end, key_span.start);
+                    self.find_token(gap, self.comments.in_range(gap), keyword)
+                        .ok_or_else(|| self.unsupported("method keyword boundary", key))?
+                } else {
+                    start
+                };
+                Ok::<_, FormatError>((
+                    keyword,
+                    Span::new(position, position + keyword.len() as u32),
+                ))
+            })
+            .transpose()?;
+        let keyword_end = keyword.map_or(prefix_end, |(_, span)| span.end);
+        let star = if generator {
+            let gap = Span::new(keyword_end, key_span.start);
+            Some(
+                self.find_token(gap, self.comments.in_range(gap), "*")
+                    .ok_or_else(|| self.unsupported("method generator boundary", key))?,
+            )
+        } else {
+            None
+        };
+        let head_end = star.map_or(keyword_end, |star| star + 1);
+        let computed = if computed {
+            let before = Span::new(head_end, key_span.start);
+            let opening = self
+                .find_token(before, self.comments.in_range(before), "[")
+                .ok_or_else(|| self.unsupported("computed method opening boundary", key))?;
+            let after = Span::new(key_span.end, header_start);
+            let closing = self
+                .find_token(after, self.comments.in_range(after), "]")
+                .ok_or_else(|| self.unsupported("computed method closing boundary", key))?;
+            Some(Span::new(opening, closing + 1))
+        } else {
+            None
+        };
+        Ok(SourceMethodPrefix {
             start,
             static_end,
             keyword,
             star,
             key,
             computed,
-            key_mode,
-            key_context,
-            parameter_gap,
-            enclosing_mode,
-            signature,
+            key_mode: ContentMode::Formatted,
+            key_context: PropertyKeyContext::Ordinary,
         })
+    }
+
+    pub(in crate::formatter) fn source_bodyless_method_prefix(
+        &self,
+        node: TsMethodDefinition,
+        header_start: u32,
+    ) -> Result<SourceMethodPrefix, FormatError> {
+        let ast = self.ast;
+        let mut prefix = self.source_method_key_prefix(MethodKeyInput {
+            start: node.span(ast).start,
+            key: node.key(ast),
+            computed: node.computed(ast),
+            is_static: false,
+            keyword: None,
+            generator: false,
+            header_start,
+        })?;
+        if self.has_suppression {
+            prefix.key_mode = self.content_mode(
+                self.comments
+                    .in_range(Span::new(prefix.start, prefix.key.span(ast).start)),
+            );
+        }
+        Ok(prefix)
     }
 
     pub(in crate::formatter) fn format_method_header(
@@ -370,14 +453,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<(), FormatError> {
         let SourceMethodHeader {
             owner,
-            start,
-            static_end,
-            keyword,
-            star,
-            key,
-            computed,
-            key_mode,
-            key_context,
+            prefix,
             parameter_gap,
             enclosing_mode,
             signature,
@@ -389,32 +465,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             MethodSignature::Formatted(signature) => signature.span,
             MethodSignature::FunctionValue { function, .. } => function.span(self.ast),
         };
-        let key_span = key.span(self.ast);
-        let key_start = computed.map_or(key_span.start, |span| span.start);
-        let key_end = computed.map_or(key_span.end, |span| span.end);
-        let mut head_end = start;
-        if let Some(static_end) = static_end {
-            writer.text("static");
-            let next = keyword.map_or_else(|| star.unwrap_or(key_start), |(_, span)| span.start);
-            self.format_source_token_gap(static_end, next, true, writer)?;
-            head_end = next;
-        }
-        if let Some((keyword, span)) = keyword {
-            writer.text(keyword);
-            head_end = span.end;
-        }
-        if let Some(star) = star {
-            self.format_source_token_gap(head_end, star, keyword.is_some(), writer)?;
-            writer.text("*");
-            head_end = star + 1;
-        }
-        self.format_source_token_gap(
-            head_end,
-            key_start,
-            keyword.is_some() && star.is_none(),
-            writer,
-        )?;
-        self.format_property_key_context(key, computed, key_mode, key_context, writer)?;
+        let key_end = prefix.end(self.ast);
+        self.format_method_key_prefix(prefix, writer)?;
         match signature {
             MethodSignature::Formatted(signature) => {
                 if let Some(gap) = parameter_gap {
@@ -444,5 +496,47 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_verbatim(signature_span, writer)
             }
         }
+    }
+    pub(in crate::formatter) fn format_method_key_prefix(
+        &mut self,
+        prefix: SourceMethodPrefix,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        let SourceMethodPrefix {
+            start,
+            static_end,
+            keyword,
+            star,
+            key,
+            computed,
+            key_mode,
+            key_context,
+        } = prefix;
+        let key_span = key.span(self.ast);
+        let key_start = computed.map_or(key_span.start, |span| span.start);
+        let mut head_end = start;
+        if let Some(static_end) = static_end {
+            writer.text("static");
+            let next = keyword.map_or_else(|| star.unwrap_or(key_start), |(_, span)| span.start);
+            self.format_source_token_gap(static_end, next, true, writer)?;
+            head_end = next;
+        }
+        if let Some((keyword, span)) = keyword {
+            writer.text(keyword);
+            head_end = span.end;
+        }
+        if let Some(star) = star {
+            self.format_source_token_gap(head_end, star, keyword.is_some(), writer)?;
+            writer.text("*");
+            head_end = star + 1;
+        }
+        self.format_source_token_gap(
+            head_end,
+            key_start,
+            keyword.is_some() && star.is_none(),
+            writer,
+        )?;
+        self.format_property_key_context(key, computed, key_mode, key_context, writer)?;
+        Ok(())
     }
 }

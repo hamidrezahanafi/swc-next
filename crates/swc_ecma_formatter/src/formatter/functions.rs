@@ -1,7 +1,8 @@
 //! Function headers and their actual parameter/body boundaries.
 
+pub(super) mod bodyless;
 mod methods;
-pub(super) use methods::{MethodOwner, SourceMethodHeader};
+pub(super) use methods::{MethodOwner, SourceMethodHeader, SourceMethodPrefix};
 
 use swc_next_ecma_ast::{
     BindingIdentifier, Comment, CommentKind, Function, FunctionBody, GetSpan, PropertyKey, Span,
@@ -79,7 +80,7 @@ pub(super) enum MethodSignatureKind {
 }
 
 #[derive(Clone, Copy)]
-enum SignaturePreceding {
+pub(super) enum SignaturePreceding {
     Name(BindingIdentifier),
     Key(PropertyKey),
 }

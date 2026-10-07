@@ -3,16 +3,17 @@
 use swc_next_ecma_ast::{
     Accessibility, BindingIdentifier, Class, ClassBody, ClassElement, ClassElementData, Comment,
     CommentKind, Expr, GetSpan, MethodDefinitionKind, PropertyDefinition, PropertyKey, Span,
-    StaticBlock, StmtData,
+    StaticBlock, StmtData, TsFunction, TsMethodDefinition,
 };
 
 use super::Formatter;
 use super::bindings::{InitializerLayout, InitializerLeft, PreparedInitializer};
-use super::comments::{CommentGap, CommentRunLayout, NodeHead};
+use super::comments::{CommentGap, CommentRunLayout, ExpressionTail, NodeHead};
 use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::objects::PropertyKeyContext;
 use super::expressions::{ExpressionContext, ExpressionPosition};
-use super::functions::{MethodOwner, SourceMethodHeader};
+use super::functions::bodyless::PreparedBodylessSignature;
+use super::functions::{MethodOwner, SignaturePreceding, SourceMethodHeader, SourceMethodPrefix};
 use super::statements::IncomingStatement;
 use super::suppression::{
     ContentMode, DelimitedFollowing, DelimitedSuppression, SuppressionPosition,
@@ -54,8 +55,24 @@ struct PreparedClassMember<'ast> {
 enum ClassMemberContent<'ast> {
     Verbatim,
     Method(SourceMethodHeader<'ast>),
+    Bodyless(SourceBodylessClassMethod<'ast>),
+    BodylessValue {
+        prefix: SourceMethodPrefix,
+        value: TsFunction,
+    },
     Field(SourceClassField<'ast>),
     Static(SourceStaticBlock<'ast>),
+}
+
+struct SourceBodylessClassMethod<'ast> {
+    prefix: SourceMethodPrefix,
+    signature: PreparedBodylessSignature<'ast>,
+    terminal: BodylessMethodTerminal,
+}
+
+enum BodylessMethodTerminal {
+    Canonical(Span),
+    Source(Span),
 }
 
 struct SourceClassField<'ast> {
@@ -440,6 +457,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ClassElementData::MethodDefinition(method) => ClassMemberContent::Method(
                     self.source_method_header(MethodOwner::Class(method))?,
                 ),
+                ClassElementData::TsMethodDefinition(method) => {
+                    self.source_bodyless_class_method(method, sibling)?
+                }
                 ClassElementData::PropertyDefinition(field) => {
                     match self.source_class_field(field, sibling)? {
                         Some(field) => ClassMemberContent::Field(field),
@@ -469,8 +489,103 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         match content {
             ClassMemberContent::Verbatim => self.format_verbatim(span, writer),
             ClassMemberContent::Method(header) => self.format_method_header(header, writer),
+            ClassMemberContent::Bodyless(method) => {
+                self.format_bodyless_class_method(method, writer)
+            }
+            ClassMemberContent::BodylessValue { prefix, value } => {
+                let end = prefix.end(self.ast);
+                self.format_method_key_prefix(prefix, writer)?;
+                self.format_source_token_gap(end, value.span(self.ast).start, false, writer)?;
+                self.format_verbatim(value.span(self.ast), writer)
+            }
             ClassMemberContent::Field(field) => self.format_class_field(field, following, writer),
             ClassMemberContent::Static(block) => self.format_static_block(block, writer),
+        }
+    }
+
+    fn source_bodyless_class_method(
+        &self,
+        node: TsMethodDefinition,
+        sibling: Option<DelimitedSuppression>,
+    ) -> Result<ClassMemberContent<'ast>, FormatError> {
+        let ast = self.ast;
+        let function = node.value(ast);
+        if node.kind(ast) != MethodDefinitionKind::Method
+            || !node.decorators(ast).is_empty()
+            || node.r#static(ast)
+            || node.r#override(ast)
+            || node.optional(ast)
+            || node.r#abstract(ast)
+            || node.accessibility(ast) != Accessibility::None
+            || function.r#async(ast)
+            || function.generator(ast)
+        {
+            return Err(self.unsupported("typed or decorated bodyless class method", node));
+        }
+        let source = self.source_bodyless_signature(function);
+        let mut prefix = self.source_bodyless_method_prefix(node, source.header_start(ast))?;
+        if self.bodyless_empty_parameters_are_verbatim(&source) {
+            return Ok(ClassMemberContent::BodylessValue {
+                prefix,
+                value: source.node,
+            });
+        }
+        let signature = self.prepare_bodyless_signature_suffix(
+            source,
+            prefix.end(ast),
+            Some(SignaturePreceding::Key(prefix.key)),
+            prefix.key_mode,
+        )?;
+        prefix.key_mode = signature.preceding_mode;
+        let internal = Span::new(signature.content_end, node.span(ast).end);
+        let comments = self.comments.in_range(internal);
+        let source_terminal = self.has_suppression
+            && self.content_mode(comments) == ContentMode::Verbatim
+            || sibling.is_some() && self.find_token(internal, comments, ";").is_some();
+        let terminal = if source_terminal {
+            BodylessMethodTerminal::Source(internal)
+        } else {
+            BodylessMethodTerminal::Canonical(internal)
+        };
+        Ok(ClassMemberContent::Bodyless(SourceBodylessClassMethod {
+            prefix,
+            signature,
+            terminal,
+        }))
+    }
+
+    fn format_bodyless_class_method(
+        &mut self,
+        method: SourceBodylessClassMethod<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        let tail = writer.group(false, |writer| {
+            self.format_method_key_prefix(method.prefix, writer)?;
+            self.format_bodyless_signature_suffix(method.signature, writer)
+        })?;
+        match method.terminal {
+            BodylessMethodTerminal::Canonical(span) => {
+                let tail = self.capture_expression_tail(span, tail)?;
+                if self.options.semicolons == Semicolons::Always {
+                    writer.text(";");
+                }
+                self.format_expression_tail(tail, writer)
+            }
+            BodylessMethodTerminal::Source(span) => {
+                // Type grammar can leave an unclaimed tail before this actual
+                // terminal. Its internal comments belong to the raw terminal.
+                let before = tail.and_then(|tail| {
+                    let count = tail
+                        .comments
+                        .partition_point(|comment| comment.span.end <= span.start);
+                    (!tail.comments[..count].is_empty()).then_some(ExpressionTail {
+                        source_end: tail.source_end,
+                        comments: &tail.comments[..count],
+                    })
+                });
+                self.format_expression_tail(before, writer)?;
+                self.format_verbatim(span, writer)
+            }
         }
     }
 
@@ -705,6 +820,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn class_member_needs_field_separator(&self, member: &PreparedClassMember<'ast>) -> bool {
         match &member.content {
             ClassMemberContent::Method(header) => header.needs_field_separator(self),
+            ClassMemberContent::Bodyless(method) => method.prefix.needs_field_separator(self),
+            ClassMemberContent::BodylessValue { prefix, .. } => prefix.needs_field_separator(self),
             ClassMemberContent::Field(field) => {
                 field.static_end.is_none()
                     && (field.computed.is_some()
@@ -728,6 +845,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         false,
                     ),
                     ClassElementData::MethodDefinition(method) => {
+                        let function = method.value(ast);
+                        (
+                            method.key(ast),
+                            method.computed(ast),
+                            method.r#static(ast)
+                                || function.r#async(ast)
+                                || matches!(
+                                    method.kind(ast),
+                                    MethodDefinitionKind::Get | MethodDefinitionKind::Set
+                                ),
+                            function.generator(ast),
+                        )
+                    }
+                    ClassElementData::TsMethodDefinition(method) => {
                         let function = method.value(ast);
                         (
                             method.key(ast),
