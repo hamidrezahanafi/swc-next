@@ -21,6 +21,7 @@ use swc_next_ecma_ast::{
 };
 
 pub(super) use self::context::TypeContext;
+pub(in crate::formatter) use self::members::PreparedIndexSignature;
 use super::Formatter;
 use super::bindings::InitializerLayout;
 use super::comments::{CommentBoundary, ExpressionTail};

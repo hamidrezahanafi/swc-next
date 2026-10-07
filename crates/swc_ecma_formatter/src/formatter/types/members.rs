@@ -17,6 +17,7 @@ use crate::formatter::comments::{CommentBoundary, CommentGap, ExpressionTail};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::expressions::arguments::{ArgumentLayout, FollowingItem, Separator};
 use crate::formatter::expressions::objects::PropertyKeyContext;
+use crate::formatter::source::is_source_whitespace;
 use crate::formatter::suppression::{
     ContentMode, DelimitedFollowing, DelimitedSuppression, SuppressionPosition,
 };
@@ -86,22 +87,63 @@ struct SignatureMember<'ast> {
     result: Option<SignatureReturn<'ast>>,
 }
 
-struct IndexMember<'ast> {
-    node: TsIndexSignature,
+pub(in crate::formatter) struct PreparedIndexSignature<'ast> {
+    parameters: SubRange<TsIndexSignatureParameter>,
+    content_end: u32,
     opening: u32,
     closing: u32,
-    prefix: Option<TypeGap<'ast>>,
+    prefix: IndexSignaturePrefix<'ast>,
     closing_gap: TypeGap<'ast>,
     source_head: Option<TsIndexSignatureParameter>,
     source_tail: Option<TsIndexSignatureParameter>,
     result: SignatureReturn<'ast>,
 }
 
+#[derive(Clone, Copy)]
+enum IndexModifier {
+    Static,
+    Readonly,
+}
+
+impl IndexModifier {
+    fn keyword(self) -> &'static str {
+        match self {
+            Self::Static => "static",
+            Self::Readonly => "readonly",
+        }
+    }
+}
+
+enum IndexSignaturePrefix<'ast> {
+    Bare,
+    One(IndexModifier, TypeGap<'ast>),
+    Two {
+        first: (IndexModifier, TypeGap<'ast>),
+        second: (IndexModifier, TypeGap<'ast>),
+    },
+}
+
+impl PreparedIndexSignature<'_> {
+    pub(in crate::formatter) fn content_end(&self) -> u32 {
+        self.content_end
+    }
+
+    pub(in crate::formatter) fn starts_with_bracket(&self) -> bool {
+        matches!(self.prefix, IndexSignaturePrefix::Bare)
+    }
+
+    pub(in crate::formatter) fn protect_result_type(&mut self) {
+        if let AnnotationContent::Type(node) = &mut self.result.content {
+            node.source_owner = Some(node.node);
+        }
+    }
+}
+
 enum MemberContent<'ast> {
     Source(Span),
     Property(PropertyMember<'ast>),
     Signature(SignatureMember<'ast>),
-    Index(IndexMember<'ast>),
+    Index(PreparedIndexSignature<'ast>),
 }
 
 #[derive(Clone, Copy)]
@@ -439,8 +481,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.prepare_signature_member(node, MemberSignatureOwner::Construct(construct))?
             }
             TsTypeElementData::TsIndexSignature(index) => {
-                let end = index.type_annotation(ast).span(ast).end;
-                (MemberContent::Index(self.prepare_index_member(index)?), end)
+                if index.r#static(ast) {
+                    return Err(self.unsupported("static index signature", index));
+                }
+                let index = self.prepare_index_signature(index)?;
+                let end = index.content_end();
+                (MemberContent::Index(index), end)
             }
         };
         let mut prepared = PreparedMember {
@@ -465,11 +511,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         None => prepared.content = MemberContent::Source(span),
                     }
                 }
-                MemberContent::Index(index) => {
-                    if let AnnotationContent::Type(node) = &mut index.result.content {
-                        node.source_owner = Some(node.node);
-                    }
-                }
+                MemberContent::Index(index) => index.protect_result_type(),
                 MemberContent::Source(_) => {}
             }
             if matches!(prepared.content, MemberContent::Source(_)) {
@@ -758,50 +800,31 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         ))
     }
 
-    fn prepare_index_member(
+    pub(in crate::formatter) fn prepare_index_signature(
         &self,
         node: TsIndexSignature,
-    ) -> Result<IndexMember<'ast>, FormatError> {
+    ) -> Result<PreparedIndexSignature<'ast>, FormatError> {
         let ast = self.ast;
-        if node.r#static(ast) {
-            return Err(self.unsupported("static index signature", node));
-        }
         let span = node.span(ast);
         let annotation = node.type_annotation(ast);
-        let Some(first_id) = node.parameters(ast).first() else {
+        let annotation_span = annotation.span(ast);
+        let parameters = node.parameters(ast);
+        let (Some(first_id), Some(last_id)) = (parameters.first(), parameters.last()) else {
             return Err(self.unsupported("empty index signature", node));
         };
         let first = ast.get_node_in_sub_range(first_id);
-        let last = node
-            .parameters(ast)
-            .last()
-            .map(|id| ast.get_node_in_sub_range(id));
-        let before = Span::new(span.start, first.span(ast).start);
-        let Some(opening) = self.find_token(before, self.comments.in_range(before), "[") else {
-            return Err(self.unsupported("index signature opening", node));
-        };
-        let last_end = last.map_or(first.span(ast).end, |node| node.span(ast).end);
-        let after = Span::new(last_end, annotation.span(ast).start);
+        let last = ast.get_node_in_sub_range(last_id);
+        let first_start = first.span(ast).start;
+        let last_end = last.span(ast).end;
+        let before = Span::new(span.start, first_start);
+        let (opening, prefix, head_start) = self.prepare_index_signature_prefix(node, before)?;
+        let after = Span::new(last_end, annotation_span.start);
         let Some(closing) = self.find_token(after, self.comments.in_range(after), "]") else {
             return Err(self.unsupported("index signature closing", node));
         };
-        let prefix = node.readonly(ast).then(|| {
-            let gap = Span::new(span.start + 8, opening);
-            self.prepare_type_gap(
-                gap,
-                self.content_mode(self.comments.in_range(gap)) == ContentMode::Verbatim,
-            )
-        });
         let source_head = if self.has_suppression {
-            let start = if prefix.is_some() {
-                span.start + 8
-            } else {
-                opening + 1
-            };
-            (self.content_mode(
-                self.comments
-                    .in_range(Span::new(start, first.span(ast).start)),
-            ) == ContentMode::Verbatim)
+            (self.content_mode(self.comments.in_range(Span::new(head_start, first_start)))
+                == ContentMode::Verbatim)
                 .then_some(first)
         } else {
             None
@@ -810,11 +833,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let closing_comments = self.comments.in_range(closing_span);
         let mut source_return = None;
         let mut source_tail = None;
-        for (_, position) in self.suppressed_comment_runs(closing_comments, closing) {
-            if matches!(position, SuppressionPosition::OwnLine) {
-                source_return = Some(annotation);
-            } else {
-                source_tail = last;
+        if self.has_suppression {
+            for (_, position) in self.suppressed_comment_runs(closing_comments, closing) {
+                if matches!(position, SuppressionPosition::OwnLine) {
+                    source_return = Some(annotation);
+                } else {
+                    source_tail = Some(last);
+                }
             }
         }
         let closing_gap = self.prepare_type_gap(
@@ -829,10 +854,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             SignatureReturnDelimiter::Colon,
         );
         if result.preceding_mode == ContentMode::Verbatim {
-            source_tail = last;
+            source_tail = Some(last);
         }
-        Ok(IndexMember {
-            node,
+        Ok(PreparedIndexSignature {
+            parameters,
+            content_end: annotation_span.end,
             opening,
             closing,
             prefix,
@@ -841,6 +867,108 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             source_tail,
             result,
         })
+    }
+
+    fn prepare_index_signature_prefix(
+        &self,
+        node: TsIndexSignature,
+        span: Span,
+    ) -> Result<(u32, IndexSignaturePrefix<'ast>, u32), FormatError> {
+        let ast = self.ast;
+        let expected_static = node.r#static(ast);
+        let expected_readonly = node.readonly(ast);
+        let mut static_token = None;
+        let mut readonly_token = None;
+        let mut cursor = span.start;
+        let mut comments = self.comments.in_range(span).iter().peekable();
+        loop {
+            if let Some(comment) = comments.peek()
+                && comment.span.start == cursor
+            {
+                cursor = comment.span.end;
+                comments.next();
+                continue;
+            }
+            let Some(character) = self.source(Span::new(cursor, span.end)).chars().next() else {
+                return Err(self.unsupported("index signature opening", node));
+            };
+            if is_source_whitespace(character) {
+                cursor += character.len_utf8() as u32;
+                continue;
+            }
+            if character == '[' {
+                break;
+            }
+            let source = self.source(Span::new(cursor, span.end));
+            let (modifier, slot) =
+                if expected_static && static_token.is_none() && source.starts_with("static") {
+                    (IndexModifier::Static, &mut static_token)
+                } else if expected_readonly
+                    && readonly_token.is_none()
+                    && source.starts_with("readonly")
+                {
+                    (IndexModifier::Readonly, &mut readonly_token)
+                } else {
+                    // The parser consumes some class modifiers without retaining
+                    // them on TsIndexSignature. Never discard that actual prefix.
+                    return Err(self.unsupported("index signature prefix", node));
+                };
+            let end = cursor + modifier.keyword().len() as u32;
+            *slot = Some(Span::new(cursor, end));
+            cursor = end;
+        }
+        if static_token.is_some() != expected_static
+            || readonly_token.is_some() != expected_readonly
+        {
+            return Err(self.unsupported("index signature prefix", node));
+        }
+        let gap = |span: Span| {
+            self.prepare_type_gap(
+                span,
+                self.has_suppression
+                    && self.content_mode(self.comments.in_range(span)) == ContentMode::Verbatim,
+            )
+        };
+        let (prefix, head_start) = match (static_token, readonly_token) {
+            (None, None) => (IndexSignaturePrefix::Bare, cursor + 1),
+            (Some(token), None) => (
+                IndexSignaturePrefix::One(IndexModifier::Static, gap(Span::new(token.end, cursor))),
+                token.end,
+            ),
+            (None, Some(token)) => (
+                IndexSignaturePrefix::One(
+                    IndexModifier::Readonly,
+                    gap(Span::new(token.end, cursor)),
+                ),
+                token.end,
+            ),
+            (Some(static_token), Some(readonly_token)) => {
+                let (first, first_token, second, second_token) =
+                    if static_token.start < readonly_token.start {
+                        (
+                            IndexModifier::Static,
+                            static_token,
+                            IndexModifier::Readonly,
+                            readonly_token,
+                        )
+                    } else {
+                        (
+                            IndexModifier::Readonly,
+                            readonly_token,
+                            IndexModifier::Static,
+                            static_token,
+                        )
+                    };
+                (
+                    IndexSignaturePrefix::Two {
+                        first: (first, gap(Span::new(first_token.end, second_token.start))),
+                        second: (second, gap(Span::new(second_token.end, cursor))),
+                    },
+                    second_token.end,
+                )
+            }
+        };
+        Ok((cursor, prefix, head_start))
     }
 
     fn format_type_member_key(
@@ -928,26 +1056,34 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     None => Ok(None),
                 }
             }),
-            MemberContent::Index(index) => self.format_index_member(index, writer),
+            MemberContent::Index(index) => self.format_index_signature(index, writer),
         }
     }
 
-    fn format_index_member(
+    pub(in crate::formatter) fn format_index_signature(
         &mut self,
-        index: IndexMember<'ast>,
+        index: PreparedIndexSignature<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let ast = self.ast;
-        if let Some(prefix) = index.prefix {
-            writer.text("readonly");
-            self.format_type_gap(prefix, FlatSeparator::Space, writer)?;
+        match index.prefix {
+            IndexSignaturePrefix::Bare => {}
+            IndexSignaturePrefix::One(keyword, gap) => {
+                writer.text(keyword.keyword());
+                self.format_type_gap(gap, FlatSeparator::Space, writer)?;
+            }
+            IndexSignaturePrefix::Two { first, second } => {
+                writer.text(first.0.keyword());
+                self.format_type_gap(first.1, FlatSeparator::Space, writer)?;
+                writer.text(second.0.keyword());
+                self.format_type_gap(second.1, FlatSeparator::Space, writer)?;
+            }
         }
         writer.group(false, |writer| {
             writer.text("[");
             writer.indent(|writer| {
                 let mut members = index
-                    .node
-                    .parameters(ast)
+                    .parameters
                     .iter()
                     .map(|id| ast.get_node_in_sub_range(id))
                     .peekable();
