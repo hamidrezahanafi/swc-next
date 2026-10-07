@@ -18,6 +18,7 @@ use crate::{FormatError, document::Writer};
 pub(in crate::formatter) struct SourceBodylessSignature {
     pub(in crate::formatter) node: TsFunction,
     parameters: CallableParameters,
+    leading_mode: ContentMode,
     pub(in crate::formatter) parameter_span: Span,
     pub(in crate::formatter) generic: Option<TsTypeParameterDeclaration>,
     pub(in crate::formatter) annotation: Option<TsTypeAnnotation>,
@@ -41,6 +42,10 @@ pub(in crate::formatter) struct PreparedBodylessSignature<'ast> {
 }
 
 impl SourceBodylessSignature {
+    pub(in crate::formatter) fn set_leading_mode(&mut self, mode: ContentMode) {
+        self.leading_mode = mode;
+    }
+
     pub(in crate::formatter) fn has_parameters(&self) -> bool {
         self.parameters.has_parameters()
     }
@@ -60,6 +65,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         SourceBodylessSignature {
             node,
             parameters: self.callable_parameters(parameters, node.this_param(ast)),
+            leading_mode: ContentMode::Formatted,
             parameter_span: parameters.span(ast),
             generic: node.type_parameters(ast),
             annotation: node.return_type(ast),
@@ -87,6 +93,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let signature_start = source.header_start(ast);
         let SourceBodylessSignature {
             mut parameters,
+            leading_mode,
             parameter_span,
             generic,
             annotation,
@@ -94,7 +101,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } = source;
         let mut incoming = None;
         let mut source_return = None;
-        let mut generic_mode = ContentMode::Formatted;
+        let mut generic_mode = leading_mode;
+        if generic.is_none() && leading_mode == ContentMode::Verbatim {
+            match self.signature_incoming(&parameters, annotation, &mut incoming)? {
+                SignatureIncoming::Parameter(first) => parameters.source_head = Some(first),
+                SignatureIncoming::Return(annotation) => source_return = Some(annotation),
+                SignatureIncoming::Empty => preceding_mode = ContentMode::Verbatim,
+            }
+        }
         let prefix;
         let generic_prefix;
         if generic.is_some() && preceding.is_some() {
@@ -107,7 +121,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             if prepared.left_mode == ContentMode::Verbatim {
                 preceding_mode = ContentMode::Verbatim;
             }
-            generic_mode = prepared.right_mode;
+            if prepared.right_mode == ContentMode::Verbatim {
+                generic_mode = ContentMode::Verbatim;
+            }
             generic_prefix = Some(prepared);
             prefix = None;
         } else {

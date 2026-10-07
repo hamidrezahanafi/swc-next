@@ -876,7 +876,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let ast = self.ast;
         let function = node.value(ast);
         if !node.decorators(ast).is_empty()
-            || node.optional(ast)
+            || node.optional(ast) && node.kind(ast) != MethodDefinitionKind::Method
             || function.r#async(ast)
             || function.generator(ast)
         {
@@ -893,8 +893,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 return Err(self.unsupported("typed function", function));
             }
         }
-        let source = self.source_bodyless_signature(function);
-        let mut prefix = self.source_bodyless_method_prefix(node, source.header_start(ast))?;
+        let mut source = self.source_bodyless_signature(function);
+        let mut prefix = self.source_bodyless_method_prefix(
+            node,
+            source.header_start(ast),
+            source.generic.is_some(),
+        )?;
+        source.set_leading_mode(prefix.following_mode);
         if self.bodyless_empty_parameters_are_verbatim(&source) {
             return Ok(ClassMemberContent::BodylessValue {
                 prefix,
@@ -907,7 +912,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             Some(SignaturePreceding::Key(prefix.key)),
             prefix.key_mode,
         )?;
-        prefix.key_mode = signature.preceding_mode;
+        prefix.key_mode = self.method_key_mode(&prefix, signature.preceding_mode);
         let internal = Span::new(signature.content_end, node.span(ast).end);
         let (terminal, _) = self.prepare_typed_class_member_terminal(internal, sibling);
         Ok(ClassMemberContent::Bodyless(SourceBodylessClassMethod {
