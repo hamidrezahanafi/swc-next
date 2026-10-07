@@ -3,13 +3,13 @@ formatter * prettier 3.9.9 * typescript
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 657
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 408/804 (50.75%)
-Snapshot matched: 408/804
-AST parity: 594/594
-AST mismatched: 0/594
+Passed: 414/804 (51.49%)
+Snapshot matched: 414/804
+AST parity: 600/600
+AST mismatched: 0/600
 AST format errors: 0/804
 Mismatched: 186/804
-Format errors: 210/804
+Format errors: 204/804
 Panicked: 0/804
 Not idempotent: 0/804
 Ignored files: 76
@@ -200,16 +200,11 @@ Unsupported option sets: 7
 - typescript/definite/definite.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/definite/without-annotation.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/end-of-line/multiline.ts: 0/3 mismatched, 3/3 format errors, 0/3 panicked, 0/3 not idempotent
-- typescript/export/default.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/export/export-type-star-from-2.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/export/export-type-star-from.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/function-type/consistent.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/function-type/single-parameter.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/function/single_expand.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/generic/arrow-return-type.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/generic/ungrouped-parameters.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/import-export/empty-import.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/import-export/type-modifier.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/import-require/comments.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/import-type/comma/comma.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/import-type/long-module-name/long-module-name3.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -285,7 +280,6 @@ Unsupported option sets: 7
 - typescript/type-arguments-bit-shift-left-like/1.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/type-arguments-bit-shift-left-like/4.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/type-arguments-bit-shift-left-like/5.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/type-only-module-specifiers/basic.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/type-parameters-arguments/10732.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/type-parameters-arguments/18041.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/type-parameters-arguments/19505.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
