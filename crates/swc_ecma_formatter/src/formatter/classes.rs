@@ -9,7 +9,7 @@ use swc_next_ecma_ast::{
 
 use super::Formatter;
 use super::bindings::{InitializerLayout, InitializerLeft, PreparedInitializer};
-use super::comments::{CommentGap, CommentRunLayout, ExpressionTail, NodeHead};
+use super::comments::{CommentBoundary, CommentGap, CommentRunLayout, ExpressionTail, NodeHead};
 use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::arguments::{ArgumentLayout, FollowingItem, ItemBoundary};
 use super::expressions::objects::PropertyKeyContext;
@@ -37,6 +37,8 @@ enum PreparedClassHead<'ast> {
 }
 
 struct SourceClassHead<'ast> {
+    prefix: Option<SourceClassPrefix<'ast>>,
+    keyword_end: u32,
     name: Option<BindingIdentifier>,
     name_mode: ContentMode,
     parameters: Option<SourceClassParameters<'ast>>,
@@ -48,6 +50,15 @@ struct SourceClassHead<'ast> {
     end: u32,
     body_comments: &'ast [Comment],
     body_gap: CommentGap,
+}
+
+enum SourceClassPrefix<'ast> {
+    Formatted {
+        declare: bool,
+        abstract_class: bool,
+        name_gap: Option<CommentBoundary<'ast>>,
+    },
+    Source(Span),
 }
 
 struct SourceClassParameters<'ast> {
@@ -152,6 +163,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             PreparedClassHead::Source(head) => head,
         };
         let SourceClassHead {
+            prefix,
+            keyword_end,
             name,
             name_mode,
             parameters,
@@ -164,10 +177,44 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             body_comments,
             body_gap,
         } = head;
-        let keyword_end = class.span(self.ast).start + 5;
-        writer.text("class");
+        let name_gap_formatted = match prefix {
+            Some(SourceClassPrefix::Formatted {
+                declare,
+                abstract_class,
+                name_gap,
+            }) => {
+                if declare {
+                    writer.text("declare");
+                    writer.space();
+                }
+                if abstract_class {
+                    writer.text("abstract");
+                    writer.space();
+                }
+                writer.text("class");
+                let has_name = name_gap.is_some();
+                if let Some(boundary) = name_gap {
+                    self.format_type_gap(
+                        TypeGap::Formatted(boundary),
+                        FlatSeparator::Space,
+                        writer,
+                    )?;
+                }
+                has_name
+            }
+            Some(SourceClassPrefix::Source(span)) => {
+                self.format_verbatim(span, writer)?;
+                false
+            }
+            None => {
+                writer.text("class");
+                false
+            }
+        };
         if let Some(name) = name {
-            self.format_source_token_gap(keyword_end, name.span(self.ast).start, true, writer)?;
+            if !name_gap_formatted {
+                self.format_source_token_gap(keyword_end, name.span(self.ast).start, true, writer)?;
+            }
             if name_mode == ContentMode::Verbatim {
                 self.format_verbatim(name.span(self.ast), writer)?;
             } else {
@@ -249,20 +296,30 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     fn source_class_head(&self, class: Class) -> Result<PreparedClassHead<'ast>, FormatError> {
         let ast = self.ast;
-        if !class.decorators(ast).is_empty() || class.r#abstract(ast) || class.declare(ast) {
-            return Err(self.unsupported("typed or decorated class", class));
+        if !class.decorators(ast).is_empty() {
+            return Err(self.unsupported("decorated class", class));
         }
         let body = class.body(ast);
         let name = class.id(ast);
-        let start = class.span(ast).start + 5;
+        let (start, prefix) = if class.r#abstract(ast) || class.declare(ast) {
+            let (end, prefix) = self.prepare_class_prefix(class)?;
+            (end, Some(prefix))
+        } else {
+            (class.span(ast).start + 5, None)
+        };
         let mut name_mode = ContentMode::Formatted;
-        if self.has_suppression
-            && let Some(name) = name
-        {
-            name_mode = self.content_mode(
-                self.comments
-                    .in_range(Span::new(start, name.span(ast).start)),
-            );
+        if self.has_suppression {
+            let prefix_start = if prefix.is_some() {
+                class.span(ast).start
+            } else {
+                start
+            };
+            let prefix_end = name.map_or(start, |name| name.span(ast).start);
+            let comments = self.comments.in_range(Span::new(prefix_start, prefix_end));
+            name_mode = self.content_mode(comments);
+            if name.is_none() && name_mode == ContentMode::Verbatim {
+                return Ok(PreparedClassHead::Verbatim);
+            }
         }
         let mut end = name.map_or(start, |name| name.span(ast).end);
         let mut parameters = class.type_parameters(ast).map(|node| {
@@ -428,6 +485,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
         }
         Ok(PreparedClassHead::Source(SourceClassHead {
+            prefix,
+            keyword_end: start,
             name,
             name_mode,
             parameters,
@@ -447,6 +506,50 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 CommentGap::Source(body_constraint)
             },
         }))
+    }
+
+    fn prepare_class_prefix(
+        &self,
+        class: Class,
+    ) -> Result<(u32, SourceClassPrefix<'ast>), FormatError> {
+        let ast = self.ast;
+        let declare = class.declare(ast);
+        let abstract_class = class.r#abstract(ast);
+        let name = class.id(ast);
+        let mut limit = class.body(ast).span(ast).start;
+        if let Some(first) = class.implements(ast).first() {
+            limit = ast.get_node_in_sub_range(first).span(ast).start;
+        }
+        if let Some(superclass) = class.super_class(ast) {
+            limit = superclass.span(ast).start;
+        }
+        if let Some(parameters) = class.type_parameters(ast) {
+            limit = parameters.span(ast).start;
+        }
+        if let Some(name) = name {
+            limit = name.span(ast).start;
+        }
+        let span = Span::new(class.span(ast).start, limit);
+        let comments = self.comments.in_range(span);
+        let keyword = self
+            .find_token(span, comments, "class")
+            .ok_or_else(|| self.unsupported("class modifier boundary", class))?;
+        let keyword_end = keyword + "class".len() as u32;
+        let target = name.map(|node| node.span(ast));
+        let binding = self.comment_binding(comments, span, target);
+        let prefix = if binding.allows_relocation(target) && (name.is_some() || comments.is_empty())
+        {
+            SourceClassPrefix::Formatted {
+                declare,
+                abstract_class,
+                name_gap: name.map(|node| {
+                    self.prepare_comment_boundary(comments, span.start, node.span(ast).start)
+                }),
+            }
+        } else {
+            SourceClassPrefix::Source(Span::new(span.start, keyword_end))
+        };
+        Ok((keyword_end, prefix))
     }
 
     fn format_class_implements(
