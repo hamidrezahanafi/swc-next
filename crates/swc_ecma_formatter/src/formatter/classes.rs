@@ -3,14 +3,15 @@
 use swc_next_ecma_ast::{
     Accessibility, BindingIdentifier, Class, ClassBody, ClassElement, ClassElementData, Comment,
     CommentKind, Expr, GetSpan, MethodDefinitionKind, PropertyDefinition, PropertyKey, Span,
-    StaticBlock, StmtData, TsFunction, TsIndexSignature, TsMethodDefinition,
-    TsTypeParameterDeclaration,
+    StaticBlock, StmtData, SubRange, TsClassImplements, TsFunction, TsIndexSignature,
+    TsMethodDefinition, TsTypeParameterDeclaration,
 };
 
 use super::Formatter;
 use super::bindings::{InitializerLayout, InitializerLeft, PreparedInitializer};
 use super::comments::{CommentGap, CommentRunLayout, ExpressionTail, NodeHead};
 use super::diagnostics::{FlatSeparator, LineConstraint};
+use super::expressions::arguments::{ArgumentLayout, FollowingItem, ItemBoundary};
 use super::expressions::objects::PropertyKeyContext;
 use super::expressions::{
     AccessKind, ExpressionContext, ExpressionPosition, ExpressionTypeArguments, TailOwner,
@@ -22,15 +23,25 @@ use super::suppression::{
     ContentMode, DelimitedFollowing, DelimitedSuppression, SuppressionPosition,
     is_suppression_comment,
 };
-use super::types::PreparedIndexSignature;
 use super::types::generics::{TypeListKind, TypeListPrefix, TypeParameterContext};
+use super::types::{PreparedIndexSignature, TypeGap};
 use crate::{FormatError, Semicolons, document::Writer};
+
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Keep the prepared borrowed header inline instead of allocating per class."
+)]
+enum PreparedClassHead<'ast> {
+    Verbatim,
+    Source(SourceClassHead<'ast>),
+}
 
 struct SourceClassHead<'ast> {
     name: Option<BindingIdentifier>,
     name_mode: ContentMode,
     parameters: Option<SourceClassParameters<'ast>>,
     heritage: Option<SourceClassHeritage<'ast>>,
+    implements: Option<SourceClassImplements<'ast>>,
     body: ClassBody,
     body_mode: ContentMode,
     incoming: Option<IncomingClassMember>,
@@ -58,6 +69,14 @@ struct SourceClassHeritage<'ast> {
     mode: ContentMode,
     boundary: Option<Span>,
     arguments: Option<ExpressionTypeArguments<'ast>>,
+}
+
+struct SourceClassImplements<'ast> {
+    first: TsClassImplements,
+    remaining: SubRange<TsClassImplements>,
+    end: u32,
+    before_keyword: TypeGap<'ast>,
+    after_keyword: TypeGap<'ast>,
 }
 
 struct PreparedClassMember<'ast> {
@@ -126,12 +145,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         class: Class,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        let head = self.source_class_head(class)?;
+        let head = match self.source_class_head(class)? {
+            PreparedClassHead::Verbatim => {
+                return self.format_verbatim(class.span(self.ast), writer);
+            }
+            PreparedClassHead::Source(head) => head,
+        };
         let SourceClassHead {
             name,
             name_mode,
             parameters,
             heritage,
+            implements,
             body,
             body_mode,
             incoming,
@@ -213,19 +238,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_expression_tail(tail, writer)?;
             }
         }
+        if let Some(implements) = implements {
+            self.format_class_implements(implements, writer)?;
+        }
         self.comments.claim(body_comments)?;
         self.format_comment_run(body_comments, CommentRunLayout::SourceAfter(end), writer)?;
         body_gap.write(writer, FlatSeparator::Space, Writer::space);
         self.format_class_body(body, body_mode, incoming, writer)
     }
 
-    fn source_class_head(&self, class: Class) -> Result<SourceClassHead<'ast>, FormatError> {
+    fn source_class_head(&self, class: Class) -> Result<PreparedClassHead<'ast>, FormatError> {
         let ast = self.ast;
-        if !class.decorators(ast).is_empty()
-            || !class.implements(ast).is_empty()
-            || class.r#abstract(ast)
-            || class.declare(ast)
-        {
+        if !class.decorators(ast).is_empty() || class.r#abstract(ast) || class.declare(ast) {
             return Err(self.unsupported("typed or decorated class", class));
         }
         let body = class.body(ast);
@@ -258,7 +282,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 prefix,
             }
         });
-        let heritage = if let Some(expression) = class.super_class(ast) {
+        let mut heritage = if let Some(expression) = class.super_class(ast) {
             let preceding_end = end;
             let gap = Span::new(preceding_end, expression.span(ast).start);
             let comments = self.comments.in_range(gap);
@@ -319,6 +343,61 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             None
         };
+        let mut implements_nodes = class.implements(ast);
+        let implements = if let Some(first) = implements_nodes.first() {
+            let first = ast.get_node_in_sub_range(first);
+            let remaining = implements_nodes.split_off(1);
+            let gap = Span::new(end, first.span(ast).start);
+            let comments = self.comments.in_range(gap);
+            let keyword = self
+                .find_token(gap, comments, "implements")
+                .ok_or_else(|| self.unsupported("class implements boundary", class))?;
+            let keyword = Span::new(keyword, keyword + "implements".len() as u32);
+            let split = comments.partition_point(|comment| comment.span.end <= keyword.start);
+            let (before, after) = comments.split_at(split);
+            let source = self.content_mode(comments) == ContentMode::Verbatim;
+            if source {
+                // The class handler attaches first-entry comments to a real
+                // preceding header node, or to the complete class when that
+                // node is a superclass argument list or is absent.
+                if let Some(heritage) = &mut heritage {
+                    if heritage.arguments.is_some() {
+                        return Ok(PreparedClassHead::Verbatim);
+                    }
+                    heritage.mode = ContentMode::Verbatim;
+                } else if let Some(parameters) = &mut parameters {
+                    parameters.mode = ContentMode::Verbatim;
+                } else if name.is_some() {
+                    name_mode = ContentMode::Verbatim;
+                } else {
+                    return Ok(PreparedClassHead::Verbatim);
+                }
+            }
+            end = remaining.last().map_or(first.span(ast).end, |last| {
+                ast.get_node_in_sub_range(last).span(ast).end
+            });
+            Some(SourceClassImplements {
+                first,
+                remaining,
+                end,
+                before_keyword: if source {
+                    TypeGap::Source(Span::new(gap.start, keyword.start))
+                } else {
+                    TypeGap::Formatted(self.prepare_comment_boundary(
+                        before,
+                        gap.start,
+                        keyword.start,
+                    ))
+                },
+                after_keyword: if source {
+                    TypeGap::Source(Span::new(keyword.end, gap.end))
+                } else {
+                    TypeGap::Formatted(self.prepare_comment_boundary(after, keyword.end, gap.end))
+                },
+            })
+        } else {
+            None
+        };
         let mut body_mode = ContentMode::Formatted;
         let mut incoming = None;
         let body_comments = self.comments.in_range(Span::new(end, body.span(ast).start));
@@ -348,11 +427,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 body_constraint = self.source_line_constraint(last, body.span(ast).start);
             }
         }
-        Ok(SourceClassHead {
+        Ok(PreparedClassHead::Source(SourceClassHead {
             name,
             name_mode,
             parameters,
             heritage,
+            implements,
             body,
             body_mode,
             incoming,
@@ -366,6 +446,82 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             } else {
                 CommentGap::Source(body_constraint)
             },
+        }))
+    }
+
+    fn format_class_implements(
+        &mut self,
+        list: SourceClassImplements<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        self.format_type_gap(list.before_keyword, FlatSeparator::Space, writer)?;
+        writer.text("implements");
+        self.format_type_gap(list.after_keyword, FlatSeparator::Space, writer)?;
+        let ast = self.ast;
+        let mut nodes = std::iter::once(list.first)
+            .chain(
+                list.remaining
+                    .iter()
+                    .map(|id| ast.get_node_in_sub_range(id)),
+            )
+            .peekable();
+        writer.group(false, |writer| {
+            writer.indent(|writer| {
+                let mut previous: Option<ItemBoundary> = None;
+                while let Some(node) = nodes.next() {
+                    let span = node.span(ast);
+                    let end = previous.map_or(span.start, |previous| previous.end);
+                    if let Some(previous) = previous {
+                        let next = self
+                            .comments
+                            .between(Span::new(end, span.start))?
+                            .first()
+                            .map_or(span.start, |comment| comment.span.start);
+                        ArgumentLayout::Lines.separator(
+                            previous.separator,
+                            self.line_constraint(end, next),
+                            writer,
+                        );
+                    }
+                    let following = nodes.peek().map_or(FollowingItem::End, |next| {
+                        FollowingItem::Node(next.span(ast))
+                    });
+                    let mut item = self.prepare_delimited_item(
+                        span,
+                        following,
+                        Span::new(end, list.end),
+                        false,
+                        writer,
+                    )?;
+                    item.set_leading_mode(
+                        previous.map_or(ContentMode::Formatted, |previous| previous.following_mode),
+                    );
+                    let tail = if item.mode == ContentMode::Verbatim {
+                        self.format_verbatim(span, writer)?;
+                        None
+                    } else {
+                        let expression = node.expression(ast);
+                        let context = ExpressionContext::at(ExpressionPosition::Nested);
+                        if let Some(arguments) = node.type_arguments(ast) {
+                            let arguments = self.prepare_expression_type_arguments(
+                                expression,
+                                arguments,
+                                AccessKind::Ordinary,
+                            )?;
+                            let context = context
+                                .with_content_mode(arguments.callee_mode)
+                                .with_tail_owner(TailOwner::ParentOperation);
+                            let tail = self.format_expression(expression, context, writer)?;
+                            self.format_expression_type_arguments(arguments, tail, writer)?;
+                            None
+                        } else {
+                            self.format_expression(expression, context, writer)?
+                        }
+                    };
+                    previous = Some(self.finish_delimited_item(item, tail, writer)?);
+                }
+                Ok(())
+            })
         })
     }
 
