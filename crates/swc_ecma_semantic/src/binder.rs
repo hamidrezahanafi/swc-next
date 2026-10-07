@@ -4299,7 +4299,6 @@ impl<'a> SymbolTracker<'a> {
             node_symbols,
             node_references,
             node_scopes: Vec::new(),
-            direct_eval_calls: Default::default(),
             features,
             class,
             used_names: self.used_names,
