@@ -876,13 +876,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<ClassMemberContent<'ast>, FormatError> {
         let ast = self.ast;
         let function = node.value(ast);
-        if node.kind(ast) != MethodDefinitionKind::Method
-            || !node.decorators(ast).is_empty()
+        if !node.decorators(ast).is_empty()
             || node.optional(ast)
             || function.r#async(ast)
             || function.generator(ast)
         {
             return Err(self.unsupported("typed or decorated bodyless class method", node));
+        }
+        let kind = node.kind(ast);
+        if kind != MethodDefinitionKind::Method {
+            if function.type_parameters(ast).is_some()
+                || (kind != MethodDefinitionKind::Get && function.return_type(ast).is_some())
+            {
+                return Err(self.unsupported("typed accessor or constructor header", function));
+            }
+            if function.this_param(ast).is_some() {
+                return Err(self.unsupported("typed function", function));
+            }
         }
         let source = self.source_bodyless_signature(function);
         let mut prefix = self.source_bodyless_method_prefix(node, source.header_start(ast))?;

@@ -484,12 +484,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         header_start: u32,
     ) -> Result<SourceMethodPrefix, FormatError> {
         let ast = self.ast;
+        let keyword = match node.kind(ast) {
+            MethodDefinitionKind::Get => Some("get"),
+            MethodDefinitionKind::Set => Some("set"),
+            MethodDefinitionKind::Method | MethodDefinitionKind::Constructor => None,
+        };
         let mut prefix = self.source_method_key_prefix(MethodKeyInput {
             start: node.span(ast).start,
             key: node.key(ast),
             computed: node.computed(ast),
             is_static: node.r#static(ast),
-            keyword: None,
+            keyword,
             generator: false,
             header_start,
             class: Some(ClassMemberPrefixOwner::Bodyless(node)),

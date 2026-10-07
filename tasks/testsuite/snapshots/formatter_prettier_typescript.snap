@@ -3,13 +3,13 @@ formatter * prettier 3.9.9 * typescript
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 657
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 396/804 (49.25%)
-Snapshot matched: 396/804
-AST parity: 580/580
-AST mismatched: 0/580
+Passed: 403/804 (50.12%)
+Snapshot matched: 403/804
+AST parity: 588/588
+AST mismatched: 0/588
 AST format errors: 0/804
-Mismatched: 184/804
-Format errors: 224/804
+Mismatched: 185/804
+Format errors: 216/804
 Panicked: 0/804
 Not idempotent: 0/804
 Ignored files: 76
@@ -151,7 +151,6 @@ Unsupported option sets: 7
 - typescript/comments/union.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/compiler/anyIsAssignableToObject.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/compiler/castOfAwait.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/compiler/castTest.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/compiler/decrementAndIncrementOperators.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/compiler/functionOverloadsOnGenericArity1.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/compiler/indexSignatureWithInitializer.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -160,18 +159,12 @@ Unsupported option sets: 7
 - typescript/conditional-types/infer-type.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conditional-types/new-ternary-spec.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conditional-types/parentheses.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/conformance/ambient/ambientDeclarations.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/classes/abstract.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/conformance/classes/classDeclarations/classAbstractKeyword/classAbstractAccessor.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/conformance/classes/constructorDeclarations/constructorParameters/constructorImplementationWithDefaultValues.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/conformance/classes/constructorDeclarations/constructorParameters/constructorImplementationWithDefaultValues2.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/conformance/classes/constructorDeclarations/constructorParameters/constructorOverloadsWithDefaultValues.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/conformance/classes/constructorDeclarations/constructorParameters/constructorOverloadsWithOptionalParameters.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
+- typescript/conformance/classes/constructorDeclarations/constructorParameters/constructorImplementationWithDefaultValues2.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/classes/constructorDeclarations/constructorParameters/constructorParameterProperties.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/classes/constructorDeclarations/constructorParameters/readonlyInConstructorParameters.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/classes/mixinClassesAnnotated.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/classes/mixinClassesAnonymous.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/conformance/classes/mixinClassesMembers.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/es6/templates/templateStringWithEmbeddedTypeAssertionOnAdditionES6.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/internalModules/importDeclarations/exportImportAlias.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/internalModules/importDeclarations/importAliasIdentifiers.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
