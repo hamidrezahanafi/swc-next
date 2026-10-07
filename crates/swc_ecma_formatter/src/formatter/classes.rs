@@ -1,11 +1,13 @@
 //! Class heads and members retain real keys, signatures, and source terminators.
 
 use swc_next_ecma_ast::{
-    Accessibility, BindingIdentifier, Class, ClassBody, ClassElement, ClassElementData, Comment,
-    CommentKind, Expr, GetSpan, MethodDefinitionKind, PropertyDefinition, PropertyKey, Span,
-    StaticBlock, StmtData, SubRange, TsClassImplements, TsFunction, TsIndexSignature,
-    TsMethodDefinition, TsTypeAnnotation, TsTypeParameterDeclaration,
+    BindingIdentifier, Class, ClassBody, ClassElement, ClassElementData, Comment, CommentKind,
+    Expr, GetSpan, MethodDefinitionKind, PropertyDefinition, PropertyKey, Span, StaticBlock,
+    StmtData, SubRange, TsClassImplements, TsFunction, TsIndexSignature, TsMethodDefinition,
+    TsTypeAnnotation, TsTypeParameterDeclaration,
 };
+
+pub(in crate::formatter) mod member_prefix;
 
 use super::Formatter;
 use super::bindings::InitializerLayout;
@@ -26,6 +28,7 @@ use super::suppression::{
 use super::types::generics::{TypeListKind, TypeListPrefix, TypeParameterContext};
 use super::types::{PreparedAnnotation, PreparedIndexSignature, TypeGap};
 use crate::{FormatError, Semicolons, document::Writer};
+use member_prefix::{ClassMemberPrefix, ClassMemberPrefixOwner};
 
 #[expect(
     clippy::large_enum_variant,
@@ -131,7 +134,7 @@ struct SourceClassField<'ast> {
     computed: Option<Span>,
     key_start: u32,
     key_mode: ContentMode,
-    static_end: Option<u32>,
+    prefix: ClassMemberPrefix,
     suffix: Option<FieldSuffix<'ast>>,
     left_end: u32,
     initializer: Option<FieldInitializer<'ast>>,
@@ -875,11 +878,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let function = node.value(ast);
         if node.kind(ast) != MethodDefinitionKind::Method
             || !node.decorators(ast).is_empty()
-            || node.r#static(ast)
-            || node.r#override(ast)
             || node.optional(ast)
-            || node.r#abstract(ast)
-            || node.accessibility(ast) != Accessibility::None
             || function.r#async(ast)
             || function.generator(ast)
         {
@@ -997,21 +996,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         source_sibling: Option<DelimitedSuppression>,
     ) -> Result<Option<SourceClassField<'ast>>, FormatError> {
         let ast = self.ast;
-        if !node.decorators(ast).is_empty()
-            || node.accessor(ast)
-            || node.declare(ast)
-            || node.r#override(ast)
-            || node.readonly(ast)
-            || node.r#abstract(ast)
-            || node.accessibility(ast) != Accessibility::None
-        {
+        if !node.decorators(ast).is_empty() || node.accessor(ast) {
             return Err(self.unsupported("typed or decorated class field", node));
         }
         let span = node.span(ast);
         let key = node.key(ast);
         let key_span = key.span(ast);
-        let static_end = node.r#static(ast).then_some(span.start + 6);
-        let prefix_end = static_end.unwrap_or(span.start);
+        let parts = self.source_class_member_prefix(ClassMemberPrefixOwner::Field(node))?;
+        let opening = parts.as_ref().and_then(|parts| parts.opening);
+        let typed_prefix = parts.is_some();
+        let prefix = parts.map_or_else(
+            || ClassMemberPrefix::ordinary(span.start, node.r#static(ast)),
+            |parts| parts.member,
+        );
+        let prefix_end = prefix.end();
         let value = node.value(ast);
         let annotation = node.type_annotation(ast);
         let end = value.map_or_else(
@@ -1027,9 +1025,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut tail_source = false;
         let computed = if node.computed(ast) {
             let before = Span::new(prefix_end, key_span.start);
-            let opening = self
-                .find_token(before, self.comments.in_range(before), "[")
-                .ok_or_else(|| self.unsupported("computed field opening boundary", node))?;
+            let opening = match opening {
+                Some(opening) => opening,
+                None => self
+                    .find_token(before, self.comments.in_range(before), "[")
+                    .ok_or_else(|| self.unsupported("computed field opening boundary", node))?,
+            };
             let after = Span::new(
                 key_span.end,
                 annotation.map_or_else(
@@ -1045,6 +1046,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             None
         };
         let key_start = computed.map_or(key_span.start, |span| span.start);
+        if ast.is_ts()
+            && !typed_prefix
+            && (prefix.has_modifiers()
+                && self.source(Span::new(prefix.start(), prefix.end())) != "static"
+                || !self.ts_class_prefix_gap_is_trivia(Span::new(prefix_end, key_start)))
+        {
+            return Err(self.unsupported("class field prefix", node));
+        }
         let key_end = computed.map_or(key_span.end, |span| span.end);
         let suffix = self.source_field_suffix(node, key_end, tail_end)?;
         let left_end = suffix.as_ref().map_or(key_end, |suffix| suffix.end);
@@ -1179,7 +1188,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             computed,
             key_start,
             key_mode,
-            static_end,
+            prefix,
             suffix,
             left_end,
             initializer,
@@ -1267,23 +1276,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let SourceClassField {
-            node,
+            node: _,
             key,
             computed,
             key_start,
             key_mode,
-            static_end,
+            prefix,
             suffix,
             left_end,
             initializer,
             terminal,
         } = field;
-        if let Some(static_end) = static_end {
-            writer.text("static");
-            self.format_source_token_gap(static_end, key_start, true, writer)?;
-        } else {
-            self.format_source_token_gap(node.span(self.ast).start, key_start, false, writer)?;
-        }
+        self.format_class_member_prefix(&prefix, writer)?;
+        self.format_class_member_key_gap(
+            &prefix,
+            prefix.end(),
+            key_start,
+            prefix.has_modifiers() && !prefix.is_formatted(),
+            writer,
+        )?;
         self.format_field_key(key, computed, key_mode, writer)?;
         let tail = if let Some(suffix) = suffix {
             self.format_field_suffix(suffix, writer)?
@@ -1323,7 +1334,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ClassMemberContent::Bodyless(method) => method.prefix.needs_field_separator(self),
             ClassMemberContent::BodylessValue { prefix, .. } => prefix.needs_field_separator(self),
             ClassMemberContent::Field(field) => {
-                field.static_end.is_none()
+                if field.prefix.is_source() {
+                    return self.source_class_member_needs_field_separator(
+                        field.node.span(self.ast),
+                        field.key,
+                    );
+                }
+                !field.prefix.has_modifiers()
                     && (field.computed.is_some()
                         || matches!(
                             self.property_key_identifier(
@@ -1338,57 +1355,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ClassMemberContent::Index(index) => index.signature.starts_with_bracket(),
             ClassMemberContent::Verbatim => {
                 let ast = self.ast;
-                let (key, computed, prefix, generator) = match ast.class_element_data(member.node) {
-                    ClassElementData::PropertyDefinition(field) => (
-                        field.key(ast),
-                        field.computed(ast),
-                        field.r#static(ast),
-                        false,
-                    ),
-                    ClassElementData::MethodDefinition(method) => {
-                        let function = method.value(ast);
-                        (
-                            method.key(ast),
-                            method.computed(ast),
-                            method.r#static(ast)
-                                || function.r#async(ast)
-                                || matches!(
-                                    method.kind(ast),
-                                    MethodDefinitionKind::Get | MethodDefinitionKind::Set
-                                ),
-                            function.generator(ast),
-                        )
-                    }
-                    ClassElementData::TsMethodDefinition(method) => {
-                        let function = method.value(ast);
-                        (
-                            method.key(ast),
-                            method.computed(ast),
-                            method.r#static(ast)
-                                || function.r#async(ast)
-                                || matches!(
-                                    method.kind(ast),
-                                    MethodDefinitionKind::Get | MethodDefinitionKind::Set
-                                ),
-                            function.generator(ast),
-                        )
-                    }
+                let key = match ast.class_element_data(member.node) {
+                    ClassElementData::PropertyDefinition(field) => field.key(ast),
+                    ClassElementData::MethodDefinition(method) => method.key(ast),
+                    ClassElementData::TsMethodDefinition(method) => method.key(ast),
                     ClassElementData::TsIndexSignature(index) => {
                         return self.source(index.span(ast)).starts_with('[');
                     }
                     ClassElementData::StaticBlock(_) => return false,
                 };
-                !prefix
-                    && (computed
-                        || generator
-                        || matches!(
-                            self.property_key_identifier(
-                                key,
-                                PropertyKeyContext::Ordinary,
-                                ContentMode::Verbatim
-                            ),
-                            Some("in" | "instanceof")
-                        ))
+                self.source_class_member_needs_field_separator(member.node.span(ast), key)
             }
         }
     }

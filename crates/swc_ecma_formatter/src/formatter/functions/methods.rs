@@ -1,13 +1,14 @@
 //! Method owners share one signature while retaining their lexical prefixes.
 
 use swc_next_ecma_ast::{
-    Accessibility, ExprData, Function, GetSpan, MethodDefinition, MethodDefinitionKind,
-    ObjectProperty, PropertyKey, PropertyKeyData, PropertyKind, Span, TsMethodDefinition,
+    ExprData, Function, GetSpan, MethodDefinition, MethodDefinitionKind, ObjectProperty,
+    PropertyKey, PropertyKeyData, PropertyKind, Span, TsMethodDefinition,
 };
 
 use super::{
     FunctionNameModes, FunctionSignatureOwner, MethodSignatureKind, PreparedFunctionSignature,
 };
+use crate::formatter::classes::member_prefix::{ClassMemberPrefix, ClassMemberPrefixOwner};
 use crate::formatter::comments::{CommentBinding, CommentBoundary};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::expressions::objects::PropertyKeyContext;
@@ -32,8 +33,7 @@ pub(in crate::formatter) struct SourceMethodHeader<'ast> {
 }
 
 pub(in crate::formatter) struct SourceMethodPrefix {
-    start: u32,
-    static_end: Option<u32>,
+    member: ClassMemberPrefix,
     keyword: Option<(&'static str, Span)>,
     star: Option<u32>,
     pub(in crate::formatter) key: PropertyKey,
@@ -50,6 +50,7 @@ struct MethodKeyInput {
     keyword: Option<&'static str>,
     generator: bool,
     header_start: u32,
+    class: Option<ClassMemberPrefixOwner>,
 }
 
 #[expect(
@@ -84,7 +85,14 @@ impl SourceMethodHeader<'_> {
         &self,
         formatter: &Formatter<'_, '_>,
     ) -> bool {
-        self.prefix.needs_field_separator(formatter)
+        if self.enclosing_mode == ContentMode::Verbatim {
+            formatter.source_class_member_needs_field_separator(
+                self.owner.span(formatter.ast),
+                self.prefix.key,
+            )
+        } else {
+            self.prefix.needs_field_separator(formatter)
+        }
     }
 }
 
@@ -97,7 +105,7 @@ impl SourceMethodPrefix {
         &self,
         formatter: &Formatter<'_, '_>,
     ) -> bool {
-        if self.static_end.is_some() || self.keyword.is_some() {
+        if self.member.has_modifiers() || self.keyword.is_some() {
             return false;
         }
         self.star.is_some()
@@ -136,12 +144,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 )
             }
             MethodOwner::Class(method) => {
-                if !method.decorators(ast).is_empty()
-                    || method.r#override(ast)
-                    || method.optional(ast)
-                    || method.r#abstract(ast)
-                    || method.accessibility(ast) != Accessibility::None
-                {
+                if !method.decorators(ast).is_empty() || method.optional(ast) {
                     return Err(self.unsupported("typed or decorated class method", method));
                 }
                 let function = method.value(ast);
@@ -209,6 +212,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             keyword,
             generator: function.generator(ast),
             header_start,
+            class: match owner {
+                MethodOwner::Object(_) => None,
+                MethodOwner::Class(method) => Some(ClassMemberPrefixOwner::Method(method)),
+            },
         })?;
         let computed = prefix.computed;
         let key_span = key.span(ast);
@@ -367,27 +374,48 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             keyword,
             generator,
             header_start,
+            class,
         } = input;
-        let static_end = is_static.then_some(start + 6);
-        let prefix_end = static_end.unwrap_or(start);
+        let class_owner = class.is_some();
+        let class = match class {
+            Some(owner) => self.source_class_member_prefix(owner)?,
+            None => None,
+        };
+        let typed_prefix = class.is_some();
+        let (member, prepared_keyword, prepared_star, prepared_opening) = match class {
+            Some(parts) => (parts.member, parts.keyword, parts.star, parts.opening),
+            None => (
+                ClassMemberPrefix::ordinary(start, is_static),
+                None,
+                None,
+                None,
+            ),
+        };
+        let prefix_end = member.end();
         let key_span = key.span(ast);
-        let keyword = keyword
-            .map(|keyword| {
-                let position = if is_static {
-                    let gap = Span::new(prefix_end, key_span.start);
-                    self.find_token(gap, self.comments.in_range(gap), keyword)
-                        .ok_or_else(|| self.unsupported("method keyword boundary", key))?
-                } else {
-                    start
-                };
-                Ok::<_, FormatError>((
-                    keyword,
-                    Span::new(position, position + keyword.len() as u32),
-                ))
-            })
-            .transpose()?;
+        let keyword = if typed_prefix {
+            prepared_keyword
+        } else {
+            keyword
+                .map(|keyword| {
+                    let position = if is_static {
+                        let gap = Span::new(prefix_end, key_span.start);
+                        self.find_token(gap, self.comments.in_range(gap), keyword)
+                            .ok_or_else(|| self.unsupported("method keyword boundary", key))?
+                    } else {
+                        start
+                    };
+                    Ok::<_, FormatError>((
+                        keyword,
+                        Span::new(position, position + keyword.len() as u32),
+                    ))
+                })
+                .transpose()?
+        };
         let keyword_end = keyword.map_or(prefix_end, |(_, span)| span.end);
-        let star = if generator {
+        let star = if typed_prefix {
+            prepared_star
+        } else if generator {
             let gap = Span::new(keyword_end, key_span.start);
             Some(
                 self.find_token(gap, self.comments.in_range(gap), "*")
@@ -399,9 +427,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let head_end = star.map_or(keyword_end, |star| star + 1);
         let computed = if computed {
             let before = Span::new(head_end, key_span.start);
-            let opening = self
-                .find_token(before, self.comments.in_range(before), "[")
-                .ok_or_else(|| self.unsupported("computed method opening boundary", key))?;
+            let opening = match prepared_opening {
+                Some(opening) => opening,
+                None => self
+                    .find_token(before, self.comments.in_range(before), "[")
+                    .ok_or_else(|| self.unsupported("computed method opening boundary", key))?,
+            };
             let after = Span::new(key_span.end, header_start);
             let closing = self
                 .find_token(after, self.comments.in_range(after), "]")
@@ -410,9 +441,34 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             None
         };
+        if ast.is_ts() && class_owner && !typed_prefix {
+            let key_start = computed.map_or(key_span.start, |span| span.start);
+            if member.has_modifiers()
+                && self.source(Span::new(member.start(), member.end())) != "static"
+            {
+                return Err(self.unsupported("class method static boundary", key));
+            }
+            let mut cursor = prefix_end;
+            if let Some((word, span)) = keyword {
+                if self.source(span) != word
+                    || !self.ts_class_prefix_gap_is_trivia(Span::new(cursor, span.start))
+                {
+                    return Err(self.unsupported("typed method prefix", key));
+                }
+                cursor = span.end;
+            }
+            if let Some(star) = star {
+                if !self.ts_class_prefix_gap_is_trivia(Span::new(cursor, star)) {
+                    return Err(self.unsupported("typed method prefix", key));
+                }
+                cursor = star + 1;
+            }
+            if !self.ts_class_prefix_gap_is_trivia(Span::new(cursor, key_start)) {
+                return Err(self.unsupported("typed method prefix", key));
+            }
+        }
         Ok(SourceMethodPrefix {
-            start,
-            static_end,
+            member,
             keyword,
             star,
             key,
@@ -432,15 +488,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             start: node.span(ast).start,
             key: node.key(ast),
             computed: node.computed(ast),
-            is_static: false,
+            is_static: node.r#static(ast),
             keyword: None,
             generator: false,
             header_start,
+            class: Some(ClassMemberPrefixOwner::Bodyless(node)),
         })?;
         if self.has_suppression {
             prefix.key_mode = self.content_mode(
                 self.comments
-                    .in_range(Span::new(prefix.start, prefix.key.span(ast).start)),
+                    .in_range(Span::new(prefix.member.start(), prefix.key.span(ast).start)),
             );
         }
         Ok(prefix)
@@ -503,8 +560,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let SourceMethodPrefix {
-            start,
-            static_end,
+            member,
             keyword,
             star,
             key,
@@ -514,11 +570,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } = prefix;
         let key_span = key.span(self.ast);
         let key_start = computed.map_or(key_span.start, |span| span.start);
-        let mut head_end = start;
-        if let Some(static_end) = static_end {
-            writer.text("static");
+        let formatted_prefix = member.is_formatted();
+        let mut head_end = member.end();
+        self.format_class_member_prefix(&member, writer)?;
+        if member.has_modifiers() && !formatted_prefix {
             let next = keyword.map_or_else(|| star.unwrap_or(key_start), |(_, span)| span.start);
-            self.format_source_token_gap(static_end, next, true, writer)?;
+            self.format_source_token_gap(head_end, next, true, writer)?;
             head_end = next;
         }
         if let Some((keyword, span)) = keyword {
@@ -526,11 +583,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             head_end = span.end;
         }
         if let Some(star) = star {
-            self.format_source_token_gap(head_end, star, keyword.is_some(), writer)?;
+            if formatted_prefix {
+                if keyword.is_some() {
+                    writer.space();
+                }
+            } else {
+                self.format_source_token_gap(head_end, star, keyword.is_some(), writer)?;
+            }
             writer.text("*");
             head_end = star + 1;
         }
-        self.format_source_token_gap(
+        self.format_class_member_key_gap(
+            &member,
             head_end,
             key_start,
             keyword.is_some() && star.is_none(),
