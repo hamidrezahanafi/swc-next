@@ -1,7 +1,7 @@
 //! Real type members share a body while retaining their key, signature, and tail owners.
 
 use swc_next_ecma_ast::{
-    FormalParameters, GetSpan, PropertyKey, Span, SubRange, TsCallSignatureDeclaration,
+    Comment, FormalParameters, GetSpan, PropertyKey, Span, SubRange, TsCallSignatureDeclaration,
     TsConstructSignatureDeclaration, TsIndexSignature, TsIndexSignatureParameter,
     TsMethodSignature, TsMethodSignatureKind, TsPropertySignature, TsThisParameter,
     TsTypeAnnotation, TsTypeElement, TsTypeElementData, TsTypeLiteral, TsTypeParameterDeclaration,
@@ -13,11 +13,10 @@ use super::callable::{
 };
 use super::generics::TypeParameterContext;
 use super::{Formatter, PreparedType, TypeBoundaryLayout, TypeContext, TypeGap};
-use crate::formatter::comments::{CommentBoundary, CommentGap, ExpressionTail};
+use crate::formatter::comments::{CommentBoundary, CommentGap, CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::expressions::arguments::{ArgumentLayout, FollowingItem, Separator};
 use crate::formatter::expressions::objects::PropertyKeyContext;
-use crate::formatter::source::is_source_whitespace;
 use crate::formatter::suppression::{
     ContentMode, DelimitedFollowing, DelimitedSuppression, SuppressionPosition,
 };
@@ -29,6 +28,15 @@ struct MemberKey<'ast> {
     end: u32,
     mode: ContentMode,
     prefix: Option<(&'static str, TypeGap<'ast>)>,
+    leading: Option<TypeMemberLeading<'ast>>,
+}
+
+enum TypeMemberLeading<'ast> {
+    Source(Span),
+    Formatted {
+        comments: &'ast [Comment],
+        gap: CommentGap,
+    },
 }
 
 struct PropertyMember<'ast> {
@@ -93,6 +101,7 @@ pub(in crate::formatter) struct PreparedIndexSignature<'ast> {
     opening: u32,
     closing: u32,
     prefix: IndexSignaturePrefix<'ast>,
+    leading: Option<TypeMemberLeading<'ast>>,
     closing_gap: TypeGap<'ast>,
     source_head: Option<TsIndexSignatureParameter>,
     source_tail: Option<TsIndexSignatureParameter>,
@@ -544,11 +553,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             None
         };
         let start = computed.map_or(key.start, |span| span.start);
-        if keyword.is_none() && span.start != start {
-            return Err(self.unsupported("type member modifier", node));
-        }
-        let prefix = keyword.map(|keyword| {
-            let gap = Span::new(span.start + keyword.len() as u32, start);
+        let keyword = keyword
+            .map(|keyword| {
+                let search = Span::new(span.start, start);
+                let position = self
+                    .find_token(search, self.comments.in_range(search), keyword)
+                    .ok_or_else(|| self.unsupported("type member keyword boundary", node))?;
+                Ok::<_, FormatError>((
+                    keyword,
+                    Span::new(position, position + keyword.len() as u32),
+                ))
+            })
+            .transpose()?;
+        let leading_end = keyword.map_or(start, |(_, span)| span.start);
+        let leading = self.prepare_type_member_leading(Span::new(span.start, leading_end));
+        let prefix = keyword.map(|(keyword, token)| {
+            let gap = Span::new(token.end, start);
             (
                 keyword,
                 self.prepare_type_gap(
@@ -558,18 +578,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ),
             )
         });
-        let mut mode = ContentMode::Formatted;
-        if self.has_suppression
-            && let Some((_, TypeGap::Source(_))) = &prefix
-        {
-            mode = ContentMode::Verbatim;
-        }
+        let source_prefix = matches!(leading, Some(TypeMemberLeading::Source(_)))
+            || matches!(prefix, Some((_, TypeGap::Source(_))));
+        let mode = if source_prefix {
+            ContentMode::Verbatim
+        } else {
+            ContentMode::Formatted
+        };
         Ok(MemberKey {
             node,
             computed,
             end: computed.map_or(key.end, |span| span.end),
             mode,
             prefix,
+            leading,
         })
     }
 
@@ -817,7 +839,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let first_start = first.span(ast).start;
         let last_end = last.span(ast).end;
         let before = Span::new(span.start, first_start);
-        let (opening, prefix, head_start) = self.prepare_index_signature_prefix(node, before)?;
+        let (opening, leading, prefix, head_start) =
+            self.prepare_index_signature_prefix(node, before)?;
         let after = Span::new(last_end, annotation_span.start);
         let Some(closing) = self.find_token(after, self.comments.in_range(after), "]") else {
             return Err(self.unsupported("index signature closing", node));
@@ -862,6 +885,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             opening,
             closing,
             prefix,
+            leading,
             closing_gap,
             source_head,
             source_tail,
@@ -873,55 +897,36 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &self,
         node: TsIndexSignature,
         span: Span,
-    ) -> Result<(u32, IndexSignaturePrefix<'ast>, u32), FormatError> {
+    ) -> Result<
+        (
+            u32,
+            Option<TypeMemberLeading<'ast>>,
+            IndexSignaturePrefix<'ast>,
+            u32,
+        ),
+        FormatError,
+    > {
         let ast = self.ast;
-        let expected_static = node.r#static(ast);
-        let expected_readonly = node.readonly(ast);
-        let mut static_token = None;
-        let mut readonly_token = None;
-        let mut cursor = span.start;
-        let mut comments = self.comments.in_range(span).iter().peekable();
-        loop {
-            if let Some(comment) = comments.peek()
-                && comment.span.start == cursor
-            {
-                cursor = comment.span.end;
-                comments.next();
-                continue;
-            }
-            let Some(character) = self.source(Span::new(cursor, span.end)).chars().next() else {
-                return Err(self.unsupported("index signature opening", node));
-            };
-            if is_source_whitespace(character) {
-                cursor += character.len_utf8() as u32;
-                continue;
-            }
-            if character == '[' {
-                break;
-            }
-            let source = self.source(Span::new(cursor, span.end));
-            let (modifier, slot) =
-                if expected_static && static_token.is_none() && source.starts_with("static") {
-                    (IndexModifier::Static, &mut static_token)
-                } else if expected_readonly
-                    && readonly_token.is_none()
-                    && source.starts_with("readonly")
-                {
-                    (IndexModifier::Readonly, &mut readonly_token)
-                } else {
-                    // The parser consumes some class modifiers without retaining
-                    // them on TsIndexSignature. Never discard that actual prefix.
-                    return Err(self.unsupported("index signature prefix", node));
-                };
-            let end = cursor + modifier.keyword().len() as u32;
-            *slot = Some(Span::new(cursor, end));
-            cursor = end;
-        }
-        if static_token.is_some() != expected_static
-            || readonly_token.is_some() != expected_readonly
-        {
-            return Err(self.unsupported("index signature prefix", node));
-        }
+        let comments = self.comments.in_range(span);
+        let opening = self
+            .find_token(span, comments, "[")
+            .ok_or_else(|| self.unsupported("index signature opening", node))?;
+        let prefix_span = Span::new(span.start, opening);
+        let token = |modifier: IndexModifier| -> Result<Span, FormatError> {
+            let keyword = modifier.keyword();
+            let start = self
+                .find_token(prefix_span, comments, keyword)
+                .ok_or_else(|| self.unsupported("index signature modifier boundary", node))?;
+            Ok(Span::new(start, start + keyword.len() as u32))
+        };
+        let static_token = node
+            .r#static(ast)
+            .then(|| token(IndexModifier::Static))
+            .transpose()?;
+        let readonly_token = node
+            .readonly(ast)
+            .then(|| token(IndexModifier::Readonly))
+            .transpose()?;
         let gap = |span: Span| {
             self.prepare_type_gap(
                 span,
@@ -929,18 +934,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     && self.content_mode(self.comments.in_range(span)) == ContentMode::Verbatim,
             )
         };
-        let (prefix, head_start) = match (static_token, readonly_token) {
-            (None, None) => (IndexSignaturePrefix::Bare, cursor + 1),
+        let (prefix, head_start, leading_end) = match (static_token, readonly_token) {
+            (None, None) => (IndexSignaturePrefix::Bare, opening + 1, opening),
             (Some(token), None) => (
-                IndexSignaturePrefix::One(IndexModifier::Static, gap(Span::new(token.end, cursor))),
+                IndexSignaturePrefix::One(
+                    IndexModifier::Static,
+                    gap(Span::new(token.end, opening)),
+                ),
                 token.end,
+                token.start,
             ),
             (None, Some(token)) => (
                 IndexSignaturePrefix::One(
                     IndexModifier::Readonly,
-                    gap(Span::new(token.end, cursor)),
+                    gap(Span::new(token.end, opening)),
                 ),
                 token.end,
+                token.start,
             ),
             (Some(static_token), Some(readonly_token)) => {
                 let (first, first_token, second, second_token) =
@@ -962,13 +972,46 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 (
                     IndexSignaturePrefix::Two {
                         first: (first, gap(Span::new(first_token.end, second_token.start))),
-                        second: (second, gap(Span::new(second_token.end, cursor))),
+                        second: (second, gap(Span::new(second_token.end, opening))),
                     },
                     second_token.end,
+                    first_token.start,
                 )
             }
         };
-        Ok((cursor, prefix, head_start))
+        let leading = self.prepare_type_member_leading(Span::new(span.start, leading_end));
+        Ok((opening, leading, prefix, head_start))
+    }
+
+    fn prepare_type_member_leading(&self, span: Span) -> Option<TypeMemberLeading<'ast>> {
+        let comments = self.comments.in_range(span);
+        if comments.is_empty() {
+            return None;
+        }
+        if self.has_suppression && self.content_mode(comments) == ContentMode::Verbatim {
+            return Some(TypeMemberLeading::Source(span));
+        }
+        let gap = self
+            .prepare_comment_boundary(comments, span.start, span.end)
+            .gap();
+        Some(TypeMemberLeading::Formatted { comments, gap })
+    }
+
+    fn format_type_member_leading(
+        &mut self,
+        leading: Option<TypeMemberLeading<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        match leading {
+            None => Ok(()),
+            Some(TypeMemberLeading::Source(span)) => self.format_verbatim(span, writer),
+            Some(TypeMemberLeading::Formatted { comments, gap }) => {
+                self.comments.claim(comments)?;
+                self.format_comment_run(comments, CommentRunLayout::Source, writer)?;
+                gap.write(writer, FlatSeparator::Space, Writer::line);
+                Ok(())
+            }
+        }
     }
 
     fn format_type_member_key(
@@ -994,7 +1037,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_verbatim(span, writer)?;
                 Ok(None)
             }
-            MemberContent::Property(property) => {
+            MemberContent::Property(mut property) => {
+                self.format_type_member_leading(property.key.leading.take(), writer)?;
                 let source_prefix = property
                     .annotation
                     .as_ref()
@@ -1023,39 +1067,44 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     Ok(None)
                 }
             }
-            MemberContent::Signature(signature) => writer.group(false, |writer| {
-                if let Some(key) = signature.key {
-                    self.format_type_member_key(key, PropertyKeyContext::TypeMethod, writer)?;
-                } else if signature.construct {
-                    writer.text("new");
+            MemberContent::Signature(mut signature) => {
+                if let Some(key) = &mut signature.key {
+                    self.format_type_member_leading(key.leading.take(), writer)?;
                 }
-                if signature.optional && matches!(signature.prefix, TypeGap::Formatted(_)) {
-                    writer.text("?");
-                }
-                self.format_type_gap(
-                    signature.prefix,
-                    if signature.construct {
-                        FlatSeparator::Space
-                    } else {
-                        FlatSeparator::Empty
-                    },
-                    writer,
-                )?;
-                if let Some((node, mode, gap)) = signature.generics {
-                    self.format_type_parameters(
-                        node,
-                        TypeParameterContext::Callable,
-                        mode,
+                writer.group(false, |writer| {
+                    if let Some(key) = signature.key {
+                        self.format_type_member_key(key, PropertyKeyContext::TypeMethod, writer)?;
+                    } else if signature.construct {
+                        writer.text("new");
+                    }
+                    if signature.optional && matches!(signature.prefix, TypeGap::Formatted(_)) {
+                        writer.text("?");
+                    }
+                    self.format_type_gap(
+                        signature.prefix,
+                        if signature.construct {
+                            FlatSeparator::Space
+                        } else {
+                            FlatSeparator::Empty
+                        },
                         writer,
                     )?;
-                    self.format_type_gap(gap, FlatSeparator::Empty, writer)?;
-                }
-                self.format_callable_parameters(signature.parameters, writer)?;
-                match signature.result {
-                    Some(result) => self.format_signature_return(result, writer),
-                    None => Ok(None),
-                }
-            }),
+                    if let Some((node, mode, gap)) = signature.generics {
+                        self.format_type_parameters(
+                            node,
+                            TypeParameterContext::Callable,
+                            mode,
+                            writer,
+                        )?;
+                        self.format_type_gap(gap, FlatSeparator::Empty, writer)?;
+                    }
+                    self.format_callable_parameters(signature.parameters, writer)?;
+                    match signature.result {
+                        Some(result) => self.format_signature_return(result, writer),
+                        None => Ok(None),
+                    }
+                })
+            }
             MemberContent::Index(index) => self.format_index_signature(index, writer),
         }
     }
@@ -1066,6 +1115,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let ast = self.ast;
+        self.format_type_member_leading(index.leading, writer)?;
         match index.prefix {
             IndexSignaturePrefix::Bare => {}
             IndexSignaturePrefix::One(keyword, gap) => {

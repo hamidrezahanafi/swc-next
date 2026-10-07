@@ -591,7 +591,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             property.parameter(ast).span(ast).start,
         );
         let mut comments = self.comments.in_range(span);
-        let mut lexical_comments = comments.iter().peekable();
         if self.has_suppression && self.content_mode(comments) == ContentMode::Verbatim {
             return Err(self.unsupported("parameter property modifier suppression", property));
         }
@@ -601,69 +600,33 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             swc_next_ecma_ast::Accessibility::Protected => Some("protected"),
             swc_next_ecma_ast::Accessibility::Private => Some("private"),
         };
-        let expected = u8::from(accessibility.is_some())
-            | (u8::from(property.r#override(ast)) << 1)
-            | (u8::from(property.readonly(ast)) << 2);
-        let mut seen = 0;
-        let mut position = span.start;
-        let mut end = position;
-        let mut count = 0;
-        let mut modifiers = std::array::from_fn(|_| None);
-        while position < span.end {
-            let whitespace = self
-                .source(Span::new(position, span.end))
-                .chars()
-                .take_while(|character| super::source::is_source_whitespace(*character))
-                .map(char::len_utf8)
-                .sum::<usize>();
-            position += whitespace as u32;
-            if lexical_comments
-                .peek()
-                .is_some_and(|comment| comment.span.start == position)
-            {
-                position = lexical_comments
-                    .next()
-                    .map_or(position, |comment| comment.span.end);
+        let keywords = [
+            accessibility,
+            property.r#override(ast).then_some("override"),
+            property.readonly(ast).then_some("readonly"),
+        ];
+        let mut tokens = [None; 3];
+        for (slot, keyword) in tokens.iter_mut().zip(keywords) {
+            let Some(keyword) = keyword else {
                 continue;
-            }
-            if position == span.end {
-                break;
-            }
-            let length = self
-                .source(Span::new(position, span.end))
-                .bytes()
-                .take_while(u8::is_ascii_alphabetic)
-                .count() as u32;
-            let token = self.source(Span::new(position, position + length));
-            let (keyword, bit) = match token {
-                "public" if accessibility == Some("public") => ("public", 1),
-                "protected" if accessibility == Some("protected") => ("protected", 1),
-                "private" if accessibility == Some("private") => ("private", 1),
-                "override" => ("override", 2),
-                "readonly" => ("readonly", 4),
-                _ => {
-                    return Err(
-                        self.unsupported("constructor parameter modifier boundary", property)
-                    );
-                }
             };
-            if bit & expected == 0 || bit & seen != 0 || count == modifiers.len() {
-                return Err(self.unsupported("constructor parameter modifier boundary", property));
-            }
+            let position = self.find_token(span, comments, keyword).ok_or_else(|| {
+                self.unsupported("constructor parameter modifier boundary", property)
+            })?;
+            *slot = Some((position, keyword));
+        }
+        tokens.sort_unstable_by_key(|token| token.map(|(position, _)| position));
+        let mut end = span.start;
+        let mut modifiers = std::array::from_fn(|_| None);
+        for (slot, (position, keyword)) in modifiers.iter_mut().zip(tokens.into_iter().flatten()) {
             let split = comments.partition_point(|comment| comment.span.end <= position);
             let (before, following) = comments.split_at(split);
-            modifiers[count] = Some(ParameterModifier {
+            *slot = Some(ParameterModifier {
                 keyword,
                 before: self.prepare_comment_boundary(before, end, position),
             });
             comments = following;
-            seen |= bit;
-            count += 1;
-            position += length;
-            end = position;
-        }
-        if seen != expected || count == 0 {
-            return Err(self.unsupported("constructor parameter modifier boundary", property));
+            end = position + keyword.len() as u32;
         }
         Ok(ParameterPropertyPrefix {
             modifiers,

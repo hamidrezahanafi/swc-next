@@ -139,6 +139,9 @@ impl ClassMemberPrefix {
     pub(in crate::formatter) fn is_formatted(&self) -> bool {
         matches!(self.mode, PrefixMode::Formatted)
     }
+    pub(in crate::formatter) fn source_span(&self) -> Option<Span> {
+        (self.is_source() && self.span.start < self.span.end).then_some(self.span)
+    }
 }
 
 impl ClassMemberPrefixOwner {
@@ -234,16 +237,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         owner: ClassMemberPrefixOwner,
     ) -> Result<Option<ClassMemberPrefixParts>, FormatError> {
         let ast = self.ast;
-        let expected = owner.modifiers(ast);
-        if expected & !STATIC == 0 {
+        if !ast.is_ts() {
             return Ok(None);
         }
+        let expected = owner.modifiers(ast);
         let key = owner.key(ast);
         let span = Span::new(owner.span(ast).start, key.span(ast).start);
         let comments = self.comments.in_range(span);
         let (expected_keyword, generator, computed) = owner.method_tokens(ast);
-        // Match AST-known tokens directly before using the special-source scanner.
-        // Complete consumption also rejects modifiers the method AST does not retain.
+        // A canonical AST prefix avoids locating its tokens individually.
         if comments.is_empty()
             && !self.diagnostic_range_is_sensitive(span)
             && let Some(parts) = ClassMemberPrefixParts::canonical(
@@ -258,7 +260,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return Ok(Some(parts));
         }
         let mut lexical_comments = comments.iter().peekable();
-        let mut seen = 0;
         let mut cursor = span.start;
         let mut end = cursor;
         let mut keyword = None;
@@ -280,61 +281,39 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 cursor += character.len_utf8() as u32;
                 continue;
             }
-            if character == '*'
-                && generator
-                && star.is_none()
-                && seen == expected
-                && keyword.is_some() == expected_keyword.is_some()
-            {
+            if character == '*' && generator && star.is_none() {
                 star = Some(cursor);
                 cursor += 1;
                 continue;
             }
-            if character == '['
-                && computed
-                && opening.is_none()
-                && seen == expected
-                && keyword.is_some() == expected_keyword.is_some()
-                && star.is_some() == generator
-            {
+            if character == '[' && computed && opening.is_none() {
                 opening = Some(cursor);
                 cursor += 1;
                 continue;
             }
             let length = source.bytes().take_while(u8::is_ascii_alphabetic).count() as u32;
+            if length == 0 {
+                cursor += character.len_utf8() as u32;
+                continue;
+            }
             let token = self.source(Span::new(cursor, cursor + length));
             if let Some(word) = expected_keyword
                 && word == token
                 && keyword.is_none()
                 && star.is_none()
                 && opening.is_none()
-                && seen == expected
             {
                 keyword = Some((word, Span::new(cursor, cursor + length)));
                 cursor += length;
                 continue;
             }
-            let modifier = MODIFIERS
-                .iter()
-                .find(|(name, _)| *name == token)
-                .map(|(_, bit)| *bit);
-            let Some(bit) = modifier else {
-                return Err(self.unsupported("class member modifier boundary", key));
-            };
-            if bit & expected == 0
-                || bit & seen != 0
-                || keyword.is_some()
-                || star.is_some()
-                || opening.is_some()
-            {
-                return Err(self.unsupported("class member modifier boundary", key));
-            }
-            seen |= bit;
+            // The AST selects flags; this span retains the existing source prefix layout.
             cursor += length;
-            end = cursor;
+            if keyword.is_none() && star.is_none() && opening.is_none() {
+                end = cursor;
+            }
         }
-        if seen != expected
-            || keyword.is_some() != expected_keyword.is_some()
+        if keyword.is_some() != expected_keyword.is_some()
             || star.is_some() != generator
             || opening.is_some() != computed
         {
@@ -412,27 +391,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.space();
         }
         self.format_comment_run(comments, CommentRunLayout::FlatLeading(key_start), writer)
-    }
-
-    pub(in crate::formatter) fn ts_class_prefix_gap_is_trivia(&self, span: Span) -> bool {
-        if span.start == span.end {
-            return true;
-        }
-        let comments = self.comments.in_range(span);
-        let mut cursor = span.start;
-        for comment in comments {
-            if !self
-                .source(Span::new(cursor, comment.span.start))
-                .chars()
-                .all(is_source_whitespace)
-            {
-                return false;
-            }
-            cursor = comment.span.end;
-        }
-        self.source(Span::new(cursor, span.end))
-            .chars()
-            .all(is_source_whitespace)
     }
 
     pub(in crate::formatter) fn source_class_member_needs_field_separator(

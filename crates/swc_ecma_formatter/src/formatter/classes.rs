@@ -129,7 +129,6 @@ enum TypedClassMemberTerminal {
 }
 
 struct SourceClassField<'ast> {
-    node: PropertyDefinition,
     key: PropertyKey,
     computed: Option<Span>,
     key_start: u32,
@@ -1014,7 +1013,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let key_span = key.span(ast);
         let parts = self.source_class_member_prefix(ClassMemberPrefixOwner::Field(node))?;
         let opening = parts.as_ref().and_then(|parts| parts.opening);
-        let typed_prefix = parts.is_some();
         let prefix = parts.map_or_else(
             || ClassMemberPrefix::ordinary(span.start, node.r#static(ast)),
             |parts| parts.member,
@@ -1056,14 +1054,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             None
         };
         let key_start = computed.map_or(key_span.start, |span| span.start);
-        if ast.is_ts()
-            && !typed_prefix
-            && (prefix.has_modifiers()
-                && self.source(Span::new(prefix.start(), prefix.end())) != "static"
-                || !self.ts_class_prefix_gap_is_trivia(Span::new(prefix_end, key_start)))
-        {
-            return Err(self.unsupported("class field prefix", node));
-        }
         let key_end = computed.map_or(key_span.end, |span| span.end);
         let suffix = self.source_field_suffix(node, key_end, tail_end)?;
         let left_end = suffix.as_ref().map_or(key_end, |suffix| suffix.end);
@@ -1193,7 +1183,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
         };
         Ok(Some(SourceClassField {
-            node,
             key,
             computed,
             key_start,
@@ -1286,7 +1275,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let SourceClassField {
-            node: _,
             key,
             computed,
             key_start,
@@ -1344,11 +1332,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ClassMemberContent::Bodyless(method) => method.prefix.needs_field_separator(self),
             ClassMemberContent::BodylessValue { prefix, .. } => prefix.needs_field_separator(self),
             ClassMemberContent::Field(field) => {
-                if field.prefix.is_source() {
-                    return self.source_class_member_needs_field_separator(
-                        field.node.span(self.ast),
-                        field.key,
-                    );
+                if let Some(span) = field.prefix.source_span() {
+                    return self.source_class_member_needs_field_separator(span, field.key);
                 }
                 !field.prefix.has_modifiers()
                     && (field.computed.is_some()
