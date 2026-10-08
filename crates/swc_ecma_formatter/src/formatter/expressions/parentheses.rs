@@ -337,6 +337,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         .with_content_mode(context.content_mode)
                         .with_tail_owner(context.tail_owner)
                         .with_member_chain_layout(context.member_chain_layout)
+                        .with_target_member_intent(context)
                         .inside_parentheses(),
                     array_comments.as_deref_mut(),
                     writer,
@@ -1057,7 +1058,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             RetainedParentheses::Annotation
         };
-        self.format_retained_source_parentheses(boundary, context, kind, false, writer, content)
+        self.format_retained_source_parentheses(
+            boundary,
+            context,
+            kind,
+            false,
+            writer,
+            |formatter, inner, writer| {
+                content(formatter, inner.with_tail_owner(context.tail_owner), writer)
+            },
+        )
     }
 
     fn format_retained_source_parentheses(
@@ -1160,14 +1170,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 (ContentMode::Verbatim, ExpressionPosition::UnaryArgument(operator)) => {
                     ExpressionContext::at(ExpressionPosition::ParenthesizedUnaryArgument(operator))
                 }
-                (_, ExpressionPosition::MemberAssignmentObject) => {
-                    ExpressionContext::at(ExpressionPosition::MemberAssignmentObject)
-                        .inside_parentheses()
-                }
+                (
+                    _,
+                    position @ (ExpressionPosition::MemberAssignmentObject
+                    | ExpressionPosition::AssignmentTarget
+                    | ExpressionPosition::UpdateArgument),
+                ) => ExpressionContext::at(position).inside_parentheses(),
                 _ => ExpressionContext::at(ExpressionPosition::Nested).inside_parentheses(),
             }
             .with_content_mode(mode)
-            .with_member_chain_layout(context.member_chain_layout);
+            .with_member_chain_layout(context.member_chain_layout)
+            .with_target_member_intent(context);
             let tail = content(self, context, array_comments.as_deref_mut(), writer)?;
             let tail = self.capture_expression_tail(Span::new(inner_span.end, span.end), tail)?;
             self.format_expression_tail_with_array_comments(tail, array_comments, writer)

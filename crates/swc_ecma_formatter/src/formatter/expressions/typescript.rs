@@ -173,10 +173,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         )?;
         let tail = self.format_expression(
             expression,
-            ExpressionContext::at(ExpressionPosition::InstantiationOperand)
-                .with_expression_start(context.expression_start)
-                .with_content_mode(arguments.callee_mode)
-                .with_tail_owner(TailOwner::ParentOperation),
+            context.type_operand(
+                ExpressionPosition::InstantiationOperand,
+                arguments.callee_mode,
+                TailOwner::ParentOperation,
+            ),
             writer,
         )?;
         self.format_expression_type_arguments(arguments, tail, writer)?;
@@ -207,10 +208,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer.group(false, |writer| {
             let tail = self.format_expression(
                 expression,
-                ExpressionContext::at(ExpressionPosition::TypeBinaryOperand)
-                    .with_expression_start(context.expression_start)
-                    .with_content_mode(boundary.left_mode)
-                    .with_tail_owner(TailOwner::ParentOperation),
+                context.type_operand(
+                    ExpressionPosition::TypeBinaryOperand,
+                    boundary.left_mode,
+                    TailOwner::ParentOperation,
+                ),
                 writer,
             )?;
             self.format_expression_tail(tail, writer)?;
@@ -348,10 +350,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         let tail = self.format_expression(
             expression,
-            ExpressionContext::at(ExpressionPosition::NonNullOperand)
-                .with_expression_start(context.expression_start)
-                .with_tail_owner(TailOwner::ParentOperation)
-                .with_content_mode(mode),
+            context.type_operand(
+                ExpressionPosition::NonNullOperand,
+                mode,
+                TailOwner::ParentOperation,
+            ),
             writer,
         )?;
         self.format_expression_tail(tail, writer)?;
@@ -411,10 +414,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.format_type_expression_gap(after_angle, FlatSeparator::Empty, writer)?;
             self.format_expression(
                 expression,
-                ExpressionContext::at(ExpressionPosition::TypeAssertionOperand)
-                    .with_expression_start(context.expression_start)
-                    .with_content_mode(mode)
-                    .with_tail_owner(context.tail_owner),
+                context.type_operand(
+                    ExpressionPosition::TypeAssertionOperand,
+                    mode,
+                    context.tail_owner,
+                ),
                 writer,
             )
         })
@@ -463,6 +467,8 @@ pub(super) fn type_expression_needs_parentheses(
                 | ExpressionPosition::BinaryOperand { .. }
                 | ExpressionPosition::MemberObject(_)
                 | ExpressionPosition::MemberAssignmentObject
+                | ExpressionPosition::AssignmentTarget
+                | ExpressionPosition::UpdateArgument
                 | ExpressionPosition::CallCallee { .. }
                 | ExpressionPosition::NewCallee
                 | ExpressionPosition::Superclass
@@ -475,6 +481,8 @@ pub(super) fn type_expression_needs_parentheses(
             position,
             ExpressionPosition::MemberObject(_)
                 | ExpressionPosition::MemberAssignmentObject
+                | ExpressionPosition::AssignmentTarget
+                | ExpressionPosition::UpdateArgument
                 | ExpressionPosition::CallCallee { .. }
                 | ExpressionPosition::NewCallee
                 | ExpressionPosition::Superclass

@@ -3,13 +3,13 @@ formatter * prettier 3.9.9 * typescript
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 657
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 416/804 (51.74%)
-Snapshot matched: 416/804
-AST parity: 603/603
-AST mismatched: 0/603
+Passed: 421/804 (52.36%)
+Snapshot matched: 421/804
+AST parity: 612/612
+AST mismatched: 0/612
 AST format errors: 0/804
-Mismatched: 187/804
-Format errors: 201/804
+Mismatched: 191/804
+Format errors: 192/804
 Panicked: 0/804
 Not idempotent: 0/804
 Ignored files: 76
@@ -80,10 +80,9 @@ Unsupported option sets: 7
 - typescript/argument-expansion/argument_expansion.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/argument-expansion/arrow-with-return-type.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/arrow/return-type/18588.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/as/array-pattern.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/as/as-const/as-const.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/as/as.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/as/assignment2.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
+- typescript/as/as.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- typescript/as/assignment2.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/as/break-after-keyword/18148.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/as/comments/17407.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/as/comments/18160.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -101,15 +100,13 @@ Unsupported option sets: 7
 - typescript/assignment/issue-8619.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/assignment/issue-9172.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/assignment/lone-arg.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/assignment/parenthesized.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
+- typescript/assignment/parenthesized.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/break-calls/type_args.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/call/callee-comments.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/cast/18406.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/cast/array-and-object.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/cast/assert-and-assign.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/cast/generic-cast.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/cast/hug-args.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/cast/parenthesis.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/chain-expression/issue-15785-1.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/chain-expression/issue-15785-2.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/chain-expression/member-chain.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -253,7 +250,6 @@ Unsupported option sets: 7
 - typescript/satisfies-operators/argument-expansion.ts: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - typescript/satisfies-operators/comments-unstable.ts: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - typescript/satisfies-operators/hug-args.ts: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
-- typescript/satisfies-operators/lhs.ts: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - typescript/satisfies-operators/nested-await-and-satisfies.ts: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - typescript/satisfies-operators/template-literal.ts: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
 - typescript/satisfies-operators/ternary.ts: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
@@ -321,7 +317,7 @@ Unsupported option sets: 7
 - typescript/union/trailing-comment.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/union/union-parens.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/union/with-type-params.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/update-expression/update-expressions.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
+- typescript/update-expression/update-expressions.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/webhost/webtsc.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 
 # Unsupported option sets

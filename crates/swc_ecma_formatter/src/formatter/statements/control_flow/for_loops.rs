@@ -2,8 +2,7 @@
 
 use swc_next_ecma_ast::{
     AssignmentTargetData, BindingPattern, Comment, Expr, ForInStatement, ForOfStatement,
-    ForStatement, ForStatementInitData, ForStatementLeftData, GetSpan, SimpleAssignmentTargetData,
-    Span, Stmt,
+    ForStatement, ForStatementInitData, ForStatementLeftData, GetSpan, Span, Stmt,
 };
 
 use super::{
@@ -263,15 +262,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ForStatementLeftData::AssignmentTarget(target) => {
                 match ast.assignment_target_data(target) {
                     AssignmentTargetData::SimpleAssignmentTarget(target) => {
-                        let context = self.iteration_left_context(target, of, awaited);
                         let node = self.iteration_source_target(
                             target,
                             Span::new(opening.span.end, left_span.start),
                             operator.span,
                             of,
                         )?;
+                        let context = self.iteration_left_context(&node, of, awaited)?;
                         HeaderNode {
-                            span: node.span,
+                            span: node.span(),
                             data: HeaderData::Target { node, context },
                         }
                     }
@@ -319,38 +318,65 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     fn iteration_left_context(
         &self,
-        target: swc_next_ecma_ast::SimpleAssignmentTarget,
+        target: &SourceTarget,
         of: bool,
         awaited: bool,
-    ) -> ExpressionContext {
-        let ast = self.ast;
-        let (mut expression, member) = match ast.simple_assignment_target_data(target) {
-            SimpleAssignmentTargetData::IdentifierReference(node) => {
-                (swc_next_ecma_ast::Expr::IdentifierReference(node), false)
-            }
-            SimpleAssignmentTargetData::MemberExpression(node) => {
-                (swc_next_ecma_ast::Expr::MemberExpression(node), true)
-            }
-            _ => return ExpressionContext::at(ExpressionPosition::Nested),
+    ) -> Result<ExpressionContext, FormatError> {
+        let mut context = ExpressionContext::at(ExpressionPosition::Nested);
+        if target.has_source_parentheses() {
+            return Ok(context);
+        }
+        let Some(target) = target.simple() else {
+            return Ok(context);
         };
-        let parentheses = loop {
-            match ast.expr_data(expression) {
-                swc_next_ecma_ast::ExprData::ParenthesizedExpression(node) => {
-                    expression = node.expression(ast)
-                }
-                swc_next_ecma_ast::ExprData::MemberExpression(node) => {
-                    expression = node.object(ast)
-                }
-                swc_next_ecma_ast::ExprData::CallExpression(node) => expression = node.callee(ast),
-                swc_next_ecma_ast::ExprData::IdentifierReference(node) => {
-                    let name = ast.get_utf8(node.name(ast));
-                    break name == "let" && (of || member)
-                        || name == "async" && of && !awaited && !member;
-                }
-                _ => break false,
+        let mut expression = target.expression();
+        let root_data = self.expression_content(expression).data;
+        let bare = matches!(
+            root_data,
+            swc_next_ecma_ast::ExprData::IdentifierReference(_)
+        );
+        let ordinary = matches!(
+            root_data,
+            swc_next_ecma_ast::ExprData::IdentifierReference(_)
+                | swc_next_ecma_ast::ExprData::MemberExpression(_)
+        );
+        let mut typed_head = false;
+        let mut data = root_data;
+        loop {
+            typed_head |= matches!(
+                data,
+                swc_next_ecma_ast::ExprData::TsAsExpression(_)
+                    | swc_next_ecma_ast::ExprData::TsSatisfiesExpression(_)
+                    | swc_next_ecma_ast::ExprData::TsNonNullExpression(_)
+            );
+            if self.expression_is_parenthesized(data, context)
+                || matches!(
+                    data,
+                    swc_next_ecma_ast::ExprData::ParenthesizedExpression(_)
+                        | swc_next_ecma_ast::ExprData::TsTypeAssertion(_)
+                )
+                || context.is_verbatim()
+            {
+                return Ok(ExpressionContext::at(ExpressionPosition::Nested));
             }
-        };
-        ExpressionContext::at(ExpressionPosition::ForLeft { parentheses })
+            if let swc_next_ecma_ast::ExprData::IdentifierReference(node) = data {
+                let name = self.ast.get_utf8(node.name(self.ast));
+                let needs =
+                    name == "let" && (of || !bare) || name == "async" && of && !awaited && bare;
+                return Ok(if ordinary && !typed_head {
+                    ExpressionContext::at(ExpressionPosition::ForLeft { parentheses: needs })
+                } else {
+                    ExpressionContext::at(ExpressionPosition::Nested)
+                        .with_lexical_head(needs.then_some(node))
+                });
+            }
+            let Some((child, child_context)) = self.expression_head_operand(data, context)? else {
+                return Ok(ExpressionContext::at(ExpressionPosition::Nested));
+            };
+            expression = child;
+            context = child_context;
+            data = self.expression_content(expression).data;
+        }
     }
 
     fn prepare_for_header(

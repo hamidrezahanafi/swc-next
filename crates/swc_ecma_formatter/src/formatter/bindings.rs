@@ -1,8 +1,8 @@
 //! Declaration bindings and their parameter-owned punctuation boundaries.
 
 use swc_next_ecma_ast::{
-    ArrayPattern, BindingPattern, BindingPatternData, BindingProperty, CommentKind, Expr,
-    FormalParameterPattern, FormalParameterPatternData, GetSpan, ObjectPattern, Span,
+    ArrayPattern, Ast, BindingPattern, BindingPatternData, BindingProperty, Comment, CommentKind,
+    Expr, FormalParameterPattern, FormalParameterPatternData, GetSpan, ObjectPattern, Span,
     TsEnumMemberName, TsTypeAnnotation,
 };
 
@@ -11,6 +11,7 @@ use super::comments::{CommentRunLayout, ExpressionTail};
 use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::arguments::{ArgumentLayout, ElisionLayout, FollowingItem, Separator};
 use super::expressions::assignment::AssignmentBoundary;
+use super::expressions::targets::{PreparedTarget, SimpleTarget};
 use super::expressions::{ExpressionContext, ExpressionPosition};
 use super::suppression::{ContentMode, SuppressionPosition};
 use super::types::PreparedBindingAnnotation;
@@ -75,8 +76,43 @@ pub(super) struct PreparedInitializer<'ast> {
     pub(super) context: ExpressionContext,
 }
 
+struct DefaultGap<'ast> {
+    span: Span,
+    operator: Span,
+    comments: &'ast [Comment],
+}
+
+impl DefaultGap<'_> {
+    fn after_target(mut self, target_end: u32) -> Self {
+        if self.span.start != target_end {
+            self.span.start = target_end;
+            let consumed = self
+                .comments
+                .partition_point(|comment| comment.span.end <= target_end);
+            self.comments = &self.comments[consumed..];
+        }
+        self
+    }
+}
+
+enum DefaultLeft {
+    Binding(BindingPattern),
+    Simple(SimpleTarget),
+    Target(PreparedTarget),
+}
+
+impl DefaultLeft {
+    fn span(&self, ast: &Ast<'_>) -> Span {
+        match self {
+            Self::Binding(pattern) => pattern.span(ast),
+            Self::Simple(target) => target.expression().span(ast),
+            Self::Target(target) => target.span,
+        }
+    }
+}
+
 pub(super) struct PreparedBindingDefault<'ast> {
-    left: BindingPattern,
+    left: DefaultLeft,
     right: Expr,
     span: Span,
     owner: DefaultOwner<'ast>,
@@ -252,9 +288,38 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         right: Expr,
         span: Span,
     ) -> Result<PreparedBindingDefault<'ast>, FormatError> {
-        let owner = self.prepare_default_boundary(left.span(self.ast), right)?;
+        let prepared = match self.ast.binding_pattern_data(left) {
+            BindingPatternData::SimpleAssignmentTarget(target) => {
+                DefaultLeft::Simple(SimpleTarget::new(self.ast, target))
+            }
+            _ => DefaultLeft::Binding(left),
+        };
+        let simple = match prepared {
+            DefaultLeft::Simple(simple) if simple.is_typescript() => simple,
+            left => {
+                let owner = self.prepare_default_boundary(left.span(self.ast), right)?;
+                return Ok(PreparedBindingDefault {
+                    left,
+                    right,
+                    span,
+                    owner,
+                });
+            }
+        };
+        let target_span = simple.expression().span(self.ast);
+        let gap = self.default_gap(target_span.end, right)?;
+        let (target, whole) = self.prepare_default_target(
+            simple,
+            Span::new(span.start, target_span.start),
+            Span::new(target_span.end, gap.operator.start),
+        )?;
+        let owner = if whole {
+            DefaultOwner::Whole
+        } else {
+            self.prepare_default_owner(right, gap.after_target(target.span.end))?
+        };
         Ok(PreparedBindingDefault {
-            left,
+            left: DefaultLeft::Target(target),
             right,
             span,
             owner,
@@ -266,20 +331,41 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         left: Span,
         right: Expr,
     ) -> Result<DefaultOwner<'ast>, FormatError> {
-        let left_end = left.end;
-        let right_start = right.span(self.ast).start;
-        let gap = Span::new(left_end, right_start);
-        let comments = self.comments.in_range(gap);
-        let Some(operator) = self.find_token(gap, comments, "=") else {
-            return Err(self.unsupported("binding default boundary", right));
-        };
+        self.prepare_default_owner(right, self.default_gap(left.end, right)?)
+    }
+
+    fn default_gap(&self, left_end: u32, right: Expr) -> Result<DefaultGap<'ast>, FormatError> {
+        let span = Span::new(left_end, right.span(self.ast).start);
+        let comments = self.comments.in_range(span);
+        let operator = self
+            .find_token(span, comments, "=")
+            .ok_or_else(|| self.unsupported("binding default boundary", right))?;
+        Ok(DefaultGap {
+            span,
+            operator: Span::new(operator, operator + 1),
+            comments,
+        })
+    }
+
+    fn prepare_default_owner(
+        &self,
+        right: Expr,
+        gap: DefaultGap<'ast>,
+    ) -> Result<DefaultOwner<'ast>, FormatError> {
+        let DefaultGap {
+            span: gap,
+            operator,
+            comments,
+        } = gap;
+        let left_end = gap.start;
+        let right_start = gap.end;
         let mut left_mode = ContentMode::Formatted;
         let mut right_mode = ContentMode::Formatted;
         let mut whole = false;
         if self.has_suppression {
-            let split = comments.partition_point(|comment| comment.span.end <= operator);
+            let split = comments.partition_point(|comment| comment.span.end <= operator.start);
             let (before, after) = comments.split_at(split);
-            for position in self.suppression_positions(before, operator) {
+            for position in self.suppression_positions(before, operator.start) {
                 match position {
                     SuppressionPosition::OwnLine => whole = true,
                     SuppressionPosition::Inline | SuppressionPosition::EndOfLine => {
@@ -305,8 +391,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
         } else {
             let content = self.expression_content(right);
-            let boundary =
-                self.assignment_boundary(left_end, &content, Span::new(operator, operator + 1))?;
+            let boundary = self.assignment_boundary(left_end, &content, operator)?;
             let break_after = boundary.own_line
                 || !boundary.operator_line.is_empty()
                 || self.assignment_right_breaks_after_operator(content.data);
@@ -329,7 +414,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             span,
             owner,
         } = default;
-        let (boundary, break_after) = match owner {
+        let (layout, left_mode) = match owner {
             DefaultOwner::Whole => {
                 self.format_verbatim(span, writer)?;
                 return Ok(None);
@@ -338,36 +423,52 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 gap,
                 left_mode,
                 right_mode,
-            } => {
-                return self.format_initializer(
-                    PreparedInitializer {
-                        left: InitializerLeft::Binding(left),
-                        right,
-                        layout: InitializerLayout::Bound { gap, right_mode },
-                        left_mode,
-                        context: ExpressionContext::binding_initializer(),
-                    },
-                    writer,
-                );
-            }
+            } => (InitializerLayout::Bound { gap, right_mode }, left_mode),
             DefaultOwner::Formatted {
                 boundary,
                 break_after,
-            } => (boundary, break_after),
-        };
-        self.format_initializer(
-            PreparedInitializer {
-                left: InitializerLeft::Binding(left),
-                right,
-                layout: InitializerLayout::Formatted {
+            } => (
+                InitializerLayout::Formatted {
                     boundary,
                     break_after,
                 },
-                left_mode: ContentMode::Formatted,
-                context: ExpressionContext::binding_initializer(),
-            },
-            writer,
-        )
+                ContentMode::Formatted,
+            ),
+        };
+        let context = ExpressionContext::binding_initializer();
+        match left {
+            DefaultLeft::Binding(left) => self.format_initializer(
+                PreparedInitializer {
+                    left: InitializerLeft::Binding(left),
+                    right,
+                    layout,
+                    left_mode,
+                    context,
+                },
+                writer,
+            ),
+            DefaultLeft::Simple(left) => {
+                let tail =
+                    self.format_pattern_target(left, context.with_content_mode(left_mode), writer)?;
+                self.format_expression_tail(tail, writer)?;
+                self.format_initializer_right(
+                    left.expression().span(self.ast).end,
+                    right,
+                    layout,
+                    context,
+                    writer,
+                )
+            }
+            DefaultLeft::Target(left) => {
+                let tail = self.format_prepared_target(
+                    &left,
+                    context.with_content_mode(left_mode),
+                    writer,
+                )?;
+                self.format_expression_tail(tail, writer)?;
+                self.format_initializer_right(left.span.end, right, layout, context, writer)
+            }
+        }
     }
 
     pub(super) fn format_initializer(

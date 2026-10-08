@@ -23,7 +23,7 @@ mod unary;
 
 use swc_next_ecma_ast::{
     Argument, ArgumentData, ArrayExpression, AssignmentTargetData, CallExpression, Expr, ExprData,
-    GetSpan, ObjectExpression, SimpleAssignmentTargetData, Span, UnaryOperator, UpdateOperator,
+    GetSpan, IdentifierReference, ObjectExpression, Span, UnaryOperator, UpdateOperator,
 };
 
 pub(in crate::formatter) use self::typescript::ExpressionTypeArguments;
@@ -76,6 +76,8 @@ pub(super) enum ExpressionPosition {
     YieldArgument,
     AwaitArgument,
     MemberAssignmentObject,
+    AssignmentTarget,
+    UpdateArgument,
     ConditionalTest,
     ControlCondition,
     ForHead,
@@ -98,6 +100,7 @@ pub(super) enum ExpressionStart {
     StatementGuard,
     StatementGuarded,
     ArrowBody,
+    ForLeft(IdentifierReference),
 }
 
 impl ExpressionStart {
@@ -251,13 +254,20 @@ impl ExpressionContext {
         self
     }
 
+    pub(in crate::formatter) fn is_verbatim(self) -> bool {
+        self.content_mode == ContentMode::Verbatim
+    }
+
     pub(super) fn with_content_mode(mut self, mode: ContentMode) -> Self {
         self.content_mode = mode;
         self
     }
 
     fn member_receiver(self, access: AccessKind, mode: ContentMode) -> Self {
-        let position = if matches!(self.position, ExpressionPosition::MemberAssignmentObject) {
+        let position = if matches!(
+            self.position,
+            ExpressionPosition::MemberAssignmentObject | ExpressionPosition::AssignmentTarget
+        ) {
             ExpressionPosition::MemberAssignmentObject
         } else {
             ExpressionPosition::MemberObject(access)
@@ -268,6 +278,35 @@ impl ExpressionContext {
             .with_content_mode(mode)
             .with_member_layout(self.member_layout)
             .with_member_chain_layout(self.member_chain_layout)
+    }
+
+    pub(in crate::formatter) fn with_lexical_head(
+        mut self,
+        identifier: Option<IdentifierReference>,
+    ) -> Self {
+        self.expression_start = identifier.map_or(ExpressionStart::None, ExpressionStart::ForLeft);
+        self
+    }
+
+    fn type_operand(
+        self,
+        position: ExpressionPosition,
+        mode: ContentMode,
+        tail_owner: TailOwner,
+    ) -> Self {
+        Self::at(position)
+            .with_expression_start(self.expression_start)
+            .with_content_mode(mode)
+            .with_tail_owner(tail_owner)
+            .with_target_member_intent(self)
+    }
+
+    fn with_target_member_intent(mut self, outer: Self) -> Self {
+        if outer.member_chain_layout == MemberChainLayout::Local {
+            self.member_layout = outer.member_layout;
+            self.member_chain_layout = outer.member_chain_layout;
+        }
+        self
     }
 
     fn with_member_layout(mut self, layout: MemberLayout) -> Self {
@@ -393,7 +432,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let data = self.ast.expr_data(expression);
         let span = expression.span(self.ast);
         let source = self.source(span);
-        let parenthesize = self.expression_is_parenthesized(data, context);
+        let parenthesize = self.expression_is_parenthesized(data, context)
+            || matches!(context.expression_start, ExpressionStart::ForLeft(_));
         let starts_update = matches!(data, ExprData::UpdateExpression(update) if update.prefix(self.ast))
             && (source.starts_with("++") || source.starts_with("--"));
         if self.options.semicolons == Semicolons::AsNeeded
@@ -716,7 +756,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(tail)
     }
 
-    fn expression_is_parenthesized(&self, data: ExprData, context: ExpressionContext) -> bool {
+    pub(in crate::formatter) fn expression_is_parenthesized(
+        &self,
+        data: ExprData,
+        context: ExpressionContext,
+    ) -> bool {
         context.parentheses_owner == ParenthesesOwner::Expression
             && (self.expression_needs_parentheses(data, context.position, context.content_mode)
                 == Some(true)
@@ -726,7 +770,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 || matches!(data, ExprData::ObjectExpression(_))
                     && context.expression_start != ExpressionStart::None
                 || matches!(data, ExprData::Function(_) | ExprData::Class(_))
-                    && context.expression_start.is_statement())
+                    && context.expression_start.is_statement()
+                || matches!((data, context.expression_start), (ExprData::IdentifierReference(node), ExpressionStart::ForLeft(head)) if node == head))
     }
 
     /// Follow the printed head only when a guard must precede protected comments.
@@ -762,55 +807,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             {
                 return Ok(true);
             }
-            if let Some(binary) = BinaryLike::from_data(data, self.ast) {
-                expression = binary.left;
-                context.position = ExpressionPosition::BinaryOperand {
-                    operator: binary.operator,
-                    side: OperandSide::Left,
-                };
+            if let Some((child, child_context)) = self.expression_head_operand(data, context)? {
+                expression = child;
+                context = child_context;
                 continue;
             }
             match data {
-                ExprData::CallExpression(call) => {
-                    let callee = self.source_call_callee(call, context)?;
-                    expression = callee.expression;
-                    context = callee.context(context);
-                }
-                ExprData::MemberExpression(member) => {
-                    (expression, context) = self.source_member_receiver(member, context)?;
-                }
-                ExprData::TsAsExpression(node) => {
-                    expression = node.expression(self.ast);
-                    context.position = ExpressionPosition::TypeBinaryOperand;
-                }
-                ExprData::TsSatisfiesExpression(node) => {
-                    expression = node.expression(self.ast);
-                    context.position = ExpressionPosition::TypeBinaryOperand;
-                }
-                ExprData::TsNonNullExpression(node) => {
-                    expression = node.expression(self.ast);
-                    context.position = ExpressionPosition::NonNullOperand;
-                }
-                ExprData::TsInstantiationExpression(node) => {
-                    expression = node.expression(self.ast);
-                    context.position = ExpressionPosition::InstantiationOperand;
-                    if self.has_suppression {
-                        let arguments = self.prepare_expression_type_arguments(
-                            expression,
-                            node.type_arguments(self.ast),
-                            AccessKind::Ordinary,
-                        )?;
-                        context.content_mode = arguments.callee_mode;
-                    }
-                }
-                ExprData::ChainExpression(chain) => {
-                    expression = chain.expression(self.ast);
-                    context.position = ExpressionPosition::Nested;
-                }
-                ExprData::ConditionalExpression(conditional) => {
-                    expression = conditional.test(self.ast);
-                    context.position = ExpressionPosition::ConditionalTest;
-                }
                 ExprData::ArrowFunctionExpression(arrow) => {
                     return self.arrow_needs_asi_guard(arrow);
                 }
@@ -825,6 +827,85 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 _ => return Ok(false),
             }
         }
+    }
+
+    /// One printed-head edge shared by ASI and a for-left lexical query.
+    pub(in crate::formatter) fn expression_head_operand(
+        &self,
+        data: ExprData,
+        context: ExpressionContext,
+    ) -> Result<Option<(Expr, ExpressionContext)>, FormatError> {
+        let operand = if let Some(binary) = BinaryLike::from_data(data, self.ast) {
+            let mut child_context = context;
+            child_context.position = ExpressionPosition::BinaryOperand {
+                operator: binary.operator,
+                side: OperandSide::Left,
+            };
+            (binary.left, child_context)
+        } else {
+            match data {
+                ExprData::CallExpression(call) => {
+                    let callee = self.source_call_callee(call, context)?;
+                    (callee.expression, callee.context(context))
+                }
+                ExprData::MemberExpression(member) => {
+                    self.source_member_receiver(member, context)?
+                }
+                ExprData::TsAsExpression(node) => (
+                    node.expression(self.ast),
+                    context.type_operand(
+                        ExpressionPosition::TypeBinaryOperand,
+                        context.content_mode,
+                        context.tail_owner,
+                    ),
+                ),
+                ExprData::TsSatisfiesExpression(node) => (
+                    node.expression(self.ast),
+                    context.type_operand(
+                        ExpressionPosition::TypeBinaryOperand,
+                        context.content_mode,
+                        context.tail_owner,
+                    ),
+                ),
+                ExprData::TsNonNullExpression(node) => (
+                    node.expression(self.ast),
+                    context.type_operand(
+                        ExpressionPosition::NonNullOperand,
+                        context.content_mode,
+                        context.tail_owner,
+                    ),
+                ),
+                ExprData::TsInstantiationExpression(node) => {
+                    let expression = node.expression(self.ast);
+                    let mut child_context = context.type_operand(
+                        ExpressionPosition::InstantiationOperand,
+                        context.content_mode,
+                        context.tail_owner,
+                    );
+                    if self.has_suppression {
+                        let arguments = self.prepare_expression_type_arguments(
+                            expression,
+                            node.type_arguments(self.ast),
+                            AccessKind::Ordinary,
+                        )?;
+                        child_context.content_mode = arguments.callee_mode;
+                    }
+                    (expression, child_context)
+                }
+                ExprData::ChainExpression(chain) => {
+                    let mut child_context = context;
+                    child_context.position = ExpressionPosition::Nested;
+                    (chain.expression(self.ast), child_context)
+                }
+                ExprData::ConditionalExpression(conditional) => {
+                    let mut child_context = context;
+                    child_context.position = ExpressionPosition::ConditionalTest;
+                    (conditional.test(self.ast), child_context)
+                }
+                _ => return Ok(None),
+            }
+        };
+        Ok(Some(operand))
     }
 
     /// Unknown grammar keeps source parentheses until its formatting rules are implemented.
@@ -892,21 +973,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         else {
                             return false;
                         };
-                        let SimpleAssignmentTargetData::MemberExpression(member) =
-                            self.ast.simple_assignment_target_data(target)
-                        else {
-                            return false;
-                        };
-                        (Expr::MemberExpression(member), ExpressionPosition::Nested)
+                        let target = targets::SimpleTarget::new(self.ast, target);
+                        (target.expression(), ExpressionPosition::AssignmentTarget)
                     }
                     ExprData::UpdateExpression(update) if !update.prefix(self.ast) => {
-                        let SimpleAssignmentTargetData::MemberExpression(member) = self
-                            .ast
-                            .simple_assignment_target_data(update.argument(self.ast))
-                        else {
-                            return false;
-                        };
-                        (Expr::MemberExpression(member), ExpressionPosition::Nested)
+                        let target =
+                            targets::SimpleTarget::new(self.ast, update.argument(self.ast));
+                        (target.expression(), ExpressionPosition::UpdateArgument)
                     }
                     _ => return false,
                 }

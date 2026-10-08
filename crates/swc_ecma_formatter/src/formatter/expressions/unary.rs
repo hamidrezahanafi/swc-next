@@ -119,7 +119,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let target = self.update_source_target(update)?;
         let span = update.span(self.ast);
-        let target_span = target.span;
+        let target_span = target.span();
         let operator = target.operator();
         if update.prefix(self.ast) {
             writer.text(operator);

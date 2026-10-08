@@ -89,7 +89,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let right = assignment.right(self.ast);
         let suppression = if self.has_suppression {
             self.prepare_assignment_suppression(
-                Span::new(target.span.end, right.span(self.ast).start),
+                Span::new(target.span().end, right.span(self.ast).start),
                 target.operator_span,
                 right,
             )
@@ -100,12 +100,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return writer.group(false, |writer| {
                 let leading = self.comments.between(Span::new(
                     assignment.span(self.ast).start,
-                    target.span.start,
+                    target.span().start,
                 ))?;
                 self.comments.claim(leading)?;
                 self.format_comment_run(
                     leading,
-                    CommentRunLayout::Leading(target.span.start),
+                    CommentRunLayout::Leading(target.span().start),
                     writer,
                 )?;
                 let tail = self.format_source_target(
@@ -137,17 +137,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let data = content.data;
         let head = self.assignment_expression_head(content);
         let operator = target.operator();
-        let boundary = self.assignment_boundary(target.span.end, &head, target.operator_span)?;
+        let boundary = self.assignment_boundary(target.span().end, &head, target.operator_span)?;
         let layout = self.assignment_layout(data, context.position, &boundary);
         let mut write = |writer: &mut Writer<'ast>| {
             let leading = self.comments.between(Span::new(
                 assignment.span(self.ast).start,
-                target.span.start,
+                target.span().start,
             ))?;
             self.comments.claim(leading)?;
             self.format_comment_run(
                 leading,
-                CommentRunLayout::Leading(target.span.start),
+                CommentRunLayout::Leading(target.span().start),
                 writer,
             )?;
             let tail = self.format_source_target(
