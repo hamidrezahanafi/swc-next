@@ -385,6 +385,102 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Some(child)
     }
 
+    /// Decorator ownership has already prepared the actual expression and its pair view.
+    pub(in crate::formatter) fn format_prepared_expression_with_leading_comments(
+        &mut self,
+        original: Expr,
+        content: ExpressionContent,
+        head: NodeHead<'ast>,
+        mut context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        if !head.comments.is_empty() {
+            context.arrow_layout = context.arrow_layout.with_leading_comments();
+        }
+        let enclose = self.has_type_casts
+            && head
+                .comments
+                .iter()
+                .any(|&comment| self.comment_is_type_cast(comment))
+            && self.expression_needs_parentheses(
+                content.data,
+                context.position,
+                context.content_mode,
+            ) == Some(true);
+        if enclose {
+            return writer.group(false, |writer| {
+                writer.text("(");
+                writer.indent(|writer| {
+                    writer.soft_line();
+                    self.format_comment_run(
+                        head.comments,
+                        CommentRunLayout::FlatLeading(head.content_start),
+                        writer,
+                    )?;
+                    let tail = self.format_prepared_expression(
+                        original,
+                        content,
+                        ExpressionContext::at(ExpressionPosition::Nested)
+                            .with_content_mode(context.content_mode)
+                            .with_tail_owner(context.tail_owner)
+                            .inside_parentheses(),
+                        writer,
+                    )?;
+                    self.format_expression_tail(tail, writer)
+                })?;
+                writer.soft_line();
+                writer.text(")");
+                Ok(None)
+            });
+        }
+        context.expression_start = self.format_expression_head_with_array_comments(
+            original,
+            head,
+            context,
+            Some(content.data),
+            None,
+            writer,
+        )?;
+        self.format_prepared_expression(original, content, context, writer)
+    }
+
+    fn format_prepared_expression(
+        &mut self,
+        original: Expr,
+        content: ExpressionContent,
+        context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let original_data = if content.parentheses.is_some() {
+            self.ast.expr_data(original)
+        } else {
+            content.data
+        };
+        if let ExprData::ParenthesizedExpression(parenthesized) = original_data {
+            return self.format_source_parentheses_prepared(
+                parenthesized,
+                Some(content),
+                context,
+                None,
+                writer,
+            );
+        }
+        if context.content_mode == ContentMode::Verbatim {
+            return self.format_expression_with_array_comments(original, context, None, writer);
+        }
+        let layout = self.expression_layout(content.expression);
+        layout.write(writer, |writer| {
+            self.format_expression_content_data(
+                content.expression,
+                content.data,
+                context,
+                layout,
+                None,
+                writer,
+            )
+        })
+    }
+
     pub(in crate::formatter) fn expression_content(&self, expression: Expr) -> ExpressionContent {
         let mut inner = expression;
         let data = loop {
@@ -778,6 +874,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_source_parentheses_with_array_comments(
         &mut self,
         parenthesized: ParenthesizedExpression,
+        context: ExpressionContext,
+        array_comments: Option<&mut ArrayCommentOwner<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_source_parentheses_prepared(
+            parenthesized,
+            None,
+            context,
+            array_comments,
+            writer,
+        )
+    }
+
+    fn format_source_parentheses_prepared(
+        &mut self,
+        parenthesized: ParenthesizedExpression,
+        prepared: Option<ExpressionContent>,
         mut context: ExpressionContext,
         array_comments: Option<&mut ArrayCommentOwner<'ast>>,
         writer: &mut Writer<'ast>,
@@ -837,7 +950,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer,
             );
         }
-        let content = self.expression_content(Expr::ParenthesizedExpression(parenthesized));
+        let content = prepared.unwrap_or_else(|| {
+            self.expression_content(Expr::ParenthesizedExpression(parenthesized))
+        });
         let ignored_child = if context.content_mode == ContentMode::Verbatim {
             self.ignored_parentheses_child(parenthesized, context.content_mode)
         } else {

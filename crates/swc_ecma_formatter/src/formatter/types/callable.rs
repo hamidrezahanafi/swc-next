@@ -830,6 +830,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.prepare_parameter_item(node, Some(annotation), false, ParameterConsumer::Runtime)
     }
 
+    pub(in crate::formatter) fn prepare_decorated_rest_parameter(
+        &self,
+        rest: FormalParameterRest,
+    ) -> Result<PreparedParameterItem<'ast>, FormatError> {
+        self.prepare_parameter_item(
+            CallableParameter::Rest(rest),
+            rest.type_annotation(self.ast),
+            false,
+            ParameterConsumer::Runtime,
+        )
+    }
+
     pub(in crate::formatter) fn prepare_constructor_parameter_item(
         &self,
         property: swc_next_ecma_ast::TsParameterProperty,
@@ -859,25 +871,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 None,
             ),
             CallableParameter::Formal(parameter) => {
-                if !parameter.decorators(ast).is_empty() {
-                    if matches!(
-                        consumer,
-                        ParameterConsumer::Runtime | ParameterConsumer::ConstructorProperty(_)
-                    ) {
-                        if let Some(right) = parameter.initializer(ast) {
-                            let pattern = self.parameter_binding(parameter.pattern(ast));
-                            let default =
-                                self.prepare_binding_default(pattern, right, parameter.span(ast))?;
-                            if default.is_verbatim() {
-                                return Ok(PreparedParameterItem(ParameterItemState::Source(
-                                    consumer.source(node),
-                                )));
-                            }
-                        }
-                        return Err(self.unsupported("typed or decorated parameter", parameter));
-                    }
-                    return Err(self.unsupported("callable parameter decorator", parameter));
-                }
                 let pattern = self.parameter_binding(parameter.pattern(ast));
                 let initializer = if let Some(right) = parameter.initializer(ast) {
                     let left_end = if let Some(annotation) = annotation {
@@ -925,6 +918,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 } else {
                     None
                 };
+                if !parameter.decorators(ast).is_empty() {
+                    match consumer {
+                        ParameterConsumer::CallableSignature => {
+                            return Err(self.unsupported("callable parameter decorator", parameter));
+                        }
+                        ParameterConsumer::ConstructorProperty(_) => {
+                            return Err(self
+                                .unsupported("nested constructor parameter decorator", parameter));
+                        }
+                        ParameterConsumer::Runtime => {}
+                    }
+                }
                 (
                     ParameterBinding::Pattern {
                         node: pattern,
@@ -937,14 +942,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 )
             }
             CallableParameter::Rest(rest) => {
-                if !rest.decorators(ast).is_empty() {
-                    let construct = match consumer {
-                        ParameterConsumer::CallableSignature => "callable type rest decorator",
-                        ParameterConsumer::Runtime | ParameterConsumer::ConstructorProperty(_) => {
-                            "typed or decorated rest parameter"
-                        }
-                    };
-                    return Err(self.unsupported(construct, rest));
+                if !rest.decorators(ast).is_empty()
+                    && matches!(consumer, ParameterConsumer::CallableSignature)
+                {
+                    return Err(self.unsupported("callable type rest decorator", rest));
                 }
                 let pattern = self.parameter_binding(rest.argument(ast));
                 let gap = Span::new(rest.span(ast).start + 3, pattern.span(ast).start);

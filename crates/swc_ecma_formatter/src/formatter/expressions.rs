@@ -51,6 +51,7 @@ pub(super) enum AccessKind {
 pub(super) enum ExpressionPosition {
     Statement,
     ExportDefault,
+    Decorator,
     Nested,
     UnaryArgument(UnaryOperator),
     ParenthesizedUnaryArgument(UnaryOperator),
@@ -457,12 +458,31 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn format_expression_content(
         &mut self,
         expression: Expr,
-        mut context: ExpressionContext,
+        context: ExpressionContext,
         layout: ExpressionLayout,
         array_comments: Option<&mut ArrayCommentOwner<'ast>>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let data = self.ast.expr_data(expression);
+        self.format_expression_content_data(
+            expression,
+            data,
+            context,
+            layout,
+            array_comments,
+            writer,
+        )
+    }
+
+    fn format_expression_content_data(
+        &mut self,
+        expression: Expr,
+        data: ExprData,
+        mut context: ExpressionContext,
+        layout: ExpressionLayout,
+        array_comments: Option<&mut ArrayCommentOwner<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         if let ExprData::ParenthesizedExpression(parenthesized) = data {
             return match array_comments {
                 Some(owner) => self.format_source_parentheses_with_array_comments(
@@ -1008,6 +1028,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         if matches!(position, ExpressionPosition::ExportDefault)
             && self.default_export_head_needs_parentheses(data, mode)
+        {
+            return Some(true);
+        }
+        if matches!(position, ExpressionPosition::Decorator) {
+            return Some(!self.decorator_expression_is_unparenthesized(data));
+        }
+        if matches!(position, ExpressionPosition::Superclass)
+            && matches!(data, ExprData::Class(node) if !node.decorators(self.ast).is_empty())
         {
             return Some(true);
         }

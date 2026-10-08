@@ -145,13 +145,12 @@ impl ClassMemberPrefix {
 }
 
 impl ClassMemberPrefixOwner {
-    fn span(self, ast: &Ast<'_>) -> Span {
-        match self {
-            Self::Field(node) => node.span(ast),
-            Self::Method(node) => node.span(ast),
-            Self::Bodyless(node) => node.span(ast),
-        }
+    pub(in crate::formatter) fn plain_key_start(self, ast: &Ast<'_>) -> Option<u32> {
+        let (keyword, generator, computed) = self.prefix_tokens(ast);
+        (self.modifiers(ast) == 0 && keyword.is_none() && !generator && !computed)
+            .then(|| self.key(ast).span(ast).start)
     }
+
     fn key(self, ast: &Ast<'_>) -> PropertyKey {
         match self {
             Self::Field(node) => node.key(ast),
@@ -238,9 +237,10 @@ impl ClassMemberPrefixOwner {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
-    pub(in crate::formatter) fn source_class_member_prefix(
+    pub(in crate::formatter) fn source_class_member_prefix_at(
         &self,
         owner: ClassMemberPrefixOwner,
+        core_start: u32,
     ) -> Result<Option<ClassMemberPrefixParts>, FormatError> {
         let ast = self.ast;
         if !ast.is_ts()
@@ -250,7 +250,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let expected = owner.modifiers(ast);
         let key = owner.key(ast);
-        let span = Span::new(owner.span(ast).start, key.span(ast).start);
+        let span = Span::new(core_start, key.span(ast).start);
         let comments = self.comments.in_range(span);
         let (expected_keyword, generator, computed) = owner.prefix_tokens(ast);
         // A canonical AST prefix avoids locating its tokens individually.

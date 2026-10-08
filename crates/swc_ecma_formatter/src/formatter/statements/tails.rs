@@ -53,6 +53,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return None;
         }
         let span = statement.span(self.ast);
+        self.prepare_statement_suppression_tail_at(statement, span, limit, relation)
+    }
+
+    pub(super) fn prepare_statement_suppression_tail_at(
+        &self,
+        statement: StatementItem,
+        span: Span,
+        limit: u32,
+        relation: StatementTailRelation,
+    ) -> Option<StatementSuppressionTail> {
+        if !self.has_suppression {
+            return None;
+        }
         let comments = self.comments.in_range(Span::new(span.start, limit));
         let mut first = comments.len();
         let mut following = limit;

@@ -132,6 +132,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &self,
         owner: MethodOwner,
     ) -> Result<SourceMethodHeader<'ast>, FormatError> {
+        self.source_method_header_at(owner, owner.span(self.ast).start)
+    }
+
+    pub(in crate::formatter) fn source_method_header_at(
+        &self,
+        owner: MethodOwner,
+        start: u32,
+    ) -> Result<SourceMethodHeader<'ast>, FormatError> {
         let ast = self.ast;
         let (function, key, computed, optional, keyword, is_static) = match owner {
             MethodOwner::Object(property) => {
@@ -155,9 +163,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 )
             }
             MethodOwner::Class(method) => {
-                if !method.decorators(ast).is_empty()
-                    || method.optional(ast) && method.kind(ast) != MethodDefinitionKind::Method
-                {
+                if method.optional(ast) && method.kind(ast) != MethodDefinitionKind::Method {
                     return Err(self.unsupported("typed or decorated class method", method));
                 }
                 let function = method.value(ast);
@@ -217,7 +223,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut signature = self.source_function_signature(function, signature_owner)?;
         let header_start = signature.header_start(ast);
         let has_generics = signature.has_generics();
-        let start = owner.span(ast).start;
         let mut prefix = self.source_method_key_prefix(MethodKeyInput {
             start,
             key,
@@ -412,7 +417,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             class,
         } = input;
         let class = match class {
-            Some(owner) => self.source_class_member_prefix(owner)?,
+            Some(owner) => self.source_class_member_prefix_at(owner, start)?,
             None => None,
         };
         let typed_prefix = class.is_some();
@@ -525,6 +530,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         node: TsMethodDefinition,
         header_start: u32,
         has_generics: bool,
+        core_start: u32,
     ) -> Result<SourceMethodPrefix, FormatError> {
         let ast = self.ast;
         let keyword = match node.kind(ast) {
@@ -533,7 +539,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             MethodDefinitionKind::Method | MethodDefinitionKind::Constructor => None,
         };
         let mut prefix = self.source_method_key_prefix(MethodKeyInput {
-            start: node.span(ast).start,
+            start: core_start,
             key: node.key(ast),
             computed: node.computed(ast),
             optional: node.optional(ast),
