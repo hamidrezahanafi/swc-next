@@ -9,7 +9,7 @@ use swc_next_ecma_ast::{
 };
 use unicode_width::UnicodeWidthStr;
 
-use super::arguments::ArgumentHead;
+use super::arguments::{ArgumentGroup, ArgumentHead};
 use super::arrays::{ArrayArgumentArity, RecordedArray, RecordedArrayArgument};
 use super::arrows::RecordedArrow;
 use super::objects::RecordedObject;
@@ -775,8 +775,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             );
             Ok::<_, FormatError>(())
         })?;
+        let fallback_group = match outcome {
+            SelectionOutcome::OrdinaryFinalObject | SelectionOutcome::OrdinaryFinalArray => {
+                head.ordinary_group
+            }
+            _ => ArgumentGroup::Local,
+        };
         let (fallback, ()) = writer.record_with_value(|writer| {
-            writer.group(false, |writer| {
+            fallback_group.write(false, writer, |writer| {
                 if let Some(opening) = source_opening {
                     writer.write_fragment(opening);
                 } else {

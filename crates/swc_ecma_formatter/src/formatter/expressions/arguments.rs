@@ -562,6 +562,7 @@ struct SourceFirstArgument {
 pub(super) struct ArgumentHead {
     pub(super) first_mode: ContentMode,
     pub(super) source_opening: Option<SourceArgumentOpening>,
+    pub(super) ordinary_group: ArgumentGroup,
 }
 
 #[derive(Clone, Copy)]
@@ -1140,6 +1141,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ArgumentHead {
                     first_mode,
                     source_opening,
+                    ordinary_group: group,
                 },
                 selected,
                 missing_function,

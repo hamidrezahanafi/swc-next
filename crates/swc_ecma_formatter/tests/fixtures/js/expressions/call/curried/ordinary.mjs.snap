@@ -3,10 +3,14 @@ source: crates/swc_ecma_formatter/tests/fixtures/mod.rs
 ---
 ---------- Input ----------
 connect(firstArgument, secondArgument, thirdArgument)(outer);
+
+connect(firstArgument, [1, 2, 3])(secondArgument);
 ---------- Options ----------
 {}
 ---------- Output ----------
 connect(firstArgument, secondArgument, thirdArgument)(outer);
+
+connect(firstArgument, [1, 2, 3])(secondArgument);
 
 ---------- Options ----------
 {"printWidth":40}
@@ -17,6 +21,11 @@ connect(
   thirdArgument,
 )(outer);
 
+connect(
+  firstArgument,
+  [1, 2, 3],
+)(secondArgument);
+
 ---------- Options ----------
 {"printWidth":30}
 ---------- Output ----------
@@ -25,6 +34,11 @@ connect(
   secondArgument,
   thirdArgument,
 )(outer);
+
+connect(
+  firstArgument,
+  [1, 2, 3],
+)(secondArgument);
 
 ---------- Options ----------
 {"printWidth":20}
@@ -35,10 +49,17 @@ connect(
   thirdArgument,
 )(outer);
 
+connect(
+  firstArgument,
+  [1, 2, 3],
+)(secondArgument);
+
 ---------- Options ----------
 {"semi":false}
 ---------- Output ----------
 connect(firstArgument, secondArgument, thirdArgument)(outer)
+
+connect(firstArgument, [1, 2, 3])(secondArgument)
 
 ---------- Options ----------
 {"printWidth":40,"tabWidth":4,"useTabs":true}
@@ -49,10 +70,17 @@ connect(
 	thirdArgument,
 )(outer);
 
+connect(
+	firstArgument,
+	[1, 2, 3],
+)(secondArgument);
+
 ---------- Options ----------
 {"endOfLine":"crlf"}
 ---------- Output ----------
 connect(firstArgument, secondArgument, thirdArgument)(outer);
+
+connect(firstArgument, [1, 2, 3])(secondArgument);
 
 ---------- Options ----------
 {"printWidth":30,"trailingComma":"none"}
@@ -63,6 +91,11 @@ connect(
   thirdArgument
 )(outer);
 
+connect(
+  firstArgument,
+  [1, 2, 3]
+)(secondArgument);
+
 ---------- Options ----------
 {"arrowParens":"avoid","printWidth":30}
 ---------- Output ----------
@@ -72,6 +105,11 @@ connect(
   thirdArgument,
 )(outer);
 
+connect(
+  firstArgument,
+  [1, 2, 3],
+)(secondArgument);
+
 ---------- Options ----------
 {"bracketSpacing":false,"printWidth":30}
 ---------- Output ----------
@@ -80,3 +118,8 @@ connect(
   secondArgument,
   thirdArgument,
 )(outer);
+
+connect(
+  firstArgument,
+  [1, 2, 3],
+)(secondArgument);
