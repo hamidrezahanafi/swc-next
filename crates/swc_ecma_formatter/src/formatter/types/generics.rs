@@ -79,8 +79,29 @@ struct ParameterBound<'ast> {
     boundary: TypeBoundary<'ast>,
 }
 
+#[derive(Clone, Copy)]
+struct TypeParameterModifiers {
+    r#const: bool,
+    r#in: bool,
+    out: bool,
+}
+
+impl TypeParameterModifiers {
+    fn is_empty(self) -> bool {
+        !self.r#const && !self.r#in && !self.out
+    }
+}
+
+enum PreparedParameterPrefix<'ast> {
+    Canonical {
+        modifiers: TypeParameterModifiers,
+        name_leading: Option<CommentBoundary<'ast>>,
+    },
+    Source(Span),
+}
+
 pub(super) struct PreparedParameter<'ast> {
-    node: TsTypeParameter,
+    prefix: PreparedParameterPrefix<'ast>,
     name: BindingIdentifier,
     name_mode: ContentMode,
     constraint: Option<ParameterBound<'ast>>,
@@ -374,15 +395,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: TypeParameterContext,
     ) -> Result<PreparedParameter<'ast>, FormatError> {
         let ast = self.ast;
-        if node.r#const(ast) && matches!(context, TypeParameterContext::TypeDeclaration) {
+        let modifiers = TypeParameterModifiers {
+            r#const: node.r#const(ast),
+            r#in: node.r#in(ast),
+            out: node.out(ast),
+        };
+        if modifiers.r#const && matches!(context, TypeParameterContext::TypeDeclaration) {
             return Err(self.unsupported("const type parameter in a type declaration", node));
         }
         if matches!(context, TypeParameterContext::Infer)
-            && (node.r#const(ast) || node.r#in(ast) || node.out(ast) || node.default(ast).is_some())
+            && (!modifiers.is_empty() || node.default(ast).is_some())
         {
             return Err(self.unsupported("infer type parameter modifiers or default", node));
         }
-        if node.r#const(ast) && (node.r#in(ast) || node.out(ast)) {
+        if modifiers.r#const
+            && (modifiers.r#in || modifiers.out)
+            && !matches!(context, TypeParameterContext::Class)
+        {
             return Err(self.unsupported("const type parameter with variance", node));
         }
         let name = node.name(ast);
@@ -432,21 +461,45 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             None
         };
-        if self.has_suppression && (node.r#const(ast) || node.r#in(ast) || node.out(ast)) {
-            let prefix = self
-                .comments
-                .in_range(Span::new(node.span(ast).start, name.span(ast).start));
-            if self.content_mode(prefix) == ContentMode::Verbatim {
-                name_mode = ContentMode::Verbatim;
-            }
-        }
+        let prefix = self.prepare_parameter_prefix(node, name, modifiers, &mut name_mode);
         Ok(PreparedParameter {
-            node,
+            prefix,
             name,
             name_mode,
             constraint,
             default,
         })
+    }
+
+    fn prepare_parameter_prefix(
+        &self,
+        node: TsTypeParameter,
+        name: BindingIdentifier,
+        modifiers: TypeParameterModifiers,
+        name_mode: &mut ContentMode,
+    ) -> PreparedParameterPrefix<'ast> {
+        if modifiers.is_empty() || self.ast.comments().is_empty() {
+            return PreparedParameterPrefix::Canonical {
+                modifiers,
+                name_leading: None,
+            };
+        }
+        let name_span = name.span(self.ast);
+        let span = Span::new(node.span(self.ast).start, name_span.start);
+        let comments = self.comments.in_range(span);
+        if self.has_suppression && self.content_mode(comments) == ContentMode::Verbatim {
+            *name_mode = ContentMode::Verbatim;
+        }
+        let binding = self.comment_binding(comments, span, Some(name_span));
+        if !binding.allows_relocation(Some(name_span)) {
+            return PreparedParameterPrefix::Source(span);
+        }
+        let name_leading = (!comments.is_empty())
+            .then(|| self.prepare_comment_boundary(comments, span.start, span.end));
+        PreparedParameterPrefix::Canonical {
+            modifiers,
+            name_leading,
+        }
     }
 
     fn format_type_parameter(
@@ -471,12 +524,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let ast = self.ast;
         writer.group(false, |writer| {
-            self.format_type_parameter_modifiers(
-                parameter.node,
-                parameter.name,
-                parameter.name_mode,
-                writer,
-            )?;
+            self.format_parameter_prefix(parameter.prefix, writer)?;
             if parameter.name_mode == ContentMode::Verbatim {
                 self.format_verbatim(parameter.name.span(ast), writer)?;
             } else {
@@ -500,42 +548,32 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    fn format_type_parameter_modifiers(
+    fn format_parameter_prefix(
         &mut self,
-        node: TsTypeParameter,
-        name: BindingIdentifier,
-        name_mode: ContentMode,
+        prefix: PreparedParameterPrefix<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        let ast = self.ast;
-        if node.r#const(ast) {
-            let gap = Span::new(node.span(ast).start + 5, name.span(ast).start);
-            writer.text("const");
-            if name_mode == ContentMode::Verbatim {
-                return self.format_verbatim(gap, writer);
-            }
-            return self.format_source_token_gap(gap.start, gap.end, true, writer);
-        }
-        if !node.r#in(ast) && !node.out(ast) {
-            return Ok(());
-        }
-        let span = Span::new(node.span(ast).start, name.span(ast).start);
-        let comments = self.comments.in_range(span);
-        let out = if node.out(ast) {
-            let Some(start) = self.find_token(span, comments, "out") else {
-                return Err(self.unsupported("type parameter variance boundary", node));
-            };
-            Some(start)
-        } else {
-            None
+        let (modifiers, name_leading) = match prefix {
+            PreparedParameterPrefix::Source(span) => return self.format_verbatim(span, writer),
+            PreparedParameterPrefix::Canonical {
+                modifiers,
+                name_leading,
+            } => (modifiers, name_leading),
         };
-        if node.r#in(ast) {
-            writer.text("in");
-            self.format_source_token_gap(span.start + 2, out.unwrap_or(span.end), true, writer)?;
+        if modifiers.r#const {
+            writer.text("const");
+            writer.space();
         }
-        if let Some(out) = out {
+        if modifiers.r#in {
+            writer.text("in");
+            writer.space();
+        }
+        if modifiers.out {
             writer.text("out");
-            self.format_source_token_gap(out + 3, span.end, true, writer)?;
+            writer.space();
+        }
+        if let Some(boundary) = name_leading {
+            self.format_type_comment_gap(&boundary, FlatSeparator::Space, writer)?;
         }
         Ok(())
     }
