@@ -3,7 +3,7 @@
 use swc_next_ecma_ast::{GetSpan, Span, SubRange, TsType};
 
 use super::context::TypeContext;
-use super::{Formatter, PreparedType, TypeBoundaryLayout};
+use super::{Formatter, PreparedType, TypeBoundaryLayout, TypeLayout};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::suppression::{ContentMode, SuppressionPosition};
 use crate::{FormatError, document::Writer};
@@ -29,6 +29,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         node: PreparedType,
         types: SubRange<TsType>,
         kind: CompoundTypeKind,
+        layout: TypeLayout,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<crate::formatter::comments::ExpressionTail<'ast>>, FormatError> {
         let ast = self.ast;
@@ -41,58 +42,73 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut current = self.prepare_type(first, ContentMode::Formatted);
         current.source_owner = node.source_owner;
         writer.group(false, |writer| {
-            writer.indent(|writer| {
+            let content = |writer: &mut Writer<'ast>| {
+                let mut leading_operator = false;
                 if leading.start != leading.end {
-                    if self.content_mode(self.comments.in_range(leading)) == ContentMode::Verbatim {
-                        self.select_type_head_comments(
-                            &mut current,
-                            self.comments.in_range(leading),
-                            first_span.start,
-                        );
+                    let comments = self.comments.in_range(leading);
+                    if self.content_mode(comments) == ContentMode::Verbatim {
+                        self.select_type_head_comments(&mut current, comments, first_span.start);
                         self.format_verbatim(leading, writer)?;
-                    } else {
-                        let comments = self.comments.in_range(leading);
-                        let operator = self.find_token(leading, comments, kind.token());
-                        if let Some(operator) = operator {
-                            self.format_source_token_gap(leading.start, operator, false, writer)?;
-                            // A retained leading operator keeps its comment slot inside
-                            // the compound on both formatting passes.
-                            if types.len() == 1 || !comments.is_empty() {
-                                writer.text(kind.token());
-                                self.format_source_token_gap(
-                                    operator + 1,
-                                    first_span.start,
-                                    true,
-                                    writer,
-                                )?;
-                            } else {
-                                self.format_source_token_gap(
-                                    operator + 1,
-                                    first_span.start,
-                                    false,
-                                    writer,
-                                )?;
-                            }
+                        leading_operator = true;
+                    } else if let Some(operator) = self.find_token(leading, comments, kind.token())
+                    {
+                        self.format_source_token_gap(leading.start, operator, false, writer)?;
+                        // A retained leading operator keeps its comment slot inside
+                        // the compound on both formatting passes.
+                        leading_operator = types.len() == 1 || !comments.is_empty();
+                        if leading_operator {
+                            writer.text(kind.token());
                         }
+                        self.format_source_token_gap(
+                            operator + 1,
+                            first_span.start,
+                            leading_operator,
+                            writer,
+                        )?;
                     }
+                }
+                if layout == TypeLayout::AliasRhs
+                    && matches!(kind, CompoundTypeKind::Union)
+                    && !leading_operator
+                {
+                    writer.if_break("| ");
                 }
                 for next in members {
                     let mut next = self.prepare_type(next, ContentMode::Formatted);
                     let gap = Span::new(current.node.span(ast).end, next.node.span(ast).start);
                     let boundary =
                         self.prepare_compound_boundary(gap, kind, &mut current, &mut next)?;
-                    let tail =
-                        self.format_prepared_type(current, TypeContext::CompoundMember, writer)?;
+                    let tail = self.format_compound_member(current, kind, layout, writer)?;
                     self.format_expression_tail(tail, writer)?;
                     self.format_compound_boundary(boundary, kind, writer)?;
                     current = next;
                 }
-                let tail =
-                    self.format_prepared_type(current, TypeContext::CompoundMember, writer)?;
+                let tail = self.format_compound_member(current, kind, layout, writer)?;
                 self.format_expression_tail(tail, writer)?;
                 Ok(None)
-            })
+            };
+            if layout == TypeLayout::AliasRhs {
+                content(writer)
+            } else {
+                writer.indent(content)
+            }
         })
+    }
+
+    fn format_compound_member(
+        &mut self,
+        node: PreparedType,
+        kind: CompoundTypeKind,
+        layout: TypeLayout,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<crate::formatter::comments::ExpressionTail<'ast>>, FormatError> {
+        if layout == TypeLayout::AliasRhs && matches!(kind, CompoundTypeKind::Union) {
+            writer.align(2, |writer| {
+                self.format_prepared_type(node, TypeContext::CompoundMember, writer)
+            })
+        } else {
+            self.format_prepared_type(node, TypeContext::CompoundMember, writer)
+        }
     }
 
     fn prepare_compound_boundary(

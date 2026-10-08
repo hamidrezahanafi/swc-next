@@ -3,7 +3,7 @@
 use swc_next_ecma_ast::{GetSpan, Span, TsConditionalType};
 
 use super::context::TypeContext;
-use super::{Formatter, PreparedType, TypeBoundaryLayout};
+use super::{Formatter, PreparedType, TypeBoundaryLayout, TypeLayout};
 use crate::formatter::comments::ExpressionTail;
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::suppression::{ContentMode, SuppressionPosition};
@@ -35,6 +35,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_conditional_type(
         &mut self,
         node: TsConditionalType,
+        layout: TypeLayout,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let ast = self.ast;
@@ -57,21 +58,49 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             &mut alternate,
             ConditionalTypeSeparator::Colon,
         )?;
-        writer.group(false, |writer| {
+        let content = |writer: &mut Writer<'ast>| {
+            if layout == TypeLayout::ConditionalConsequent {
+                writer.if_flat("(");
+            }
             let tail = self.format_prepared_type(check, TypeContext::ConditionalCheck, writer)?;
             self.format_expression_tail(tail, writer)?;
             self.format_conditional_type_boundary(head, writer)?;
             let tail =
                 self.format_prepared_type(extends, TypeContext::ConditionalExtends, writer)?;
             self.format_expression_tail(tail, writer)?;
-            writer.indent(|writer| {
+            let tail = writer.indent(|writer| {
                 self.format_conditional_type_boundary(question, writer)?;
-                let tail = self.format_prepared_type(consequent, TypeContext::Root, writer)?;
+                let tail = self.format_prepared_type_with_layout(
+                    consequent,
+                    TypeContext::Root,
+                    TypeLayout::ConditionalConsequent,
+                    writer,
+                )?;
                 self.format_expression_tail(tail, writer)?;
                 self.format_conditional_type_boundary(colon, writer)?;
-                self.format_prepared_type(alternate, TypeContext::Root, writer)
-            })
-        })
+                self.format_prepared_type_with_layout(
+                    alternate,
+                    TypeContext::Root,
+                    TypeLayout::ConditionalAlternate,
+                    writer,
+                )
+            })?;
+            if layout == TypeLayout::ConditionalConsequent {
+                self.format_expression_tail(tail, writer)?;
+                writer.if_flat(")");
+                Ok(None)
+            } else {
+                Ok(tail)
+            }
+        };
+        if matches!(
+            layout,
+            TypeLayout::ConditionalConsequent | TypeLayout::ConditionalAlternate
+        ) {
+            content(writer)
+        } else {
+            writer.group(false, content)
+        }
     }
 
     fn prepare_conditional_type_boundary(

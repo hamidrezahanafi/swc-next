@@ -66,6 +66,22 @@ pub(super) struct PreparedType {
     pub(super) source_owner: Option<TsType>,
 }
 
+/// Layout relationships are independent of the grammar role of a type.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TypeLayout {
+    Root,
+    AliasRhs,
+    ConditionalConsequent,
+    ConditionalAlternate,
+}
+
+struct PreparedTypeParentheses {
+    span: Span,
+    child_span: Span,
+    child: PreparedType,
+    retained: bool,
+}
+
 enum TypeBoundaryLayout<'ast> {
     Source(Span),
     Formatted {
@@ -216,9 +232,63 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer,
             )?;
         }
-        self.format_type_boundary(&boundary, writer)?;
-        let tail = self.format_prepared_type(type_node, TypeContext::Root, writer)?;
+        let tail = self.format_type_alias_rhs(&boundary, type_node, writer)?;
         Ok((annotation_span.end, tail))
+    }
+
+    fn format_type_alias_rhs(
+        &mut self,
+        boundary: &TypeBoundary<'ast>,
+        node: PreparedType,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let (before, after) = match &boundary.layout {
+            TypeBoundaryLayout::Source(gap) => {
+                self.format_verbatim(*gap, writer)?;
+                return self.format_prepared_type(node, TypeContext::Root, writer);
+            }
+            TypeBoundaryLayout::Formatted { before, after } => (before, after),
+        };
+        if node.source_owner == Some(node.node) {
+            self.format_type_boundary(boundary, writer)?;
+            return self.format_prepared_type(node, TypeContext::Root, writer);
+        }
+        if let TsTypeData::TsParenthesizedType(parentheses) = node.data {
+            let parentheses = self.prepare_type_parentheses(parentheses, node.source_owner);
+            if !parentheses.retained {
+                return self.format_type_alias_rhs(boundary, parentheses.child, writer);
+            }
+            self.format_type_boundary(boundary, writer)?;
+            return self.format_prepared_type_parentheses(
+                parentheses,
+                TypeContext::Root,
+                TypeLayout::Root,
+                writer,
+            );
+        }
+        if !matches!(node.data, TsTypeData::TsUnionType(_)) {
+            self.format_type_boundary(boundary, writer)?;
+            return self.format_prepared_type(node, TypeContext::Root, writer);
+        }
+        self.format_comment_boundary(before, writer)?;
+        before
+            .gap()
+            .write(writer, FlatSeparator::Space, Writer::space);
+        writer.text("=");
+        writer.group(false, |writer| {
+            writer.indent(|writer| {
+                self.format_comment_boundary(after, writer)?;
+                after
+                    .gap()
+                    .write(writer, FlatSeparator::Space, Writer::line);
+                self.format_prepared_type_with_layout(
+                    node,
+                    TypeContext::Root,
+                    TypeLayout::AliasRhs,
+                    writer,
+                )
+            })
+        })
     }
 
     pub(super) fn prepare_module_reference_boundary(
@@ -484,17 +554,28 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: TypeContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_prepared_type_with_layout(node, context, TypeLayout::Root, writer)
+    }
+
+    fn format_prepared_type_with_layout(
+        &mut self,
+        node: PreparedType,
+        context: TypeContext,
+        layout: TypeLayout,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         if node.source_owner != Some(node.node)
             && let TsTypeData::TsParenthesizedType(parentheses) = node.data
         {
-            return self.format_parenthesized_type(parentheses, node.source_owner, context, writer);
+            let parentheses = self.prepare_type_parentheses(parentheses, node.source_owner);
+            return self.format_prepared_type_parentheses(parentheses, context, layout, writer);
         }
         if context.needs_parentheses(node.data, self.ast) {
             return writer.group(false, |writer| {
                 writer.text("(");
                 writer.indent(|writer| {
                     writer.soft_line();
-                    let tail = self.format_type_data(node, writer)?;
+                    let tail = self.format_type_data(node, TypeLayout::Root, writer)?;
                     self.format_expression_tail(tail, writer)
                 })?;
                 writer.soft_line();
@@ -502,12 +583,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Ok(None)
             });
         }
-        self.format_type_data(node, writer)
+        self.format_type_data(node, layout, writer)
     }
 
     fn format_type_data(
         &mut self,
         node: PreparedType,
+        layout: TypeLayout,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         if node.source_owner == Some(node.node) {
@@ -537,7 +619,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         match node.data {
             TsTypeData::TsTypeReference(reference) => self.format_type_reference(reference, writer),
-            TsTypeData::TsConditionalType(node) => self.format_conditional_type(node, writer),
+            TsTypeData::TsConditionalType(node) => {
+                self.format_conditional_type(node, layout, writer)
+            }
             TsTypeData::TsInferType(node) => self.format_infer_type(node, writer),
             TsTypeData::TsMappedType(node) => self.format_mapped_type(node, writer),
             TsTypeData::TsTemplateLiteralType(template) => self
@@ -596,12 +680,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 node,
                 union.types(self.ast),
                 compound::CompoundTypeKind::Union,
+                layout,
                 writer,
             ),
             TsTypeData::TsIntersectionType(intersection) => self.format_compound_type(
                 node,
                 intersection.types(self.ast),
                 compound::CompoundTypeKind::Intersection,
+                layout,
                 writer,
             ),
             TsTypeData::TsTypeLiteral(node) => self.format_type_literal(node, writer),
@@ -621,7 +707,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             TsTypeData::TsTypeQuery(node) => self.format_type_query(node, writer),
             TsTypeData::TsImportType(node) => self.format_import_type(node, writer),
             TsTypeData::TsParenthesizedType(node) => {
-                self.format_parenthesized_type(node, None, TypeContext::Root, writer)
+                let parentheses = self.prepare_type_parentheses(node, None);
+                self.format_prepared_type_parentheses(
+                    parentheses,
+                    TypeContext::Root,
+                    layout,
+                    writer,
+                )
             }
             _ => Err(self.unsupported("TypeScript type", node.node)),
         }
@@ -694,13 +786,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(())
     }
 
-    fn format_parenthesized_type(
-        &mut self,
+    fn prepare_type_parentheses(
+        &self,
         node: TsParenthesizedType,
         source_owner: Option<TsType>,
-        context: TypeContext,
-        writer: &mut Writer<'ast>,
-    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+    ) -> PreparedTypeParentheses {
         let ast = self.ast;
         let span = node.span(ast);
         let child = node.type_annotation(ast);
@@ -713,17 +803,42 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let after = self
             .comments
             .in_range(Span::new(child_span.end, span.end - 1));
-        if before.is_empty() && after.is_empty() && !self.diagnostic_range_is_sensitive(span) {
-            return self.format_prepared_type(child_type, context, writer);
+        let retained =
+            !before.is_empty() || !after.is_empty() || self.diagnostic_range_is_sensitive(span);
+        if retained {
+            self.select_type_head_comments(&mut child_type, before, child_span.start);
+            if self.content_mode(after) == ContentMode::Verbatim {
+                child_type.source_owner = Some(child);
+            }
         }
-        self.select_type_head_comments(&mut child_type, before, child_span.start);
-        if self.content_mode(after) == ContentMode::Verbatim {
-            child_type.source_owner = Some(child);
+        PreparedTypeParentheses {
+            span,
+            child_span,
+            child: child_type,
+            retained,
+        }
+    }
+
+    fn format_prepared_type_parentheses(
+        &mut self,
+        parentheses: PreparedTypeParentheses,
+        context: TypeContext,
+        layout: TypeLayout,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let PreparedTypeParentheses {
+            span,
+            child_span,
+            child,
+            retained,
+        } = parentheses;
+        if !retained {
+            return self.format_prepared_type_with_layout(child, context, layout, writer);
         }
         writer.group(false, |writer| {
             writer.text("(");
             self.format_verbatim(Span::new(span.start + 1, child_span.start), writer)?;
-            let tail = self.format_prepared_type(child_type, TypeContext::Root, writer)?;
+            let tail = self.format_prepared_type(child, TypeContext::Root, writer)?;
             self.format_expression_tail(tail, writer)?;
             self.format_verbatim(Span::new(child_span.end, span.end - 1), writer)?;
             writer.text(")");
