@@ -13,8 +13,7 @@ for (
 /* prettier-ignore */
 ; /* prettier-ignore */ test();
   step()
-) {
-}
+) {}
 
 ---------- Options ----------
 {"printWidth":80,"semi":true}
@@ -24,8 +23,7 @@ for (
 /* prettier-ignore */
 ; /* prettier-ignore */ test();
   step()
-) {
-}
+) {}
 
 ---------- Options ----------
 {"printWidth":20,"semi":false}
@@ -35,8 +33,7 @@ for (
 /* prettier-ignore */
 ; /* prettier-ignore */ test();
   step()
-) {
-}
+) {}
 
 ---------- Options ----------
 {"printWidth":80,"semi":false}
@@ -46,5 +43,4 @@ for (
 /* prettier-ignore */
 ; /* prettier-ignore */ test();
   step()
-) {
-}
+) {}

@@ -12,8 +12,8 @@ use swc_next_ecma_ast::{
 };
 
 use super::{
-    Formatter, PrintedStatement, StatementBoundary, StatementItem, StatementPunctuation,
-    StatementTailRelation,
+    EmptyBlock, Formatter, PrintedStatement, StatementBoundary, StatementItem, StatementLayout,
+    StatementPunctuation, StatementTailRelation,
 };
 use crate::formatter::comments::{CommentBinding, CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
@@ -65,6 +65,7 @@ struct ControlledBody<'ast> {
     head_end: u32,
     leading: &'ast [Comment],
     shape: ControlledBodyShape,
+    empty_block: EmptyBlock,
     mode: ContentMode,
     punctuation: StatementPunctuation,
     end: ControlledBodyEnd,
@@ -78,6 +79,11 @@ struct ControlledBodyTail<'ast> {
 }
 
 impl ControlledBody<'_> {
+    fn with_empty_block(mut self, empty: EmptyBlock) -> Self {
+        self.empty_block = empty;
+        self
+    }
+
     fn with_enclosing_punctuation(mut self, punctuation: StatementPunctuation) -> Self {
         if matches!(
             punctuation,
@@ -469,6 +475,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             head_end,
             leading,
             shape,
+            empty_block: EmptyBlock::Expanded,
             mode,
             punctuation,
             end,
@@ -543,6 +550,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             head_end,
             leading,
             shape,
+            empty_block,
             mode,
             punctuation,
             end,
@@ -581,7 +589,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.comments.claim(leading)?;
             let mut printed = self.format_statement(
                 statement,
-                ExpressionStart::StatementGuarded,
+                StatementLayout {
+                    start: ExpressionStart::StatementGuarded,
+                    empty_block,
+                },
                 mode,
                 NodeHead {
                     comments: leading,

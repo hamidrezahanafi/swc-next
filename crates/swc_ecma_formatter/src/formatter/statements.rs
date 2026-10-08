@@ -63,6 +63,12 @@ pub(super) enum EmptyBlock {
     Expanded,
 }
 
+/// Layout supplied by the real parent without bypassing statement ownership.
+struct StatementLayout {
+    start: ExpressionStart,
+    empty_block: EmptyBlock,
+}
+
 pub(super) struct StatementSequence {
     pub(super) has_content: bool,
     end: u32,
@@ -456,7 +462,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                             statement,
                             statement_span,
                             decorators,
-                            expression_start,
+                            StatementLayout {
+                                start: expression_start,
+                                empty_block: EmptyBlock::Expanded,
+                            },
                             mode,
                             head,
                             punctuation,
@@ -680,7 +689,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn format_statement(
         &mut self,
         statement: Stmt,
-        start: ExpressionStart,
+        layout: StatementLayout,
         mode: ContentMode,
         head: NodeHead<'ast>,
         punctuation: StatementPunctuation,
@@ -695,7 +704,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             statement,
             span,
             decorators,
-            start,
+            layout,
             mode,
             head,
             punctuation,
@@ -712,7 +721,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         statement: Stmt,
         span: Span,
         decorators: Option<StatementDecorators>,
-        start: ExpressionStart,
+        layout: StatementLayout,
         mode: ContentMode,
         head: NodeHead<'ast>,
         punctuation: StatementPunctuation,
@@ -725,13 +734,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 expression,
                 head,
                 ExpressionContext::at(ExpressionPosition::Statement)
-                    .with_expression_start(start)
+                    .with_expression_start(layout.start)
                     .with_content_mode(mode),
                 writer,
             )?;
             return self.finish_statement(expression.span(self.ast).end, tail, punctuation, writer);
         }
-        self.format_node_head(head, start, writer)?;
+        self.format_node_head(head, layout.start, writer)?;
         if mode == ContentMode::Formatted
             && let Some(decorators) = decorators
         {
@@ -869,7 +878,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 if mode == ContentMode::Verbatim {
                     self.format_verbatim(block.span(self.ast), writer)?;
                 } else {
-                    self.format_block(block, writer)?;
+                    self.format_block(block, layout.empty_block, writer)?;
                 }
                 Ok(StatementBoundary::SourceEnd {
                     end: block.span(self.ast).end,
@@ -1014,15 +1023,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn format_block(
         &mut self,
         block: BlockStatement,
+        empty: EmptyBlock,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        self.format_compound_block(
-            block,
-            ContentMode::Formatted,
-            None,
-            EmptyBlock::Expanded,
-            writer,
-        )
+        self.format_compound_block(block, ContentMode::Formatted, None, empty, writer)
     }
 
     fn format_compound_block(

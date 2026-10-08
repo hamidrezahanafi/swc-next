@@ -12,8 +12,7 @@ for (
     key:
     /* prettier-ignore */ target.value,
   } = value;;
-) {
-}
+) {}
 
 ---------- Options ----------
 {"printWidth":80,"semi":true}
@@ -23,8 +22,7 @@ for (
     key:
     /* prettier-ignore */ target.value,
   } = value;;
-) {
-}
+) {}
 
 ---------- Options ----------
 {"printWidth":20,"semi":false}
@@ -34,8 +32,7 @@ for (
     key:
     /* prettier-ignore */ target.value,
   } = value;;
-) {
-}
+) {}
 
 ---------- Options ----------
 {"printWidth":80,"semi":false}
@@ -45,5 +42,4 @@ for (
     key:
     /* prettier-ignore */ target.value,
   } = value;;
-) {
-}
+) {}

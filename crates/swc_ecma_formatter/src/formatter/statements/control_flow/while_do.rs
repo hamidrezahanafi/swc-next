@@ -2,7 +2,9 @@
 
 use swc_next_ecma_ast::{DoWhileStatement, GetSpan, Span, WhileStatement};
 
-use super::super::{Formatter, PrintedStatement, StatementBoundary, StatementPunctuation};
+use super::super::{
+    EmptyBlock, Formatter, PrintedStatement, StatementBoundary, StatementPunctuation,
+};
 use super::{ConditionPrefix, ControlledBodyEnd, ControlledBodyRole};
 use crate::formatter::diagnostics::LineConstraint;
 use crate::formatter::suppression::{ContentMode, SuppressionPosition};
@@ -38,6 +40,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ControlledBodyRole::Body,
                 ContentMode::Formatted,
             )
+            .with_empty_block(EmptyBlock::Compact)
             .with_enclosing_punctuation(punctuation);
         writer.group(false, |writer| {
             writer.text("while");
@@ -90,13 +93,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             ControlledBodyEnd::Keyword(keyword)
         };
-        let mut body = self.prepare_controlled_body(
-            statement,
-            span.start + "do".len() as u32,
-            end,
-            ControlledBodyRole::Body,
-            boundary.preceding,
-        );
+        let mut body = self
+            .prepare_controlled_body(
+                statement,
+                span.start + "do".len() as u32,
+                end,
+                ControlledBodyRole::Body,
+                boundary.preceding,
+            )
+            .with_empty_block(EmptyBlock::Compact);
         if boundary.source.is_some()
             && self.source_line_constraint(body_span.end, keyword.start) == LineConstraint::SameLine
         {

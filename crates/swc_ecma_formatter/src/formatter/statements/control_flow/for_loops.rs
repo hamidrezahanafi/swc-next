@@ -6,7 +6,8 @@ use swc_next_ecma_ast::{
 };
 
 use super::{
-    ControlledBodyEnd, ControlledBodyRole, Formatter, PrintedStatement, StatementPunctuation,
+    ControlledBodyEnd, ControlledBodyRole, EmptyBlock, Formatter, PrintedStatement,
+    StatementPunctuation,
 };
 use crate::formatter::comments::{CommentRunLayout, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
@@ -530,6 +531,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ControlledBodyRole::Body,
                 header.body_mode,
             )
+            .with_empty_block(if header.classic {
+                EmptyBlock::Compact
+            } else {
+                EmptyBlock::Expanded
+            })
             .with_enclosing_punctuation(punctuation);
         writer.group(false, |writer| {
             self.format_for_header(header, writer)?;
