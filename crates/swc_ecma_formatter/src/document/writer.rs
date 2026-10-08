@@ -108,6 +108,17 @@ impl<'a> Writer<'a> {
         self.elements.push(FormatElement::IfFlat(Text::new(text)));
     }
 
+    /// Unlike group-bound conditionals, fill entries observe their local mode.
+    pub(crate) fn if_current_break(&mut self, text: &'a str) {
+        self.elements
+            .push(FormatElement::IfCurrentBreak(Text::new(text)));
+    }
+
+    pub(crate) fn if_current_flat(&mut self, text: &'a str) {
+        self.elements
+            .push(FormatElement::IfCurrentFlat(Text::new(text)));
+    }
+
     pub(crate) fn line_suffix(&mut self, text: &'a str) {
         self.elements
             .push(FormatElement::LineSuffix(Text::new(text)));

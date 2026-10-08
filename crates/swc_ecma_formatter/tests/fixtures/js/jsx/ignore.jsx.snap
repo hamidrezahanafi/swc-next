@@ -32,12 +32,23 @@ const a1 = (
     <Y ok={next + last} />
   </div>
 );
-const a2 = <div>{/* prettier-ignore */} <X odd={left + right} /></div>;
-const a3 = <div>{/* prettier-ignore */}bar<X odd={left + right} /></div>;
+const a2 = (
+  <div>
+    {/* prettier-ignore */} <X odd={left + right} />
+  </div>
+);
+const a3 = (
+  <div>
+    {/* prettier-ignore */}bar
+    <X odd={left + right} />
+  </div>
+);
 const a4 = (
-  <div>{/* prettier-ignore */}
+  <div>
+    {/* prettier-ignore */}
  
-<X odd={left + right} /></div>
+<X odd={left + right} />
+  </div>
 );
 const a5 = (
   <div>
@@ -52,7 +63,9 @@ function HelloWorld() {
         {} /*
       // @ts-ignore */ /* prettier-ignore */}
       invalidProp="HelloWorld"
-    >test</div>
+    >
+      test
+    </div>
   );
 }
 
@@ -73,25 +86,33 @@ const a1 = (
   </div>
 );
 const a2 = (
-  <div>{
+  <div>
+    {
       /* prettier-ignore */
-    } <X
+    }{" "}
+    <X
       odd={
         left + right
       }
-    /></div>
+    />
+  </div>
 );
 const a3 = (
-  <div>{
+  <div>
+    {
       /* prettier-ignore */
-    }bar<X
+    }
+    bar
+    <X
       odd={
         left + right
       }
-    /></div>
+    />
+  </div>
 );
 const a4 = (
-  <div>{
+  <div>
+    {
       /* prettier-ignore */
     }
  
@@ -99,7 +120,8 @@ const a4 = (
       odd={
         left + right
       }
-    /></div>
+    />
+  </div>
 );
 const a5 = (
   <div>
@@ -116,6 +138,8 @@ function HelloWorld() {
         {} /*
       // @ts-ignore */ /* prettier-ignore */}
       invalidProp="HelloWorld"
-    >test</div>
+    >
+      test
+    </div>
   );
 }

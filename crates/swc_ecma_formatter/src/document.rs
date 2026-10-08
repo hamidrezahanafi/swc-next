@@ -29,6 +29,8 @@ enum FormatElement<'a> {
     LiteralLine,
     IfBreak(Text<'a>),
     IfFlat(Text<'a>),
+    IfCurrentBreak(Text<'a>),
+    IfCurrentFlat(Text<'a>),
     LineSuffix(Text<'a>),
     StartGroup {
         expand: bool,
@@ -170,7 +172,7 @@ impl FormatElement<'_> {
     fn permits_flat(self) -> bool {
         match self {
             Self::HardLine | Self::LiteralLine | Self::LineSuffix(_) | Self::BreakParent => false,
-            Self::Text(text) => text.is_single_line(),
+            Self::Text(text) | Self::IfCurrentFlat(text) => text.is_single_line(),
             Self::Fragment(fragment) => fragment.capabilities.permits_flat(),
             Self::Alternatives(alternatives) => alternatives.first().capabilities.permits_flat(),
             _ => true,
@@ -181,7 +183,7 @@ impl FormatElement<'_> {
     fn flattened(self) -> Option<Self> {
         match self {
             Self::Line => Some(Self::Space),
-            Self::IfFlat(text) => Some(Self::Text(text)),
+            Self::IfFlat(text) | Self::IfCurrentFlat(text) => Some(Self::Text(text)),
             Self::StartGroup { id: Some(id), .. } => Some(Self::FlatGroup(id)),
             Self::Fragment(fragment) => Some(Self::FlatFragment(FlatFragment(fragment))),
             Self::Alternatives(alternatives) => {

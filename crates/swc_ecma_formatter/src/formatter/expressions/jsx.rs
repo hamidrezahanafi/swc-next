@@ -6,17 +6,27 @@ use std::borrow::Cow;
 
 use swc_next_ecma_ast::{
     CommentKind, Expr, GetSpan, JsxAttribute, JsxAttributeItemData, JsxAttributeName,
-    JsxAttributeNameData, JsxAttributeValueData, JsxElement, JsxElementName, JsxElementNameData,
-    JsxExpressionContainer, JsxExpressionData, JsxFragment, JsxMemberExpression,
-    JsxMemberExpressionObjectData, JsxNamespacedName, JsxOpeningElement, Span, StringLiteral,
+    JsxAttributeNameData, JsxAttributeValueData, JsxClosingElement, JsxElement, JsxElementName,
+    JsxElementNameData, JsxExpressionContainer, JsxExpressionData, JsxFragment,
+    JsxMemberExpression, JsxMemberExpressionObjectData, JsxNamespacedName, JsxOpeningElement, Span,
+    StringLiteral,
 };
 
+use super::parentheses::ExpressionContent;
 use super::{ExpressionContext, ExpressionPosition, Formatter, ParenthesesOwner, TailOwner};
 use crate::formatter::comments::{CommentRunLayout, NodeHead};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::suppression::ContentMode;
 use crate::formatter::types::generics::TypeListKind;
-use crate::{FormatError, LineEnding, QuoteStyle, document::Writer};
+use crate::{
+    FormatError, LineEnding, QuoteStyle,
+    document::{Fragment, Writer},
+};
+
+#[derive(Default)]
+struct JsxOpeningLayout {
+    multiple_attributes: bool,
+}
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_jsx_expression(
@@ -57,17 +67,50 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<(), FormatError> {
         let ast = self.ast;
         let opening = node.opening_element(ast);
-        self.format_jsx_opening(opening, writer)?;
+        let children = node.children(ast);
         if opening.self_closing(ast) {
-            if !node.children(ast).is_empty() || node.closing_element(ast).is_some() {
+            if !children.is_empty() || node.closing_element(ast).is_some() {
                 return Err(self.unsupported("self-closing JSX children", node));
             }
-            return Ok(());
+            return self.format_jsx_opening(opening, writer);
         }
         let closing = node
             .closing_element(ast)
             .ok_or_else(|| self.unsupported("JSX closing element", node))?;
-        self.format_jsx_children(node.children(ast), writer)?;
+        if children.is_empty() {
+            self.format_jsx_opening(opening, writer)?;
+            return self.format_jsx_closing(closing, writer);
+        }
+        let (opening_doc, opening_layout) = self.record_jsx_opening(opening, writer)?;
+        let (children_doc, children_layout) =
+            writer.record_with_value(|writer| self.format_jsx_children(children, writer))?;
+        let expand = children_layout.has_content
+            && (opening_layout.multiple_attributes
+                || children_layout.contains_tag
+                || children_layout.multiple_expressions
+                || opening_doc.preferred_breaks()
+                || children_doc.preferred_breaks());
+        writer.group(expand, |writer| {
+            writer.write_fragment(opening_doc);
+            writer.indent(|writer| {
+                if children_layout.has_content && !children_layout.leading_inline {
+                    writer.soft_line();
+                }
+                children_layout.write(children_doc, writer);
+            });
+            if children_layout.has_content && !children_layout.trailing_inline {
+                writer.soft_line();
+            }
+            self.format_jsx_closing(closing, writer)
+        })
+    }
+
+    fn format_jsx_closing(
+        &mut self,
+        closing: JsxClosingElement,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        let ast = self.ast;
         let name = closing.name(ast);
         self.format_jsx_closing_prefix(closing.span(ast), name.span(ast).start, writer)?;
         self.format_jsx_name(name, writer)?;
@@ -84,11 +127,45 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let ast = self.ast;
         let opening = node.opening_fragment(ast).span(ast);
         let closing = node.closing_fragment(ast).span(ast);
+        if node.children(ast).is_empty() {
+            self.format_jsx_fragment_opening(opening, writer)?;
+            self.format_jsx_closing_prefix(closing, closing.end - 1, writer)?;
+            writer.text(">");
+            return Ok(());
+        }
+        let (opening_doc, ()) =
+            writer.record_with_value(|writer| self.format_jsx_fragment_opening(opening, writer))?;
+        let (children_doc, layout) = writer
+            .record_with_value(|writer| self.format_jsx_children(node.children(ast), writer))?;
+        let expand = layout.has_content
+            && (layout.contains_tag
+                || layout.multiple_expressions
+                || opening_doc.preferred_breaks()
+                || children_doc.preferred_breaks());
+        writer.group(expand, |writer| {
+            writer.write_fragment(opening_doc);
+            writer.indent(|writer| {
+                if layout.has_content && !layout.leading_inline {
+                    writer.soft_line();
+                }
+                layout.write(children_doc, writer);
+            });
+            if layout.has_content && !layout.trailing_inline {
+                writer.soft_line();
+            }
+            self.format_jsx_closing_prefix(closing, closing.end - 1, writer)?;
+            writer.text(">");
+            Ok(())
+        })
+    }
+
+    fn format_jsx_fragment_opening(
+        &mut self,
+        opening: Span,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
         writer.text("<");
         self.format_source_token_gap(opening.start + 1, opening.end - 1, false, writer)?;
-        writer.text(">");
-        self.format_jsx_children(node.children(ast), writer)?;
-        self.format_jsx_closing_prefix(closing, closing.end - 1, writer)?;
         writer.text(">");
         Ok(())
     }
@@ -114,6 +191,32 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         node: JsxOpeningElement,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
+        if node.attributes(self.ast).is_empty() {
+            self.format_jsx_opening_content(node, writer)?;
+            return Ok(());
+        }
+        let (opening, _) = self.record_jsx_opening(node, writer)?;
+        writer.write_fragment(opening);
+        Ok(())
+    }
+
+    fn record_jsx_opening(
+        &mut self,
+        node: JsxOpeningElement,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(Fragment<'ast>, JsxOpeningLayout), FormatError> {
+        writer.record_with_value(|writer| {
+            writer.group(false, |writer| {
+                self.format_jsx_opening_content(node, writer)
+            })
+        })
+    }
+
+    fn format_jsx_opening_content(
+        &mut self,
+        node: JsxOpeningElement,
+        writer: &mut Writer<'ast>,
+    ) -> Result<JsxOpeningLayout, FormatError> {
         let ast = self.ast;
         let name = node.name(ast);
         let name_span = name.span(ast);
@@ -126,86 +229,117 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         });
         let attributes = node.attributes(ast);
         let closing = node.span(ast).end - if node.self_closing(ast) { 2 } else { 1 };
-        writer.group(false, |writer| {
-            writer.text("<");
-            self.format_source_token_gap(node.span(ast).start + 1, name_span.start, false, writer)?;
-            if arguments
-                .as_ref()
-                .is_some_and(|(_, prefix)| prefix.left_mode == ContentMode::Verbatim)
+        let mut attribute_nodes = attributes.iter().map(|id| {
+            let attribute = ast.get_node_in_sub_range(id);
+            let data = ast.jsx_attribute_item_data(attribute);
+            let string_has_lf = if let JsxAttributeItemData::JsxAttribute(attribute) = data
+                && let Some(value) = attribute.value(ast)
+                && let JsxAttributeValueData::StringLiteral(literal) =
+                    ast.jsx_attribute_value_data(value)
             {
-                self.format_verbatim(name_span, writer)?;
+                Some(jsx_attribute_has_lf(ast.get_utf8(literal.raw(ast))))
             } else {
-                self.format_jsx_name(name, writer)?;
+                None
+            };
+            (attribute, data, string_has_lf)
+        });
+        let first_attribute = attribute_nodes.next();
+        let single_string = attributes.len() == 1
+            && first_attribute.is_some_and(|(_, _, string_has_lf)| {
+                string_has_lf == Some(false) && self.comments.in_range(node.span(ast)).is_empty()
+            });
+        writer.text("<");
+        self.format_source_token_gap(node.span(ast).start + 1, name_span.start, false, writer)?;
+        if arguments
+            .as_ref()
+            .is_some_and(|(_, prefix)| prefix.left_mode == ContentMode::Verbatim)
+        {
+            self.format_verbatim(name_span, writer)?;
+        } else {
+            self.format_jsx_name(name, writer)?;
+        }
+        let mut end = name_span.end;
+        if let Some((arguments, prefix)) = arguments {
+            let mode = prefix.right_mode;
+            self.format_type_list_prefix(prefix, writer)?;
+            self.format_type_arguments(arguments, mode, writer)?;
+            end = arguments.span(ast).end;
+        }
+        if attributes.is_empty() {
+            self.format_source_token_gap(end, closing, false, writer)?;
+            if node.self_closing(ast) {
+                writer.text(" />");
+            } else {
+                writer.text(">");
             }
-            let mut end = name_span.end;
-            if let Some((arguments, prefix)) = arguments {
-                let mode = prefix.right_mode;
-                self.format_type_list_prefix(prefix, writer)?;
-                self.format_type_arguments(arguments, mode, writer)?;
-                end = arguments.span(ast).end;
-            }
-            if attributes.is_empty() {
-                self.format_source_token_gap(end, closing, false, writer)?;
-                if node.self_closing(ast) {
-                    writer.text(" />");
+            return Ok(JsxOpeningLayout::default());
+        }
+        let closing_gap = writer.indent(|writer| {
+            for (attribute, data, string_has_lf) in
+                first_attribute.into_iter().chain(attribute_nodes)
+            {
+                let span = attribute.span(ast);
+                let comments = self.comments.between(Span::new(end, span.start))?;
+                let first = comments
+                    .first()
+                    .map_or(span.start, |comment| comment.span.start);
+                if single_string {
+                    writer.space();
                 } else {
-                    writer.text(">");
-                }
-                return Ok(());
-            }
-            let closing_gap = writer.indent(|writer| {
-                for id in attributes.iter() {
-                    let attribute = ast.get_node_in_sub_range(id);
-                    let span = attribute.span(ast);
-                    let comments = self.comments.between(Span::new(end, span.start))?;
-                    let first = comments
-                        .first()
-                        .map_or(span.start, |comment| comment.span.start);
                     self.line_constraint(end, first).write(
                         writer,
                         FlatSeparator::Space,
                         Writer::line,
                     );
-                    let mode = self.content_mode(comments);
-                    self.comments.claim(comments)?;
-                    self.format_comment_run(
-                        comments,
-                        CommentRunLayout::GroupedLeading(span.start),
-                        writer,
-                    )?;
-                    if mode == ContentMode::Verbatim {
-                        self.format_verbatim(span, writer)?;
-                    } else {
-                        match ast.jsx_attribute_item_data(attribute) {
-                            JsxAttributeItemData::JsxAttribute(attribute) => {
-                                self.format_jsx_attribute(attribute, writer)?
-                            }
-                            JsxAttributeItemData::JsxSpreadAttribute(spread) => {
-                                self.format_jsx_braced_expression(
-                                    spread.argument(ast),
-                                    span,
-                                    true,
-                                    writer,
-                                )?;
-                            }
+                }
+                if string_has_lf == Some(true) {
+                    writer.break_parent();
+                }
+                let mode = self.content_mode(comments);
+                self.comments.claim(comments)?;
+                self.format_comment_run(
+                    comments,
+                    CommentRunLayout::GroupedLeading(span.start),
+                    writer,
+                )?;
+                if mode == ContentMode::Verbatim {
+                    self.format_verbatim(span, writer)?;
+                } else {
+                    match data {
+                        JsxAttributeItemData::JsxAttribute(attribute) => {
+                            self.format_jsx_attribute(attribute, writer)?
+                        }
+                        JsxAttributeItemData::JsxSpreadAttribute(spread) => {
+                            self.format_jsx_braced_expression(
+                                spread.argument(ast),
+                                span,
+                                true,
+                                writer,
+                            )?;
                         }
                     }
-                    end = span.end;
                 }
-                let comments = self.comments.between(Span::new(end, closing))?;
-                let boundary = self.prepare_comment_boundary(comments, end, closing);
-                self.format_comment_boundary(&boundary, writer)?;
-                Ok::<_, FormatError>(boundary.gap())
-            })?;
-            closing_gap.write(writer, FlatSeparator::Empty, |writer| {
+                end = span.end;
+            }
+            let comments = self.comments.between(Span::new(end, closing))?;
+            let boundary = self.prepare_comment_boundary(comments, end, closing);
+            self.format_comment_boundary(&boundary, writer)?;
+            Ok::<_, FormatError>(boundary.gap())
+        })?;
+        closing_gap.write(writer, FlatSeparator::Empty, |writer| {
+            if single_string {
                 if node.self_closing(ast) {
-                    writer.line();
-                } else if !self.options.bracket_same_line {
-                    writer.soft_line();
+                    writer.space();
                 }
-            });
-            writer.text(if node.self_closing(ast) { "/>" } else { ">" });
-            Ok(())
+            } else if node.self_closing(ast) {
+                writer.line();
+            } else if !self.options.bracket_same_line {
+                writer.soft_line();
+            }
+        });
+        writer.text(if node.self_closing(ast) { "/>" } else { ">" });
+        Ok(JsxOpeningLayout {
+            multiple_attributes: attributes.len() > 1,
         })
     }
 
@@ -405,6 +539,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         spread: bool,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
+        self.format_jsx_braced_expression_prepared(expression, envelope, spread, None, writer)
+    }
+
+    fn format_jsx_braced_expression_prepared(
+        &mut self,
+        expression: Expr,
+        envelope: Span,
+        spread: bool,
+        content: Option<ExpressionContent>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
         let ast = self.ast;
         let expression_span = expression.span(ast);
         let spread_token = if spread {
@@ -449,19 +594,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     FlatSeparator::Empty,
                     Writer::soft_line,
                 );
-                let tail = self.format_expression_with_leading_comments(
-                    expression,
-                    NodeHead {
-                        comments: leading,
-                        content_start: expression_span.start,
-                        layout: CommentRunLayout::GroupedLeading(expression_span.start),
-                        gap_end: None,
-                    },
-                    ExpressionContext::at(ExpressionPosition::JsxExpression)
-                        .with_content_mode(mode)
-                        .with_tail_owner(TailOwner::ParentOperation),
-                    writer,
-                )?;
+                let head = NodeHead {
+                    comments: leading,
+                    content_start: expression_span.start,
+                    layout: CommentRunLayout::GroupedLeading(expression_span.start),
+                    gap_end: None,
+                };
+                let context = ExpressionContext::at(ExpressionPosition::JsxExpression)
+                    .with_content_mode(mode)
+                    .with_tail_owner(TailOwner::ParentOperation);
+                let tail = match content {
+                    Some(content) => self.format_prepared_expression_with_leading_comments(
+                        expression, content, head, context, writer,
+                    ),
+                    None => self
+                        .format_expression_with_leading_comments(expression, head, context, writer),
+                }?;
                 let tail =
                     self.capture_expression_tail(Span::new(expression_span.end, closing), tail)?;
                 let last = tail.as_ref().and_then(|tail| tail.comments.last());
@@ -484,6 +632,28 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             Ok(())
         })
     }
+}
+
+/// The lexer keeps JSX attribute entities in its raw value. The emitted LF
+/// entity must keep the same opening layout on the next formatting pass.
+fn jsx_attribute_has_lf(raw: &str) -> bool {
+    raw.contains('\n')
+        || raw.split("&#").skip(1).any(|entity| {
+            let Some((digits, _)) = entity.split_once(';') else {
+                return false;
+            };
+            let (digits, radix) = digits
+                .strip_prefix(['x', 'X'])
+                .map_or((digits, 10), |digits| (digits, 16));
+            let valid = digits.bytes().all(|byte| {
+                if radix == 10 {
+                    byte.is_ascii_digit()
+                } else {
+                    byte.is_ascii_hexdigit()
+                }
+            });
+            valid && u32::from_str_radix(digits, radix) == Ok(10)
+        })
 }
 
 fn jsx_attribute_string<'text>(

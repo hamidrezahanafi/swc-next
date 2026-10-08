@@ -33,7 +33,13 @@ const a2 = (
 last"
   />
 );
-const a3 = <div title="a&#13;&#10;b">first second</div>;
+const a3 = (
+  <div
+    title="a&#13;&#10;b"
+  >
+    first second
+  </div>
+);
 const a4 = <Box title=/* value */ "foo" />;
 const a5 = (
   <Box
@@ -64,7 +70,9 @@ last"
 const a3 = (
   <div
     title="a&#13;&#10;b"
-  >first second</div>
+  >
+    first second
+  </div>
 );
 const a4 = (
   <Box
@@ -97,7 +105,13 @@ const a2 = (
 last'
   />
 );
-const a3 = <div title='a&#13;&#10;b'>first second</div>;
+const a3 = (
+  <div
+    title='a&#13;&#10;b'
+  >
+    first second
+  </div>
+);
 const a4 = <Box title=/* value */ 'foo' />;
 const a5 = (
   <Box
@@ -118,12 +132,18 @@ const a1 = (
     {...props}
   />
 );
-const a2 = <Box title="first&#10;  second	line &nbsp;&#10;last" />;
+const a2 = (
+  <Box
+    title="first&#10;  second	line &nbsp;&#10;last"
+  />
+);
 const a3 = (
   <div
     title="a
 b"
-  >first second</div>
+  >
+    first second
+  </div>
 );
 const a4 = <Box title=/* value */ "foo" />;
 const a5 = (
@@ -136,4 +156,4 @@ const a5 = (
 ---------- Options ----------
 {"endOfLine":"cr"}
 ---------- Output ----------
-const a1 = (  <Box    title='a\b "c" &amp; d'    other="'x' &quot;y&quot;"    active    data={value + 1}    {...props}  />);const a2 = <Box title="first&#10;  second	line &nbsp;&#10;last" />;const a3 = <div title="a&#13;&#10;b">first second</div>;const a4 = <Box title=/* value */ "foo" />;const a5 = (  <Box    title=// value    "foo"  />);
+const a1 = (  <Box    title='a\b "c" &amp; d'    other="'x' &quot;y&quot;"    active    data={value + 1}    {...props}  />);const a2 = (  <Box    title="first&#10;  second	line &nbsp;&#10;last"  />);const a3 = (  <div    title="a&#13;&#10;b"  >    first second  </div>);const a4 = <Box title=/* value */ "foo" />;const a5 = (  <Box    title=// value    "foo"  />);

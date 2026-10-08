@@ -10,3 +10,11 @@ const a4=<div>
  alpha
 </div>;
 const a5=<div> alpha beta </div>;
+const a6=<div first="one" second="two">   <b/>   tail   </div>;
+const a7=<Box>{" "}{" "}</Box>;
+const a8=<Box>foo{" "}bar</Box>;
+const a9=<Box>{""}  {" "}<b/>  {" "}</Box>;
+const a10=<Box>{(" ")}</Box>;
+const a11=<Box>{( ("\x20") )}</Box>;
+const a12=<Box>{(/* value */ " ")}</Box>;
+const a13=<Box>{("  ")}{("")}{("x")}</Box>;

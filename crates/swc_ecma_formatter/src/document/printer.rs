@@ -254,6 +254,15 @@ pub(super) fn print(
                     output.write(text, options);
                 }
             }
+            FormatElement::IfCurrentBreak(text) | FormatElement::IfCurrentFlat(text) => {
+                let active = match element {
+                    FormatElement::IfCurrentBreak(_) => mode == Mode::Break,
+                    _ => mode == Mode::Flat,
+                };
+                if active {
+                    output.write(text, options);
+                }
+            }
             FormatElement::LineSuffix(text) => suffixes.push(text),
             FormatElement::StartGroup { expand, id } => {
                 let flat = !expand
@@ -529,7 +538,9 @@ impl<'a> Probe<'a> {
             match element {
                 FormatElement::Text(text)
                 | FormatElement::IfBreak(text)
-                | FormatElement::IfFlat(text) => {
+                | FormatElement::IfFlat(text)
+                | FormatElement::IfCurrentBreak(text)
+                | FormatElement::IfCurrentFlat(text) => {
                     if matches!(
                         element,
                         FormatElement::IfBreak(_) | FormatElement::IfFlat(_)
@@ -546,6 +557,14 @@ impl<'a> Probe<'a> {
                         if !active {
                             continue;
                         }
+                    }
+                    let inactive_current = match element {
+                        FormatElement::IfCurrentBreak(_) => mode != Mode::Break,
+                        FormatElement::IfCurrentFlat(_) => mode != Mode::Flat,
+                        _ => false,
+                    };
+                    if inactive_current {
+                        continue;
                     }
                     column += usize::from(pending_space);
                     pending_space = false;

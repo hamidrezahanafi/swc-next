@@ -79,9 +79,9 @@ const jsxTag = (<Tag
 />)`head ${
   value + 1
 } tail`;
-const fragmentTag = (<>head {
-    value
-  }</>)`tail`;
+const fragmentTag = (<>
+  head {value}
+</>)`tail`;
 const joined = (
   <Box
     title={

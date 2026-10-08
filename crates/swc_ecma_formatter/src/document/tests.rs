@@ -683,6 +683,56 @@ fn flat_scopes() {
     );
 }
 
+fn current_mode_fill(width: u16, expand_next: bool) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    writer.group(true, |writer| {
+        writer.fill(|writer| {
+            writer.fill_entry(|writer| writer.text("aa"));
+            writer.fill_entry(|writer| {
+                writer.if_break(",");
+                writer.if_flat("unused");
+                writer.if_current_break("!");
+                writer.if_current_flat(" ");
+                writer.soft_line();
+            });
+            writer.fill_entry(|writer| writer.group(expand_next, |writer| writer.text("bb")));
+        });
+    });
+    writer.finish().print(FormatOptions {
+        line_width: width,
+        ..FormatOptions::prettier()
+    })
+}
+
+fn current_mode_group(width: u16) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    writer.group(false, |writer| {
+        writer.if_current_break("B");
+        writer.if_current_flat("1234");
+        writer.line();
+        writer.text("x");
+    });
+    writer.finish().print(FormatOptions {
+        line_width: width,
+        ..FormatOptions::prettier()
+    })
+}
+
+#[test]
+fn current_mode_scopes() {
+    assert_eq!(current_mode_fill(8, false), "aa, bb");
+
+    assert_eq!(current_mode_fill(5, false), "aa,!\nbb");
+
+    assert_eq!(current_mode_fill(8, true), "aa,!\nbb");
+
+    assert_eq!(current_mode_group(6), "1234 x");
+
+    assert_eq!(current_mode_group(5), "B\nx");
+}
+
 fn record<'a>(writer: &mut Writer<'a>, write: impl FnOnce(&mut Writer<'a>)) -> super::Fragment<'a> {
     writer
         .record_with_value(|writer| {
@@ -727,6 +777,26 @@ fn fragment_capabilities() {
     assert!(flat_conditional.try_neutral().is_none());
     assert!(flat_conditional.try_flat().is_some());
 
+    let current = record(&mut writer, |writer| {
+        writer.if_current_break("broken\nbranch");
+        writer.if_current_flat("flat");
+    });
+    assert!(current.try_neutral().is_none());
+    assert!(current.try_flat().is_some());
+
+    let projected = record(&mut writer, |writer| {
+        writer.flat(|writer| writer.write_fragment(current));
+    });
+    assert!(projected.try_neutral().is_none());
+    assert!(projected.try_flat().is_some());
+    writer.write_flat_fragment(projected.try_flat().unwrap());
+
+    let multiline_current = record(&mut writer, |writer| {
+        writer.if_current_flat("first\nlast");
+    });
+    assert!(multiline_current.try_neutral().is_none());
+    assert!(multiline_current.try_flat().is_none());
+
     let named = record(&mut writer, |writer| {
         writer.named_group(false, |writer| writer.text("value"));
     });
@@ -763,10 +833,32 @@ fn fragment_capabilities() {
                 writer.text("value");
                 writer.if_break(",");
                 writer.if_flat(".");
+                writer.if_current_break("broken\nbranch");
+                writer.if_current_flat("flat");
             });
         });
     });
     assert!(flattened.try_neutral().is_some());
+}
+
+#[test]
+fn current_mode_flat_projection() {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let conditional = record(&mut writer, |writer| {
+        writer.if_current_break("broken\nbranch");
+        writer.if_current_flat("flat");
+    });
+    writer.write_flat_fragment(conditional.try_flat().unwrap());
+    assert_eq!(writer.finish().print(FormatOptions::prettier()), "flat");
+
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    writer.flat(|writer| {
+        writer.if_current_break("broken\nbranch");
+        writer.if_current_flat("flat");
+    });
+    assert_eq!(writer.finish().print(FormatOptions::prettier()), "flat");
 }
 
 fn recorded_group_document(write: impl FnOnce(&mut Writer<'_>), inherited: bool) -> String {
@@ -1341,7 +1433,7 @@ fn alternative_expansion_boundaries() {
         writer.text("head ");
         writer.if_flat("F");
         writer.write_fragment(scope);
-        writer.if_flat(" tail");
+        writer.if_current_flat(" tail");
     });
     assert_eq!(
         writer.finish().print(FormatOptions::prettier()),
