@@ -5,7 +5,7 @@ mod children;
 use std::borrow::Cow;
 
 use swc_next_ecma_ast::{
-    CommentKind, Expr, GetSpan, JsxAttribute, JsxAttributeItemData, JsxAttributeName,
+    CommentKind, Expr, ExprData, GetSpan, JsxAttribute, JsxAttributeItemData, JsxAttributeName,
     JsxAttributeNameData, JsxAttributeValueData, JsxClosingElement, JsxElement, JsxElementName,
     JsxElementNameData, JsxExpressionContainer, JsxExpressionData, JsxFragment,
     JsxMemberExpression, JsxMemberExpressionObjectData, JsxNamespacedName, JsxOpeningElement, Span,
@@ -587,6 +587,27 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             ContentMode::Formatted
         };
+        let mut content = content;
+        let hug = if !spread && mode == ContentMode::Formatted {
+            let data = content
+                .as_ref()
+                .map_or_else(|| ast.expr_data(expression), |content| content.data);
+            let data = if content.is_none() && matches!(data, ExprData::ParenthesizedExpression(_))
+            {
+                let prepared = self.expression_content(expression);
+                let data = prepared.data;
+                content = Some(prepared);
+                data
+            } else {
+                data
+            };
+            matches!(
+                data,
+                ExprData::ObjectExpression(_) | ExprData::ArrayExpression(_)
+            ) && self.comments.in_range(envelope).is_empty()
+        } else {
+            false
+        };
         writer.group(false, |writer| {
             writer.text("{");
             if let Some(marker) = spread_token {
@@ -594,14 +615,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.text("...");
             }
             self.comments.claim(leading)?;
-            let (end, line_comment) = writer.indent(|writer| {
+            let format_content = |writer: &mut Writer<'ast>| {
                 let first = leading
                     .first()
                     .map_or(expression_span.start, |comment| comment.span.start);
                 self.line_constraint(opening, first).write(
                     writer,
                     FlatSeparator::Empty,
-                    Writer::soft_line,
+                    |writer| {
+                        if !hug {
+                            writer.soft_line();
+                        }
+                    },
                 );
                 let head = NodeHead {
                     comments: leading,
@@ -628,12 +653,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     end,
                     last.is_some_and(|comment| comment.kind == CommentKind::Line),
                 ))
-            })?;
+            };
+            let (end, line_comment) = if hug {
+                format_content(writer)
+            } else {
+                writer.indent(format_content)
+            }?;
             self.line_constraint(end, closing)
                 .write(writer, FlatSeparator::Empty, |writer| {
                     if line_comment {
                         writer.hard_line();
-                    } else {
+                    } else if !hug {
                         writer.soft_line();
                     }
                 });

@@ -6,6 +6,13 @@ const a1=<Box>{ /* head */ value /* tail */ }{value // last
 }{/* one */ /* two */}{// empty line
 }</Box>;
 const x1=<Box { /* spread */ ...props }>{ /* child */ ...children }</Box>;
+
+const object_attribute=<Box data={{firstVeryLongKey: "first", secondVeryLongKey: "second", thirdVeryLongKey: "third"}}/>;
+const array_attribute=<Box data={["firstVeryLongValue", "secondVeryLongValue", "thirdVeryLongValue"]}/>;
+const object_array_children=<Box>{{firstVeryLongKey: "first", secondVeryLongKey: "second"}}{["firstVeryLongValue", "secondVeryLongValue"]}</Box>;
+const wrapped_collections=<Box data={({firstVeryLongKey: "first", secondVeryLongKey: "second"})} list={((["firstVeryLongValue", "secondVeryLongValue"]))}/>;
+const commented_collections=<Box data={/* head object */ {firstVeryLongKey: "first", secondVeryLongKey: "second"} /* tail object */}>{({/* inner object */ firstVeryLongKey: "first"})}{["firstVeryLongValue" /* inner array */]}</Box>;
+const ignored_collections=<Box data={/* prettier-ignore */ { firstVeryLongKey:  "first",secondVeryLongKey:"second" }} list={/* prettier-ignore */ [ "firstVeryLongValue",  "secondVeryLongValue" ]}/>;
 ---------- Options ----------
 {"printWidth":80}
 ---------- Output ----------
@@ -25,6 +32,56 @@ const a1 = (
   </Box>
 );
 const x1 = <Box { /* spread */...props}>{ /* child */...children}</Box>;
+
+const object_attribute = (
+  <Box
+    data={{
+      firstVeryLongKey: "first",
+      secondVeryLongKey: "second",
+      thirdVeryLongKey: "third",
+    }}
+  />
+);
+const array_attribute = (
+  <Box
+    data={["firstVeryLongValue", "secondVeryLongValue", "thirdVeryLongValue"]}
+  />
+);
+const object_array_children = (
+  <Box>
+    {{ firstVeryLongKey: "first", secondVeryLongKey: "second" }}
+    {["firstVeryLongValue", "secondVeryLongValue"]}
+  </Box>
+);
+const wrapped_collections = (
+  <Box
+    data={{ firstVeryLongKey: "first", secondVeryLongKey: "second" }}
+    list={["firstVeryLongValue", "secondVeryLongValue"]}
+  />
+);
+const commented_collections = (
+  <Box
+    data={
+      /* head object */ {
+        firstVeryLongKey: "first",
+        secondVeryLongKey: "second",
+      } /* tail object */
+    }
+  >
+    {{ /* inner object */ firstVeryLongKey: "first" }}
+    {["firstVeryLongValue" /* inner array */]}
+  </Box>
+);
+const ignored_collections = (
+  <Box
+    data={
+      /* prettier-ignore */ { firstVeryLongKey:  "first",secondVeryLongKey:"second" }
+    }
+    list={
+      /* prettier-ignore */ [ "firstVeryLongValue",  "secondVeryLongValue" ]
+    }
+  />
+);
 
 ---------- Options ----------
 {"printWidth":20}
@@ -57,3 +114,93 @@ const x1 = (
     }
   </Box>
 );
+
+const object_attribute =
+  (
+    <Box
+      data={{
+        firstVeryLongKey:
+          "first",
+        secondVeryLongKey:
+          "second",
+        thirdVeryLongKey:
+          "third",
+      }}
+    />
+  );
+const array_attribute =
+  (
+    <Box
+      data={[
+        "firstVeryLongValue",
+        "secondVeryLongValue",
+        "thirdVeryLongValue",
+      ]}
+    />
+  );
+const object_array_children =
+  (
+    <Box>
+      {{
+        firstVeryLongKey:
+          "first",
+        secondVeryLongKey:
+          "second",
+      }}
+      {[
+        "firstVeryLongValue",
+        "secondVeryLongValue",
+      ]}
+    </Box>
+  );
+const wrapped_collections =
+  (
+    <Box
+      data={{
+        firstVeryLongKey:
+          "first",
+        secondVeryLongKey:
+          "second",
+      }}
+      list={[
+        "firstVeryLongValue",
+        "secondVeryLongValue",
+      ]}
+    />
+  );
+const commented_collections =
+  (
+    <Box
+      data={
+        /* head object */ {
+          firstVeryLongKey:
+            "first",
+          secondVeryLongKey:
+            "second",
+        } /* tail object */
+      }
+    >
+      {
+        {
+          /* inner object */ firstVeryLongKey:
+            "first",
+        }
+      }
+      {
+        [
+          "firstVeryLongValue" /* inner array */,
+        ]
+      }
+    </Box>
+  );
+const ignored_collections =
+  (
+    <Box
+      data={
+        /* prettier-ignore */ { firstVeryLongKey:  "first",secondVeryLongKey:"second" }
+      }
+      list={
+        /* prettier-ignore */ [ "firstVeryLongValue",  "secondVeryLongValue" ]
+      }
+    />
+  );
