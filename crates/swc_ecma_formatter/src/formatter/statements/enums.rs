@@ -407,7 +407,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
             }
             TsEnumMemberNameData::TemplateLiteral(node) => {
-                return Err(self.unsupported("computed template enum member name", node));
+                if computed.is_none() {
+                    return Err(self.unsupported("noncomputed template enum member name", node));
+                }
+                self.format_zero_slot_template(node, writer)?;
             }
         }
         if let Some(computed) = computed {

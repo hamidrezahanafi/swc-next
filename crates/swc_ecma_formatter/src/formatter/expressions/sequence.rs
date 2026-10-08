@@ -76,6 +76,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 context.position,
                 ExpressionPosition::RestrictedArgument
                     | ExpressionPosition::ForHead
+                    | ExpressionPosition::TemplateInterpolation
                     | ExpressionPosition::ForInitializer { parentheses: false }
             );
         if parenthesize {

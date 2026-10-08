@@ -11,6 +11,7 @@ mod interfaces;
 mod mapped;
 mod members;
 mod postfix;
+mod templates;
 mod tuple;
 
 use swc_next_ecma_ast::{
@@ -539,8 +540,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             TsTypeData::TsConditionalType(node) => self.format_conditional_type(node, writer),
             TsTypeData::TsInferType(node) => self.format_infer_type(node, writer),
             TsTypeData::TsMappedType(node) => self.format_mapped_type(node, writer),
+            TsTypeData::TsTemplateLiteralType(template) => self
+                .format_template_literal_type(template, writer)
+                .map(|()| None),
             TsTypeData::TsLiteralType(literal) => {
                 match self.ast.ts_literal_data(literal.literal(self.ast)) {
+                    TsLiteralData::TemplateLiteral(template) => {
+                        self.format_zero_slot_template(template, writer)?
+                    }
                     TsLiteralData::StringLiteral(node) => {
                         self.format_string_literal(node, StringContext::Expression, writer)
                     }
@@ -582,7 +589,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                             }
                         }
                     }
-                    _ => return Err(self.unsupported("type literal", literal)),
                 }
                 Ok(None)
             }

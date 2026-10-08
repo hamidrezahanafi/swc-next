@@ -1054,7 +1054,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ExpressionPosition::ConditionalTest
             | ExpressionPosition::TypeBinaryOperand
             | ExpressionPosition::NonNullOperand
-            | ExpressionPosition::InstantiationOperand => true,
+            | ExpressionPosition::InstantiationOperand
+            | ExpressionPosition::TemplateTag => true,
             _ => false,
         }
     }
@@ -1347,6 +1348,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
                 ExprData::MemberExpression(member) => member.object(self.ast),
                 ExprData::CallExpression(call) => call.callee(self.ast),
+                ExprData::TaggedTemplateExpression(template) => template.tag(self.ast),
                 ExprData::ChainExpression(chain) => chain.expression(self.ast),
                 _ => return None,
             };
