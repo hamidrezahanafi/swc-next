@@ -1,12 +1,14 @@
 //! Shared fluent layout over source-owned member and call operations.
 
-use std::iter::Peekable;
+use std::iter::{Peekable, Take};
 use std::vec::IntoIter;
 
 use swc_next_ecma_ast::{Expr, ExprData, GetSpan, IdentifierName, ParenthesizedExpression};
 
 use super::arguments::{ArgumentGroup, SourceArguments};
-use super::members::{MemberBoundary, MemberLookupOwner, PreparedMember, SourceMember};
+use super::members::{
+    MemberBoundary, MemberLookupLayout, MemberLookupOwner, PreparedMember, SourceMember,
+};
 use super::{
     AccessKind, ExpressionContext, ExpressionLayout, ExpressionPosition, Formatter,
     MemberChainLayout, MemberLayout,
@@ -56,37 +58,47 @@ struct PreparedChain<'ast> {
     head_context: ExpressionContext,
     cast_head: Option<ParenthesizedExpression>,
     parts: Vec<ChainPart<'ast>>,
+    // The prepared operation boundary between the callee and terminal lookups.
+    callee_parts: usize,
     calls: usize,
     // Source boundaries can add groups and independently require expansion.
     groups: usize,
 }
 
+enum ChainSuffix {
+    Collecting { members: usize },
+    Complete { members: usize },
+}
+
+enum ChainLookupLayout {
+    Local,
+    InlineContinuation,
+    ExpressionContinuation,
+}
+
 struct ChainGrouping {
     groups: usize,
     pending_call: bool,
-    terminal_members: bool,
 }
 
 impl ChainGrouping {
-    fn new(terminal_member: bool) -> Self {
+    fn new() -> Self {
         Self {
             groups: 1,
             pending_call: false,
-            terminal_members: terminal_member,
         }
     }
 
     fn call(&mut self) {
         self.pending_call = true;
-        self.terminal_members = false;
     }
 
     fn member(&mut self, numeric: bool) {
         // The reverse walk closes the same call-bearing groups as the forward
-        // printer. Numeric accesses stay with a call; terminal named accesses
-        // each start a group after the last call. The remaining prefix is head.
+        // printer. Numeric accesses stay with a call; terminal lookup groups
+        // are owned separately. The remaining prefix is head.
         if !numeric {
-            if self.pending_call || self.terminal_members {
+            if self.pending_call {
                 self.groups += 1;
             }
             self.pending_call = false;
@@ -138,11 +150,10 @@ enum ChainArgumentLayout {
     Complex,
 }
 
-struct ChainSource<'ast> {
-    parts: Peekable<IntoIter<ChainPart<'ast>>>,
+struct ChainSource<'ast, 'parts> {
+    parts: Peekable<Take<&'parts mut IntoIter<ChainPart<'ast>>>>,
     pending: Option<PendingMember<'ast>>,
     tail: Option<ExpressionTail<'ast>>,
-    remaining_calls: usize,
     argument_layout: ChainArgumentLayout,
 }
 
@@ -340,7 +351,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.ast.expr_data(expression),
             ExprData::MemberExpression(_)
         );
-        let mut grouping = ChainGrouping::new(terminal_member);
+        let mut suffix = if terminal_member {
+            ChainSuffix::Collecting { members: 0 }
+        } else {
+            ChainSuffix::Complete { members: 0 }
+        };
+        let mut grouping = ChainGrouping::new();
         while current_context.content_mode == ContentMode::Formatted {
             match self.ast.expr_data(current) {
                 ExprData::MemberExpression(member) => match self.source_member(member)? {
@@ -349,7 +365,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         let numeric = source.key().is_some_and(|key| {
                             matches!(self.ast.expr_data(key), ExprData::NumericLiteral(_))
                         });
-                        grouping.member(numeric);
+                        match &mut suffix {
+                            ChainSuffix::Collecting { members } => {
+                                // The last non-numeric lookup encountered in reverse
+                                // marks the suffix's beginning. Earlier numeric
+                                // accesses stay with the final call's receiver.
+                                if !numeric {
+                                    *members = parts.len() + 1;
+                                }
+                            }
+                            ChainSuffix::Complete { .. } => grouping.member(numeric),
+                        }
                         current = source.object;
                         current_context = source.receiver_context(current_context);
                         parts.push(ChainPart::Member(ChainMember {
@@ -368,6 +394,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     let arguments = self.source_call(call, current_context)?;
                     current = arguments.callee;
                     current_context = arguments.callee_context(current_context);
+                    if let ChainSuffix::Collecting { members } = suffix {
+                        suffix = ChainSuffix::Complete { members };
+                    }
                     parts.push(ChainPart::Call(arguments));
                     calls += 1;
                     grouping.call();
@@ -395,12 +424,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 _ => break,
             }
         }
+        let continuation_parts = match suffix {
+            ChainSuffix::Collecting { members } | ChainSuffix::Complete { members } => members,
+        };
+        let callee_parts = parts.len() - continuation_parts;
         parts.reverse();
         Ok(PreparedChain {
             head: current,
             head_context: current_context,
             cast_head: self.source_cast_head(current),
             parts,
+            callee_parts,
             calls,
             groups: grouping.groups,
         })
@@ -458,69 +492,77 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             _ => false,
         };
-        let mut source = ChainSource {
-            parts: chain.parts.into_iter().peekable(),
-            pending: None,
-            tail: None,
-            remaining_calls: chain.calls,
-            argument_layout: if chain.groups > 2 {
-                ChainArgumentLayout::Inspect
-            } else {
-                ChainArgumentLayout::ByWidth
-            },
-        };
-        let (head, merge_head) = self.record_chain_head(
-            ChainHead {
-                expression: chain.head,
-                context: chain.head_context,
-                has_comments: head_comments,
-                attach: head_attach,
-                layout: head_layout,
-            },
-            terminal_member,
-            &mut source,
-            writer,
-        )?;
-        // Merging the head leaves at most two groups in a short chain. Source
-        // boundaries may split those groups, but already require expansion.
-        if !terminal_member && merge_head && chain.groups <= 3 {
-            source.argument_layout = ChainArgumentLayout::ByWidth;
-        }
-        let mut tail = Vec::new();
-        while source.pending.is_some() || source.parts.peek().is_some() {
-            tail.push(self.record_chain_group(terminal_member, &mut source, writer)?);
-        }
-        let groups = ChainGroups { head, tail };
-        let merge_head = merge_head
-            && !groups.head.facts.has_boundary_comments
-            && groups.tail.first().is_some_and(|group| {
-                !group.facts.has_boundary_comments && !group.facts.source_break
-            });
-        let short_chain = !terminal_member && groups.tail.len() <= if merge_head { 2 } else { 1 };
-        // A short chain has one shared layout even when an argument's own
-        // collection group breaks. Its new source shape must not change the
-        // chain's strategy on the next pass.
-        if short_chain
-            && !groups.head.facts.source_break
-            && !groups.tail.iter().any(|group| group.facts.source_break)
-        {
-            writer.group(false, |writer| write_compact(&groups, writer));
-        } else if matches!(source.argument_layout, ChainArgumentLayout::Complex)
-            || groups.requires_expanded()
-        {
-            write_expanded(&groups, merge_head, writer);
-        } else {
-            let (expanded, ()) = writer.record_with_value(|writer| {
+        let mut parts = chain.parts.into_iter();
+        let tail = {
+            let mut source = ChainSource {
+                parts: parts.by_ref().take(chain.callee_parts).peekable(),
+                pending: None,
+                tail: None,
+                argument_layout: if chain.groups > 2 {
+                    ChainArgumentLayout::Inspect
+                } else {
+                    ChainArgumentLayout::ByWidth
+                },
+            };
+            let (head, merge_head) = self.record_chain_head(
+                ChainHead {
+                    expression: chain.head,
+                    context: chain.head_context,
+                    has_comments: head_comments,
+                    attach: head_attach,
+                    layout: head_layout,
+                },
+                &mut source,
+                writer,
+            )?;
+            // Merging the head leaves at most two groups in a short chain. Source
+            // boundaries may split those groups, but already require expansion.
+            if merge_head && chain.groups <= 3 {
+                source.argument_layout = ChainArgumentLayout::ByWidth;
+            }
+            let mut tail = Vec::new();
+            while source.pending.is_some() || source.parts.peek().is_some() {
+                tail.push(self.record_chain_group(&mut source, writer)?);
+            }
+            let groups = ChainGroups { head, tail };
+            let merge_head = merge_head
+                && !groups.head.facts.has_boundary_comments
+                && groups.tail.first().is_some_and(|group| {
+                    !group.facts.has_boundary_comments && !group.facts.source_break
+                });
+            let short_chain = groups.tail.len() <= if merge_head { 2 } else { 1 };
+            // A short chain has one shared layout even when an argument's own
+            // collection group breaks. Its new source shape must not change the
+            // chain's strategy on the next pass.
+            if short_chain
+                && !groups.head.facts.source_break
+                && !groups.tail.iter().any(|group| group.facts.source_break)
+            {
+                writer.group(false, |writer| write_compact(&groups, writer));
+            } else if matches!(source.argument_layout, ChainArgumentLayout::Complex)
+                || groups.requires_expanded()
+            {
                 write_expanded(&groups, merge_head, writer);
-                Ok::<_, FormatError>(())
-            })?;
-            let (compact, ()) = writer.record_with_value(|writer| {
-                write_compact(&groups, writer);
-                Ok::<_, FormatError>(())
-            })?;
-            writer.write_alternatives(compact, &[compact], expanded);
-        }
-        Ok(source.tail)
+            } else {
+                let (expanded, ()) = writer.record_with_value(|writer| {
+                    write_expanded(&groups, merge_head, writer);
+                    Ok::<_, FormatError>(())
+                })?;
+                let (compact, ()) = writer.record_with_value(|writer| {
+                    write_compact(&groups, writer);
+                    Ok::<_, FormatError>(())
+                })?;
+                writer.write_alternatives(compact, &[compact], expanded);
+            }
+            source.tail
+        };
+        let continuation_layout =
+            if matches!(context.position, ExpressionPosition::AssignmentRight(_)) {
+                ChainLookupLayout::InlineContinuation
+            } else {
+                ChainLookupLayout::ExpressionContinuation
+            };
+        self.format_chain_operations(parts, tail, continuation_layout, writer)
     }
 
     fn format_local_chain(
@@ -528,16 +570,65 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         chain: PreparedChain<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        let mut tail = self.format_expression(chain.head, chain.head_context, writer)?;
-        for part in chain.parts {
+        let tail = self.format_expression(chain.head, chain.head_context, writer)?;
+        self.format_chain_operations(
+            chain.parts.into_iter(),
+            tail,
+            ChainLookupLayout::Local,
+            writer,
+        )
+    }
+
+    fn format_chain_operations(
+        &mut self,
+        parts: IntoIter<ChainPart<'ast>>,
+        mut tail: Option<ExpressionTail<'ast>>,
+        layout: ChainLookupLayout,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        for part in parts {
             match part {
                 ChainPart::Member(member) => {
-                    let boundary =
-                        self.format_member_boundary(&member.source, tail.take(), writer)?;
-                    let lookup = self.member_lookup_layout(&member.source, member.lookup_owner);
-                    lookup.write(boundary.gap(), writer, |writer| {
-                        self.format_member_access(&member.source, boundary, writer)
-                    })?;
+                    let boundary = self.prepare_member_boundary(&member.source, tail.take())?;
+                    let lookup = match layout {
+                        ChainLookupLayout::InlineContinuation
+                            if boundary.empty_line || boundary.gap().requires_line() =>
+                        {
+                            MemberLookupLayout::Grouped
+                        }
+                        ChainLookupLayout::InlineContinuation => MemberLookupLayout::Inline,
+                        ChainLookupLayout::Local | ChainLookupLayout::ExpressionContinuation => {
+                            self.member_lookup_layout(&member.source, member.lookup_owner)
+                        }
+                    };
+                    let boundary_inside = !matches!(layout, ChainLookupLayout::Local)
+                        && (boundary.has_before_comments() || boundary.empty_line);
+                    if boundary_inside {
+                        lookup.write_contents(writer, |writer| {
+                            self.format_member_trailing(&boundary, writer)?;
+                            if boundary.empty_line {
+                                ChainSeparator {
+                                    gap: boundary.gap(),
+                                    empty_line: true,
+                                }
+                                .write(true, writer);
+                            } else {
+                                boundary
+                                    .gap()
+                                    .write(writer, FlatSeparator::Empty, |writer| {
+                                        if matches!(lookup, MemberLookupLayout::Grouped) {
+                                            writer.soft_line();
+                                        }
+                                    });
+                            }
+                            self.format_member_access(&member.source, boundary, writer)
+                        })?;
+                    } else {
+                        self.format_member_trailing(&boundary, writer)?;
+                        lookup.write(boundary.gap(), writer, |writer| {
+                            self.format_member_access(&member.source, boundary, writer)
+                        })?;
+                    }
                 }
                 ChainPart::Call(arguments) => {
                     tail = self.format_source_arguments(arguments, tail.take(), writer)?;
@@ -549,7 +640,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     fn next_chain_operation(
         &self,
-        source: &mut ChainSource<'ast>,
+        source: &mut ChainSource<'ast, '_>,
     ) -> Result<Option<ChainOperation<'ast>>, FormatError> {
         if let Some(member) = source.pending.take() {
             return Ok(Some(ChainOperation::Member(member)));
@@ -570,8 +661,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn record_chain_head(
         &mut self,
         head: ChainHead,
-        terminal_member: bool,
-        source: &mut ChainSource<'ast>,
+        source: &mut ChainSource<'ast, '_>,
         writer: &mut Writer<'ast>,
     ) -> Result<(ChainGroup<'ast>, bool), FormatError> {
         let mut facts = GroupFacts {
@@ -586,10 +676,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             while let Some(operation) = self.next_chain_operation(source)? {
                 if let ChainOperation::Member(member) = operation {
                     if !member.member.numeric || !leading {
-                        if terminal_member && leading && head_parts != 0 {
-                            source.pending = Some(member);
-                            break;
-                        }
                         leading = false;
                         let next_member = matches!(source.parts.peek(), Some(ChainPart::Member(_)));
                         if !next_member || member.source_break() {
@@ -640,8 +726,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     fn record_chain_group(
         &mut self,
-        terminal_member: bool,
-        source: &mut ChainSource<'ast>,
+        source: &mut ChainSource<'ast, '_>,
         writer: &mut Writer<'ast>,
     ) -> Result<ChainGroup<'ast>, FormatError> {
         let mut before = None;
@@ -653,9 +738,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 match operation {
                     ChainOperation::Member(member) => {
                         if has_parts
-                            && ((saw_call || terminal_member && source.remaining_calls == 0)
-                                && !member.member.numeric
-                                || member.source_break())
+                            && (saw_call && !member.member.numeric || member.source_break())
                         {
                             source.pending = Some(member);
                             break;
@@ -712,7 +795,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn write_chain_call(
         &mut self,
         arguments: SourceArguments<'ast>,
-        source: &mut ChainSource<'ast>,
+        source: &mut ChainSource<'ast, '_>,
         facts: &mut GroupFacts,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
@@ -744,7 +827,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             missing_function,
             writer,
         )?;
-        source.remaining_calls -= 1;
         Ok(())
     }
 }

@@ -129,14 +129,21 @@ impl MemberLookupLayout {
         writer: &mut Writer<'ast>,
         access: impl FnOnce(&mut Writer<'ast>) -> Result<(), FormatError>,
     ) -> Result<(), FormatError> {
-        let write = |writer: &mut Writer<'ast>| {
+        self.write_contents(writer, |writer| {
             gap.write(writer, FlatSeparator::Empty, |writer| {
                 if matches!(self, Self::Grouped) {
                     writer.soft_line();
                 }
             });
             access(writer)
-        };
+        })
+    }
+
+    pub(super) fn write_contents<'ast>(
+        self,
+        writer: &mut Writer<'ast>,
+        write: impl FnOnce(&mut Writer<'ast>) -> Result<(), FormatError>,
+    ) -> Result<(), FormatError> {
         match self {
             Self::Inline => write(writer),
             Self::Grouped => writer.group(false, |writer| writer.indent(write)),
