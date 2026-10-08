@@ -3,13 +3,13 @@ formatter * prettier 3.9.9 * typescript
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 657
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 459/804 (57.09%)
-Snapshot matched: 459/804
-AST parity: 666/666
-AST mismatched: 0/666
+Passed: 507/804 (63.06%)
+Snapshot matched: 507/804
+AST parity: 804/804
+AST mismatched: 0/804
 AST format errors: 0/804
-Mismatched: 207/804
-Format errors: 138/804
+Mismatched: 297/804
+Format errors: 0/804
 Panicked: 0/804
 Not idempotent: 0/804
 Ignored files: 76
@@ -23,60 +23,42 @@ Unsupported option sets: 7
 
 # Failed
 
-- jsx/attr-element/attr-element.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/attribute-blank-lines/attribute-blank-lines.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/binary-expressions/relational-operators.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/comments/eslint-disable.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/comments/in-attributes.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/comments/in-end-tag.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/comments/in-tags.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/comments/jsx-tag-comment-after-prop.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/comments/like-a-comment-in-jsx-text.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/deprecated-jsx-bracket-same-line-option/jsx.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/embed/css-embed.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/escape/escape.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/escape/nbsp.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/expression-with-types/expression.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/fragment/fragment.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/ignore/jsx_ignore.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/ignore/spread.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/jsx/array-iter.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/arrow.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/attr-comments.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/await.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/conditional-expression.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/expression.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/flow_fix_me.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/html_escape.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/hug.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/logical-expression.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/object-property.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/open-break.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/parens.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/quotes.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/regex.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/return-statement.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/self-closing.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/spacing.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/template-literal-in-attr.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/ternary.js: 0/4 mismatched, 4/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/last-line/last_line.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
-- jsx/last-line/single_prop_multiline_string.js: 0/2 mismatched, 2/2 format errors, 0/2 panicked, 0/2 not idempotent
-- jsx/multiline-assign/test.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/namespace/jsx_namespaced_name.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/newlines/test.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/newlines/windows.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/optional-chaining/optional-chaining.jsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/parentheses/argument.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/significant-space/comments.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/significant-space/test.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/single-attribute-per-line/single-attribute-per-line.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/split-attrs/test.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/spread/attribute.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/spread/child.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/stateless-arrow-fn/test.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/text-wrap/issue-16897.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/text-wrap/test.js: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/attribute-blank-lines/attribute-blank-lines.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/comments/eslint-disable.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/comments/in-attributes.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/comments/in-end-tag.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/comments/in-tags.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/escape/nbsp.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/expression-with-types/expression.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
+- jsx/fragment/fragment.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/ignore/jsx_ignore.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/ignore/spread.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/jsx/array-iter.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
+- jsx/jsx/arrow.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
+- jsx/jsx/await.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
+- jsx/jsx/conditional-expression.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
+- jsx/jsx/expression.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
+- jsx/jsx/flow_fix_me.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
+- jsx/jsx/hug.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
+- jsx/jsx/logical-expression.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
+- jsx/jsx/open-break.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
+- jsx/jsx/parens.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
+- jsx/jsx/quotes.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
+- jsx/jsx/regex.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
+- jsx/jsx/return-statement.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
+- jsx/jsx/template-literal-in-attr.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
+- jsx/last-line/single_prop_multiline_string.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
+- jsx/multiline-assign/test.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/newlines/test.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/optional-chaining/optional-chaining.jsx: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/significant-space/test.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/single-attribute-per-line/single-attribute-per-line.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/split-attrs/test.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/spread/attribute.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/spread/child.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/stateless-arrow-fn/test.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/text-wrap/issue-16897.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- jsx/text-wrap/test.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/argument-expansion/argument_expansion.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/argument-expansion/arrow-with-return-type.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/arrow/return-type/18588.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -90,7 +72,7 @@ Unsupported option sets: 7
 - typescript/as/nested-await-and-as.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/as/ternary.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/assignment/issue-10846.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/assignment/issue-10848.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
+- typescript/assignment/issue-10848.tsx: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/assignment/issue-10850.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/assignment/issue-12413.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/assignment/issue-2322.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -126,11 +108,10 @@ Unsupported option sets: 7
 - typescript/comments/16065-2.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/comments/16121.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/comments/16889.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/comments/after-jsx-generic.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
+- typescript/comments/after-jsx-generic.tsx: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/comments/first-argument/first-argument.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/comments/interface.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/comments/issues.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/comments/jsx.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/comments/location.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/comments/mapped-types.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/comments/method_types.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -197,8 +178,7 @@ Unsupported option sets: 7
 - typescript/intersection/intersection-parens.ts: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - typescript/keyword-types/conditional-types.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/keyword-types/keyword-types-with-parens-comments.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/last-argument-expansion/decorated-function.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/last-argument-expansion/forward-ref.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
+- typescript/last-argument-expansion/decorated-function.tsx: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/mapped-type/intersection.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/mapped-type/issue-11098.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/method-chain/issue-17236.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -225,21 +205,17 @@ Unsupported option sets: 7
 - typescript/template-literals/expressions.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/template-literals/member-expression.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/ternaries/indent.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/tsx/attribute-blank-lines.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/tsx/generic-component.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/tsx/keyword.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/tsx/member-expression.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/tsx/optional-chaining.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/tsx/react.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/tsx/this.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/tsx/url.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
+- typescript/tsx/attribute-blank-lines.tsx: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- typescript/tsx/member-expression.tsx: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- typescript/tsx/optional-chaining.tsx: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- typescript/tsx/react.tsx: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
+- typescript/tsx/url.tsx: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/tuple/dangling-comments.ts: 3/3 mismatched, 0/3 format errors, 0/3 panicked, 0/3 not idempotent
 - typescript/tuple/trailing-comma-for-empty-tuples.ts: 3/3 mismatched, 0/3 format errors, 0/3 panicked, 0/3 not idempotent
 - typescript/type-alias/conditional.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/type-alias/issue-9874.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/type-arguments-bit-shift-left-like/1.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/type-arguments-bit-shift-left-like/4.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/type-arguments-bit-shift-left-like/5.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/type-parameters-arguments/10732.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/type-parameters-arguments/18041.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/type-parameters-arguments/19505.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -249,10 +225,8 @@ Unsupported option sets: 7
 - typescript/type-parameters-arguments/consistent/simple-types.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/type-parameters-arguments/consistent/template-literal-types.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/type-parameters-arguments/consistent/typescript-only.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/type-parameters-arguments/const.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/type-parameters-arguments/constraints-and-default-2.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/type-parameters-arguments/issue-6858.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/type-parameters-arguments/print-width-120/issue-7542.tsx: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/union/10599.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/union/13080.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/union/5849.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent

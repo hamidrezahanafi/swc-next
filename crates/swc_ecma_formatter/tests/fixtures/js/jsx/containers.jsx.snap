@@ -1,0 +1,59 @@
+---
+source: crates/swc_ecma_formatter/tests/fixtures/mod.rs
+---
+---------- Input ----------
+const a1=<Box>{ /* head */ value /* tail */ }{value // last
+}{/* one */ /* two */}{// empty line
+}</Box>;
+const x1=<Box { /* spread */ ...props }>{ /* child */ ...children }</Box>;
+---------- Options ----------
+{"printWidth":80}
+---------- Output ----------
+const a1 = (
+  <Box>
+    {/* head */ value /* tail */}
+    {
+      value // last
+    }
+    {
+      /* one */
+      /* two */
+    }
+    {
+      // empty line
+    }
+  </Box>
+);
+const x1 = <Box { /* spread */...props}>{ /* child */...children}</Box>;
+
+---------- Options ----------
+{"printWidth":20}
+---------- Output ----------
+const a1 = (
+  <Box>
+    {
+      /* head */ value /* tail */
+    }
+    {
+      value // last
+    }
+    {
+      /* one */
+      /* two */
+    }
+    {
+      // empty line
+    }
+  </Box>
+);
+const x1 = (
+  <Box
+    { /* spread */...
+      props
+    }
+  >
+    { /* child */...
+      children
+    }
+  </Box>
+);

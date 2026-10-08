@@ -12,6 +12,7 @@ mod conditional;
 mod constructors;
 mod for_initializer;
 pub(super) mod imports;
+mod jsx;
 mod members;
 pub(super) mod objects;
 pub(super) mod parentheses;
@@ -56,6 +57,7 @@ pub(super) enum ExpressionPosition {
     TemplateTag,
     TemplateInterpolation,
     Nested,
+    JsxExpression,
     UnaryArgument(UnaryOperator),
     ParenthesizedUnaryArgument(UnaryOperator),
     BinaryOperand {
@@ -445,7 +447,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if self.options.semicolons == Semicolons::AsNeeded
             && context.expression_start.needs_asi_guard()
             && (parenthesize
-                || matches!(data, ExprData::TsTypeAssertion(_))
+                || matches!(
+                    data,
+                    ExprData::TsTypeAssertion(_)
+                        | ExprData::JsxElement(_)
+                        | ExprData::JsxFragment(_)
+                )
                 || !starts_update && source.starts_with(['(', '[', '/', '+', '-', '`']))
         {
             writer.text(";");
@@ -531,7 +538,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     ExprData::ArrayExpression(_)
                     | ExprData::TemplateLiteral(_)
                     | ExprData::RegExpLiteral(_)
-                    | ExprData::TsTypeAssertion(_) => true,
+                    | ExprData::TsTypeAssertion(_)
+                    | ExprData::JsxElement(_)
+                    | ExprData::JsxFragment(_) => true,
                     ExprData::UnaryExpression(unary) => matches!(
                         unary.operator(self.ast),
                         UnaryOperator::Positive | UnaryOperator::Negate
@@ -699,6 +708,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_regexp_literal(literal, writer);
                 Ok(None)
             }
+            ExprData::JsxElement(node) => self
+                .format_jsx_expression(context, writer, |formatter, writer| {
+                    formatter.format_jsx_element(node, writer)
+                })
+                .map(|()| None),
+            ExprData::JsxFragment(node) => self
+                .format_jsx_expression(context, writer, |formatter, writer| {
+                    formatter.format_jsx_fragment(node, writer)
+                })
+                .map(|()| None),
             ExprData::ArrayExpression(array) => self.format_array(array, writer).map(|()| None),
             ExprData::ObjectExpression(object) => self.format_object(object, writer).map(|()| None),
             ExprData::MemberExpression(member) => {
@@ -846,7 +865,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let update = matches!(data, ExprData::UpdateExpression(node) if node.prefix(self.ast))
                     && (source.starts_with("++") || source.starts_with("--"));
                 return Ok(self.expression_is_parenthesized(data, context)
-                    || matches!(data, ExprData::TsTypeAssertion(_))
+                    || matches!(
+                        data,
+                        ExprData::TsTypeAssertion(_)
+                            | ExprData::JsxElement(_)
+                            | ExprData::JsxFragment(_)
+                    )
                     || !update && source.starts_with(['(', '[', '/', '+', '-', '`']));
             }
             let data = content
@@ -861,6 +885,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         | ExprData::TemplateLiteral(_)
                         | ExprData::RegExpLiteral(_)
                         | ExprData::TsTypeAssertion(_)
+                        | ExprData::JsxElement(_)
+                        | ExprData::JsxFragment(_)
                 )
                 || matches!(data, ExprData::UnaryExpression(node) if matches!(node.operator(self.ast), UnaryOperator::Positive | UnaryOperator::Negate))
             {
@@ -1115,6 +1141,33 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             return Some(true);
         }
+        if matches!(data, ExprData::JsxElement(_) | ExprData::JsxFragment(_)) {
+            return Some(
+                matches!(
+                    position,
+                    ExpressionPosition::UnaryArgument(_)
+                        | ExpressionPosition::ParenthesizedUnaryArgument(_)
+                        | ExpressionPosition::AwaitArgument
+                        | ExpressionPosition::SpreadArgument
+                        | ExpressionPosition::MemberObject(_)
+                        | ExpressionPosition::MemberAssignmentObject
+                        | ExpressionPosition::CallCallee { .. }
+                        | ExpressionPosition::TemplateTag
+                        | ExpressionPosition::NewCallee
+                        | ExpressionPosition::Superclass
+                        | ExpressionPosition::UpdateArgument
+                        | ExpressionPosition::AssignmentTarget
+                ) || matches!(
+                    position,
+                    ExpressionPosition::BinaryOperand {
+                        operator: BinaryOperatorKind::Binary(
+                            swc_next_ecma_ast::BinaryOperator::LessThan
+                        ),
+                        side: OperandSide::Left,
+                    }
+                ),
+            );
+        }
         if let Some(needed) = typescript::type_expression_needs_parentheses(data, position) {
             return Some(needed);
         }
@@ -1304,6 +1357,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     | ExpressionPosition::AssignmentRight(_)
                     | ExpressionPosition::EnumInitializer
                     | ExpressionPosition::TemplateInterpolation
+                    | ExpressionPosition::JsxExpression
                     | ExpressionPosition::ForHead
                     | ExpressionPosition::ForInitializer { .. }
             ),

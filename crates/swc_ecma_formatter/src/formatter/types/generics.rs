@@ -400,19 +400,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             r#in: node.r#in(ast),
             out: node.out(ast),
         };
-        if modifiers.r#const && matches!(context, TypeParameterContext::TypeDeclaration) {
-            return Err(self.unsupported("const type parameter in a type declaration", node));
-        }
         if matches!(context, TypeParameterContext::Infer)
             && (!modifiers.is_empty() || node.default(ast).is_some())
         {
             return Err(self.unsupported("infer type parameter modifiers or default", node));
-        }
-        if modifiers.r#const
-            && (modifiers.r#in || modifiers.out)
-            && !matches!(context, TypeParameterContext::Class)
-        {
-            return Err(self.unsupported("const type parameter with variance", node));
         }
         let name = node.name(ast);
         let name_end = name.span(ast).end;

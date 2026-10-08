@@ -192,9 +192,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         generics: Option<TsTypeParameterDeclaration>,
         annotation: Option<TsTypeAnnotation>,
     ) -> Result<(), FormatError> {
-        if (generics.is_some() || annotation.is_some()) && !self.ast.is_ts()
-            || (annotation.is_some() && generics.is_none() && self.ast.is_jsx())
-        {
+        if (generics.is_some() || annotation.is_some()) && !self.ast.is_ts() {
             return Err(self.unsupported("typed arrow", arrow));
         }
         Ok(())
