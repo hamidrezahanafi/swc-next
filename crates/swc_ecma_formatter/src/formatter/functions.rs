@@ -12,7 +12,7 @@ use swc_next_ecma_ast::{
 use super::Formatter;
 use super::comments::CommentRunLayout;
 use super::diagnostics::{FlatSeparator, LineConstraint};
-use super::parameters::{CallbackParameterShape, SourceParameters};
+use super::parameters::{CallbackParameterShape, FunctionParameters};
 use super::statements::IncomingStatement;
 use super::suppression::{ContentMode, SuppressionPosition, is_suppression_comment};
 use super::types::TypeGap;
@@ -22,7 +22,7 @@ use crate::{FormatError, document::Writer};
 
 pub(super) struct SourceFunctionSignature<'ast> {
     pub(super) span: Span,
-    parameters: SourceParameters,
+    parameters: FunctionParameters,
     body: SourceFunctionBody<'ast>,
     preceding: Option<SignaturePreceding>,
     result: Option<FunctionReturnInput>,
@@ -31,7 +31,7 @@ pub(super) struct SourceFunctionSignature<'ast> {
 
 pub(super) struct PreparedFunctionSignature<'ast> {
     pub(super) span: Span,
-    parameters: SourceParameters,
+    parameters: FunctionParameters,
     body: SourceFunctionBody<'ast>,
     preceding: Option<SignaturePreceding>,
     result: Option<SignatureReturn<'ast>>,
@@ -110,11 +110,11 @@ impl SourceFunctionSignature<'_> {
     }
 
     pub(super) fn has_parameters(&self) -> bool {
-        self.parameters.has_parameters()
+        self.parameters.source.has_parameters()
     }
 
     pub(super) fn enclosing_mode(&self) -> ContentMode {
-        self.parameters.enclosing_mode()
+        self.parameters.source.enclosing_mode()
     }
 
     pub(super) fn key_mode(&self, key: PropertyKey) -> ContentMode {
@@ -130,8 +130,8 @@ impl SourceFunctionSignature<'_> {
             if mode == ContentMode::Verbatim {
                 generic.mode = mode;
             }
-        } else if self.parameters.has_parameters() {
-            self.parameters.set_leading_mode(mode);
+        } else if self.parameters.source.has_parameters() {
+            self.parameters.source.set_leading_mode(mode);
         } else if mode == ContentMode::Verbatim {
             if let Some(result) = &mut self.result {
                 result.source_return = Some(result.annotation);
@@ -344,17 +344,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             _ if private => self.source_private_method_parameters(params, body)?,
             _ => self.source_function_parameters(params, receiver)?,
         };
-        let parameter_key_mode = parameters.key_mode();
-        let parameter_body_mode = parameters.body_mode(body);
+        let parameter_key_mode = parameters.source.key_mode();
+        let parameter_body_mode = parameters.source.body_mode(body);
         let span = params.span(ast);
         let body_span = body.span(ast);
         // Whole parameter-list suppression exits before annotation preparation.
-        let result = if parameters.enclosing_mode() == ContentMode::Formatted {
+        let result = if parameters.source.enclosing_mode() == ContentMode::Formatted {
             function.return_type(ast)
         } else {
             None
         };
-        let mut generics = if parameters.enclosing_mode() == ContentMode::Formatted {
+        let mut generics = if parameters.source.enclosing_mode() == ContentMode::Formatted {
             function.type_parameters(ast).map(|node| {
                 let owner = match owner {
                     FunctionSignatureOwner::Function => {
@@ -405,13 +405,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             if private {
                 SignatureBoundaryRole::PrivateMethod {
                     has_preceding: result.is_some()
-                        || parameters.has_parameters()
+                        || parameters.source.has_parameters()
                         || previous.is_some(),
                 }
             } else {
                 SignatureBoundaryRole::Function {
                     has_preceding: result.is_some()
-                        || parameters.has_parameters()
+                        || parameters.source.has_parameters()
                         || previous.is_some()
                         || generics.is_some(),
                 }
@@ -423,8 +423,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let preceding = if parameter_key_mode == ContentMode::Verbatim {
             previous
         } else if result.is_none() && modes.preceding == ContentMode::Verbatim {
-            if parameters.has_parameters() {
-                parameters.suppress_last(ast)?;
+            if parameters.source.has_parameters() {
+                parameters.source.suppress_last(ast)?;
                 None
             } else if let Some(generic) = &mut generics {
                 generic.mode = ContentMode::Verbatim;
@@ -502,12 +502,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             if source {
                 for (_, position) in self.suppressed_comment_runs(comments, gap.end) {
                     if matches!(position, SuppressionPosition::EndOfLine)
-                        || (!parameters.has_parameters()
+                        || (!parameters.source.has_parameters()
                             && matches!(position, SuppressionPosition::Inline))
                     {
                         mode = ContentMode::Verbatim;
-                    } else if parameters.has_parameters() {
-                        parameters.set_leading_mode(ContentMode::Verbatim);
+                    } else if parameters.source.has_parameters() {
+                        parameters.source.set_leading_mode(ContentMode::Verbatim);
                     } else if let Some(result) = &mut result {
                         result.source_return = Some(result.annotation);
                     } else {
@@ -523,7 +523,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
         });
         let result = if let Some(input) = result {
-            let eol_target = if parameters.has_parameters() {
+            let eol_target = if parameters.source.has_parameters() {
                 SignatureReturnEolTarget::Parameter
             } else if let Some(generic) = &mut generics {
                 SignatureReturnEolTarget::Header(&mut generic.mode)
@@ -538,7 +538,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 SignatureReturnDelimiter::Colon,
             );
             if result.preceding_mode == ContentMode::Verbatim {
-                parameters.suppress_last(self.ast)?;
+                parameters.source.suppress_last(self.ast)?;
             }
             Some(result)
         } else {
@@ -640,6 +640,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         callback_shape: Option<&mut CallbackParameterShape>,
         writer: &mut Writer<'ast>,
     ) -> Result<SourceFunctionBody<'ast>, FormatError> {
+        let object = signature.parameters.signature_object;
+        let independent_parameters = object.is_some()
+            && signature.result.is_some()
+            && signature.generics.as_ref().is_none_or(|generic| {
+                let parameters = generic.node.params(self.ast);
+                if parameters.len() > 1 {
+                    return false;
+                }
+                parameters.iter().next().is_none_or(|id| {
+                    let parameter = self.ast.get_node_in_sub_range(id);
+                    parameter.constraint(self.ast).is_none()
+                        && parameter.default(self.ast).is_none()
+                })
+            });
         if let Some(generic) = signature.generics {
             match generic.prefix {
                 FunctionGenericPrefix::Header(prefix) => {
@@ -657,10 +671,44 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             )?;
             self.format_type_gap(generic.following, FlatSeparator::Empty, writer)?;
         }
-        self.format_source_parameters_with_shape(signature.parameters, callback_shape, writer)?;
-        if let Some(result) = signature.result {
-            let tail = self.format_signature_return(result, writer)?;
-            self.format_expression_tail(tail, writer)?;
+        match (object, signature.result) {
+            (Some(object), Some(result)) => {
+                let (parameters, ()) = writer.record_group_with_value(|writer| {
+                    self.format_source_parameters_with_object(
+                        signature.parameters.source,
+                        callback_shape,
+                        Some(object),
+                        writer,
+                    )
+                })?;
+                let result = self.prepare_function_return(result);
+                let object_return = result.has_object_type();
+                let (result, ()) = writer.record_with_value(|writer| {
+                    let tail = self.format_function_return(result, writer)?;
+                    self.format_expression_tail(tail, writer)
+                })?;
+                writer.group(false, |writer| {
+                    writer.write_fragment(
+                        if independent_parameters && (object_return || result.preferred_breaks()) {
+                            parameters.grouped
+                        } else {
+                            parameters.contents
+                        },
+                    );
+                    writer.write_fragment(result);
+                });
+            }
+            (_, result) => {
+                self.format_source_parameters_with_shape(
+                    signature.parameters.source,
+                    callback_shape,
+                    writer,
+                )?;
+                if let Some(result) = result {
+                    let tail = self.format_signature_return(result, writer)?;
+                    self.format_expression_tail(tail, writer)?;
+                }
+            }
         }
         Ok(signature.body)
     }

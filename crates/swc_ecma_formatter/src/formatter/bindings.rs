@@ -777,6 +777,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         object: ObjectPattern,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
+        self.format_object_binding_with_group(object, true, writer)
+    }
+
+    pub(super) fn format_object_binding_contents(
+        &mut self,
+        object: ObjectPattern,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        self.format_object_binding_with_group(object, false, writer)
+    }
+
+    fn format_object_binding_with_group(
+        &mut self,
+        object: ObjectPattern,
+        own_group: bool,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
         let ast = self.ast;
         let span = object.span(ast);
         let content = Span::new(span.start + 1, span.end - 1);
@@ -792,7 +809,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             return self.format_verbatim(span, writer);
         }
-        writer.group(false, |writer| {
+        let mut write = |writer: &mut Writer<'ast>| {
             writer.text("{");
             let has_items = properties.peek().is_some() || rest.is_some();
             let has_comments = !self.comments.in_range(content).is_empty();
@@ -890,7 +907,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             writer.text("}");
             Ok(())
-        })
+        };
+        if own_group {
+            writer.group(false, write)
+        } else {
+            write(writer)
+        }
     }
 
     fn binding_brace_line(&self, content: Span, writer: &mut Writer<'ast>) {

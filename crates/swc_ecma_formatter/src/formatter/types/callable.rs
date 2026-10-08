@@ -8,7 +8,8 @@ use swc_next_ecma_ast::{
 
 use super::generics::TypeParameterContext;
 use super::{
-    Formatter, PreparedAnnotation, PreparedType, TypeBoundaryLayout, TypeContext, TypeGap,
+    Formatter, PreparedAnnotation, PreparedType, PreparedTypeParentheses, TypeBoundaryLayout,
+    TypeContext, TypeGap, TypeLayout,
 };
 use crate::formatter::bindings::{DefaultOwner, InitializerLayout};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
@@ -98,6 +99,27 @@ pub(in crate::formatter) struct SignatureReturn<'ast> {
     delimiter: SignatureReturnDelimiter,
 }
 
+enum FunctionReturnContent {
+    Annotation(AnnotationContent),
+    Parenthesized(PreparedTypeParentheses),
+}
+
+pub(in crate::formatter) struct FunctionReturn<'ast> {
+    content: FunctionReturnContent,
+    prefix: TypeBoundaryLayout<'ast>,
+    delimiter: SignatureReturnDelimiter,
+}
+
+impl FunctionReturn<'_> {
+    pub(in crate::formatter) fn has_object_type(&self) -> bool {
+        matches!(&self.content,
+            FunctionReturnContent::Annotation(AnnotationContent::Type(node))
+                if matches!(node.data,
+                    swc_next_ecma_ast::TsTypeData::TsTypeLiteral(_)
+                        | swc_next_ecma_ast::TsTypeData::TsMappedType(_)))
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(in crate::formatter) enum SignatureReturnDelimiter {
     Arrow,
@@ -164,6 +186,7 @@ enum ParameterBinding<'ast> {
         spread: Option<TypeGap<'ast>>,
     },
     This(TsThisParameter),
+    SignatureObject(swc_next_ecma_ast::ObjectPattern),
 }
 
 struct PreparedParameterDefault<'ast> {
@@ -224,6 +247,23 @@ pub(in crate::formatter) struct PreparedParameterItem<'ast>(ParameterItemState<'
 impl PreparedParameterItem<'_> {
     pub(in crate::formatter) fn is_source(&self) -> bool {
         matches!(self.0, ParameterItemState::Source(_))
+    }
+
+    pub(in crate::formatter) fn share_object_group(
+        mut self,
+        object: swc_next_ecma_ast::ObjectPattern,
+    ) -> Self {
+        if let ParameterItemState::Formatted(left) = &mut self.0
+            && let ParameterBinding::Pattern {
+                node,
+                mode: ContentMode::Formatted,
+                spread: None,
+            } = &left.binding
+            && *node == BindingPattern::ObjectPattern(object)
+        {
+            left.binding = ParameterBinding::SignatureObject(object);
+        }
+        self
     }
 }
 
@@ -560,6 +600,57 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
+    pub(in crate::formatter) fn prepare_function_return(
+        &self,
+        result: SignatureReturn<'ast>,
+    ) -> FunctionReturn<'ast> {
+        let content = match result.content {
+            AnnotationContent::Wrapper(annotation) => {
+                FunctionReturnContent::Annotation(AnnotationContent::Wrapper(annotation))
+            }
+            AnnotationContent::Type(node) => self.prepare_function_return_type(node),
+        };
+        FunctionReturn {
+            content,
+            prefix: result.prefix,
+            delimiter: result.delimiter,
+        }
+    }
+
+    fn prepare_function_return_type(&self, mut node: PreparedType) -> FunctionReturnContent {
+        while node.source_owner != Some(node.node) {
+            let swc_next_ecma_ast::TsTypeData::TsParenthesizedType(parentheses) = node.data else {
+                break;
+            };
+            let parentheses = self.prepare_type_parentheses(parentheses, node.source_owner);
+            if parentheses.retained {
+                return FunctionReturnContent::Parenthesized(parentheses);
+            }
+            node = parentheses.child;
+        }
+        FunctionReturnContent::Annotation(AnnotationContent::Type(node))
+    }
+
+    pub(in crate::formatter) fn format_function_return(
+        &mut self,
+        result: FunctionReturn<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_signature_return_prefix(result.prefix, result.delimiter, writer)?;
+        match result.content {
+            FunctionReturnContent::Annotation(content) => {
+                self.format_annotation_owner(content, TypeContext::Root, writer)
+            }
+            FunctionReturnContent::Parenthesized(parentheses) => self
+                .format_prepared_type_parentheses(
+                    parentheses,
+                    TypeContext::Root,
+                    TypeLayout::Root,
+                    writer,
+                ),
+        }
+    }
+
     pub(in crate::formatter) fn format_signature_return(
         &mut self,
         result: SignatureReturn<'ast>,
@@ -574,25 +665,35 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: TypeContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        match result.prefix {
+        self.format_signature_return_prefix(result.prefix, result.delimiter, writer)?;
+        self.format_annotation_owner(result.content, context, writer)
+    }
+
+    fn format_signature_return_prefix(
+        &mut self,
+        prefix: TypeBoundaryLayout<'ast>,
+        delimiter: SignatureReturnDelimiter,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        match prefix {
             TypeBoundaryLayout::Source(gap) => self.format_verbatim(gap, writer)?,
             TypeBoundaryLayout::Formatted { before, after } => {
                 self.format_comment_boundary(&before, writer)?;
                 before
                     .gap()
-                    .write(writer, result.delimiter.preceding_space(), |writer| {
-                        if matches!(result.delimiter, SignatureReturnDelimiter::Arrow) {
+                    .write(writer, delimiter.preceding_space(), |writer| {
+                        if matches!(delimiter, SignatureReturnDelimiter::Arrow) {
                             writer.space();
                         }
                     });
-                writer.text(result.delimiter.token());
+                writer.text(delimiter.token());
                 self.format_comment_boundary(&after, writer)?;
                 after
                     .gap()
                     .write(writer, FlatSeparator::Space, Writer::space);
             }
         }
-        self.format_annotation_owner(result.content, context, writer)
+        Ok(())
     }
 
     fn format_annotation_owner(
@@ -1058,6 +1159,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ParameterBinding::This(this) => {
                 writer.text("this");
                 this.span(self.ast).start + 4
+            }
+            ParameterBinding::SignatureObject(object) => {
+                self.format_object_binding_contents(object, writer)?;
+                object.span(self.ast).end
             }
             ParameterBinding::Pattern { node, mode, spread } => {
                 if let Some(gap) = spread {

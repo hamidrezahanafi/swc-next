@@ -2,8 +2,8 @@
 
 use swc_next_ecma_ast::{
     Ast, Decorator, ExprData, FormalParameter, FormalParameterItemData, FormalParameterPatternData,
-    FormalParameterRest, FormalParameters, FunctionBody, GetSpan, MethodDefinition, Span, SubRange,
-    TsParameterProperty, TsThisParameter,
+    FormalParameterRest, FormalParameters, FunctionBody, GetSpan, MethodDefinition, ObjectPattern,
+    Span, SubRange, TsParameterProperty, TsThisParameter,
 };
 
 use super::Formatter;
@@ -154,6 +154,12 @@ impl CallbackParameterShape {
     }
 }
 
+#[derive(Clone, Copy)]
+enum HuggedParameter {
+    Pattern,
+    Object(ObjectPattern),
+}
+
 pub(super) struct SourceParameters {
     node: FormalParameters,
     source: ParameterSource,
@@ -167,6 +173,11 @@ pub(super) struct SourceParameters {
     private_boundary: Option<PrivateParameterBoundary>,
     key_mode: ContentMode,
     body_target: Option<(FunctionBody, ContentMode)>,
+}
+
+pub(super) struct FunctionParameters {
+    pub(super) source: SourceParameters,
+    pub(super) signature_object: Option<ObjectPattern>,
 }
 
 impl SourceParameters {
@@ -232,13 +243,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         parentheses: ArrowParameterParentheses,
     ) -> Result<SourceParameters, FormatError> {
         self.source_parameters(node, None, ParameterRole::Arrow(parentheses))
+            .map(|parameters| parameters.source)
     }
 
     pub(super) fn source_function_parameters(
         &self,
         node: FormalParameters,
         receiver: Option<TsThisParameter>,
-    ) -> Result<SourceParameters, FormatError> {
+    ) -> Result<FunctionParameters, FormatError> {
         self.source_parameters(node, receiver, ParameterRole::Function)
     }
 
@@ -246,7 +258,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &self,
         node: FormalParameters,
         owner: MethodDefinition,
-    ) -> Result<SourceParameters, FormatError> {
+    ) -> Result<FunctionParameters, FormatError> {
         self.source_parameters(node, None, ParameterRole::Constructor(owner))
     }
 
@@ -254,7 +266,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &self,
         node: FormalParameters,
         body: FunctionBody,
-    ) -> Result<SourceParameters, FormatError> {
+    ) -> Result<FunctionParameters, FormatError> {
         self.source_parameters(node, None, ParameterRole::PrivateMethod(body))
     }
 
@@ -263,7 +275,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         node: FormalParameters,
         receiver: Option<TsThisParameter>,
         role: ParameterRole,
-    ) -> Result<SourceParameters, FormatError> {
+    ) -> Result<FunctionParameters, FormatError> {
         let ast = self.ast;
         let span = node.span(ast);
         let items = node.items(ast);
@@ -339,19 +351,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             })
             && self.comments.in_range(span).is_empty()
             && !self.diagnostic_range_is_sensitive(span);
-        let hug = single.is_some_and(|parameter| {
+        let hug = single.and_then(|parameter| {
             if first_head.is_some_and(|head| !head.decorators.is_empty()) {
-                return false;
+                return None;
             }
             let pattern = parameter.pattern(ast);
-            if !matches!(
-                ast.formal_parameter_pattern_data(pattern),
-                FormalParameterPatternData::ArrayPattern(_)
-                    | FormalParameterPatternData::ObjectPattern(_)
-            ) {
-                return false;
-            }
-            let default_hugs = parameter.initializer(ast).is_none_or(|expression| {
+            let object = match ast.formal_parameter_pattern_data(pattern) {
+                FormalParameterPatternData::ArrayPattern(_) => None,
+                FormalParameterPatternData::ObjectPattern(object) => Some(object),
+                _ => return None,
+            };
+            let initializer = parameter.initializer(ast);
+            let default_hugs = initializer.is_none_or(|expression| {
                 match self.expression_content(expression).data {
                     ExprData::IdentifierReference(_) => true,
                     ExprData::ArrayExpression(array) => array.elements(ast).is_empty(),
@@ -360,18 +371,33 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
             });
             if !default_hugs || self.diagnostic_range_is_sensitive(span) {
-                return false;
+                return None;
             }
             let parameter_span = parameter.span(ast);
             let binding_start = pattern.span(ast).start;
-            self.comments
+            if !self
+                .comments
                 .in_range(Span::new(span.start, binding_start))
                 .is_empty()
-                && self
+                || !self
                     .comments
                     .in_range(Span::new(parameter_span.end, span.end))
                     .is_empty()
+            {
+                return None;
+            }
+            Some(match (object, initializer) {
+                (Some(object), None) => HuggedParameter::Object(object),
+                _ => HuggedParameter::Pattern,
+            })
         });
+        let signature_object = match hug {
+            Some(HuggedParameter::Object(object)) if !matches!(role, ParameterRole::Arrow(_)) => {
+                Some(object)
+            }
+            _ => None,
+        };
+        let hug = hug.is_some();
         let mut key_mode = ContentMode::Formatted;
         let mut body_mode = ContentMode::Formatted;
         let mut private_boundary = None;
@@ -430,23 +456,26 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             // The function signature consumes this actual body target below.
         }
-        Ok(SourceParameters {
-            node,
-            source,
-            first: first_head,
-            rest,
-            omit_parentheses,
-            hug,
-            leading_mode: ContentMode::Formatted,
-            enclosing_mode,
-            suppressed_tail: None,
-            private_boundary,
-            key_mode,
-            body_target: match role {
-                ParameterRole::PrivateMethod(body) if body_mode == ContentMode::Verbatim => {
-                    Some((body, body_mode))
-                }
-                _ => None,
+        Ok(FunctionParameters {
+            signature_object,
+            source: SourceParameters {
+                node,
+                source,
+                first: first_head,
+                rest,
+                omit_parentheses,
+                hug,
+                leading_mode: ContentMode::Formatted,
+                enclosing_mode,
+                suppressed_tail: None,
+                private_boundary,
+                key_mode,
+                body_target: match role {
+                    ParameterRole::PrivateMethod(body) if body_mode == ContentMode::Verbatim => {
+                        Some((body, body_mode))
+                    }
+                    _ => None,
+                },
             },
         })
     }
@@ -462,7 +491,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_source_parameters_with_shape(
         &mut self,
         parameters: SourceParameters,
+        callback_shape: Option<&mut CallbackParameterShape>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        self.format_source_parameters_with_object(parameters, callback_shape, None, writer)
+    }
+
+    pub(super) fn format_source_parameters_with_object(
+        &mut self,
+        parameters: SourceParameters,
         mut callback_shape: Option<&mut CallbackParameterShape>,
+        signature_object: Option<ObjectPattern>,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let ast = self.ast;
@@ -505,11 +544,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 RuntimeParameter::Callable(CallableParameter::Formal(_))
             )
         {
-            let tail = self.format_runtime_parameter(entry, ContentMode::Formatted, writer)?;
+            let tail =
+                self.format_runtime_parameter(entry, ContentMode::Formatted, None, writer)?;
             self.format_expression_tail(tail, writer)?;
             return Ok(());
         }
-        writer.group(false, |writer| {
+        let mut write = |writer: &mut Writer<'ast>| {
             writer.text("(");
             let mut write_items = |writer: &mut Writer<'ast>| {
                 if !hug && (has_parameters || !self.comments.in_range(content).is_empty()) {
@@ -599,7 +639,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     if suppressed_tail == Some(parameter.node) {
                         item.set_leading_mode(ContentMode::Verbatim);
                     }
-                    let tail = self.format_runtime_parameter(parameter, item.mode, writer)?;
+                    let object = if has_previous { None } else { signature_object };
+                    let tail =
+                        self.format_runtime_parameter(parameter, item.mode, object, writer)?;
                     let boundary = self.finish_delimited_item(item, tail, writer)?;
                     end = boundary.end;
                     separator = boundary.separator;
@@ -633,13 +675,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             writer.text(")");
             Ok(())
-        })
+        };
+        if signature_object.is_some() {
+            write(writer)
+        } else {
+            writer.group(false, write)
+        }
     }
 
     fn format_runtime_parameter(
         &mut self,
         entry: RuntimeParameterEntry,
         mode: ContentMode,
+        signature_object: Option<ObjectPattern>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         if mode == ContentMode::Verbatim {
@@ -652,7 +700,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if entry.decorators.is_none() && !displaced {
             return match entry.node {
                 RuntimeParameter::Callable(CallableParameter::Formal(node)) => {
-                    self.format_formal_parameter(node, mode, writer)
+                    self.format_formal_parameter(node, mode, signature_object, writer)
                 }
                 RuntimeParameter::Callable(CallableParameter::Rest(node)) => {
                     self.format_rest_parameter(node, mode, writer)
@@ -690,6 +738,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     native,
                 ));
             }
+        };
+        let prepared = if let Some(object) = signature_object {
+            prepared.share_object_group(object)
+        } else {
+            prepared
         };
         // Whole-item Source wins before optional decorator/core geometry.
         if prepared.is_source() {
@@ -837,6 +890,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         parameter: FormalParameter,
         mode: ContentMode,
+        signature_object: Option<ObjectPattern>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         if mode == ContentMode::Verbatim {
@@ -849,10 +903,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             if annotation.is_some() || optional {
                 let prepared =
                     self.prepare_typed_formal_parameter(parameter, mode, annotation, optional)?;
+                if let Some(object) = signature_object
+                    && !prepared.is_source()
+                {
+                    return self.format_prepared_parameter_item(
+                        prepared.share_object_group(object),
+                        writer,
+                    );
+                }
                 return writer.group(false, |writer| {
                     self.format_prepared_parameter_item(prepared, writer)
                 });
             }
+        }
+        if let Some(object) = signature_object {
+            return self
+                .format_object_binding_contents(object, writer)
+                .map(|()| None);
         }
         let pattern = parameter.pattern(self.ast);
         let default = parameter

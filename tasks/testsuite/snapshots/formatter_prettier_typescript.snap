@@ -3,12 +3,12 @@ formatter * prettier 3.9.9 * typescript
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 657
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 530/804 (65.92%)
-Snapshot matched: 530/804
+Passed: 531/804 (66.04%)
+Snapshot matched: 531/804
 AST parity: 804/804
 AST mismatched: 0/804
 AST format errors: 0/804
-Mismatched: 274/804
+Mismatched: 273/804
 Format errors: 0/804
 Panicked: 0/804
 Not idempotent: 0/804
@@ -137,7 +137,6 @@ Unsupported option sets: 7
 - typescript/definite/without-annotation.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/function-type/consistent.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/function-type/single-parameter.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/function/single_expand.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/generic/arrow-return-type.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/generic/ungrouped-parameters.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/import-require/comments.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
