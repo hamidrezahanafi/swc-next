@@ -16,6 +16,7 @@ use super::objects::RecordedObject;
 use super::{ExpressionContext, ExpressionLayout, ExpressionPosition, Formatter};
 use crate::formatter::comments::ExpressionTail;
 use crate::formatter::diagnostics::FlatSeparator;
+use crate::formatter::parameters::CallbackParameterShape;
 use crate::formatter::suppression::ContentMode;
 use crate::{
     FormatError, TrailingCommas,
@@ -545,17 +546,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn record_callback(
         &mut self,
         selected: &SelectedCallback,
+        sole_argument: bool,
         writer: &mut Writer<'ast>,
     ) -> Result<(RecordedValue<'ast>, Option<ExpressionTail<'ast>>), FormatError> {
         let callback = selected.callback;
-        let (signature, body, normal, tail) = match callback.kind {
+        let layout = self.expression_layout(callback.expression);
+        let (signature, body, normal, tail, independent) = match callback.kind {
             CallbackKind::Arrow(arrow) => {
                 let source = self.source_arrow(arrow)?;
                 let context = ExpressionContext::at(ExpressionPosition::Nested)
                     .with_arrow_layout(super::arrows::ArrowLayout::Argument);
                 let recorded = match self.record_arrow(source, context, writer)? {
                     RecordedArrow::Verbatim(value) => {
-                        let layout = self.expression_layout(callback.expression);
                         let (value, ()) = writer.record_with_value(|writer| {
                             layout.write(writer, |writer| writer.write_fragment(value));
                             Ok::<_, FormatError>(())
@@ -569,13 +571,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     recorded.body,
                     recorded.normal,
                     recorded.tail,
+                    false,
                 )
             }
             CallbackKind::Function(function) => {
                 let source =
                     self.source_function_signature(function, FunctionSignatureOwner::Function)?;
                 if source.enclosing_mode() == ContentMode::Verbatim {
-                    let layout = self.expression_layout(callback.expression);
                     let (value, ()) = writer.record_with_value(|writer| {
                         layout.write(writer, |writer| {
                             self.format_verbatim(function.span(self.ast), writer)
@@ -583,8 +585,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     })?;
                     return Ok((RecordedValue::Ordinary(value), None));
                 }
+                let mut shape = (selected.role == CallbackRole::Last
+                    && sole_argument
+                    && layout == ExpressionLayout::Normal)
+                    .then_some(CallbackParameterShape::Identifiers);
                 let (signature, body) = writer.record_with_value(|writer| {
-                    self.format_function_head(function, source, writer)
+                    self.format_function_head_with_shape(function, source, shape.as_mut(), writer)
                 })?;
                 let (body, ()) = writer
                     .record_with_value(|writer| self.format_function_body_boundary(body, writer))?;
@@ -593,10 +599,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     writer.write_fragment(body);
                     Ok::<_, FormatError>(())
                 })?;
-                (signature, body, normal, None)
+                (
+                    signature,
+                    body,
+                    normal,
+                    None,
+                    shape == Some(CallbackParameterShape::Other),
+                )
             }
         };
-        let layout = self.expression_layout(callback.expression);
         let (normal, ()) = writer.record_with_value(|writer| {
             layout.write(writer, |writer| writer.write_fragment(normal));
             Ok::<_, FormatError>(())
@@ -605,6 +616,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             (CallbackRole::First, CallbackKind::Function(_), ExpressionLayout::Normal) => {
                 Some(GroupedSignature::Independent(signature))
             }
+            _ if independent => Some(GroupedSignature::Independent(signature)),
             _ => signature.try_flat().map(GroupedSignature::Flat),
         };
         Ok((
@@ -655,6 +667,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             Ok::<_, FormatError>(())
         })?;
         let mut recorded = Vec::with_capacity(arguments.len());
+        let sole_argument = arguments.len() == 1;
         let mut arguments = arguments
             .iter()
             .map(|id| ast.get_node_in_sub_range(id))
@@ -684,7 +697,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     if let Some(function) = missing_function.take() {
                         *function = true;
                     }
-                    self.record_callback(selected, writer)?
+                    self.record_callback(selected, sole_argument, writer)?
                 }
                 SelectedArgument::FinalObject(selected)
                     if argument == selected.argument

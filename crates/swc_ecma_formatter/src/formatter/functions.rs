@@ -12,7 +12,7 @@ use swc_next_ecma_ast::{
 use super::Formatter;
 use super::comments::CommentRunLayout;
 use super::diagnostics::{FlatSeparator, LineConstraint};
-use super::parameters::SourceParameters;
+use super::parameters::{CallbackParameterShape, SourceParameters};
 use super::statements::IncomingStatement;
 use super::suppression::{ContentMode, SuppressionPosition, is_suppression_comment};
 use super::types::TypeGap;
@@ -196,7 +196,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_function_head(
         &mut self,
         function: Function,
+        signature: SourceFunctionSignature<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<SourceFunctionBody<'ast>, FormatError> {
+        self.format_function_head_with_shape(function, signature, None, writer)
+    }
+
+    pub(super) fn format_function_head_with_shape(
+        &mut self,
+        function: Function,
         mut signature: SourceFunctionSignature<'ast>,
+        callback_shape: Option<&mut CallbackParameterShape>,
         writer: &mut Writer<'ast>,
     ) -> Result<SourceFunctionBody<'ast>, FormatError> {
         let ast = self.ast;
@@ -288,7 +298,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_source_token_gap(name_span.end, header_start, false, writer)?;
             }
         }
-        self.format_function_signature(signature, writer)
+        self.format_function_signature_with_shape(signature, callback_shape, writer)
     }
 
     pub(super) fn function_name_modes(&self, span: Span) -> FunctionNameModes {
@@ -621,6 +631,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         signature: PreparedFunctionSignature<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<SourceFunctionBody<'ast>, FormatError> {
+        self.format_function_signature_with_shape(signature, None, writer)
+    }
+
+    fn format_function_signature_with_shape(
+        &mut self,
+        signature: PreparedFunctionSignature<'ast>,
+        callback_shape: Option<&mut CallbackParameterShape>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<SourceFunctionBody<'ast>, FormatError> {
         if let Some(generic) = signature.generics {
             match generic.prefix {
                 FunctionGenericPrefix::Header(prefix) => {
@@ -638,7 +657,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             )?;
             self.format_type_gap(generic.following, FlatSeparator::Empty, writer)?;
         }
-        self.format_source_parameters(signature.parameters, writer)?;
+        self.format_source_parameters_with_shape(signature.parameters, callback_shape, writer)?;
         if let Some(result) = signature.result {
             let tail = self.format_signature_return(result, writer)?;
             self.format_expression_tail(tail, writer)?;

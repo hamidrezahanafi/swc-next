@@ -3,12 +3,12 @@ formatter * prettier 3.9.9 * js
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 794
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 703/1070 (65.70%)
-Snapshot matched: 703/1070
+Passed: 704/1070 (65.79%)
+Snapshot matched: 704/1070
 AST parity: 1069/1069
 AST mismatched: 0/1069
 AST format errors: 0/1070
-Mismatched: 366/1070
+Mismatched: 365/1070
 Format errors: 0/1070
 Panicked: 0/1070
 Not idempotent: 0/1070
@@ -183,7 +183,6 @@ Unsupported option sets: 19
 - js/last-argument-expansion/dangling-comment-in-arrow-function.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/last-argument-expansion/edge_case.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/last-argument-expansion/jsx.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/last-argument-expansion/overflow.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/line-suffix-boundary/boundary.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/logical-assignment/inside-call/18171.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/logical-expressions/in-unary-expression.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
