@@ -1,4 +1,4 @@
-//! Shared fluent layout over source-owned member and call operations.
+//! Shared fluent layout over source-owned member, call, and postfix operations.
 
 use std::iter::{Peekable, Take};
 use std::vec::IntoIter;
@@ -9,6 +9,7 @@ use super::arguments::{ArgumentGroup, SourceArguments};
 use super::members::{
     MemberBoundary, MemberLookupLayout, MemberLookupOwner, PreparedMember, SourceMember,
 };
+use super::typescript::SourceNonNull;
 use super::{
     AccessKind, ExpressionContext, ExpressionLayout, ExpressionPosition, Formatter,
     MemberChainLayout, MemberLayout,
@@ -46,11 +47,13 @@ struct ChainMember {
     source: SourceMember,
     lookup_owner: MemberLookupOwner,
     numeric: bool,
+    next_part_is_member: bool,
 }
 
 enum ChainPart<'ast> {
     Member(ChainMember),
     Call(SourceArguments<'ast>),
+    NonNull(SourceNonNull<'ast>),
 }
 
 struct PreparedChain<'ast> {
@@ -66,8 +69,8 @@ struct PreparedChain<'ast> {
 }
 
 enum ChainSuffix {
-    Collecting { members: usize },
-    Complete { members: usize },
+    Collecting { parts: usize },
+    Complete { parts: usize },
 }
 
 enum ChainLookupLayout {
@@ -142,6 +145,7 @@ impl PendingMember<'_> {
 enum ChainOperation<'ast> {
     Member(PendingMember<'ast>),
     Call(SourceArguments<'ast>),
+    NonNull(SourceNonNull<'ast>),
 }
 
 enum ChainArgumentLayout {
@@ -316,6 +320,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     member = true;
                     access.object(self.ast)
                 }
+                ExprData::TsNonNullExpression(non_null) => {
+                    bare_members = false;
+                    non_null.expression(self.ast)
+                }
                 ExprData::ParenthesizedExpression(parenthesized) => {
                     bare_members = false;
                     parenthesized.expression(self.ast)
@@ -347,14 +355,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut current_context = context;
         let mut parts = Vec::new();
         let mut calls = 0;
+        let mut next_part_is_member = false;
         let terminal_member = matches!(
             self.ast.expr_data(expression),
             ExprData::MemberExpression(_)
         );
         let mut suffix = if terminal_member {
-            ChainSuffix::Collecting { members: 0 }
+            ChainSuffix::Collecting { parts: 0 }
         } else {
-            ChainSuffix::Complete { members: 0 }
+            ChainSuffix::Complete { parts: 0 }
         };
         let mut grouping = ChainGrouping::new();
         while current_context.content_mode == ContentMode::Formatted {
@@ -366,12 +375,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                             matches!(self.ast.expr_data(key), ExprData::NumericLiteral(_))
                         });
                         match &mut suffix {
-                            ChainSuffix::Collecting { members } => {
+                            ChainSuffix::Collecting {
+                                parts: continuation_parts,
+                            } => {
                                 // The last non-numeric lookup encountered in reverse
                                 // marks the suffix's beginning. Earlier numeric
                                 // accesses stay with the final call's receiver.
                                 if !numeric {
-                                    *members = parts.len() + 1;
+                                    *continuation_parts = parts.len() + 1;
                                 }
                             }
                             ChainSuffix::Complete { .. } => grouping.member(numeric),
@@ -382,7 +393,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                             source,
                             lookup_owner,
                             numeric,
+                            next_part_is_member,
                         }));
+                        next_part_is_member = true;
                     }
                     PreparedMember::Verbatim(member) => {
                         current = Expr::MemberExpression(member);
@@ -394,12 +407,29 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     let arguments = self.source_call(call, current_context)?;
                     current = arguments.callee;
                     current_context = arguments.callee_context(current_context);
-                    if let ChainSuffix::Collecting { members } = suffix {
-                        suffix = ChainSuffix::Complete { members };
+                    if let ChainSuffix::Collecting { parts } = suffix {
+                        suffix = ChainSuffix::Complete { parts };
                     }
                     parts.push(ChainPart::Call(arguments));
                     calls += 1;
+                    next_part_is_member = false;
                     grouping.call();
+                }
+                ExprData::TsNonNullExpression(node) => {
+                    let source = self.source_non_null(node)?;
+                    current = source.expression;
+                    current_context = source.operand_context(current_context);
+                    parts.push(ChainPart::NonNull(source));
+                    next_part_is_member = false;
+                    // A grammar-required pair still owns its complete operand.
+                    if self.expression_needs_parentheses(
+                        self.ast.expr_data(current),
+                        current_context.position,
+                        current_context.content_mode,
+                    ) == Some(true)
+                    {
+                        break;
+                    }
                 }
                 ExprData::ParenthesizedExpression(parenthesized) => {
                     let Some(child) =
@@ -425,7 +455,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
         }
         let continuation_parts = match suffix {
-            ChainSuffix::Collecting { members } | ChainSuffix::Complete { members } => members,
+            ChainSuffix::Collecting { parts } | ChainSuffix::Complete { parts } => parts,
         };
         let callee_parts = parts.len() - continuation_parts;
         parts.reverse();
@@ -474,9 +504,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             )
             && matches!(
                 chain.parts.as_slice(),
-                [ChainPart::Member(member), remaining @ ..]
-                    if !member.numeric
-                        && !matches!(remaining.first(), Some(ChainPart::Member(_)))
+                [ChainPart::Member(member), ..]
+                    if !member.numeric && !member.next_part_is_member
             ) {
             ChainHeadLayout::NeutralAtom
         } else {
@@ -633,6 +662,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ChainPart::Call(arguments) => {
                     tail = self.format_source_arguments(arguments, tail.take(), writer)?;
                 }
+                ChainPart::NonNull(source) => {
+                    self.format_source_non_null(source, tail.take(), writer)?;
+                }
             }
         }
         Ok(tail)
@@ -654,6 +686,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 })))
             }
             Some(ChainPart::Call(arguments)) => Ok(Some(ChainOperation::Call(arguments))),
+            Some(ChainPart::NonNull(non_null)) => Ok(Some(ChainOperation::NonNull(non_null))),
             None => Ok(None),
         }
     }
@@ -674,22 +707,28 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let write_head = |writer: &mut Writer<'ast>| {
             source.tail = self.format_expression(head.expression, head.context, writer)?;
             while let Some(operation) = self.next_chain_operation(source)? {
-                if let ChainOperation::Member(member) = operation {
-                    if !member.member.numeric || !leading {
-                        leading = false;
-                        let next_member = matches!(source.parts.peek(), Some(ChainPart::Member(_)));
-                        if !next_member || member.source_break() {
-                            source.pending = Some(member);
-                            break;
+                match operation {
+                    ChainOperation::Member(member) => {
+                        if !member.member.numeric || !leading {
+                            leading = false;
+                            if !member.member.next_part_is_member || member.source_break() {
+                                source.pending = Some(member);
+                                break;
+                            }
                         }
+                        last_name = member.member.source.name();
+                        self.write_chain_member(member, false, &mut facts, writer)?;
+                        head_parts += 1;
                     }
-                    last_name = member.member.source.name();
-                    self.write_chain_member(member, false, &mut facts, writer)?;
-                } else if let ChainOperation::Call(arguments) = operation {
-                    last_name = None;
-                    self.write_chain_call(arguments, source, &mut facts, writer)?;
+                    ChainOperation::Call(arguments) => {
+                        last_name = None;
+                        self.write_chain_call(arguments, source, &mut facts, writer)?;
+                        head_parts += 1;
+                    }
+                    ChainOperation::NonNull(non_null) => {
+                        self.write_chain_non_null(non_null, source, &mut facts, writer)?;
+                    }
                 }
-                head_parts += 1;
             }
             Ok::<_, FormatError>(())
         };
@@ -763,6 +802,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         saw_call = true;
                         self.write_chain_call(arguments, source, &mut facts, writer)?;
                     }
+                    ChainOperation::NonNull(non_null) => {
+                        self.write_chain_non_null(non_null, source, &mut facts, writer)?;
+                        continue;
+                    }
                 }
                 has_parts = true;
             }
@@ -790,6 +833,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             member.separator().write(false, writer);
         }
         self.format_member_access(&member.member.source, member.boundary, writer)
+    }
+
+    fn write_chain_non_null(
+        &mut self,
+        non_null: SourceNonNull<'ast>,
+        source: &mut ChainSource<'ast, '_>,
+        facts: &mut GroupFacts,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        facts.has_boundary_comments |= non_null.has_comments();
+        facts.source_break |= non_null.source_break();
+        self.format_source_non_null(non_null, source.tail.take(), writer)
     }
 
     fn write_chain_call(

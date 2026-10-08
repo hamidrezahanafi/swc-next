@@ -58,6 +58,33 @@ enum TypeExpressionGap<'ast> {
     Formatted(CommentBoundary<'ast>),
 }
 
+/// One assertion's source-owned operand and prepared token boundary.
+pub(super) struct SourceNonNull<'ast> {
+    pub(super) expression: Expr,
+    mode: ContentMode,
+    prefix: TypeExpressionGap<'ast>,
+    has_comments: bool,
+}
+
+impl SourceNonNull<'_> {
+    pub(super) fn operand_context(&self, context: ExpressionContext) -> ExpressionContext {
+        context.type_operand(
+            ExpressionPosition::NonNullOperand,
+            self.mode,
+            TailOwner::ParentOperation,
+        )
+    }
+
+    pub(super) fn has_comments(&self) -> bool {
+        self.has_comments
+    }
+
+    pub(super) fn source_break(&self) -> bool {
+        self.has_comments
+            || matches!(&self.prefix, TypeExpressionGap::Formatted(boundary) if boundary.gap().requires_line())
+    }
+}
+
 struct BinaryTypeBoundary<'ast> {
     operator: TypeBinaryOperator,
     left_mode: ContentMode,
@@ -327,12 +354,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         prepared.source_owner = Some(owner);
     }
 
-    pub(super) fn format_non_null(
-        &mut self,
+    pub(super) fn source_non_null(
+        &self,
         node: TsNonNullExpression,
-        context: ExpressionContext,
-        writer: &mut Writer<'ast>,
-    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+    ) -> Result<SourceNonNull<'ast>, FormatError> {
         let expression = node.expression(self.ast);
         let suffix = Span::new(expression.span(self.ast).end, node.span(self.ast).end);
         let comments = self.comments.in_range(suffix);
@@ -348,18 +373,36 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.prepare_comment_boundary(comments, gap.start, gap.end),
             )
         };
-        let tail = self.format_expression(
+        Ok(SourceNonNull {
             expression,
-            context.type_operand(
-                ExpressionPosition::NonNullOperand,
-                mode,
-                TailOwner::ParentOperation,
-            ),
-            writer,
-        )?;
+            mode,
+            prefix,
+            has_comments: !comments.is_empty(),
+        })
+    }
+
+    pub(super) fn format_source_non_null(
+        &mut self,
+        source: SourceNonNull<'ast>,
+        tail: Option<ExpressionTail<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
         self.format_expression_tail(tail, writer)?;
-        self.format_type_expression_gap(prefix, FlatSeparator::Empty, writer)?;
+        self.format_type_expression_gap(source.prefix, FlatSeparator::Empty, writer)?;
         writer.text("!");
+        Ok(())
+    }
+
+    pub(super) fn format_non_null(
+        &mut self,
+        node: TsNonNullExpression,
+        context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let source = self.source_non_null(node)?;
+        let tail =
+            self.format_expression(source.expression, source.operand_context(context), writer)?;
+        self.format_source_non_null(source, tail, writer)?;
         Ok(None)
     }
 
