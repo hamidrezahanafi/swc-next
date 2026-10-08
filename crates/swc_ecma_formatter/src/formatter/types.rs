@@ -14,17 +14,17 @@ mod postfix;
 mod tuple;
 
 use swc_next_ecma_ast::{
-    BindingIdentifier, BindingPattern, Comment, CommentKind, ExprData, GetSpan, Span,
-    TsLiteralData, TsParenthesizedType, TsQualifiedName, TsQualifiedNameLeft,
-    TsQualifiedNameLeftData, TsType, TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeData,
-    TsTypeName, TsTypeNameData, UnaryOperator, VariableDeclarator,
+    BindingIdentifier, Comment, CommentKind, ExprData, GetSpan, Span, TsLiteralData,
+    TsParenthesizedType, TsQualifiedName, TsQualifiedNameLeft, TsQualifiedNameLeftData, TsType,
+    TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeData, TsTypeName, TsTypeNameData,
+    UnaryOperator, VariableDeclarator,
 };
 
 pub(super) use self::context::TypeContext;
 pub(in crate::formatter) use self::members::PreparedIndexSignature;
 use super::Formatter;
-use super::bindings::InitializerLayout;
-use super::comments::{CommentBoundary, ExpressionTail};
+use super::bindings::{DefiniteMarker, InitializerLayout};
+use super::comments::{CommentBoundary, CommentRunLayout, ExpressionTail};
 use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::ExpressionContext;
 use super::literals::StringContext;
@@ -80,9 +80,39 @@ pub(super) struct TypeBoundary<'ast> {
     layout: TypeBoundaryLayout<'ast>,
 }
 
-struct PreparedTypeAnnotation<'ast> {
-    pattern: BindingPattern,
-    content: PreparedAnnotation<'ast>,
+pub(super) struct PreparedBindingAnnotation<'ast> {
+    leading: &'ast [Comment],
+    before_leading: LineConstraint,
+    leading_source_gap: Option<LineConstraint>,
+    colon: u32,
+    prefix: BindingAnnotationPrefix<'ast>,
+    content: AnnotationContent,
+}
+
+enum BindingAnnotationPrefix<'ast> {
+    Source(Span),
+    Formatted {
+        colon: Span,
+        before: LineConstraint,
+        comments: &'ast [Comment],
+        end: u32,
+    },
+}
+
+struct AnnotationParts<'ast> {
+    annotation: TsTypeAnnotation,
+    node: TsType,
+    gap: Span,
+    colon: Span,
+    before: &'ast [Comment],
+    after: &'ast [Comment],
+    before_mode: ContentMode,
+}
+
+#[derive(Clone, Copy)]
+enum AnnotationPrefixOwner {
+    Boundary,
+    Binding,
 }
 
 pub(super) struct PreparedAnnotation<'ast> {
@@ -703,15 +733,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    fn prepare_type_annotation(
-        &self,
-        pattern: BindingPattern,
-        annotation: TsTypeAnnotation,
-    ) -> Result<PreparedTypeAnnotation<'ast>, FormatError> {
-        let content = self.prepare_annotation_content(pattern.span(self.ast).end, annotation)?;
-        Ok(PreparedTypeAnnotation { pattern, content })
-    }
-
     fn prepare_annotation_content(
         &self,
         preceding_end: u32,
@@ -736,37 +757,175 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 )),
             });
         }
-        let type_node = annotation.type_annotation(ast);
-        let gap = Span::new(preceding_end, type_node.span(ast).start);
+        let parts = self.prepare_annotation_parts(preceding_end, annotation)?;
+        let content =
+            self.prepare_annotation_parts_content(&parts, AnnotationPrefixOwner::Boundary);
+        let prefix = match self.annotation_source_prefix(&parts, &content, parts.gap.start) {
+            Some(span) => TypeBoundaryLayout::Source(span),
+            None => TypeBoundaryLayout::Formatted {
+                before: self.prepare_comment_boundary(
+                    parts.before,
+                    parts.gap.start,
+                    parts.colon.start,
+                ),
+                after: self.prepare_comment_boundary(parts.after, parts.colon.end, parts.gap.end),
+            },
+        };
+        Ok(PreparedAnnotation { content, prefix })
+    }
+
+    fn prepare_annotation_parts(
+        &self,
+        preceding_end: u32,
+        annotation: TsTypeAnnotation,
+    ) -> Result<AnnotationParts<'ast>, FormatError> {
+        let node = annotation.type_annotation(self.ast);
+        let gap = Span::new(preceding_end, node.span(self.ast).start);
         let comments = self.comments.in_range(gap);
         let Some(colon_start) = self.find_token(gap, comments, ":") else {
             return Err(self.unsupported("type annotation colon", annotation));
         };
         let split = comments.partition_point(|comment| comment.span.end <= colon_start);
         let (before, after) = comments.split_at(split);
-        if self.content_mode(before) == ContentMode::Verbatim {
-            return Ok(PreparedAnnotation {
-                content: AnnotationContent::Source(annotation),
-                prefix: TypeBoundaryLayout::Source(Span::new(
-                    gap.start,
-                    annotation.span(ast).start,
-                )),
-            });
-        }
-        let mut type_node = self.prepare_type(type_node, ContentMode::Formatted);
-        self.select_type_head_comments(&mut type_node, after, gap.end);
-        let prefix = if type_node.source_owner.is_some() {
-            TypeBoundaryLayout::Source(gap)
-        } else {
-            TypeBoundaryLayout::Formatted {
-                before: self.prepare_comment_boundary(before, gap.start, colon_start),
-                after: self.prepare_comment_boundary(after, colon_start + 1, gap.end),
-            }
-        };
-        Ok(PreparedAnnotation {
-            content: AnnotationContent::Formatted(type_node),
-            prefix,
+        Ok(AnnotationParts {
+            annotation,
+            node,
+            gap,
+            colon: Span::new(colon_start, colon_start + 1),
+            before,
+            after,
+            before_mode: if self.has_suppression {
+                self.content_mode(before)
+            } else {
+                ContentMode::Formatted
+            },
         })
+    }
+
+    fn prepare_annotation_parts_content(
+        &self,
+        parts: &AnnotationParts<'ast>,
+        owner: AnnotationPrefixOwner,
+    ) -> AnnotationContent {
+        if parts.before_mode == ContentMode::Verbatim {
+            return AnnotationContent::Source(parts.annotation);
+        }
+        let mut node = self.prepare_type(parts.node, ContentMode::Formatted);
+        self.select_type_head_comments(&mut node, parts.after, parts.gap.end);
+        if matches!(owner, AnnotationPrefixOwner::Binding) && node.source_owner == Some(node.node) {
+            let mut selected = node.node;
+            let mut data = node.data;
+            while let TsTypeData::TsParenthesizedType(parentheses) = data {
+                selected = parentheses.type_annotation(self.ast);
+                data = self.ast.ts_type_data(selected);
+            }
+            node.source_owner = Some(selected);
+        }
+        AnnotationContent::Formatted(node)
+    }
+
+    fn annotation_source_prefix(
+        &self,
+        parts: &AnnotationParts<'ast>,
+        content: &AnnotationContent,
+        start: u32,
+    ) -> Option<Span> {
+        match content {
+            AnnotationContent::Source(annotation) => {
+                Some(Span::new(start, annotation.span(self.ast).start))
+            }
+            AnnotationContent::Formatted(node) if node.source_owner.is_some() => {
+                Some(Span::new(start, parts.gap.end))
+            }
+            AnnotationContent::Formatted(_) => None,
+        }
+    }
+
+    pub(super) fn prepare_binding_annotation_content(
+        &self,
+        preceding_end: u32,
+        annotation: TsTypeAnnotation,
+    ) -> Result<PreparedBindingAnnotation<'ast>, FormatError> {
+        let parts = self.prepare_annotation_parts(preceding_end, annotation)?;
+        let leading = parts.before;
+        let colon = parts.colon.start;
+        let before_leading = self.line_constraint(
+            preceding_end,
+            leading.first().map_or(colon, |comment| comment.span.start),
+        );
+        let leading_source_gap = if parts.before_mode == ContentMode::Verbatim {
+            Some(
+                self.source_line_constraint(
+                    leading
+                        .last()
+                        .map_or(preceding_end, |comment| comment.span.end),
+                    colon,
+                ),
+            )
+        } else {
+            None
+        };
+        let content = self.prepare_annotation_parts_content(&parts, AnnotationPrefixOwner::Binding);
+        let prefix = match self.annotation_source_prefix(&parts, &content, colon) {
+            Some(span) => BindingAnnotationPrefix::Source(span),
+            None => BindingAnnotationPrefix::Formatted {
+                colon: parts.colon,
+                before: self.line_constraint(
+                    parts.colon.end,
+                    parts
+                        .after
+                        .first()
+                        .map_or(parts.gap.end, |comment| comment.span.start),
+                ),
+                comments: parts.after,
+                end: parts.gap.end,
+            },
+        };
+        Ok(PreparedBindingAnnotation {
+            leading,
+            before_leading,
+            leading_source_gap,
+            colon,
+            prefix,
+            content,
+        })
+    }
+
+    pub(super) fn format_binding_annotation_content(
+        &mut self,
+        annotation: PreparedBindingAnnotation<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        if !annotation.leading.is_empty() {
+            annotation
+                .before_leading
+                .write(writer, FlatSeparator::Space, Writer::space);
+            self.comments.claim(annotation.leading)?;
+            let layout = if annotation.leading_source_gap.is_some() {
+                CommentRunLayout::Source
+            } else {
+                CommentRunLayout::FlatLeading(annotation.colon)
+            };
+            self.format_comment_run(annotation.leading, layout, writer)?;
+            if let Some(gap) = annotation.leading_source_gap {
+                gap.write(writer, FlatSeparator::Space, Writer::space);
+            }
+        }
+        match annotation.prefix {
+            BindingAnnotationPrefix::Source(span) => self.format_verbatim(span, writer)?,
+            BindingAnnotationPrefix::Formatted {
+                colon,
+                before,
+                comments,
+                end,
+            } => {
+                writer.text(self.source(colon));
+                before.write(writer, FlatSeparator::Space, Writer::space);
+                self.comments.claim(comments)?;
+                self.format_comment_run(comments, CommentRunLayout::FlatLeading(end), writer)?;
+            }
+        }
+        self.format_annotation_type_content(annotation.content, writer)
     }
 
     pub(super) fn format_annotation_content(
@@ -786,7 +945,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .write(writer, FlatSeparator::Space, Writer::space);
             }
         }
-        match content.content {
+        self.format_annotation_type_content(content.content, writer)
+    }
+
+    fn format_annotation_type_content(
+        &mut self,
+        content: AnnotationContent,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        match content {
             AnnotationContent::Source(annotation) => {
                 self.format_verbatim(annotation.span(self.ast), writer)?;
                 Ok(None)
@@ -797,32 +964,41 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    fn format_annotated_binding(
-        &mut self,
-        binding: PreparedTypeAnnotation<'ast>,
-        writer: &mut Writer<'ast>,
-    ) -> Result<(), FormatError> {
-        let tail =
-            self.format_declaration_binding(binding.pattern, ContentMode::Formatted, writer)?;
-        self.format_expression_tail(tail, writer)?;
-        let tail = self.format_annotation_content(binding.content, writer)?;
-        self.format_expression_tail(tail, writer)
-    }
-
     pub(super) fn format_typed_variable_declarator(
         &mut self,
         declarator: VariableDeclarator,
-        annotation: TsTypeAnnotation,
+        annotation: Option<TsTypeAnnotation>,
         context: VariableContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let ast = self.ast;
-        let Some(right) = declarator.init(ast) else {
-            let binding = self.prepare_type_annotation(declarator.id(ast), annotation)?;
-            self.format_annotated_binding(binding, writer)?;
-            return Ok(None);
+        let pattern = declarator.id(ast);
+        let pattern_span = pattern.span(ast);
+        let is_definite = declarator.definite(ast);
+        let mut definite = if is_definite && annotation.is_none() {
+            Some(self.variable_definite_marker(declarator, annotation))
+        } else {
+            None
         };
-        let left_end = annotation.span(ast).end;
+        let marker_end = definite
+            .as_ref()
+            .and_then(|marker| marker.source)
+            .map_or(pattern_span.end, |span| span.end);
+        let left_end = annotation.map_or(marker_end, |annotation| annotation.span(ast).end);
+        let owner = Span::new(pattern_span.start, left_end);
+        let Some(right) = declarator.init(ast) else {
+            if is_definite && definite.is_none() {
+                definite = Some(self.variable_definite_marker(declarator, annotation));
+            }
+            let binding = self.prepare_annotated_binding(
+                pattern,
+                owner,
+                definite,
+                annotation,
+                ContentMode::Formatted,
+            )?;
+            return self.format_annotated_binding(binding, writer);
+        };
         let gap = Span::new(left_end, right.span(ast).start);
         let comments = self.comments.in_range(gap);
         let Some(operator) = self.find_token(gap, comments, "=") else {
@@ -878,13 +1054,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
         };
         if left_mode == ContentMode::Verbatim {
-            self.format_verbatim(
-                Span::new(declarator.id(ast).span(ast).start, left_end),
-                writer,
-            )?;
+            self.format_verbatim(owner, writer)?;
         } else {
-            let binding = self.prepare_type_annotation(declarator.id(ast), annotation)?;
-            self.format_annotated_binding(binding, writer)?;
+            if is_definite && definite.is_none() {
+                definite = Some(self.variable_definite_marker(declarator, annotation));
+            }
+            let binding = self.prepare_annotated_binding(
+                pattern,
+                owner,
+                definite,
+                annotation,
+                ContentMode::Formatted,
+            )?;
+            let tail = self.format_annotated_binding(binding, writer)?;
+            self.format_expression_tail(tail, writer)?;
         }
         let context = if context == VariableContext::ForInitializer {
             self.for_initializer_context(right)
@@ -892,5 +1075,24 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ExpressionContext::variable_initializer()
         };
         self.format_initializer_right(left_end, right, layout, context, writer)
+    }
+
+    fn variable_definite_marker(
+        &self,
+        declarator: VariableDeclarator,
+        annotation: Option<TsTypeAnnotation>,
+    ) -> DefiniteMarker {
+        if annotation.is_some() {
+            return DefiniteMarker { source: None };
+        }
+        let ast = self.ast;
+        let end = declarator
+            .init(ast)
+            .map_or(declarator.span(ast).end, |right| right.span(ast).start);
+        let gap = Span::new(declarator.id(ast).span(ast).end, end);
+        let source = self
+            .find_token(gap, self.comments.in_range(gap), "!")
+            .map(|marker| Span::new(marker, marker + 1));
+        DefiniteMarker { source }
     }
 }

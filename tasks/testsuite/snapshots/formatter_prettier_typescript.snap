@@ -3,13 +3,13 @@ formatter * prettier 3.9.9 * typescript
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 657
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 414/804 (51.49%)
-Snapshot matched: 414/804
-AST parity: 600/600
-AST mismatched: 0/600
+Passed: 416/804 (51.74%)
+Snapshot matched: 416/804
+AST parity: 603/603
+AST mismatched: 0/603
 AST format errors: 0/804
-Mismatched: 186/804
-Format errors: 204/804
+Mismatched: 187/804
+Format errors: 201/804
 Panicked: 0/804
 Not idempotent: 0/804
 Ignored files: 76
@@ -110,7 +110,6 @@ Unsupported option sets: 7
 - typescript/cast/generic-cast.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/cast/hug-args.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/cast/parenthesis.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/catch-clause/type-annotation.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/chain-expression/issue-15785-1.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/chain-expression/issue-15785-2.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/chain-expression/member-chain.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -197,8 +196,7 @@ Unsupported option sets: 7
 - typescript/decorators/mobx.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/decorators/parenthesized-decorators-call-expression.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/decorators/parenthesized-decorators-tagged-template.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/definite/definite.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/definite/without-annotation.ts: 0/1 mismatched, 1/1 format errors, 0/1 panicked, 0/1 not idempotent
+- typescript/definite/without-annotation.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/end-of-line/multiline.ts: 0/3 mismatched, 3/3 format errors, 0/3 panicked, 0/3 not idempotent
 - typescript/function-type/consistent.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/function-type/single-parameter.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent

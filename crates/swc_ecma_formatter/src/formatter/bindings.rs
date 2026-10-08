@@ -3,7 +3,7 @@
 use swc_next_ecma_ast::{
     ArrayPattern, BindingPattern, BindingPatternData, BindingProperty, CommentKind, Expr,
     FormalParameterPattern, FormalParameterPatternData, GetSpan, ObjectPattern, Span,
-    TsEnumMemberName,
+    TsEnumMemberName, TsTypeAnnotation,
 };
 
 use super::Formatter;
@@ -13,7 +13,26 @@ use super::expressions::arguments::{ArgumentLayout, ElisionLayout, FollowingItem
 use super::expressions::assignment::AssignmentBoundary;
 use super::expressions::{ExpressionContext, ExpressionPosition};
 use super::suppression::{ContentMode, SuppressionPosition};
+use super::types::PreparedBindingAnnotation;
 use crate::{FormatError, TrailingCommas, document::Writer};
+
+pub(super) struct PreparedAnnotatedBinding<'ast> {
+    span: Span,
+    layout: AnnotatedBindingLayout<'ast>,
+}
+
+pub(super) struct DefiniteMarker {
+    pub(super) source: Option<Span>,
+}
+
+enum AnnotatedBindingLayout<'ast> {
+    Source,
+    Formatted {
+        pattern: BindingPattern,
+        definite: Option<DefiniteMarker>,
+        annotation: Option<PreparedBindingAnnotation<'ast>>,
+    },
+}
 
 pub(super) enum DefaultOwner<'ast> {
     Whole,
@@ -92,6 +111,67 @@ fn next_slot(elements: &mut impl Iterator<Item = Option<BindingPattern>>) -> Opt
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    pub(super) fn prepare_annotated_binding(
+        &self,
+        pattern: BindingPattern,
+        span: Span,
+        definite: Option<DefiniteMarker>,
+        annotation: Option<TsTypeAnnotation>,
+        mode: ContentMode,
+    ) -> Result<PreparedAnnotatedBinding<'ast>, FormatError> {
+        if mode == ContentMode::Verbatim {
+            return Ok(PreparedAnnotatedBinding {
+                span,
+                layout: AnnotatedBindingLayout::Source,
+            });
+        }
+        let annotation = annotation
+            .map(|annotation| {
+                self.prepare_binding_annotation_content(pattern.span(self.ast).end, annotation)
+            })
+            .transpose()?;
+        Ok(PreparedAnnotatedBinding {
+            span,
+            layout: AnnotatedBindingLayout::Formatted {
+                pattern,
+                definite,
+                annotation,
+            },
+        })
+    }
+
+    pub(super) fn format_annotated_binding(
+        &mut self,
+        binding: PreparedAnnotatedBinding<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let (pattern, definite, annotation) = match binding.layout {
+            AnnotatedBindingLayout::Source => {
+                self.format_verbatim(binding.span, writer)?;
+                return Ok(None);
+            }
+            AnnotatedBindingLayout::Formatted {
+                pattern,
+                definite,
+                annotation,
+            } => (pattern, definite, annotation),
+        };
+        let tail = self.format_declaration_binding(pattern, ContentMode::Formatted, writer)?;
+        self.format_expression_tail(tail, writer)?;
+        if let Some(marker) = definite {
+            if annotation.is_none() {
+                let pattern_end = pattern.span(self.ast).end;
+                let marker_start = marker.source.map_or(pattern_end, |span| span.start);
+                self.format_source_token_gap(pattern_end, marker_start, false, writer)?;
+            }
+            writer.text("!");
+        }
+        match annotation {
+            Some(annotation) => self.format_binding_annotation_content(annotation, writer),
+            None => Ok(None),
+        }
+    }
+
     pub(super) fn format_parameter_binding(
         &mut self,
         pattern: FormalParameterPattern,

@@ -187,10 +187,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             self.format_verbatim(declarator.span(ast), writer)?;
             return Ok(None);
         }
-        if declarator.definite(ast) {
-            return Err(self.unsupported("definite variable binding", declarator));
-        }
-        if let Some(annotation) = declarator.type_annotation(ast) {
+        let annotation = declarator.type_annotation(ast);
+        if annotation.is_some() || declarator.definite(ast) {
             return self.format_typed_variable_declarator(declarator, annotation, context, writer);
         }
         let left = declarator.id(ast);
