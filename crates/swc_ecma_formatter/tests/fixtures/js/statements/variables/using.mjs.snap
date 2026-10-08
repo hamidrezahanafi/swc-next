@@ -6,12 +6,14 @@ using resource=createResource();
 ---------- Options ----------
 {"printWidth":1}
 ---------- Output ----------
-using resource = createResource();
+using resource =
+  createResource();
 
 ---------- Options ----------
 {"printWidth":20,"semi":false}
 ---------- Output ----------
-using resource = createResource()
+using resource =
+  createResource()
 
 ---------- Options ----------
 {"printWidth":80}

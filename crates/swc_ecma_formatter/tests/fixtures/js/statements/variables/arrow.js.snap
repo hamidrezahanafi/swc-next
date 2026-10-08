@@ -6,15 +6,16 @@ const callback=(left,right)=>{return left+right;};
 ---------- Options ----------
 {"printWidth":1}
 ---------- Output ----------
-const callback = (
-  left,
-  right,
-) => {
-  return (
-    left +
-    right
-  );
-};
+const callback =
+  (
+    left,
+    right,
+  ) => {
+    return (
+      left +
+      right
+    );
+  };
 
 ---------- Options ----------
 {"printWidth":20,"semi":false}

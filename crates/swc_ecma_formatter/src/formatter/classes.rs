@@ -1443,12 +1443,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 if right_mode == ContentMode::Verbatim {
                     boundary.mode = right_mode;
                 }
-                let break_after = boundary.own_line
-                    || !boundary.operator_line.is_empty()
-                    || self.assignment_right_breaks_after_operator(content.data);
+                let rhs_layout = self.ordinary_rhs_layout(content.data, &boundary);
                 InitializerLayout::Formatted {
                     boundary,
-                    break_after,
+                    rhs_layout,
                 }
             };
             Some(FieldInitializer { right, layout })

@@ -14,9 +14,10 @@ class C {
 {"printWidth":20}
 ---------- Output ----------
 class C {
-  value = /** @type {number} */ (
-    call()
-  );
+  value =
+    /** @type {number} */ (
+      call()
+    );
 }
 
 ---------- Options ----------
@@ -30,18 +31,20 @@ class C {
 {"printWidth":20,"semi":false}
 ---------- Output ----------
 class C {
-  value = /** @type {number} */ (
-    call()
-  )
+  value =
+    /** @type {number} */ (
+      call()
+    )
 }
 
 ---------- Options ----------
 {"printWidth":20,"tabWidth":2,"useTabs":true}
 ---------- Output ----------
 class C {
-	value = /** @type {number} */ (
-		call()
-	);
+	value =
+		/** @type {number} */ (
+			call()
+		);
 }
 
 ---------- Options ----------

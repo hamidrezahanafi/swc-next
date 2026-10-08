@@ -15,10 +15,12 @@ class C {
 {"printWidth":20}
 ---------- Output ----------
 class C {
-  f = /*#__NO_SIDE_EFFECTS__*/ (
-    x,
-  ) => x + 1;
-  value = /*#__PURE__*/ call();
+  f =
+    /*#__NO_SIDE_EFFECTS__*/ (
+      x,
+    ) => x + 1;
+  value =
+    /*#__PURE__*/ call();
 }
 
 ---------- Options ----------
@@ -33,20 +35,24 @@ class C {
 {"printWidth":20,"semi":false}
 ---------- Output ----------
 class C {
-  f = /*#__NO_SIDE_EFFECTS__*/ (
-    x,
-  ) => x + 1
-  value = /*#__PURE__*/ call()
+  f =
+    /*#__NO_SIDE_EFFECTS__*/ (
+      x,
+    ) => x + 1
+  value =
+    /*#__PURE__*/ call()
 }
 
 ---------- Options ----------
 {"printWidth":20,"tabWidth":2,"useTabs":true}
 ---------- Output ----------
 class C {
-	f = /*#__NO_SIDE_EFFECTS__*/ (
-		x,
-	) => x + 1;
-	value = /*#__PURE__*/ call();
+	f =
+		/*#__NO_SIDE_EFFECTS__*/ (
+			x,
+		) => x + 1;
+	value =
+		/*#__PURE__*/ call();
 }
 
 ---------- Options ----------

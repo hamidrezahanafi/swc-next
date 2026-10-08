@@ -6,25 +6,27 @@ const callback=function(value=1+2){return value+3;};
 ---------- Options ----------
 {"printWidth":1}
 ---------- Output ----------
-const callback = function (
-  value =
-    1 +
-    2,
-) {
-  return (
-    value +
-    3
-  );
-};
+const callback =
+  function (
+    value =
+      1 +
+      2,
+  ) {
+    return (
+      value +
+      3
+    );
+  };
 
 ---------- Options ----------
 {"printWidth":20,"semi":false}
 ---------- Output ----------
-const callback = function (
-  value = 1 + 2,
-) {
-  return value + 3
-}
+const callback =
+  function (
+    value = 1 + 2,
+  ) {
+    return value + 3
+  }
 
 ---------- Options ----------
 {"printWidth":80}

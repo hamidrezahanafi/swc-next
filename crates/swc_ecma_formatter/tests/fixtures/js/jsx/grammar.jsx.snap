@@ -59,7 +59,8 @@ const a1 = (<A />)
 const b1 = (<A />)(
   x,
 );
-const c1 = new (<A />)();
+const c1 =
+  new (<A />)();
 const d = !(<A />);
 const e =
   (<A />) < b;

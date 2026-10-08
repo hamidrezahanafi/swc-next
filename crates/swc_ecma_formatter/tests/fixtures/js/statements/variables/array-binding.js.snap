@@ -10,7 +10,8 @@ let [
   head,
   ,
   ...tail
-] = items;
+] =
+  items;
 
 ---------- Options ----------
 {"printWidth":20,"semi":false}

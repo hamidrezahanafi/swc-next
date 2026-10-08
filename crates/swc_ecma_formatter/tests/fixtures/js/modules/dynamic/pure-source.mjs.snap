@@ -15,12 +15,13 @@ const task = import((/* #__PURE__ */ choose(), "m"));
 ---------- Options ----------
 {"printWidth":20}
 ---------- Output ----------
-const choose = () => {
-  console.log(
-    "unexpected",
-  );
-  return "unused";
-};
+const choose =
+  () => {
+    console.log(
+      "unexpected",
+    );
+    return "unused";
+  };
 const task = import(
   (
     /* #__PURE__ */ choose(),
@@ -31,12 +32,13 @@ const task = import(
 ---------- Options ----------
 {"bracketSpacing":false,"printWidth":20,"semi":false,"singleQuote":true}
 ---------- Output ----------
-const choose = () => {
-  console.log(
-    'unexpected',
-  )
-  return 'unused'
-}
+const choose =
+  () => {
+    console.log(
+      'unexpected',
+    )
+    return 'unused'
+  }
 const task = import(
   (
     /* #__PURE__ */ choose(),

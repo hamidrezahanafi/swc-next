@@ -26,13 +26,14 @@ const object = {
 ---------- Options ----------
 {"printWidth":1,"semi":false}
 ---------- Output ----------
-const object = {
-  method(
-    value: number,
-  ) {
-    return value
-  },
-}
+const object =
+  {
+    method(
+      value: number,
+    ) {
+      return value
+    },
+  }
 
 ---------- Options ----------
 {"endOfLine":"crlf","printWidth":20,"useTabs":true}

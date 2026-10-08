@@ -40,8 +40,9 @@ consume(
 const annotated = (
   /*#__PURE__*/ makeCollection(first).select(second)
 )[0].record;
-const ignored = collection.read( first ).select( second ) /* prettier-ignore */
-  .record;
+const ignored =
+  collection.read( first ).select( second ) /* prettier-ignore */
+    .record;
 collection.read(first).select(second)[0].record;
 [entry].map(consume);
 
@@ -93,7 +94,8 @@ consume(
 const annotated = (
   /*#__PURE__*/ makeCollection(first).select(second)
 )[0].record
-const ignored = collection.read( first ).select( second ) /* prettier-ignore */
-  .record
+const ignored =
+  collection.read( first ).select( second ) /* prettier-ignore */
+    .record
 collection.read(first).select(second)[0].record
 ;[entry].map(consume)

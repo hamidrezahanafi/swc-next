@@ -1168,12 +1168,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let content = self.expression_content(right);
             let boundary =
                 self.assignment_boundary(left_end, &content, Span::new(operator, operator + 1))?;
-            let break_after = boundary.own_line
-                || !boundary.operator_line.is_empty()
-                || self.assignment_right_breaks_after_operator(content.data);
+            let rhs_layout = self.ordinary_rhs_layout(content.data, &boundary);
             InitializerLayout::Formatted {
                 boundary,
-                break_after,
+                rhs_layout,
             }
         };
         if left_mode == ContentMode::Verbatim {

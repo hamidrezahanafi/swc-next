@@ -11,6 +11,7 @@ use crate::formatter::bindings::{InitializerLayout, InitializerLeft, PreparedIni
 use crate::formatter::comments::{CommentBoundary, CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::expressions::arguments::{ArgumentLayout, FollowingItem, ItemBoundary};
+use crate::formatter::expressions::assignment::RhsLayout;
 use crate::formatter::expressions::objects::PropertyKeyContext;
 use crate::formatter::expressions::{ExpressionContext, ExpressionPosition};
 use crate::formatter::literals::StringContext;
@@ -362,7 +363,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
             }
         }
-        let break_after = boundary.own_line || !boundary.operator_line.is_empty();
+        let rhs_layout = if boundary.own_line || !boundary.operator_line.is_empty() {
+            RhsLayout::BreakAfterOperator
+        } else {
+            RhsLayout::NeverBreakAfterOperator
+        };
         self.format_initializer(
             PreparedInitializer {
                 left: InitializerLeft::Enum {
@@ -372,7 +377,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 right,
                 layout: InitializerLayout::Formatted {
                     boundary,
-                    break_after,
+                    rhs_layout,
                 },
                 left_mode,
                 context: ExpressionContext::at(ExpressionPosition::EnumInitializer),

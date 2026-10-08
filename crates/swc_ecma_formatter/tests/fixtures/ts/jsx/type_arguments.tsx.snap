@@ -35,14 +35,15 @@ const a2 = (
     value={x}
   />
 );
-const joinedTyped = (
-  <ns.Box<number>
-    value={
-      tag<
-        number
-      >`raw ${
-        value + 1
-      }`
-    }
-  />
-);
+const joinedTyped =
+  (
+    <ns.Box<number>
+      value={
+        tag<
+          number
+        >`raw ${
+          value + 1
+        }`
+      }
+    />
+  );

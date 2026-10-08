@@ -8,7 +8,8 @@ const [\u0076 /* prettier-ignore */=/* prettier-ignore */1+2]=items;
 ---------- Output ----------
 const [
   \u0076 /* prettier-ignore */=/* prettier-ignore */1+2,
-] = items;
+] =
+  items;
 
 ---------- Options ----------
 {"printWidth":20,"semi":false}

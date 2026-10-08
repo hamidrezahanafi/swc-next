@@ -10,7 +10,7 @@ use super::Formatter;
 use super::comments::{CommentRunLayout, ExpressionTail};
 use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::arguments::{ArgumentLayout, ElisionLayout, FollowingItem, Separator};
-use super::expressions::assignment::AssignmentBoundary;
+use super::expressions::assignment::{AssignmentBoundary, RhsLayout};
 use super::expressions::targets::{PreparedTarget, SimpleTarget};
 use super::expressions::{ExpressionContext, ExpressionPosition};
 use super::suppression::{ContentMode, SuppressionPosition};
@@ -44,7 +44,7 @@ pub(super) enum DefaultOwner<'ast> {
     },
     Formatted {
         boundary: AssignmentBoundary<'ast>,
-        break_after: bool,
+        rhs_layout: RhsLayout,
     },
 }
 
@@ -60,7 +60,7 @@ pub(super) enum InitializerLeft {
 pub(super) enum InitializerLayout<'ast> {
     Formatted {
         boundary: AssignmentBoundary<'ast>,
-        break_after: bool,
+        rhs_layout: RhsLayout,
     },
     Bound {
         gap: Span,
@@ -392,12 +392,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             let content = self.expression_content(right);
             let boundary = self.assignment_boundary(left_end, &content, operator)?;
-            let break_after = boundary.own_line
-                || !boundary.operator_line.is_empty()
-                || self.assignment_right_breaks_after_operator(content.data);
+            let rhs_layout = match self.ordinary_rhs_layout(content.data, &boundary) {
+                RhsLayout::Fluid => RhsLayout::NeverBreakAfterOperator,
+                rhs_layout => rhs_layout,
+            };
             DefaultOwner::Formatted {
                 boundary,
-                break_after,
+                rhs_layout,
             }
         };
         Ok(owner)
@@ -426,11 +427,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             } => (InitializerLayout::Bound { gap, right_mode }, left_mode),
             DefaultOwner::Formatted {
                 boundary,
-                break_after,
+                rhs_layout,
             } => (
                 InitializerLayout::Formatted {
                     boundary,
-                    break_after,
+                    rhs_layout,
                 },
                 ContentMode::Formatted,
             ),
@@ -505,7 +506,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        let (boundary, break_after) = match layout {
+        let (boundary, rhs_layout) = match layout {
             InitializerLayout::Bound { gap, right_mode } => {
                 self.format_verbatim(gap, writer)?;
                 return self.format_expression(
@@ -516,8 +517,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             InitializerLayout::Formatted {
                 boundary,
-                break_after,
-            } => (boundary, break_after),
+                rhs_layout,
+            } => (boundary, rhs_layout),
         };
         self.comments.claim(boundary.before)?;
         self.format_comment_run(
@@ -535,52 +536,54 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             CommentRunLayout::SourceAfter(boundary.operator_span.end),
             writer,
         )?;
-        writer.group(false, |writer| {
-            let mut write_right = |writer: &mut Writer<'ast>| {
-                boundary
-                    .after_operator
-                    .write(writer, FlatSeparator::Space, |writer| {
-                        if boundary.own_line || !boundary.operator_line.is_empty() {
-                            writer.hard_line();
-                        } else if break_after {
-                            writer.line();
-                        } else {
-                            writer.space();
-                        }
-                    });
-                self.comments.claim(boundary.moved)?;
-                self.format_comment_run(boundary.moved, CommentRunLayout::Source, writer)?;
-                if let Some(last) = boundary.moved.last() {
-                    let next = boundary
-                        .leading
-                        .first()
-                        .map_or(boundary.layout_start, |comment| comment.span.start);
-                    let breaks = self
-                        .line_breaks(last.span.end, boundary.operator_span.start)
-                        .max(self.line_breaks(boundary.operator_span.end, next));
-                    match breaks {
-                        0 => writer.space(),
-                        1 => writer.hard_line(),
-                        _ => {
-                            writer.hard_line();
-                            writer.hard_line();
-                        }
+        let separator = |writer: &mut Writer<'ast>| {
+            boundary
+                .after_operator
+                .write(writer, FlatSeparator::Space, |writer| {
+                    if boundary.own_line || !boundary.operator_line.is_empty() {
+                        writer.hard_line();
+                    } else if matches!(rhs_layout, RhsLayout::NeverBreakAfterOperator) {
+                        writer.space();
+                    } else {
+                        writer.line();
+                    }
+                });
+        };
+        let write_right = |writer: &mut Writer<'ast>| {
+            self.comments.claim(boundary.moved)?;
+            self.format_comment_run(boundary.moved, CommentRunLayout::Source, writer)?;
+            if let Some(last) = boundary.moved.last() {
+                let next = boundary
+                    .leading
+                    .first()
+                    .map_or(boundary.layout_start, |comment| comment.span.start);
+                let breaks = self
+                    .line_breaks(last.span.end, boundary.operator_span.start)
+                    .max(self.line_breaks(boundary.operator_span.end, next));
+                match breaks {
+                    0 => writer.space(),
+                    1 => writer.hard_line(),
+                    _ => {
+                        writer.hard_line();
+                        writer.hard_line();
                     }
                 }
-                self.comments.claim(boundary.leading)?;
-                self.format_expression_with_leading_comments(
-                    right,
-                    boundary.right_head(),
-                    context.with_content_mode(boundary.mode),
-                    writer,
-                )
-            };
-            if break_after {
-                writer.indent(write_right)
-            } else {
-                write_right(writer)
             }
-        })
+            self.comments.claim(boundary.leading)?;
+            self.format_expression_with_leading_comments(
+                right,
+                boundary.right_head(),
+                context.with_content_mode(boundary.mode),
+                writer,
+            )
+        };
+        if matches!(rhs_layout, RhsLayout::NeverBreakAfterOperator) {
+            writer.group(false, |writer| {
+                rhs_layout.write(writer, separator, write_right)
+            })
+        } else {
+            rhs_layout.write(writer, separator, write_right)
+        }
     }
 
     fn format_array_binding(

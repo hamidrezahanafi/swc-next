@@ -6,12 +6,14 @@ await /*note*/ using resource=createResource();
 ---------- Options ----------
 {"printWidth":1}
 ---------- Output ----------
-await /*note*/ using resource = createResource();
+await /*note*/ using resource =
+  createResource();
 
 ---------- Options ----------
 {"printWidth":20,"semi":false}
 ---------- Output ----------
-await /*note*/ using resource = createResource()
+await /*note*/ using resource =
+  createResource()
 
 ---------- Options ----------
 {"printWidth":80}

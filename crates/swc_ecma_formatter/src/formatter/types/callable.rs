@@ -900,12 +900,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         } => (left_mode, InitializerLayout::Bound { gap, right_mode }),
                         DefaultOwner::Formatted {
                             boundary,
-                            break_after,
+                            rhs_layout,
                         } => (
                             ContentMode::Formatted,
                             InitializerLayout::Formatted {
                                 boundary,
-                                break_after,
+                                rhs_layout,
                             },
                         ),
                     };

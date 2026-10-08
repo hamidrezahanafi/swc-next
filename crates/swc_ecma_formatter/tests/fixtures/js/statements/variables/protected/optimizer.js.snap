@@ -6,14 +6,16 @@ const result=/* #__PURE__ */ (()=>call())();
 ---------- Options ----------
 {"printWidth":1}
 ---------- Output ----------
-const result = /* #__PURE__ */ (() =>
-  call())();
+const result =
+  /* #__PURE__ */ (() =>
+    call())();
 
 ---------- Options ----------
 {"printWidth":20,"semi":false}
 ---------- Output ----------
-const result = /* #__PURE__ */ (() =>
-  call())()
+const result =
+  /* #__PURE__ */ (() =>
+    call())()
 
 ---------- Options ----------
 {"printWidth":80}

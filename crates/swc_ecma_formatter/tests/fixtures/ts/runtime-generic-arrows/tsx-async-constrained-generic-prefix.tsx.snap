@@ -11,38 +11,41 @@ const select = async <T extends { value: number }>(value: T): Promise<T> =>
 ---------- Options ----------
 {"printWidth":20}
 ---------- Output ----------
-const select = async <
-  T extends
-    {
-      value: number;
-    },
->(
-  value: T,
-): Promise<T> =>
-  value;
+const select =
+  async <
+    T extends
+      {
+        value: number;
+      },
+  >(
+    value: T,
+  ): Promise<T> =>
+    value;
 
 ---------- Options ----------
 {"arrowParens":"avoid","printWidth":20,"semi":false,"trailingComma":"none"}
 ---------- Output ----------
-const select = async <
-  T extends
-    {
-      value: number
-    }
->(
-  value: T
-): Promise<T> =>
-  value
+const select =
+  async <
+    T extends
+      {
+        value: number
+      }
+  >(
+    value: T
+  ): Promise<T> =>
+    value
 
 ---------- Options ----------
 {"endOfLine":"crlf","printWidth":20}
 ---------- Output ----------
-const select = async <
-  T extends
-    {
-      value: number;
-    },
->(
-  value: T,
-): Promise<T> =>
-  value;
+const select =
+  async <
+    T extends
+      {
+        value: number;
+      },
+  >(
+    value: T,
+  ): Promise<T> =>
+    value;

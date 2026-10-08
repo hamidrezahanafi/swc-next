@@ -22,11 +22,42 @@ pub(in crate::formatter) enum AssignmentParent {
 }
 
 #[derive(Clone, Copy)]
-enum AssignmentLayout {
+pub(in crate::formatter) enum RhsLayout {
     Fluid,
     BreakAfterOperator,
-    OperatorLine,
     NeverBreakAfterOperator,
+}
+
+impl RhsLayout {
+    pub(in crate::formatter) fn write<'ast, T>(
+        self,
+        writer: &mut Writer<'ast>,
+        separator: impl FnOnce(&mut Writer<'ast>),
+        right: impl FnOnce(&mut Writer<'ast>) -> T,
+    ) -> T {
+        match self {
+            Self::Fluid => {
+                let group = writer.named_group(false, |writer| writer.indent(separator));
+                writer.indent_if_break(group, right)
+            }
+            Self::BreakAfterOperator => writer.group(false, |writer| {
+                writer.indent(|writer| {
+                    separator(writer);
+                    right(writer)
+                })
+            }),
+            Self::NeverBreakAfterOperator => {
+                separator(writer);
+                right(writer)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AssignmentLayout {
+    Ordinary(RhsLayout),
+    OperatorLine,
     Chain,
     ChainTail,
 }
@@ -213,31 +244,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .write(writer, FlatSeparator::Space, |writer| {
                         if boundary.own_line {
                             writer.hard_line();
+                        } else if matches!(
+                            layout,
+                            AssignmentLayout::Ordinary(RhsLayout::NeverBreakAfterOperator)
+                        ) {
+                            writer.space();
                         } else {
                             writer.line();
                         }
                     });
             };
             match layout {
-                AssignmentLayout::Fluid => {
-                    let group = writer.named_group(false, |writer| writer.indent(separator));
-                    writer.indent_if_break(group, write_right)
+                AssignmentLayout::Ordinary(rhs_layout) => {
+                    rhs_layout.write(writer, separator, write_right)
                 }
-                AssignmentLayout::BreakAfterOperator => writer.group(false, |writer| {
-                    writer.indent(|writer| {
-                        separator(writer);
-                        write_right(writer)
-                    })
-                }),
                 AssignmentLayout::OperatorLine | AssignmentLayout::ChainTail => {
                     writer.indent(|writer| {
                         separator(writer);
                         write_right(writer)
                     })
-                }
-                AssignmentLayout::NeverBreakAfterOperator => {
-                    writer.space();
-                    write_right(writer)
                 }
                 AssignmentLayout::Chain => {
                     separator(writer);
@@ -498,16 +523,27 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             return AssignmentLayout::OperatorLine;
         }
-        if boundary.own_line || self.assignment_right_breaks_after_operator(data) {
-            return AssignmentLayout::BreakAfterOperator;
+        AssignmentLayout::Ordinary(self.ordinary_rhs_layout(data, boundary))
+    }
+
+    pub(in crate::formatter) fn ordinary_rhs_layout(
+        &self,
+        data: ExprData,
+        boundary: &AssignmentBoundary<'ast>,
+    ) -> RhsLayout {
+        if boundary.own_line
+            || !boundary.operator_line.is_empty()
+            || self.assignment_right_breaks_after_operator(data)
+        {
+            return RhsLayout::BreakAfterOperator;
         }
         if matches!(
             data,
             ExprData::BooleanLiteral(_) | ExprData::NumericLiteral(_)
         ) {
-            return AssignmentLayout::NeverBreakAfterOperator;
+            return RhsLayout::NeverBreakAfterOperator;
         }
-        AssignmentLayout::Fluid
+        RhsLayout::Fluid
     }
 
     pub(in crate::formatter) fn assignment_right_breaks_after_operator(

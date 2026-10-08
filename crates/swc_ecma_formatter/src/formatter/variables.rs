@@ -2,7 +2,10 @@
 
 use std::ops::ControlFlow;
 
-use swc_next_ecma_ast::{GetSpan, Span, VariableDeclaration, VariableDeclarator, VariableKind};
+use swc_next_ecma_ast::{
+    BindingPatternData, ExprData, GetSpan, Span, VariableDeclaration, VariableDeclarator,
+    VariableKind,
+};
 
 use super::Formatter;
 use super::bindings::{InitializerLayout, InitializerLeft, PreparedInitializer};
@@ -10,6 +13,7 @@ use super::comments::ExpressionTail;
 use super::diagnostics::FlatSeparator;
 use super::expressions::ExpressionContext;
 use super::expressions::arguments::{ArgumentLayout, FollowingItem, Separator};
+use super::expressions::assignment::RhsLayout;
 use super::statements::DeclarationKeyword;
 use super::suppression::{ContentMode, SuppressionPosition};
 use crate::{FormatError, document::Writer};
@@ -222,16 +226,32 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
             }
         }
-        let break_after = boundary.own_line
-            || !boundary.operator_line.is_empty()
-            || self.assignment_right_breaks_after_operator(content.data);
+        let mut rhs_layout = self.ordinary_rhs_layout(content.data, &boundary);
+        let fixed_left_policy = matches!(rhs_layout, RhsLayout::Fluid)
+            && boundary.mode == ContentMode::Formatted
+            && matches!(
+                content.data,
+                ExprData::TemplateLiteral(_)
+                    | ExprData::TaggedTemplateExpression(_)
+                    | ExprData::Class(_)
+            );
+        if fixed_left_policy
+            && left_mode == ContentMode::Formatted
+            && matches!(
+                ast.binding_pattern_data(left),
+                BindingPatternData::BindingIdentifier(_)
+            )
+            && !matches!(content.data, ExprData::Class(class) if !class.decorators(ast).is_empty())
+        {
+            rhs_layout = RhsLayout::NeverBreakAfterOperator;
+        }
         self.format_initializer(
             PreparedInitializer {
                 left: InitializerLeft::Binding(left),
                 right,
                 layout: InitializerLayout::Formatted {
                     boundary,
-                    break_after,
+                    rhs_layout,
                 },
                 left_mode,
                 context: if context == VariableContext::ForInitializer {
