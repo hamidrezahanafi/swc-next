@@ -19,3 +19,8 @@ subsequent calls are idempotent.
 Parser options use strings, for example
 `{ lang: "ts", sourceType: "module", comments: "flat" }`.
 `Lang`, `SourceType`, and `CommentMode` are available only as TypeScript types.
+
+`walk`, `visitorKeys`, and `transformSync` use the same API and semantics as
+[`@swc-next/core`](../core/README.md). Call `init()` before `transformSync`.
+Use `@swc-next/core-browser/ast` for standalone traversal without initializing
+WASM. The shared AST helpers are included when assembling the browser package.
