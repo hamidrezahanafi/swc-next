@@ -275,6 +275,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return Ok(JsxOpeningLayout::default());
         }
         let closing_gap = writer.indent(|writer| {
+            let mut after_attribute = false;
             for (attribute, data, string_has_lf) in
                 first_attribute.into_iter().chain(attribute_nodes)
             {
@@ -289,7 +290,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     self.line_constraint(end, first).write(
                         writer,
                         FlatSeparator::Space,
-                        Writer::line,
+                        |writer| {
+                            if after_attribute && self.next_line_is_empty(end, first) {
+                                writer.hard_line();
+                                writer.hard_line();
+                            } else {
+                                writer.line();
+                            }
+                        },
                     );
                 }
                 if string_has_lf == Some(true) {
@@ -320,6 +328,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     }
                 }
                 end = span.end;
+                after_attribute = true;
             }
             let comments = self.comments.between(Span::new(end, closing))?;
             let boundary = self.prepare_comment_boundary(comments, end, closing);

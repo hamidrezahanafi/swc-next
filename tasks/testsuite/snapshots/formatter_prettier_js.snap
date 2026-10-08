@@ -3,12 +3,12 @@ formatter * prettier 3.9.9 * js
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 794
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 708/1070 (66.17%)
-Snapshot matched: 708/1070
+Passed: 713/1070 (66.64%)
+Snapshot matched: 713/1070
 AST parity: 1069/1069
 AST mismatched: 0/1069
 AST format errors: 0/1070
-Mismatched: 361/1070
+Mismatched: 356/1070
 Format errors: 0/1070
 Panicked: 0/1070
 Not idempotent: 0/1070
@@ -255,7 +255,6 @@ Unsupported option sets: 19
 - js/try/catch.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/try/try.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/unicode/nbsp-jsx.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/attribute-blank-lines/attribute-blank-lines.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - jsx/comments/eslint-disable.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - jsx/comments/in-attributes.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - jsx/comments/in-end-tag.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -273,7 +272,6 @@ Unsupported option sets: 19
 - jsx/jsx/logical-expression.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - jsx/jsx/open-break.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - jsx/jsx/parens.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/quotes.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - jsx/jsx/regex.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - jsx/jsx/return-statement.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - jsx/jsx/template-literal-in-attr.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
