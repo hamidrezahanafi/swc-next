@@ -56,7 +56,7 @@ impl JsxChildrenLayout {
 enum JsxSeparator {
     Words,
     Space,
-    Newline,
+    Newline { empty_line: bool },
 }
 
 #[derive(Clone, Copy)]
@@ -73,6 +73,7 @@ struct JsxChildrenStream {
     pending: Option<JsxSeparator>,
     contains_text: bool,
     seen_expression: bool,
+    has_empty_line: bool,
 }
 
 impl JsxChildrenStream {
@@ -95,7 +96,13 @@ impl JsxChildrenStream {
         writer.fill_entry(|writer| match pending {
             Some(JsxSeparator::Words) => writer.line(),
             Some(JsxSeparator::Space) => self.write_space(writer),
-            Some(JsxSeparator::Newline) => writer.hard_line(),
+            Some(JsxSeparator::Newline { empty_line }) => {
+                writer.hard_line();
+                if empty_line {
+                    writer.hard_line();
+                    self.has_empty_line = true;
+                }
+            }
             None => match (previous, next) {
                 (JsxContentEdge::Literal, _) | (_, JsxContentEdge::Literal) => {}
                 (JsxContentEdge::NonText { .. }, JsxContentEdge::NonText { .. }) => {
@@ -171,7 +178,7 @@ struct JsxTextChunks<'ast> {
 
 enum JsxTextChunk<'ast> {
     Word(&'ast str),
-    Whitespace { has_newline: bool },
+    Whitespace { line_breaks: u8, has_lf: bool },
 }
 
 impl<'ast> Iterator for JsxTextChunks<'ast> {
@@ -181,19 +188,28 @@ impl<'ast> Iterator for JsxTextChunks<'ast> {
         let first = *self.remaining.as_bytes().first()?;
         let whitespace = is_jsx_whitespace(first);
         let mut end = 0;
-        let mut has_newline = false;
+        let mut line_breaks = 0_u8;
+        let mut has_lf = false;
+        let mut previous_cr = false;
         for byte in self.remaining.bytes() {
             if is_jsx_whitespace(byte) != whitespace {
                 break;
             }
             end += 1;
-            has_newline |= matches!(byte, b'\r' | b'\n');
+            if byte == b'\r' || byte == b'\n' && !previous_cr {
+                line_breaks = (line_breaks + 1).min(2);
+            }
+            has_lf |= byte == b'\n';
+            previous_cr = byte == b'\r';
         }
         // A boundary is an ASCII formatting character, so it cannot split UTF-8.
         let (chunk, remaining) = self.remaining.split_at(end);
         self.remaining = remaining;
         Some(if whitespace {
-            JsxTextChunk::Whitespace { has_newline }
+            JsxTextChunk::Whitespace {
+                line_breaks,
+                has_lf,
+            }
         } else {
             JsxTextChunk::Word(chunk)
         })
@@ -221,7 +237,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut stream = JsxChildrenStream::default();
         stream.layout.single_quote = self.options.quote_style == QuoteStyle::Single;
         let mut previous_ignore = false;
-        writer.fill(|writer| {
+        writer.fill_with_empty_line_policy(|writer| {
             for id in children.iter() {
                 let child = ast.get_node_in_sub_range(id);
                 let data = ast.jsx_child_data(child);
@@ -266,12 +282,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                                 stream.after(edge);
                                 stream.contains_text = true;
                             }
-                            JsxTextChunk::Whitespace { has_newline } => {
+                            JsxTextChunk::Whitespace {
+                                line_breaks,
+                                has_lf,
+                            } => {
+                                stream.contains_text |= !has_lf;
                                 let separator = if first || chunks.remaining.is_empty() {
-                                    if !has_newline {
+                                    if line_breaks == 0 {
                                         JsxSeparator::Space
                                     } else {
-                                        JsxSeparator::Newline
+                                        JsxSeparator::Newline {
+                                            empty_line: line_breaks == 2,
+                                        }
                                     }
                                 } else {
                                     JsxSeparator::Words
@@ -358,7 +380,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 previous_ignore = next_ignore;
                 stream.after(edge);
             }
-            Ok(stream.finish())
+            let collapse_empty_lines = stream.has_empty_line && stream.contains_text;
+            Ok((stream.finish(), collapse_empty_lines))
         })
     }
 

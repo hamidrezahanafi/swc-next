@@ -230,6 +230,39 @@ impl<'a> Writer<'a> {
         result
     }
 
+    /// The completed syntax scope decides whether its empty separator lines collapse.
+    pub(crate) fn fill_with_empty_line_policy<T, E>(
+        &mut self,
+        write: impl FnOnce(&mut Self) -> Result<(T, bool), E>,
+    ) -> Result<T, E> {
+        let start = self.elements.len();
+        self.elements.push(FormatElement::StartFill);
+        let result = write(self);
+        if matches!(result.as_ref(), Ok((_, true))) {
+            let mut index = start + 1;
+            let mut separator = false;
+            while index < self.elements.len() {
+                let FormatElement::StartEntry { end_offset } = self.elements[index] else {
+                    unreachable!("fill cleanup visits complete owned entries");
+                };
+                let end = index + end_offset;
+                if separator
+                    && matches!(
+                        self.elements[index + 1..end],
+                        [FormatElement::HardLine, FormatElement::HardLine]
+                    )
+                {
+                    // Keep entry distances and the required parent break stable.
+                    self.elements[end - 1] = FormatElement::BreakParent;
+                }
+                separator = !separator;
+                index = end + 1;
+            }
+        }
+        self.elements.push(FormatElement::EndFill);
+        result.map(|(value, _)| value)
+    }
+
     /// Fill entries alternate between content and its following separator.
     pub(crate) fn fill_entry<T>(&mut self, write: impl FnOnce(&mut Self) -> T) -> T {
         let start = self.elements.len();

@@ -18,3 +18,33 @@ const a10=<Box>{(" ")}</Box>;
 const a11=<Box>{( ("\x20") )}</Box>;
 const a12=<Box>{(/* value */ " ")}</Box>;
 const a13=<Box>{("  ")}{("")}{("x")}</Box>;
+
+const a14=<Box>
+ <A/>
+
+
+
+ <B/>
+</Box>;
+const a15=<Box>
+ <A/>
+
+ <B/>
+
+ tail
+</Box>;
+const a16=<Box>
+ <A/>
+
+  
+ <B/>
+</Box>;
+const a17=<Box>{/* prettier-ignore */}
+ <A   odd = {value+  other}/>
+
+ <B/>
+</Box>;
+const a18=<Box><A/>
+ <B/>
+
+ <C/></Box>;
