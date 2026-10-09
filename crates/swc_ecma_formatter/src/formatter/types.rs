@@ -32,7 +32,10 @@ use super::literals::StringContext;
 use super::statements::DeclarationKeyword;
 use super::suppression::{ContentMode, SuppressionPosition, is_suppression_comment};
 use super::variables::VariableContext;
-use crate::{FormatError, document::Writer};
+use crate::{
+    FormatError,
+    document::{Fragment, Writer},
+};
 
 pub(super) enum TypeGap<'ast> {
     Source(Span),
@@ -266,6 +269,80 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer,
             );
         }
+        let single_compound = match node.data {
+            TsTypeData::TsUnionType(union) => union.types(self.ast).len() == 1,
+            TsTypeData::TsIntersectionType(intersection) => intersection.types(self.ast).len() == 1,
+            _ => false,
+        };
+        if single_compound && node.source_owner.is_none() {
+            let single = self.prepare_single_compound(node)?;
+            if single.movable() {
+                self.format_comment_boundary(before, writer)?;
+                before
+                    .gap()
+                    .write(writer, FlatSeparator::Space, Writer::space);
+                writer.text("=");
+                let (head, content) = writer.record_with_value(|writer| {
+                    self.format_comment_boundary_with_layout(
+                        after,
+                        CommentRunLayout::Leading(single.start()),
+                        writer,
+                    )?;
+                    self.format_single_compound_head(single, writer)
+                })?;
+                return self.format_type_alias_head(head, content, writer);
+            }
+            if matches!(node.data, TsTypeData::TsUnionType(_)) {
+                self.format_comment_boundary(before, writer)?;
+                before
+                    .gap()
+                    .write(writer, FlatSeparator::Space, Writer::space);
+                writer.text("=");
+                return writer.group(false, |writer| {
+                    writer.indent(|writer| {
+                        self.format_comment_boundary(after, writer)?;
+                        after
+                            .gap()
+                            .write(writer, FlatSeparator::Space, Writer::line);
+                        self.format_single_type_content(
+                            compound::SingleTypeContent::Compound(single),
+                            TypeContext::Root,
+                            TypeLayout::AliasRhs,
+                            writer,
+                        )
+                    })
+                });
+            }
+            self.format_type_boundary(boundary, writer)?;
+            return self.format_single_type_content(
+                compound::SingleTypeContent::Compound(single),
+                TypeContext::Root,
+                TypeLayout::Root,
+                writer,
+            );
+        }
+        if node.source_owner.is_none()
+            && !after.is_empty()
+            && matches!(
+                self.comment_boundary_binding(after, node.node.span(self.ast)),
+                super::comments::CommentBinding::Unbound
+            )
+        {
+            self.format_comment_boundary(before, writer)?;
+            before
+                .gap()
+                .write(writer, FlatSeparator::Space, Writer::space);
+            writer.text("=");
+            let (head, content) = writer.record_with_value(|writer| {
+                self.format_comment_boundary_with_layout(
+                    after,
+                    CommentRunLayout::GroupedLeading(node.node.span(self.ast).start),
+                    writer,
+                )?;
+                Ok::<_, FormatError>(compound::SingleTypeContent::Type(node))
+            })?;
+            return self.format_type_alias_head(head, content, writer);
+        }
         if !matches!(node.data, TsTypeData::TsUnionType(_)) {
             self.format_type_boundary(boundary, writer)?;
             return self.format_prepared_type(node, TypeContext::Root, writer);
@@ -289,6 +366,29 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 )
             })
         })
+    }
+
+    fn format_type_alias_head(
+        &mut self,
+        head: Fragment<'ast>,
+        content: compound::SingleTypeContent<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let layout = content.alias_layout();
+        let expand = head.preferred_breaks();
+        if expand || layout == TypeLayout::AliasRhs {
+            writer.group(expand, |writer| {
+                writer.indent(|writer| {
+                    writer.line();
+                    writer.write_fragment(head);
+                    self.format_single_type_content(content, TypeContext::Root, layout, writer)
+                })
+            })
+        } else {
+            writer.space();
+            writer.group(false, |writer| writer.write_fragment(head));
+            self.format_single_type_content(content, TypeContext::Root, layout, writer)
+        }
     }
 
     pub(super) fn prepare_module_reference_boundary(
@@ -570,12 +670,49 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let parentheses = self.prepare_type_parentheses(parentheses, node.source_owner);
             return self.format_prepared_type_parentheses(parentheses, context, layout, writer);
         }
-        if context.needs_parentheses(node.data, self.ast) {
+        if node.source_owner.is_none() {
+            let single = match node.data {
+                TsTypeData::TsUnionType(union) => {
+                    let types = union.types(self.ast);
+                    (types.len() == 1).then_some((types, compound::CompoundTypeKind::Union))
+                }
+                TsTypeData::TsIntersectionType(intersection) => {
+                    let types = intersection.types(self.ast);
+                    (types.len() == 1).then_some((types, compound::CompoundTypeKind::Intersection))
+                }
+                _ => None,
+            };
+            if let Some((types, kind)) = single {
+                return self.format_compound_type(node, types, kind, context, layout, writer);
+            }
+        }
+        self.format_type_in_context(
+            node.data,
+            context,
+            layout,
+            writer,
+            |formatter, layout, writer| formatter.format_type_data(node, layout, writer),
+        )
+    }
+
+    fn format_type_in_context(
+        &mut self,
+        data: TsTypeData,
+        context: TypeContext,
+        layout: TypeLayout,
+        writer: &mut Writer<'ast>,
+        print: impl FnOnce(
+            &mut Self,
+            TypeLayout,
+            &mut Writer<'ast>,
+        ) -> Result<Option<ExpressionTail<'ast>>, FormatError>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        if context.needs_parentheses(data, self.ast) {
             return writer.group(false, |writer| {
                 writer.text("(");
                 writer.indent(|writer| {
                     writer.soft_line();
-                    let tail = self.format_type_data(node, TypeLayout::Root, writer)?;
+                    let tail = print(self, TypeLayout::Root, writer)?;
                     self.format_expression_tail(tail, writer)
                 })?;
                 writer.soft_line();
@@ -583,7 +720,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Ok(None)
             });
         }
-        self.format_type_data(node, layout, writer)
+        print(self, layout, writer)
     }
 
     fn format_type_data(
@@ -680,6 +817,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 node,
                 union.types(self.ast),
                 compound::CompoundTypeKind::Union,
+                TypeContext::Root,
                 layout,
                 writer,
             ),
@@ -687,6 +825,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 node,
                 intersection.types(self.ast),
                 compound::CompoundTypeKind::Intersection,
+                TypeContext::Root,
                 layout,
                 writer,
             ),
@@ -791,6 +930,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         node: TsParenthesizedType,
         source_owner: Option<TsType>,
     ) -> PreparedTypeParentheses {
+        let (parentheses, _, _) = self.prepare_type_parentheses_with_comments(node, source_owner);
+        parentheses
+    }
+
+    fn prepare_type_parentheses_with_comments(
+        &self,
+        node: TsParenthesizedType,
+        source_owner: Option<TsType>,
+    ) -> (PreparedTypeParentheses, &'ast [Comment], &'ast [Comment]) {
         let ast = self.ast;
         let span = node.span(ast);
         let child = node.type_annotation(ast);
@@ -811,12 +959,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 child_type.source_owner = Some(child);
             }
         }
-        PreparedTypeParentheses {
-            span,
-            child_span,
-            child: child_type,
-            retained,
-        }
+        (
+            PreparedTypeParentheses {
+                span,
+                child_span,
+                child: child_type,
+                retained,
+            },
+            before,
+            after,
+        )
     }
 
     fn format_prepared_type_parentheses(
