@@ -28,25 +28,38 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let span = node.span(ast);
         let content = Span::new(span.start + 1, span.end - 1);
         let elements = node.element_types(ast);
-        if elements.is_empty() {
+        let empty_dangling = if elements.is_empty() {
             let comments = self.comments.in_range(content);
-            if self.content_mode(comments) == ContentMode::Verbatim {
-                self.format_verbatim(span, writer)?;
-                return Ok(None);
-            }
             if comments.is_empty() {
                 writer.text("[]");
                 return Ok(None);
             }
-        }
+            if self.content_mode(comments) == ContentMode::Verbatim {
+                self.format_verbatim(span, writer)?;
+                return Ok(None);
+            }
+            let layout = if self
+                .comment_binding(comments, content, None)
+                .allows_relocation(None)
+            {
+                CommentRunLayout::CanonicalDangling
+            } else {
+                CommentRunLayout::Lines
+            };
+            Some((comments, layout))
+        } else {
+            None
+        };
         writer.group(false, |writer| {
             writer.text("[");
             let end = writer.indent(|writer| {
-                self.opening_line_constraint(content).write(
-                    writer,
-                    FlatSeparator::Empty,
-                    Writer::soft_line,
-                );
+                if empty_dangling.is_some() {
+                    self.opening_line_constraint(content).write(
+                        writer,
+                        FlatSeparator::Empty,
+                        Writer::soft_line,
+                    );
+                }
                 let mut elements = elements
                     .iter()
                     .map(|id| ast.get_node_in_sub_range(id))
@@ -67,17 +80,31 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     {
                         self.select_delimited_type_head(node, leading, element_span.start, following_mode.is_none());
                     }
+                    let selected_child = matches!(&element_content,
+                        PreparedTupleElement::Type(node) if node.source_owner.is_some_and(|owner| owner != node.node));
+                    let leading_mode = if selected_child { ContentMode::Formatted } else { mode };
                     if following_mode.is_some() {
                         let next_start = self
                             .comments
                             .between(Span::new(end, element_span.start))?
                             .first()
                             .map_or(element_span.start, |comment| comment.span.start);
-                        ArgumentLayout::Lines.separator(
-                            separator,
-                            self.line_constraint(end, next_start),
-                            writer,
-                        );
+                        let constraint = if leading_mode == ContentMode::Verbatim {
+                            self.source_line_constraint(end, next_start)
+                        } else {
+                            self.line_constraint(end, next_start)
+                        };
+                        ArgumentLayout::Lines.separator(separator, constraint, writer);
+                    } else {
+                        // A whole Source target retains its leading placement so a break
+                        // cannot change an Inline ignore into an OwnLine type-head ignore.
+                        let opening = if leading_mode == ContentMode::Verbatim {
+                            let start = leading.first().map_or(element_span.start, |comment| comment.span.start);
+                            self.source_line_constraint(content.start, start)
+                        } else {
+                            self.opening_line_constraint(content)
+                        };
+                        opening.write(writer, FlatSeparator::Empty, Writer::soft_line);
                     }
                     let following = elements.peek().map_or(FollowingItem::End, |next| {
                         FollowingItem::Node(next.span(ast))
@@ -89,9 +116,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         self.options.trailing_commas != TrailingCommas::None,
                         writer,
                     )?;
-                    let selected_child = matches!(&element_content,
-                        PreparedTupleElement::Type(node) if node.source_owner.is_some_and(|owner| owner != node.node));
-                    item.set_leading_mode(if selected_child { ContentMode::Formatted } else { mode });
+                    item.set_leading_mode(leading_mode);
                     let tail = self.format_tuple_element(element_content, item.mode, TypeContext::Root, writer)?;
                     let boundary = self.finish_delimited_item(item, tail, writer)?;
                     end = boundary.end;
@@ -99,8 +124,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     separator = boundary.separator;
                     following_mode = Some(boundary.following_mode);
                 }
-                let dangling = self.comments.between(Span::new(end, content.end))?;
-                let dangling = self.comments.take(dangling.len());
+                let (dangling, layout) = if let Some((comments, layout)) = empty_dangling {
+                    self.comments.claim(comments)?;
+                    (comments, layout)
+                } else {
+                    let comments = self.comments.between(Span::new(end, content.end))?;
+                    (self.comments.take(comments.len()), CommentRunLayout::Lines)
+                };
                 if dangling
                     .iter()
                     .any(|comment| comment.kind == CommentKind::Line)
@@ -112,7 +142,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 {
                     self.comment_gap(end, first.span.start, writer);
                 }
-                self.format_comment_run(dangling, CommentRunLayout::Lines, writer)?;
+                self.format_comment_run(dangling, layout, writer)?;
                 Ok::<_, FormatError>(dangling.last().map_or(end, |comment| comment.span.end))
             })?;
             self.line_constraint(end, content.end).write(

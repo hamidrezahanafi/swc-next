@@ -15,6 +15,8 @@ pub(super) enum CommentRunLayout {
     GroupedLeading(u32),
     FlatLeading(u32),
     Lines,
+    /// One hard line joins an ordinary dangling packet regardless of source gaps.
+    CanonicalDangling,
 }
 
 /// A claimed leading run and the source gap owned by its node.
@@ -952,6 +954,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                                 CommentKind::Line => writer.hard_line(),
                                 CommentKind::Block => writer.space(),
                             }),
+                        CommentRunLayout::CanonicalDangling => writer.hard_line(),
                         CommentRunLayout::Lines => {
                             writer.hard_line();
                             if self.line_breaks(previous.span.end, prepared.span.start) == 2 {
