@@ -22,3 +22,6 @@ const logical_spread=<Box {...(value && props && children && props)}>{...(value 
 const logical_comments=<Box data={/* head logical */ (value && props && children) /* tail logical */}/>;
 const logical_ignored=<Box data={/* prettier-ignore */ value  &&  props && children}/>;
 const logical_active=<Box data={value && /* @__PURE__ */ Object.assign({}, props, {marker: "logical active"})}/>;
+
+const jsx_arrow_owners=<Box data={value => <Box>{value}</Box>} mapped={items.map(value => <Box>{value}</Box>)}>{value => next => <Box>{value + next}</Box>}{value => "firstVeryLongValuefirstVeryLongValue" + value + "secondVeryLongValuesecondVeryLongValue"}</Box>;
+const jsx_arrow_source=<Box data={/* prettier-ignore */ value => ( <Box  data = { value }>x y</Box> )}>{/* head arrow */ value => <Box data={value}>{value}</Box> /* tail arrow */}</Box>;

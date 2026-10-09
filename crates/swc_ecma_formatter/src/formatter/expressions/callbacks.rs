@@ -11,7 +11,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::arguments::{ArgumentGroup, ArgumentHead};
 use super::arrays::{ArrayArgumentArity, RecordedArray, RecordedArrayArgument};
-use super::arrows::RecordedArrow;
+use super::arrows::{PreparedArrowBody, RecordedArrow};
 use super::objects::RecordedObject;
 use super::{ExpressionContext, ExpressionLayout, ExpressionPosition, Formatter};
 use crate::formatter::comments::ExpressionTail;
@@ -46,6 +46,7 @@ pub(super) struct SelectedCallback {
     argument: Argument,
     callback: Callback,
     role: CallbackRole,
+    prepared_body: Option<PreparedArrowBody>,
 }
 
 pub(super) struct SelectedObject {
@@ -204,6 +205,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             argument,
             callback,
             role: CallbackRole::Test,
+            prepared_body: None,
         })
     }
 
@@ -286,6 +288,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 argument: first,
                 callback,
                 role: CallbackRole::First,
+                prepared_body: None,
             }));
         }
         let mut items = arguments.iter().map(|id| ast.get_node_in_sub_range(id));
@@ -360,32 +363,39 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             return None;
         }
-        self.callback_can_expand(callback)
-            .then_some(SelectedArgument::Callback(SelectedCallback {
-                argument,
-                callback,
-                role: CallbackRole::Last,
-            }))
+        let prepared_body = match callback.kind {
+            CallbackKind::Function(_) => None,
+            CallbackKind::Arrow(arrow) => Some(self.callback_can_expand(arrow)?),
+        };
+        Some(SelectedArgument::Callback(SelectedCallback {
+            argument,
+            callback,
+            role: CallbackRole::Last,
+            prepared_body,
+        }))
     }
 
-    fn callback_can_expand(&self, callback: Callback) -> bool {
-        let CallbackKind::Arrow(mut arrow) = callback.kind else {
-            return true;
-        };
-        let mut nested = false;
+    fn callback_can_expand(&self, arrow: ArrowFunctionExpression) -> Option<PreparedArrowBody> {
+        let root = self.prepare_arrow_body(arrow.body(self.ast));
+        let mut child = None;
         loop {
-            let expression = match self.ast.arrow_function_body_data(arrow.body(self.ast)) {
-                ArrowFunctionBodyData::FunctionBody(_) => return true,
-                ArrowFunctionBodyData::Expr(expression) => expression,
+            let body = child.as_ref().unwrap_or(&root);
+            let content = match body {
+                PreparedArrowBody::FunctionBody(_) => return Some(root),
+                PreparedArrowBody::Expression { content, .. } => content,
             };
-            match self.expression_content(expression).data {
-                ExprData::ObjectExpression(_) | ExprData::ArrayExpression(_) => return true,
-                ExprData::ArrowFunctionExpression(child) => {
-                    arrow = child;
-                    nested = true;
+            match content.data {
+                ExprData::ObjectExpression(_)
+                | ExprData::ArrayExpression(_)
+                | ExprData::JsxElement(_)
+                | ExprData::JsxFragment(_) => return Some(root),
+                ExprData::ArrowFunctionExpression(arrow) => {
+                    child = Some(self.prepare_arrow_body(arrow.body(self.ast)));
                 }
-                ExprData::ConditionalExpression(_) | ExprData::CallExpression(_) => return !nested,
-                _ => return false,
+                ExprData::ConditionalExpression(_) | ExprData::CallExpression(_) => {
+                    return child.is_none().then_some(root);
+                }
+                _ => return None,
             }
         }
     }
@@ -545,7 +555,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     fn record_callback(
         &mut self,
-        selected: &SelectedCallback,
+        selected: &mut SelectedCallback,
         sole_argument: bool,
         writer: &mut Writer<'ast>,
     ) -> Result<(RecordedValue<'ast>, Option<ExpressionTail<'ast>>), FormatError> {
@@ -556,7 +566,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let source = self.source_arrow(arrow)?;
                 let context = ExpressionContext::at(ExpressionPosition::Nested)
                     .with_arrow_layout(super::arrows::ArrowLayout::Argument);
-                let recorded = match self.record_arrow(source, context, writer)? {
+                let recorded = match self.record_arrow(
+                    source,
+                    selected.prepared_body.take(),
+                    context,
+                    writer,
+                )? {
                     RecordedArrow::Verbatim(value) => {
                         let (value, ()) = writer.record_with_value(|writer| {
                             layout.write(writer, |writer| writer.write_fragment(value));
@@ -635,7 +650,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         arguments: SubRange<Argument>,
         content: Span,
         head: ArgumentHead,
-        selected: SelectedArgument,
+        mut selected: SelectedArgument,
         mut missing_function: Option<&mut bool>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
@@ -687,7 +702,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             if previous.is_none() && head.first_mode == ContentMode::Verbatim {
                 item.set_leading_mode(head.first_mode);
             }
-            let (value, tail) = match &selected {
+            let (value, tail) = match &mut selected {
                 SelectedArgument::Callback(selected)
                     if argument == selected.argument
                         && item.mode == ContentMode::Formatted

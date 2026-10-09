@@ -3,12 +3,12 @@ formatter * prettier 3.9.9 * typescript
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 657
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 540/804 (67.16%)
-Snapshot matched: 540/804
+Passed: 554/804 (68.91%)
+Snapshot matched: 554/804
 AST parity: 804/804
 AST mismatched: 0/804
 AST format errors: 0/804
-Mismatched: 264/804
+Mismatched: 250/804
 Format errors: 0/804
 Panicked: 0/804
 Not idempotent: 0/804
@@ -23,15 +23,12 @@ Unsupported option sets: 7
 
 # Failed
 
-- jsx/comments/eslint-disable.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - jsx/comments/in-attributes.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - jsx/comments/in-end-tag.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - jsx/comments/in-tags.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/expression-with-types/expression.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - jsx/fragment/fragment.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - jsx/ignore/spread.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - jsx/jsx/array-iter.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/arrow.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - jsx/jsx/await.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - jsx/jsx/conditional-expression.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - jsx/jsx/expression.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
@@ -41,10 +38,8 @@ Unsupported option sets: 7
 - jsx/jsx/open-break.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - jsx/jsx/parens.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - jsx/jsx/regex.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
-- jsx/jsx/return-statement.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - jsx/jsx/template-literal-in-attr.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - jsx/optional-chaining/optional-chaining.jsx: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- jsx/single-attribute-per-line/single-attribute-per-line.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - jsx/spread/attribute.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - jsx/spread/child.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - jsx/stateless-arrow-fn/test.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent

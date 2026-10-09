@@ -347,6 +347,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         expression: Expr,
         context: ExpressionContext,
+        array_comments: Option<&mut ArrayCommentOwner<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_expression_prepared_with_array_comments(
+            expression,
+            None,
+            context,
+            array_comments,
+            writer,
+        )
+    }
+
+    fn format_expression_prepared_with_array_comments(
+        &mut self,
+        expression: Expr,
+        prepared: Option<parentheses::ExpressionContent>,
+        context: ExpressionContext,
         mut array_comments: Option<&mut ArrayCommentOwner<'ast>>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
@@ -379,15 +396,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     ) == Some(false)
                 {
                     let context = context.with_content_mode(ContentMode::Verbatim);
-                    return match array_comments {
-                        Some(owner) => self.format_source_parentheses_with_array_comments(
-                            parenthesized,
-                            context,
-                            Some(owner),
-                            writer,
-                        ),
-                        None => self.format_source_parentheses(parenthesized, context, writer),
-                    };
+                    return self.format_source_parentheses_prepared(
+                        parenthesized,
+                        prepared,
+                        context,
+                        array_comments,
+                        writer,
+                    );
                 }
             }
             self.format_verbatim_expression(expression, context, writer)?;
@@ -397,14 +412,31 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return Ok(None);
         }
         let layout = self.expression_layout(expression);
-        let tail = layout.write(writer, |writer| {
-            self.format_expression_content(
+        let tail = layout.write(writer, |writer| match prepared {
+            Some(content) => match expression.as_parenthesized_expression(self.ast) {
+                Some(parenthesized) => self.format_source_parentheses_prepared(
+                    parenthesized,
+                    Some(content),
+                    context,
+                    array_comments.as_deref_mut(),
+                    writer,
+                ),
+                None => self.format_expression_content_data(
+                    content.expression,
+                    content.data,
+                    context,
+                    layout,
+                    array_comments.as_deref_mut(),
+                    writer,
+                ),
+            },
+            None => self.format_expression_content(
                 expression,
                 context,
                 layout,
                 array_comments.as_deref_mut(),
                 writer,
-            )
+            ),
         })?;
         if let Some(owner) = array_comments {
             // A pending tail is still owned by the enclosing source boundary.

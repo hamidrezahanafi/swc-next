@@ -1,13 +1,13 @@
 //! Expression arrows with parameter, arrow-token and body boundary ownership.
 
 use swc_next_ecma_ast::{
-    ArrowFunctionBody, ArrowFunctionBodyData, ArrowFunctionExpression, Comment, CommentKind,
-    ExprData, FormalParameterItemData, FormalParameterPatternData, FormalParameters, GetSpan, Span,
-    TsTypeAnnotation, TsTypeParameterDeclaration,
+    ArrowFunctionBody, ArrowFunctionBodyData, ArrowFunctionExpression, Comment, CommentKind, Expr,
+    ExprData, FormalParameterItemData, FormalParameterPatternData, FormalParameters, FunctionBody,
+    GetSpan, Span, TsTypeAnnotation, TsTypeParameterDeclaration,
 };
 
 use super::arguments::TrailingCommaPolicy;
-use super::parentheses::SourceParentheses;
+use super::parentheses::{ExpressionContent, SourceParentheses};
 use super::{ExpressionContext, ExpressionLayout, ExpressionPosition, Formatter, TailOwner};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
@@ -31,6 +31,7 @@ pub(super) enum ArrowLayout {
     Assignment(ArrowHeadGap),
     Callee,
     Argument,
+    JsxExpression,
 }
 
 /// A leading comment run owns the gap to the arrow's first signature.
@@ -144,8 +145,17 @@ struct ArrowBoundary<'ast> {
     before_count: usize,
 }
 
+pub(super) enum PreparedArrowBody {
+    FunctionBody(FunctionBody),
+    Expression {
+        expression: Expr,
+        content: ExpressionContent,
+    },
+}
+
 pub(super) struct SourceArrowBody<'a> {
-    body: ArrowFunctionBodyData,
+    body: PreparedArrowBody,
+    parent_layout: ArrowLayout,
     body_span: Span,
     operator: u32,
     leading: &'a [Comment],
@@ -331,9 +341,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }))
     }
 
+    pub(super) fn prepare_arrow_body(&self, body: ArrowFunctionBody) -> PreparedArrowBody {
+        match self.ast.arrow_function_body_data(body) {
+            ArrowFunctionBodyData::FunctionBody(body) => PreparedArrowBody::FunctionBody(body),
+            ArrowFunctionBodyData::Expr(expression) => PreparedArrowBody::Expression {
+                expression,
+                content: self.expression_content(expression),
+            },
+        }
+    }
+
     fn source_formatted_arrow(
         &self,
         head: FormattedArrowHead<'ast>,
+        prepared_body: Option<PreparedArrowBody>,
     ) -> Result<FormattedSourceArrow<'ast>, FormatError> {
         let FormattedArrowHead {
             arrow,
@@ -373,11 +394,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             None
         };
         let (before, leading) = comments.split_at(before_count);
-        let body = self.ast.arrow_function_body_data(body);
-        let (mode, first_statement, trailing_constraint) = match body {
-            ArrowFunctionBodyData::FunctionBody(body) if self.has_suppression => {
+        let body = prepared_body.unwrap_or_else(|| self.prepare_arrow_body(body));
+        let (mode, first_statement, trailing_constraint) = match &body {
+            PreparedArrowBody::FunctionBody(body) if self.has_suppression => {
                 let modes = self.signature_body_modes(
-                    body,
+                    *body,
                     leading,
                     body_span.start,
                     operator + 2,
@@ -387,31 +408,30 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 );
                 (modes.body, modes.first_statement, modes.constraint)
             }
-            ArrowFunctionBodyData::FunctionBody(_) => {
+            PreparedArrowBody::FunctionBody(_) => {
                 (ContentMode::Formatted, None, LineConstraint::Unconstrained)
             }
-            ArrowFunctionBodyData::Expr(_) => (
+            PreparedArrowBody::Expression { .. } => (
                 self.content_mode(leading),
                 None,
                 LineConstraint::Unconstrained,
             ),
         };
-        let (head_end, hugs_shape, leading_layout) = match body {
-            ArrowFunctionBodyData::Expr(expression) => {
-                let content = self.expression_content(expression);
-                (
-                    content.expression.span(self.ast).start,
-                    matches!(
-                        content.data,
-                        ExprData::ArrayExpression(_)
-                            | ExprData::ObjectExpression(_)
-                            | ExprData::SequenceExpression(_)
-                            | ExprData::ArrowFunctionExpression(_)
-                    ),
-                    CommentRunLayout::GroupedLeading(body_span.start),
-                )
-            }
-            ArrowFunctionBodyData::FunctionBody(_) => (
+        let (head_end, hugs_shape, leading_layout) = match &body {
+            PreparedArrowBody::Expression { content, .. } => (
+                content.expression.span(self.ast).start,
+                matches!(
+                    content.data,
+                    ExprData::ArrayExpression(_)
+                        | ExprData::ObjectExpression(_)
+                        | ExprData::SequenceExpression(_)
+                        | ExprData::ArrowFunctionExpression(_)
+                        | ExprData::JsxElement(_)
+                        | ExprData::JsxFragment(_)
+                ),
+                CommentRunLayout::GroupedLeading(body_span.start),
+            ),
+            PreparedArrowBody::FunctionBody(_) => (
                 body_span.start,
                 true,
                 CommentRunLayout::FlatLeading(body_span.start),
@@ -430,6 +450,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let hug_body = hugs_shape && !body_starts_line;
         let mut body = SourceArrowBody {
             body,
+            parent_layout: ArrowLayout::Ordinary,
             body_span,
             operator,
             leading,
@@ -468,7 +489,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_verbatim_arrow(source, context, writer)?;
                 return Ok(None);
             }
-            SourceArrow::Formatted(head) => self.source_formatted_arrow(head)?,
+            SourceArrow::Formatted(head) => self.source_formatted_arrow(head, None)?,
         };
         if let Some(child) = source.next.take() {
             let chain = self.record_arrow_chain(source, child, context, writer)?;
@@ -500,10 +521,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &self,
         body: &mut SourceArrowBody<'ast>,
     ) -> Result<Option<ArrowChainChild<'ast>>, FormatError> {
-        let ArrowFunctionBodyData::Expr(expression) = body.body else {
+        let PreparedArrowBody::Expression {
+            expression,
+            content,
+        } = &body.body
+        else {
             return Ok(None);
         };
-        let content = self.expression_content(expression);
         let ExprData::ArrowFunctionExpression(arrow) = content.data else {
             return Ok(None);
         };
@@ -516,7 +540,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             return Ok(None);
         }
-        if self.expression_layout(expression) == ExpressionLayout::Flat
+        if self.expression_layout(*expression) == ExpressionLayout::Flat
             || self.expression_layout(content.expression) == ExpressionLayout::Flat
         {
             return Ok(None);
@@ -563,6 +587,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn record_arrow(
         &mut self,
         source: SourceArrow<'ast>,
+        prepared_body: Option<PreparedArrowBody>,
         context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<RecordedArrow<'ast>, FormatError> {
@@ -573,7 +598,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 })?;
                 return Ok(RecordedArrow::Verbatim(value));
             }
-            SourceArrow::Formatted(head) => self.source_formatted_arrow(head)?,
+            SourceArrow::Formatted(head) => self.source_formatted_arrow(head, prepared_body)?,
         };
         let Some(first_child) = source.next.take() else {
             let (signature, source_body) = writer
@@ -642,7 +667,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .parentheses
                 .map(|boundary| Span::new(boundary.inner.end, boundary.outer.end)),
         };
-        source = self.source_formatted_arrow(first_child.head)?;
+        source = self.source_formatted_arrow(first_child.head, None)?;
         let mut links = Vec::new();
         let (body, mut tail, hug_body) = loop {
             should_break |= self.arrow_chain_breaks(&source);
@@ -665,7 +690,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         .parentheses
                         .map(|boundary| Span::new(boundary.inner.end, boundary.outer.end)),
                 });
-                source = self.source_formatted_arrow(child.head)?;
+                source = self.source_formatted_arrow(child.head, None)?;
             } else {
                 let hug_body = source_body.hug_body;
                 let (body, tail) = writer.record_group_with_value(|writer| {
@@ -749,7 +774,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             signature_end,
             result,
             before,
-            body,
+            mut body,
             ..
         } = source;
         if context.expression_start.needs_asi_guard()
@@ -805,6 +830,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             FlatSeparator::Space,
             Writer::space,
         );
+        body.parent_layout = context.arrow_layout;
         Ok(body)
     }
 
@@ -829,6 +855,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let SourceArrowBody {
             body,
+            parent_layout,
             body_span,
             operator,
             leading,
@@ -842,8 +869,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let first = leading
             .first()
             .map_or(body_span.start, |comment| comment.span.start);
-        let mut write_body = |writer: &mut Writer<'ast>| {
-            if !matches!(body, ArrowFunctionBodyData::FunctionBody(_))
+        let write_body = |writer: &mut Writer<'ast>| {
+            if !matches!(body, PreparedArrowBody::FunctionBody(_))
                 || mode != ContentMode::Verbatim && first_statement.is_none()
             {
                 self.line_constraint(operator + 2, first).write(
@@ -862,21 +889,24 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             self.comments.claim(leading)?;
             match body {
-                ArrowFunctionBodyData::Expr(expression) => self
-                    .format_expression_with_leading_comments(
-                        expression,
-                        NodeHead {
-                            comments: leading,
-                            content_start: body_span.start,
-                            layout: leading_layout,
-                            gap_end: None,
-                        },
-                        ExpressionContext::at(ExpressionPosition::ArrowBody)
-                            .with_content_mode(mode)
-                            .with_tail_owner(TailOwner::ParentOperation),
-                        writer,
-                    ),
-                ArrowFunctionBodyData::FunctionBody(body) => {
+                PreparedArrowBody::Expression {
+                    expression,
+                    content,
+                } => self.format_prepared_expression_with_leading_comments(
+                    expression,
+                    content,
+                    NodeHead {
+                        comments: leading,
+                        content_start: body_span.start,
+                        layout: leading_layout,
+                        gap_end: None,
+                    },
+                    ExpressionContext::at(ExpressionPosition::ArrowBody)
+                        .with_content_mode(mode)
+                        .with_tail_owner(TailOwner::ParentOperation),
+                    writer,
+                ),
+                PreparedArrowBody::FunctionBody(body) => {
                     if mode == ContentMode::Verbatim || first_statement.is_some() {
                         self.format_comment_run(
                             leading,
@@ -892,11 +922,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
             }
         };
-        if hug_body {
+        let tail = if hug_body {
             write_body(writer)
         } else {
             writer.indent(write_body)
+        }?;
+        if parent_layout == ArrowLayout::JsxExpression && !hug_body {
+            writer.soft_line();
         }
+        Ok(tail)
     }
 }
 
@@ -945,6 +979,7 @@ impl<'a> RecordedArrowChain<'a> {
                         })
                     }
                     ArrowLayout::Ordinary
+                    | ArrowLayout::JsxExpression
                     | ArrowLayout::Assignment(ArrowHeadGap::LeadingComments) => {
                         writer.indent(write_signatures)
                     }
@@ -954,6 +989,8 @@ impl<'a> RecordedArrowChain<'a> {
             writer.indent_if_break(group, |writer| writer.write_fragment(body.contents));
             if callee {
                 writer.soft_line_if_break(group);
+            } else if layout == ArrowLayout::JsxExpression && !hug_body {
+                writer.soft_line();
             }
         });
     }

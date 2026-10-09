@@ -12,6 +12,7 @@ use swc_next_ecma_ast::{
     StringLiteral,
 };
 
+use super::arrows::ArrowLayout;
 use super::parentheses::ExpressionContent;
 use super::{
     ExpressionContext, ExpressionPosition, Formatter, OperandIndent, ParenthesesOwner, TailOwner,
@@ -601,7 +602,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ContentMode::Formatted
         };
         let mut content = content;
-        let hug = if !spread && mode == ContentMode::Formatted {
+        let (hug, arrow_layout) = if !spread && mode == ContentMode::Formatted {
             let data = content
                 .as_ref()
                 .map_or_else(|| ast.expr_data(expression), |content| content.data);
@@ -614,15 +615,29 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             } else {
                 data
             };
-            matches!(
+            let hug = matches!(
                 data,
                 ExprData::ObjectExpression(_)
                     | ExprData::ArrayExpression(_)
                     | ExprData::CallExpression(_)
                     | ExprData::Function(_)
-            ) && self.comments.in_range(envelope).is_empty()
+                    | ExprData::ArrowFunctionExpression(_)
+            ) && self.comments.in_range(envelope).is_empty();
+            let arrow_layout = if hug && matches!(data, ExprData::ArrowFunctionExpression(_)) {
+                if content.is_none() {
+                    content = Some(ExpressionContent {
+                        expression,
+                        data,
+                        parentheses: None,
+                    });
+                }
+                ArrowLayout::JsxExpression
+            } else {
+                ArrowLayout::Ordinary
+            };
+            (hug, arrow_layout)
         } else {
-            false
+            (false, ArrowLayout::Ordinary)
         };
         // Attribute braces own the indent only on this actual non-hug path.
         let operand_indent = if matches!(role, JsxBraceRole::Attribute)
@@ -662,6 +677,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 };
                 let context = ExpressionContext::at(ExpressionPosition::JsxExpression)
                     .with_content_mode(mode)
+                    .with_arrow_layout(arrow_layout)
                     .with_operand_indent(operand_indent)
                     .with_tail_owner(TailOwner::ParentOperation);
                 let tail = match content {
