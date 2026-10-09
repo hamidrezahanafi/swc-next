@@ -68,11 +68,13 @@ pub(super) struct SourceNonNull<'ast> {
 
 impl SourceNonNull<'_> {
     pub(super) fn operand_context(&self, context: ExpressionContext) -> ExpressionContext {
-        context.type_operand(
-            ExpressionPosition::NonNullOperand,
-            self.mode,
-            TailOwner::ParentOperation,
-        )
+        context
+            .type_operand(
+                ExpressionPosition::NonNullOperand,
+                self.mode,
+                TailOwner::ParentOperation,
+            )
+            .with_conditional_envelope(context.conditional_envelope.chain_head())
     }
 
     pub(super) fn has_comments(&self) -> bool {
@@ -235,11 +237,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer.group(false, |writer| {
             let tail = self.format_expression(
                 expression,
-                context.type_operand(
-                    ExpressionPosition::TypeBinaryOperand,
-                    boundary.left_mode,
-                    TailOwner::ParentOperation,
-                ),
+                context
+                    .type_operand(
+                        ExpressionPosition::TypeBinaryOperand,
+                        boundary.left_mode,
+                        TailOwner::ParentOperation,
+                    )
+                    .with_conditional_envelope(context.conditional_envelope.terminal_head()),
                 writer,
             )?;
             self.format_expression_tail(tail, writer)?;

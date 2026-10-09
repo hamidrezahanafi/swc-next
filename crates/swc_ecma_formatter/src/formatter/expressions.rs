@@ -34,6 +34,7 @@ use self::arrays::{ArrayArgumentArity, RecordedArray, RecordedArrayArgument};
 use self::assignment::AssignmentParent;
 use self::binary::{BinaryLike, BinaryOperatorKind, OperandSide};
 use self::chains::FluentChainEligibility;
+use self::conditional::{ConditionalClosing, ConditionalEnvelope};
 use self::objects::RecordedObject;
 use super::literals::StringContext;
 use super::suppression::ContentMode;
@@ -193,6 +194,8 @@ pub(super) struct ExpressionContext {
     member_chain_layout: MemberChainLayout,
     arrow_layout: arrows::ArrowLayout,
     operand_indent: OperandIndent,
+    conditional_envelope: ConditionalEnvelope,
+    conditional_closing: ConditionalClosing,
 }
 
 impl ExpressionContext {
@@ -210,6 +213,7 @@ impl ExpressionContext {
             AssignmentParent::Nested,
         ))
         .with_arrow_layout(arrows::ArrowLayout::Ordinary)
+        .with_conditional_envelope(ConditionalEnvelope::Local)
     }
 
     pub(super) fn at(position: ExpressionPosition) -> Self {
@@ -228,6 +232,15 @@ impl ExpressionContext {
             member_layout: MemberLayout::Normal,
             member_chain_layout: MemberChainLayout::Fluent,
             operand_indent: OperandIndent::Expression,
+            conditional_envelope: match position {
+                ExpressionPosition::AssignmentRight(_)
+                | ExpressionPosition::RestrictedArgument
+                | ExpressionPosition::UnaryArgument(_)
+                | ExpressionPosition::YieldArgument
+                | ExpressionPosition::AwaitArgument => ConditionalEnvelope::ContinuationRoot,
+                _ => ConditionalEnvelope::Local,
+            },
+            conditional_closing: ConditionalClosing::Inline,
             arrow_layout: match position {
                 ExpressionPosition::CallCallee { .. } | ExpressionPosition::NewCallee => {
                     arrows::ArrowLayout::Callee
@@ -243,6 +256,16 @@ impl ExpressionContext {
 
     pub(super) fn with_operand_indent(mut self, owner: OperandIndent) -> Self {
         self.operand_indent = owner;
+        self
+    }
+
+    fn with_conditional_envelope(mut self, envelope: ConditionalEnvelope) -> Self {
+        self.conditional_envelope = envelope;
+        self
+    }
+
+    fn with_conditional_closing(mut self, closing: ConditionalClosing) -> Self {
+        self.conditional_closing = closing;
         self
     }
 
@@ -271,7 +294,12 @@ impl ExpressionContext {
         self
     }
 
-    fn member_receiver(self, access: AccessKind, mode: ContentMode) -> Self {
+    fn member_receiver(
+        self,
+        access: AccessKind,
+        mode: ContentMode,
+        closing: ConditionalClosing,
+    ) -> Self {
         let position = if matches!(
             self.position,
             ExpressionPosition::MemberAssignmentObject | ExpressionPosition::AssignmentTarget
@@ -286,6 +314,8 @@ impl ExpressionContext {
             .with_content_mode(mode)
             .with_member_layout(self.member_layout)
             .with_member_chain_layout(self.member_chain_layout)
+            .with_conditional_envelope(self.conditional_envelope.chain_head())
+            .with_conditional_closing(closing)
     }
 
     pub(in crate::formatter) fn with_lexical_head(
@@ -653,22 +683,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         if let ExprData::ConditionalExpression(conditional) = data
             && parenthesize
-            && matches!(
-                context.position,
-                ExpressionPosition::MemberObject(_)
-                    | ExpressionPosition::MemberAssignmentObject
-                    | ExpressionPosition::CallCallee { .. }
-                    | ExpressionPosition::NewCallee
-            )
+            && (context.conditional_envelope == ConditionalEnvelope::OperationHead
+                || matches!(
+                    context.position,
+                    ExpressionPosition::MemberObject(_)
+                        | ExpressionPosition::MemberAssignmentObject
+                        | ExpressionPosition::CallCallee { .. }
+                        | ExpressionPosition::NewCallee
+                        | ExpressionPosition::NonNullOperand
+                        | ExpressionPosition::TypeBinaryOperand
+                ))
         {
-            return writer.group(false, |writer| {
-                writer.text("(");
-                let tail = self.format_conditional(conditional, context, writer)?;
-                self.format_expression_tail(tail, writer)?;
-                writer.soft_line();
-                writer.text(")");
-                Ok(None)
-            });
+            return self.format_conditional_enclosed(conditional, context, writer);
         }
         if let ExprData::ConditionalExpression(conditional) = data
             && matches!(context.position, ExpressionPosition::ConditionalTest)
@@ -677,7 +703,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.text("(");
                 writer.indent(|writer| {
                     writer.soft_line();
-                    let tail = self.format_conditional(conditional, context, writer)?;
+                    let tail = self.format_conditional(
+                        conditional,
+                        context.with_operand_indent(OperandIndent::Parent),
+                        writer,
+                    )?;
                     self.format_expression_tail(tail, writer)
                 })?;
                 writer.soft_line();
@@ -792,7 +822,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
                 self.format_expression(chain.expression(self.ast), child_context, writer)
             }
-            ExprData::NewExpression(constructor) => self.format_new(constructor, writer),
+            ExprData::NewExpression(constructor) => self.format_new(constructor, context, writer),
             ExprData::Function(function) => self.format_function(function, writer).map(|()| None),
             ExprData::Class(class) => self.format_class(class, writer).map(|()| None),
             ExprData::ArrowFunctionExpression(arrow) => self.format_arrow(arrow, context, writer),

@@ -14,6 +14,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_new(
         &mut self,
         constructor: NewExpression,
+        context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let callee = constructor.callee(self.ast);
@@ -81,7 +82,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ExpressionContext::at(ExpressionPosition::NewCallee)
                 .with_tail_owner(TailOwner::ParentOperation)
                 .with_member_layout(MemberLayout::Tight)
-                .with_content_mode(mode),
+                .with_content_mode(mode)
+                .with_conditional_envelope(context.conditional_envelope.terminal_head()),
             writer,
         )?;
         if let Some(arguments) = arguments {

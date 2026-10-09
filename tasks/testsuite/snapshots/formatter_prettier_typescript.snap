@@ -3,12 +3,12 @@ formatter * prettier 3.9.9 * typescript
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 657
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 554/804 (68.91%)
-Snapshot matched: 554/804
+Passed: 555/804 (69.03%)
+Snapshot matched: 555/804
 AST parity: 804/804
 AST mismatched: 0/804
 AST format errors: 0/804
-Mismatched: 250/804
+Mismatched: 249/804
 Format errors: 0/804
 Panicked: 0/804
 Not idempotent: 0/804
@@ -177,7 +177,6 @@ Unsupported option sets: 7
 - typescript/template-literals/as-expression.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/template-literals/expressions.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/template-literals/member-expression.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/ternaries/indent.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/tsx/member-expression.tsx: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/tsx/optional-chaining.tsx: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/tuple/dangling-comments.ts: 3/3 mismatched, 0/3 format errors, 0/3 panicked, 0/3 not idempotent

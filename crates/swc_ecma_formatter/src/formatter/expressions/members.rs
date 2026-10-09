@@ -6,7 +6,8 @@ use swc_next_ecma_ast::{
 };
 
 use super::{
-    AccessKind, ExpressionContext, ExpressionPosition, Formatter, MemberLayout, TailOwner,
+    AccessKind, ConditionalClosing, ExpressionContext, ExpressionPosition, Formatter, MemberLayout,
+    TailOwner,
 };
 use crate::formatter::comments::{CommentBoundary, CommentGap, CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
@@ -178,7 +179,11 @@ impl SourceMember {
     }
 
     pub(super) fn receiver_context(&self, context: ExpressionContext) -> ExpressionContext {
-        context.member_receiver(self.access, self.receiver_mode)
+        let closing = match self.punctuation {
+            MemberPunctuation::Static { .. } => ConditionalClosing::MemberLine,
+            MemberPunctuation::Computed { .. } => ConditionalClosing::Inline,
+        };
+        context.member_receiver(self.access, self.receiver_mode, closing)
     }
 }
 
@@ -206,7 +211,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             AccessKind::Ordinary
         };
         let receiver = member.object(self.ast);
-        let context = context.member_receiver(access, ContentMode::Formatted);
+        let closing = if member.computed(self.ast) {
+            ConditionalClosing::Inline
+        } else {
+            ConditionalClosing::MemberLine
+        };
+        let context = context.member_receiver(access, ContentMode::Formatted, closing);
         Ok((receiver, context))
     }
 

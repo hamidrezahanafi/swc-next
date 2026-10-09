@@ -2,11 +2,44 @@
 
 use swc_next_ecma_ast::{Comment, ConditionalExpression, Expr, ExprData, GetSpan, Span};
 
-use super::{ExpressionContext, ExpressionPosition, ExpressionStart, Formatter, TailOwner};
+use super::parentheses::ExpressionContent;
+use super::{ExpressionContext, ExpressionPosition, Formatter, OperandIndent, TailOwner};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::suppression::ContentMode;
 use crate::{FormatError, IndentStyle, document::Writer};
+
+/// Continuation responsibility follows only an operation's actual head edge.
+/// A direct root has no extra enclosure; a head borrows that root's scope.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ConditionalEnvelope {
+    Local,
+    ContinuationRoot,
+    OperationHead,
+}
+
+impl ConditionalEnvelope {
+    pub(super) fn chain_head(self) -> Self {
+        match self {
+            Self::Local => Self::Local,
+            Self::ContinuationRoot | Self::OperationHead => Self::OperationHead,
+        }
+    }
+
+    pub(super) fn terminal_head(self) -> Self {
+        match self {
+            Self::ContinuationRoot => Self::OperationHead,
+            Self::Local | Self::OperationHead => Self::Local,
+        }
+    }
+}
+
+/// The immediate suffix owns the closing pair's optional break.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ConditionalClosing {
+    Inline,
+    MemberLine,
+}
 
 #[derive(Clone, Copy)]
 enum ConditionalLayout {
@@ -14,6 +47,21 @@ enum ConditionalLayout {
     Test,
     Consequent,
     Alternate,
+}
+
+struct ConditionalOperand {
+    original: Expr,
+    content: ExpressionContent,
+    source_end: u32,
+    content_start: u32,
+}
+
+struct PreparedConditional<'ast> {
+    test: ConditionalOperand,
+    consequent: ConditionalOperand,
+    alternate: ConditionalOperand,
+    question: ConditionalBoundary<'ast>,
+    colon: ConditionalBoundary<'ast>,
 }
 
 struct ConditionalBoundary<'ast> {
@@ -29,6 +77,42 @@ struct ConditionalBoundary<'ast> {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    pub(super) fn format_conditional_enclosed(
+        &mut self,
+        conditional: ConditionalExpression,
+        context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let continuation = context.conditional_envelope == ConditionalEnvelope::OperationHead;
+        let closing_line =
+            continuation || context.conditional_closing == ConditionalClosing::MemberLine;
+        writer.group(false, |writer| {
+            writer.text("(");
+            let mut write = |writer: &mut Writer<'ast>| {
+                let context = if continuation {
+                    context.with_operand_indent(OperandIndent::Parent)
+                } else {
+                    context
+                };
+                let tail = self.format_conditional(conditional, context, writer)?;
+                self.format_expression_tail(tail, writer)
+            };
+            if continuation {
+                writer.indent(|writer| {
+                    writer.soft_line();
+                    write(writer)
+                })?;
+            } else {
+                write(writer)?;
+            }
+            if closing_line {
+                writer.soft_line();
+            }
+            writer.text(")");
+            Ok(None)
+        })
+    }
+
     pub(super) fn format_conditional(
         &mut self,
         conditional: ConditionalExpression,
@@ -41,8 +125,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ExpressionPosition::ConditionalAlternate => ConditionalLayout::Alternate,
             _ => ConditionalLayout::Root,
         };
-        let mut write = |writer: &mut Writer<'ast>| {
-            self.format_conditional_contents(conditional, context.expression_start, layout, writer)
+        let prepared = self.prepare_conditional(conditional)?;
+        let write = |writer: &mut Writer<'ast>| {
+            self.format_conditional_contents(prepared, context, layout, writer)
         };
         match layout {
             ConditionalLayout::Root | ConditionalLayout::Test => writer.group(false, write),
@@ -50,23 +135,61 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
+    fn prepare_conditional(
+        &self,
+        conditional: ConditionalExpression,
+    ) -> Result<PreparedConditional<'ast>, FormatError> {
+        let test = self.conditional_operand(conditional.test(self.ast));
+        let consequent = self.conditional_operand(conditional.consequent(self.ast));
+        let alternate = self.conditional_operand(conditional.alternate(self.ast));
+        let question = self.conditional_boundary(&test, &consequent, "?")?;
+        let colon = self.conditional_boundary(&consequent, &alternate, ":")?;
+        Ok(PreparedConditional {
+            test,
+            consequent,
+            alternate,
+            question,
+            colon,
+        })
+    }
+
+    fn conditional_operand(&self, original: Expr) -> ConditionalOperand {
+        let content = self.expression_content(original);
+        ConditionalOperand {
+            original,
+            source_end: original.span(self.ast).end,
+            content_start: content.expression.span(self.ast).start,
+            content,
+        }
+    }
+
     fn format_conditional_contents(
         &mut self,
-        conditional: ConditionalExpression,
-        expression_start: ExpressionStart,
+        prepared: PreparedConditional<'ast>,
+        context: ExpressionContext,
         layout: ConditionalLayout,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        let test = conditional.test(self.ast);
-        let consequent = conditional.consequent(self.ast);
-        let alternate = conditional.alternate(self.ast);
-        let question = self.conditional_boundary(test, consequent, "?")?;
-        let colon = self.conditional_boundary(consequent, alternate, ":")?;
-        let mut write_test = |writer: &mut Writer<'ast>| {
-            let tail = self.format_expression(
-                test,
+        let PreparedConditional {
+            test,
+            consequent,
+            alternate,
+            question,
+            colon,
+        } = prepared;
+        let write_test = |writer: &mut Writer<'ast>| {
+            let tail = self.format_prepared_expression_with_leading_comments(
+                test.original,
+                test.content,
+                NodeHead {
+                    comments: &[],
+                    content_start: test.content_start,
+                    layout: CommentRunLayout::Source,
+                    gap_end: None,
+                },
                 ExpressionContext::at(ExpressionPosition::ConditionalTest)
-                    .with_expression_start(expression_start)
+                    .with_expression_start(context.expression_start)
+                    .with_operand_indent(context.operand_indent)
                     .with_content_mode(question.previous_mode),
                 writer,
             )?;
@@ -106,19 +229,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     fn conditional_boundary(
         &self,
-        previous: Expr,
-        next: Expr,
+        previous: &ConditionalOperand,
+        next: &ConditionalOperand,
         operator: &'static str,
     ) -> Result<ConditionalBoundary<'ast>, FormatError> {
-        let start = previous.span(self.ast).end;
-        let end = self
-            .expression_content(next)
-            .expression
-            .span(self.ast)
-            .start;
+        let start = previous.source_end;
+        let end = next.content_start;
         let span = Span::new(start, end);
         let comments = self.comments.in_range(span);
-        if comments.is_empty() && !self.diagnostic_range_is_sensitive(span) {
+        let sensitive = self.diagnostic_range_is_sensitive(span);
+        if comments.is_empty() && !sensitive {
             return Ok(ConditionalBoundary {
                 operator,
                 source_end: start,
@@ -139,7 +259,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ));
         };
         let before_count = comments.partition_point(|comment| comment.span.end <= operator_start);
-        if self.diagnostic_range_is_sensitive(span) {
+        if sensitive {
             let (before, after) = comments.split_at(before_count);
             let previous = before.last().map_or(start, |comment| comment.span.end);
             return Ok(ConditionalBoundary {
@@ -185,7 +305,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     fn format_conditional_branch(
         &mut self,
-        expression: Expr,
+        operand: ConditionalOperand,
         position: ExpressionPosition,
         boundary: ConditionalBoundary<'ast>,
         following: Option<&ConditionalBoundary<'ast>>,
@@ -196,7 +316,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .write(writer, FlatSeparator::Space, Writer::line);
         writer.text(boundary.operator);
         writer.space();
-        let content = self.expression_content(expression);
+        let ConditionalOperand {
+            original,
+            content,
+            content_start,
+            ..
+        } = operand;
         let mode = match following {
             Some(next) if next.previous_mode == ContentMode::Verbatim => ContentMode::Verbatim,
             _ => boundary.next_mode,
@@ -214,15 +339,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .after_operator
                     .write(writer, FlatSeparator::Empty, |_| {});
             }
-            let mut tail = self.format_expression_with_leading_comments(
-                expression,
+            let mut tail = self.format_prepared_expression_with_leading_comments(
+                original,
+                content,
                 NodeHead {
                     comments: boundary.leading,
-                    content_start: content.expression.span(self.ast).start,
+                    content_start,
                     layout: CommentRunLayout::Source,
-                    gap_end: Some(content.expression.span(self.ast).start),
+                    gap_end: Some(content_start),
                 },
                 ExpressionContext::at(position)
+                    .with_operand_indent(OperandIndent::Parent)
                     .with_content_mode(mode)
                     .with_tail_owner(TailOwner::ParentOperation),
                 writer,

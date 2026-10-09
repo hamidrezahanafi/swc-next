@@ -3,12 +3,12 @@ formatter * prettier 3.9.9 * js
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 794
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 736/1070 (68.79%)
-Snapshot matched: 736/1070
+Passed: 741/1070 (69.25%)
+Snapshot matched: 741/1070
 AST parity: 1069/1069
 AST mismatched: 0/1069
 AST format errors: 0/1070
-Mismatched: 333/1070
+Mismatched: 328/1070
 Format errors: 0/1070
 Panicked: 0/1070
 Not idempotent: 0/1070
@@ -80,7 +80,6 @@ Unsupported option sets: 19
 - js/async/nested.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/binary-expressions/inline-jsx.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/binary-expressions/jsx_parent.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/binary-expressions/return.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/break-calls/break.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/break-calls/react.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/call/boolean/boolean.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -231,7 +230,6 @@ Unsupported option sets: 19
 - js/template/indent.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/template/inline.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/ternaries/binary.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
-- js/ternaries/func-call.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - js/ternaries/indent-after-paren.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - js/ternaries/indent.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/ternaries/nested-in-condition.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent

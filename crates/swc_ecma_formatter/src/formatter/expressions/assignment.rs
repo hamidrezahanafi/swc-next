@@ -29,6 +29,13 @@ pub(in crate::formatter) enum RhsLayout {
 }
 
 impl RhsLayout {
+    pub(in crate::formatter) fn operand_indent(self) -> super::OperandIndent {
+        match self {
+            Self::Fluid | Self::BreakAfterOperator => super::OperandIndent::Parent,
+            Self::NeverBreakAfterOperator => super::OperandIndent::Expression,
+        }
+    }
+
     pub(in crate::formatter) fn write<'ast, T>(
         self,
         writer: &mut Writer<'ast>,
@@ -166,11 +173,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let content = self.expression_content(right);
         let data = content.data;
-        let head = self.assignment_expression_head(content);
+        let head = self.assignment_expression_head(&content);
         let operator = target.operator();
-        let boundary = self.assignment_boundary(target.span().end, &head, target.operator_span)?;
+        let boundary = self.assignment_boundary(
+            target.span().end,
+            head.as_ref().unwrap_or(&content),
+            target.operator_span,
+        )?;
         let layout = self.assignment_layout(data, context.position, &boundary);
-        let mut write = |writer: &mut Writer<'ast>| {
+        let write = |writer: &mut Writer<'ast>| {
             let leading = self.comments.between(Span::new(
                 assignment.span(self.ast).start,
                 target.span().start,
@@ -208,7 +219,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ExpressionPosition::Statement => AssignmentParent::Statement,
                 _ => AssignmentParent::Nested,
             };
-            let mut write_right = |writer: &mut Writer<'ast>| {
+            let mut right_context =
+                ExpressionContext::at(ExpressionPosition::AssignmentRight(parent))
+                    .with_content_mode(boundary.mode)
+                    .with_tail_owner(context.tail_owner);
+            if boundary.mode == ContentMode::Formatted
+                && matches!(data, ExprData::ConditionalExpression(_))
+            {
+                let operand_indent = match layout {
+                    AssignmentLayout::Ordinary(rhs_layout) => rhs_layout.operand_indent(),
+                    AssignmentLayout::OperatorLine | AssignmentLayout::ChainTail => {
+                        super::OperandIndent::Parent
+                    }
+                    AssignmentLayout::Chain => super::OperandIndent::Expression,
+                };
+                right_context = right_context.with_operand_indent(operand_indent);
+            }
+            let write_right = |writer: &mut Writer<'ast>| {
                 self.comments.claim(boundary.moved)?;
                 self.format_comment_run(boundary.moved, CommentRunLayout::Source, writer)?;
                 if let Some(last) = boundary.moved.last() {
@@ -229,12 +256,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     }
                 }
                 self.comments.claim(boundary.leading)?;
-                self.format_expression_with_leading_comments(
+                self.format_prepared_expression_with_leading_comments(
                     right,
+                    content,
                     boundary.right_head(),
-                    ExpressionContext::at(ExpressionPosition::AssignmentRight(parent))
-                        .with_content_mode(boundary.mode)
-                        .with_tail_owner(context.tail_owner),
+                    right_context,
                     writer,
                 )
             };
@@ -358,15 +384,22 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         )
     }
 
-    fn assignment_expression_head(&self, mut content: ExpressionContent) -> ExpressionContent {
+    fn assignment_expression_head(&self, content: &ExpressionContent) -> Option<ExpressionContent> {
+        let expression = match content.data {
+            ExprData::MemberExpression(member) => member.object(self.ast),
+            ExprData::CallExpression(call) => call.callee(self.ast),
+            ExprData::ChainExpression(chain) => chain.expression(self.ast),
+            _ => return None,
+        };
+        let mut head = self.expression_content(expression);
         loop {
-            let expression = match content.data {
+            let expression = match head.data {
                 ExprData::MemberExpression(member) => member.object(self.ast),
                 ExprData::CallExpression(call) => call.callee(self.ast),
                 ExprData::ChainExpression(chain) => chain.expression(self.ast),
-                _ => return content,
+                _ => return Some(head),
             };
-            content = self.expression_content(expression);
+            head = self.expression_content(expression);
         }
     }
 

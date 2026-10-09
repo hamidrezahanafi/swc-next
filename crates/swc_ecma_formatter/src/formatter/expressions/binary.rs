@@ -338,10 +338,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let parent_indents = context.operand_indent == super::OperandIndent::Parent
             || match context.position {
-                ExpressionPosition::ParenthesizedUnaryArgument(_)
-                | ExpressionPosition::ConditionalTest
-                | ExpressionPosition::ConditionalConsequent
-                | ExpressionPosition::ConditionalAlternate => true,
+                ExpressionPosition::ParenthesizedUnaryArgument(_) => true,
                 ExpressionPosition::AssignmentRight(_) | ExpressionPosition::PropertyValue => {
                     let inline = self.inline_logical_operand(binary.operator, binary.right);
                     !inline
@@ -442,6 +439,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     member_chain_layout: super::MemberChainLayout::Fluent,
                     arrow_layout: super::arrows::ArrowLayout::Argument,
                     operand_indent: super::OperandIndent::Expression,
+                    conditional_envelope: super::ConditionalEnvelope::Local,
+                    conditional_closing: super::ConditionalClosing::Inline,
                 },
                 writer,
             )

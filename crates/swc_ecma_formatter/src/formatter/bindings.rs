@@ -2,8 +2,8 @@
 
 use swc_next_ecma_ast::{
     ArrayPattern, Ast, BindingPattern, BindingPatternData, BindingProperty, Comment, CommentKind,
-    Expr, FormalParameterPattern, FormalParameterPatternData, GetSpan, ObjectPattern, Span,
-    TsEnumMemberName, TsTypeAnnotation,
+    Expr, ExprData, FormalParameterPattern, FormalParameterPatternData, GetSpan, ObjectPattern,
+    Span, TsEnumMemberName, TsTypeAnnotation,
 };
 
 use super::Formatter;
@@ -549,6 +549,17 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     }
                 });
         };
+        let content = if boundary.mode == ContentMode::Formatted {
+            Some(self.expression_content(right))
+        } else {
+            None
+        };
+        let mut context = context.with_content_mode(boundary.mode);
+        if let Some(content) = &content
+            && matches!(content.data, ExprData::ConditionalExpression(_))
+        {
+            context = context.with_operand_indent(rhs_layout.operand_indent());
+        }
         let write_right = |writer: &mut Writer<'ast>| {
             self.comments.claim(boundary.moved)?;
             self.format_comment_run(boundary.moved, CommentRunLayout::Source, writer)?;
@@ -570,12 +581,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
             }
             self.comments.claim(boundary.leading)?;
-            self.format_expression_with_leading_comments(
-                right,
-                boundary.right_head(),
-                context.with_content_mode(boundary.mode),
-                writer,
-            )
+            match content {
+                Some(content) => self.format_prepared_expression_with_leading_comments(
+                    right,
+                    content,
+                    boundary.right_head(),
+                    context,
+                    writer,
+                ),
+                None => self.format_expression_with_leading_comments(
+                    right,
+                    boundary.right_head(),
+                    context,
+                    writer,
+                ),
+            }
         };
         if matches!(rhs_layout, RhsLayout::NeverBreakAfterOperator) {
             writer.group(false, |writer| {

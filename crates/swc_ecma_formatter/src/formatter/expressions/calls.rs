@@ -36,6 +36,7 @@ impl CallCallee {
         .with_tail_owner(TailOwner::ParentOperation)
         .with_content_mode(self.mode)
         .with_member_chain_layout(context.member_chain_layout)
+        .with_conditional_envelope(context.conditional_envelope.chain_head())
     }
 }
 

@@ -17,8 +17,8 @@ firstLong + secondLong + thirdLong ? fourthLong : fifthLong
 {"printWidth":20}
 ---------- Output ----------
 firstLong +
-secondLong +
-thirdLong
+  secondLong +
+  thirdLong
   ? fourthLong
   : fifthLong;
 
@@ -26,8 +26,8 @@ thirdLong
 {"printWidth":8}
 ---------- Output ----------
 firstLong +
-secondLong +
-thirdLong
+  secondLong +
+  thirdLong
   ? fourthLong
   : fifthLong;
 
@@ -35,8 +35,8 @@ thirdLong
 {"printWidth":20,"tabWidth":4}
 ---------- Output ----------
 firstLong +
-secondLong +
-thirdLong
+    secondLong +
+    thirdLong
     ? fourthLong
     : fifthLong;
 
@@ -44,8 +44,8 @@ thirdLong
 {"printWidth":20,"tabWidth":4,"useTabs":true}
 ---------- Output ----------
 firstLong +
-secondLong +
-thirdLong
+	secondLong +
+	thirdLong
 	? fourthLong
 	: fifthLong;
 
@@ -53,8 +53,8 @@ thirdLong
 {"printWidth":20,"tabWidth":1}
 ---------- Output ----------
 firstLong +
-secondLong +
-thirdLong
+ secondLong +
+ thirdLong
  ? fourthLong
  : fifthLong;
 
