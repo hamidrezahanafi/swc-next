@@ -8,7 +8,7 @@ use swc_next_ecma_ast::{
 };
 
 use super::super::parentheses::ExpressionContent;
-use super::Formatter;
+use super::{Formatter, JsxBraceRole};
 use crate::formatter::suppression::ContentMode;
 use crate::{
     FormatError, QuoteStyle,
@@ -356,17 +356,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                                     expression.original,
                                     container.span(ast),
                                     false,
+                                    JsxBraceRole::Child,
                                     expression.content,
                                     writer,
                                 )
                             } else {
-                                self.format_jsx_container(container, writer)
+                                self.format_jsx_container(container, JsxBraceRole::Child, writer)
                             }
                         }
                         JsxChildData::JsxSpreadChild(spread) => self.format_jsx_braced_expression(
                             spread.expression(ast),
                             spread.span(ast),
                             true,
+                            JsxBraceRole::Child,
                             writer,
                         ),
                         JsxChildData::JsxElement(element) => {

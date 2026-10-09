@@ -15,3 +15,10 @@ const ordinary_functions=<Box marker="receiver" data={(function(firstVeryLongPar
 ordinary_functions.props.data("first", "second");
 ordinary_functions.children[0]("child");
 const guarded_calls_functions=<Box data={/* prettier-ignore */ String.prototype.concat.call( "first",  "second")}>{ /* owner */ function(childValue){ return childValue; } /* tail */ }</Box>;
+
+const logical_attribute=<Box data={value && props && children && value && props && children}/>;
+const logical_child=<Box>{value && props && children && value && props && children}</Box>;
+const logical_spread=<Box {...(value && props && children && props)}>{...(value && children)}</Box>;
+const logical_comments=<Box data={/* head logical */ (value && props && children) /* tail logical */}/>;
+const logical_ignored=<Box data={/* prettier-ignore */ value  &&  props && children}/>;
+const logical_active=<Box data={value && /* @__PURE__ */ Object.assign({}, props, {marker: "logical active"})}/>;

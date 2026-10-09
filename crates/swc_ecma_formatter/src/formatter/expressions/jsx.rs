@@ -13,7 +13,9 @@ use swc_next_ecma_ast::{
 };
 
 use super::parentheses::ExpressionContent;
-use super::{ExpressionContext, ExpressionPosition, Formatter, ParenthesesOwner, TailOwner};
+use super::{
+    ExpressionContext, ExpressionPosition, Formatter, OperandIndent, ParenthesesOwner, TailOwner,
+};
 use crate::formatter::comments::{CommentRunLayout, NodeHead};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::suppression::ContentMode;
@@ -26,6 +28,12 @@ use crate::{
 #[derive(Default)]
 struct JsxOpeningLayout {
     multiple_attributes: bool,
+}
+
+#[derive(Clone, Copy)]
+enum JsxBraceRole {
+    Attribute,
+    Child,
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -322,6 +330,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                                 spread.argument(ast),
                                 span,
                                 true,
+                                JsxBraceRole::Attribute,
                                 writer,
                             )?;
                         }
@@ -466,7 +475,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_jsx_string(literal, writer)?
             }
             JsxAttributeValueData::JsxExpressionContainer(container) => {
-                self.format_jsx_container(container, writer)?
+                self.format_jsx_container(container, JsxBraceRole::Attribute, writer)?
             }
             JsxAttributeValueData::JsxElement(element) => {
                 self.format_jsx_element(element, writer)?
@@ -503,6 +512,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn format_jsx_container(
         &mut self,
         container: JsxExpressionContainer,
+        role: JsxBraceRole,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         match self.ast.jsx_expression_data(container.expression(self.ast)) {
@@ -510,6 +520,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 expression,
                 container.span(self.ast),
                 false,
+                role,
                 writer,
             ),
             JsxExpressionData::JsxEmptyExpression(empty) => {
@@ -546,9 +557,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         expression: Expr,
         envelope: Span,
         spread: bool,
+        role: JsxBraceRole,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        self.format_jsx_braced_expression_prepared(expression, envelope, spread, None, writer)
+        self.format_jsx_braced_expression_prepared(expression, envelope, spread, role, None, writer)
     }
 
     fn format_jsx_braced_expression_prepared(
@@ -556,6 +568,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         expression: Expr,
         envelope: Span,
         spread: bool,
+        role: JsxBraceRole,
         content: Option<ExpressionContent>,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
@@ -611,6 +624,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             false
         };
+        // Attribute braces own the indent only on this actual non-hug path.
+        let operand_indent = if matches!(role, JsxBraceRole::Attribute)
+            && mode == ContentMode::Formatted
+            && !spread
+            && !hug
+        {
+            OperandIndent::Parent
+        } else {
+            OperandIndent::Expression
+        };
         writer.group(false, |writer| {
             writer.text("{");
             if let Some(marker) = spread_token {
@@ -639,6 +662,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 };
                 let context = ExpressionContext::at(ExpressionPosition::JsxExpression)
                     .with_content_mode(mode)
+                    .with_operand_indent(operand_indent)
                     .with_tail_owner(TailOwner::ParentOperation);
                 let tail = match content {
                     Some(content) => self.format_prepared_expression_with_leading_comments(
