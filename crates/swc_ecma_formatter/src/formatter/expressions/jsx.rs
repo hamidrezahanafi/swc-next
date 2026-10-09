@@ -603,7 +603,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             };
             matches!(
                 data,
-                ExprData::ObjectExpression(_) | ExprData::ArrayExpression(_)
+                ExprData::ObjectExpression(_)
+                    | ExprData::ArrayExpression(_)
+                    | ExprData::CallExpression(_)
+                    | ExprData::Function(_)
             ) && self.comments.in_range(envelope).is_empty()
         } else {
             false
