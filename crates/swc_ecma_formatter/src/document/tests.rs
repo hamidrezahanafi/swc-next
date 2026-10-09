@@ -839,6 +839,57 @@ fn fragment_capabilities() {
         });
     });
     assert!(flattened.try_neutral().is_some());
+
+    let grouped = writer.group_fragment(false, atom);
+    assert!(grouped.try_neutral().is_some());
+    assert!(!grouped.preferred_breaks());
+
+    let forced = writer.group_fragment(true, atom);
+    assert!(forced.try_neutral().is_none());
+    assert!(forced.try_flat().is_some());
+    assert!(forced.preferred_breaks());
+
+    let required = writer.group_fragment(false, mandatory);
+    assert!(required.try_flat().is_none());
+    assert!(required.preferred_breaks());
+
+    let flat = writer.flat_delimited_fragment(
+        "(",
+        atom.try_flat().unwrap(),
+        atom,
+        atom.try_flat().unwrap(),
+        ")",
+    );
+    assert!(flat.try_neutral().is_some());
+
+    let projected = writer.flat_delimited_fragment(
+        "(",
+        expanded.try_flat().unwrap(),
+        atom,
+        current.try_flat().unwrap(),
+        ")",
+    );
+    assert!(projected.try_neutral().is_none());
+    assert!(projected.try_flat().is_some());
+    assert!(!projected.preferred_breaks());
+    assert!(!projected.conditional_lines);
+
+    let multiline = writer.flat_delimited_fragment(
+        "(\n",
+        atom.try_flat().unwrap(),
+        atom,
+        atom.try_flat().unwrap(),
+        ")",
+    );
+    assert!(multiline.try_flat().is_none());
+
+    let fallback = writer.indented_delimited_fragment("(", atom, atom, atom, ")");
+    assert!(fallback.try_neutral().is_none());
+    assert!(fallback.try_flat().is_some());
+
+    let required = writer.indented_delimited_fragment("(", atom, mandatory, atom, ")");
+    assert!(required.try_flat().is_none());
+    assert!(required.preferred_breaks());
 }
 
 #[test]
@@ -881,6 +932,15 @@ fn recorded_group_document(write: impl FnOnce(&mut Writer<'_>), inherited: bool)
     writer.finish().print(FormatOptions::prettier())
 }
 
+fn completed_group_document(write: impl FnOnce(&mut Writer<'_>), expand: bool) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let content = record(&mut writer, write);
+    let group = writer.group_fragment(expand, content);
+    writer.group(true, |writer| writer.write_fragment(group));
+    writer.finish().print(FormatOptions::prettier())
+}
+
 fn write_group_lines(writer: &mut Writer<'_>) {
     writer.text("first");
     writer.line();
@@ -897,6 +957,16 @@ fn recorded_group_layouts() {
 
     assert_eq!(
         recorded_group_document(write_group_lines, true),
+        "first\nbroken"
+    );
+
+    assert_eq!(
+        completed_group_document(write_group_lines, false),
+        "first flat"
+    );
+
+    assert_eq!(
+        completed_group_document(write_group_lines, true),
         "first\nbroken"
     );
 }
@@ -917,6 +987,11 @@ fn recorded_group_boundaries() {
 
     assert_eq!(
         recorded_group_document(write_group_suffix, true),
+        "first // trailing\nlast"
+    );
+
+    assert_eq!(
+        completed_group_document(write_group_suffix, false),
         "first // trailing\nlast"
     );
 }
@@ -942,6 +1017,85 @@ fn recorded_group_named_scopes() {
         recorded_group_document(write_group_named_scope, true),
         "first\nlast\ntail"
     );
+
+    assert_eq!(
+        completed_group_document(write_group_named_scope, false),
+        "first\nlast\ntail"
+    );
+}
+
+fn completed_delimiter_document(width: u16) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let prefix = record(&mut writer, |writer| {
+        writer.soft_line();
+        writer.text("source,");
+        writer.line();
+    });
+    let content = record(&mut writer, |writer| {
+        writer.text("{");
+        writer.indent(|writer| {
+            writer.line();
+            writer.text("value");
+        });
+        writer.line();
+        writer.text("}");
+    });
+    let suffix = record(&mut writer, Writer::soft_line);
+    let normal = writer.group_fragment(false, content);
+    let forced = writer.group_fragment(true, content);
+    let fallback = writer.indented_delimited_fragment("(", prefix, normal, suffix, ")");
+    let prefix = prefix.try_flat().unwrap();
+    let suffix = suffix.try_flat().unwrap();
+    let grouped = writer.flat_delimited_fragment("(", prefix, normal, suffix, ")");
+    let expanded = writer.flat_delimited_fragment("(", prefix, forced, suffix, ")");
+    writer.write_alternatives(grouped, &[grouped, expanded], fallback);
+    writer.finish().print(FormatOptions {
+        line_width: width,
+        ..FormatOptions::prettier()
+    })
+}
+
+#[test]
+fn completed_delimiter_layouts() {
+    assert_eq!(completed_delimiter_document(20), "(source, { value })");
+
+    assert_eq!(completed_delimiter_document(12), "(source, {\n  value\n})");
+
+    assert_eq!(
+        completed_delimiter_document(8),
+        "(\n  source,\n  {\n    value\n  }\n)"
+    );
+
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let (prefix, ()) = writer
+        .record_with_value(|writer| {
+            let group = writer.named_group(true, |writer| writer.text("source"));
+            writer.soft_line_if_break(group);
+            Ok::<_, std::convert::Infallible>(())
+        })
+        .unwrap();
+    let body = record(&mut writer, |writer| writer.text("value"));
+    let suffix = record(&mut writer, |writer| writer.text("tail"));
+    let projected = writer.flat_delimited_fragment(
+        "(",
+        prefix.try_flat().unwrap(),
+        body,
+        suffix.try_flat().unwrap(),
+        ")",
+    );
+    assert!(!projected.preferred_breaks());
+    assert!(!projected.conditional_lines);
+    assert!(projected.try_neutral().is_none());
+    let unused = writer.indented_delimited_fragment("(", prefix, body, suffix, ")");
+    assert!(unused.preferred_breaks());
+    assert!(unused.conditional_lines);
+    writer.write_fragment(projected);
+    let doc = writer.finish();
+    assert_eq!(doc.group_count, 1);
+    assert!(!doc.conditional_lines);
+    assert_eq!(doc.print(FormatOptions::prettier()), "(sourcevaluetail)");
 }
 
 fn neutral_continuation(width: u16, neutral: bool) -> String {

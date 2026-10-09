@@ -11,23 +11,17 @@ import.defer("m", { with: { type: "json" } });
 ---------- Options ----------
 {"printWidth":20}
 ---------- Output ----------
-import.defer(
-  "m",
-  {
-    with: {
-      type: "json",
-    },
-  }
-);
+import.defer("m", {
+  with: {
+    type: "json",
+  },
+});
 
 ---------- Options ----------
 {"bracketSpacing":false,"printWidth":20,"semi":false,"singleQuote":true}
 ---------- Output ----------
-import.defer(
-  'm',
-  {
-    with: {
-      type: 'json',
-    },
-  }
-)
+import.defer('m', {
+  with: {
+    type: 'json',
+  },
+})

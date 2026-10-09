@@ -144,18 +144,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             SourceObject::Formatted(FormattedObject { expand, contents }) => {
                 let (content, ()) = writer
                     .record_with_value(|writer| self.format_object_contents(contents, writer))?;
-                let (normal, ()) = writer.record_with_value(|writer| {
-                    writer.group(expand, |writer| writer.write_fragment(content));
-                    Ok::<_, FormatError>(())
-                })?;
+                let normal = writer.group_fragment(expand, content);
                 let forced = if normal.preferred_breaks() {
                     None
                 } else {
-                    let (forced, ()) = writer.record_with_value(|writer| {
-                        writer.group(true, |writer| writer.write_fragment(content));
-                        Ok::<_, FormatError>(())
-                    })?;
-                    Some(forced)
+                    Some(writer.group_fragment(true, content))
                 };
                 Ok(RecordedObject { normal, forced })
             }

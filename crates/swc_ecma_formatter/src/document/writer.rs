@@ -320,6 +320,114 @@ impl<'a> Writer<'a> {
         Ok((RecordedGroup { grouped, contents }, value))
     }
 
+    /// Wraps a completed scope without recording its syntax or allocating a named group.
+    pub(crate) fn group_fragment(&self, expand: bool, fragment: Fragment<'a>) -> Fragment<'a> {
+        let breaks = expand || fragment.breaks;
+        let capabilities = if breaks || fragment.conditional_lines {
+            FragmentCapabilities::from_flat(fragment.capabilities.permits_flat())
+        } else {
+            fragment.capabilities
+        };
+        let elements = self.allocator.alloc([
+            FormatElement::StartGroup {
+                expand: breaks,
+                id: None,
+            },
+            FormatElement::Fragment(fragment),
+            FormatElement::EndGroup,
+        ]);
+        Fragment {
+            elements,
+            breaks,
+            capabilities,
+            conditional_lines: fragment.conditional_lines,
+        }
+    }
+
+    /// Flat views project their backing scopes without propagating backing break flags.
+    pub(crate) fn flat_delimited_fragment(
+        &self,
+        open: &'a str,
+        prefix: FlatFragment<'a>,
+        body: Fragment<'a>,
+        suffix: FlatFragment<'a>,
+        close: &'a str,
+    ) -> Fragment<'a> {
+        let open = Text::new(open);
+        let close = Text::new(close);
+        let capabilities = if !body.capabilities.permits_flat()
+            || !open.is_single_line()
+            || !close.is_single_line()
+        {
+            FragmentCapabilities::General
+        } else if !body.breaks
+            && !body.conditional_lines
+            && matches!(prefix.0.capabilities, FragmentCapabilities::Neutral)
+            && matches!(body.capabilities, FragmentCapabilities::Neutral)
+            && matches!(suffix.0.capabilities, FragmentCapabilities::Neutral)
+        {
+            FragmentCapabilities::Neutral
+        } else {
+            FragmentCapabilities::FlatEligible
+        };
+        let elements = self.allocator.alloc([
+            FormatElement::Text(open),
+            FormatElement::FlatFragment(prefix),
+            FormatElement::Fragment(body),
+            FormatElement::FlatFragment(suffix),
+            FormatElement::Text(close),
+        ]);
+        Fragment {
+            elements,
+            breaks: body.breaks,
+            capabilities,
+            conditional_lines: body.conditional_lines,
+        }
+    }
+
+    /// Only prefix and body gain the outer indent; suffix retains its own complete scopes.
+    pub(crate) fn indented_delimited_fragment(
+        &self,
+        open: &'a str,
+        prefix: Fragment<'a>,
+        body: Fragment<'a>,
+        suffix: Fragment<'a>,
+        close: &'a str,
+    ) -> Fragment<'a> {
+        let open = Text::new(open);
+        let close = Text::new(close);
+        let breaks = prefix.breaks || body.breaks || suffix.breaks;
+        let conditional_lines =
+            prefix.conditional_lines || body.conditional_lines || suffix.conditional_lines;
+        let capabilities = FragmentCapabilities::from_flat(
+            prefix.capabilities.permits_flat()
+                && body.capabilities.permits_flat()
+                && suffix.capabilities.permits_flat()
+                && open.is_single_line()
+                && close.is_single_line(),
+        );
+        let elements = self.allocator.alloc([
+            FormatElement::StartGroup {
+                expand: breaks,
+                id: None,
+            },
+            FormatElement::Text(open),
+            FormatElement::StartIndent,
+            FormatElement::Fragment(prefix),
+            FormatElement::Fragment(body),
+            FormatElement::EndIndent,
+            FormatElement::Fragment(suffix),
+            FormatElement::Text(close),
+            FormatElement::EndGroup,
+        ]);
+        Fragment {
+            elements,
+            breaks,
+            capabilities,
+            conditional_lines,
+        }
+    }
+
     pub(crate) fn write_fragment(&mut self, fragment: Fragment<'a>) {
         self.breaks += usize::from(fragment.breaks);
         self.conditional_lines |= fragment.conditional_lines;
