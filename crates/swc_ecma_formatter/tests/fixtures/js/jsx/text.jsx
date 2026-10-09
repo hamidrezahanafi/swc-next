@@ -48,3 +48,17 @@ const a18=<Box><A/>
  <B/>
 
  <C/></Box>;
+
+const ascii_spacing=<Box>	alpha		 betagamma	</Box>;
+const punctuation=<Box>
+<i>first</i>
+-
+<i>second</i>
+{hour}
+:
+{minute}
+</Box>;
+const guarded_text=<Box>{/* prettier-ignore */}
+<Line value={value+  other}> before		 after </Line>
+{ /* text */ " " }
+</Box>;

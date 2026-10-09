@@ -1,7 +1,5 @@
 //! One forward JSX sibling stream prepares borrowed words and their boundaries.
 
-use std::borrow::Cow;
-
 use swc_next_ecma_ast::{
     Expr, ExprData, GetSpan, JsxChild, JsxChildData, JsxExpressionContainer, JsxExpressionData,
     SubRange,
@@ -32,16 +30,16 @@ pub(super) struct JsxChildrenLayout {
 impl JsxChildrenLayout {
     pub(super) fn write<'ast>(&self, content: Fragment<'ast>, writer: &mut Writer<'ast>) {
         if self.only_space {
-            write_jsx_space(self.single_quote, false, writer);
+            write_jsx_space(self.single_quote, JsxSpacePlacement::Lone, writer);
             return;
         }
         let write = |writer: &mut Writer<'ast>| {
             if self.leading_space {
-                write_jsx_space(self.single_quote, true, writer);
+                write_jsx_space(self.single_quote, JsxSpacePlacement::Leading, writer);
             }
             writer.write_fragment(content);
             if self.trailing_space {
-                write_jsx_space(self.single_quote, false, writer);
+                write_jsx_space(self.single_quote, JsxSpacePlacement::Trailing, writer);
             }
         };
         if self.grouped_text {
@@ -56,6 +54,7 @@ impl JsxChildrenLayout {
 enum JsxSeparator {
     Words,
     Space,
+    TextLine,
     Newline { empty_line: bool },
 }
 
@@ -95,7 +94,34 @@ impl JsxChildrenStream {
         };
         writer.fill_entry(|writer| match pending {
             Some(JsxSeparator::Words) => writer.line(),
-            Some(JsxSeparator::Space) => self.write_space(writer),
+            Some(JsxSeparator::Space) => {
+                write_jsx_space(self.layout.single_quote, JsxSpacePlacement::Between, writer);
+            }
+            Some(JsxSeparator::TextLine) => {
+                let single_character_next_to_non_self_closing = matches!(
+                    (previous, next),
+                    (
+                        JsxContentEdge::Word {
+                            single_character: true
+                        },
+                        JsxContentEdge::NonText {
+                            self_closing: false
+                        },
+                    ) | (
+                        JsxContentEdge::NonText {
+                            self_closing: false
+                        },
+                        JsxContentEdge::Word {
+                            single_character: true
+                        },
+                    )
+                );
+                if single_character_next_to_non_self_closing {
+                    writer.soft_line();
+                } else {
+                    writer.hard_line();
+                }
+            }
             Some(JsxSeparator::Newline { empty_line }) => {
                 writer.hard_line();
                 if empty_line {
@@ -127,17 +153,6 @@ impl JsxChildrenStream {
         });
     }
 
-    /// Fill chooses this separator's mode independently of surrounding groups.
-    fn write_space(&self, writer: &mut Writer<'_>) {
-        writer.if_current_break(if self.layout.single_quote {
-            "{' '}"
-        } else {
-            "{\" \"}"
-        });
-        writer.if_current_flat(" ");
-        writer.soft_line();
-    }
-
     fn after(&mut self, edge: JsxContentEdge) {
         self.previous = Some(edge);
         self.layout.has_content = true;
@@ -162,10 +177,31 @@ impl JsxChildrenStream {
     }
 }
 
-fn write_jsx_space<'ast>(single_quote: bool, following_line: bool, writer: &mut Writer<'ast>) {
-    writer.if_break(if single_quote { "{' '}" } else { "{\" \"}" });
-    writer.if_flat(" ");
-    if following_line {
+#[derive(Clone, Copy)]
+enum JsxSpacePlacement {
+    Between,
+    Leading,
+    Trailing,
+    Lone,
+}
+
+fn write_jsx_space<'ast>(
+    single_quote: bool,
+    placement: JsxSpacePlacement,
+    writer: &mut Writer<'ast>,
+) {
+    let space = if single_quote { "{' '}" } else { "{\" \"}" };
+    if matches!(placement, JsxSpacePlacement::Between) {
+        writer.if_current_break(space);
+        writer.if_current_flat(" ");
+    } else {
+        writer.if_break(space);
+        writer.if_flat(" ");
+    }
+    if matches!(
+        placement,
+        JsxSpacePlacement::Between | JsxSpacePlacement::Leading
+    ) {
         writer.soft_line();
     }
 }
@@ -174,11 +210,12 @@ fn write_jsx_space<'ast>(single_quote: bool, following_line: bool, writer: &mut 
 /// characters separate words; Unicode whitespace is never Rust trim whitespace.
 struct JsxTextChunks<'ast> {
     remaining: &'ast str,
+    meaningful: bool,
 }
 
 enum JsxTextChunk<'ast> {
     Word(&'ast str),
-    Whitespace { line_breaks: u8, has_lf: bool },
+    Whitespace { line_breaks: u8 },
 }
 
 impl<'ast> Iterator for JsxTextChunks<'ast> {
@@ -189,27 +226,24 @@ impl<'ast> Iterator for JsxTextChunks<'ast> {
         let whitespace = is_jsx_whitespace(first);
         let mut end = 0;
         let mut line_breaks = 0_u8;
-        let mut has_lf = false;
         let mut previous_cr = false;
         for byte in self.remaining.bytes() {
             if is_jsx_whitespace(byte) != whitespace {
                 break;
             }
             end += 1;
+            // Prettier normalizes physical line endings before reading JSXText.
             if byte == b'\r' || byte == b'\n' && !previous_cr {
                 line_breaks = (line_breaks + 1).min(2);
             }
-            has_lf |= byte == b'\n';
             previous_cr = byte == b'\r';
         }
         // A boundary is an ASCII formatting character, so it cannot split UTF-8.
         let (chunk, remaining) = self.remaining.split_at(end);
         self.remaining = remaining;
+        self.meaningful |= !whitespace || line_breaks == 0;
         Some(if whitespace {
-            JsxTextChunk::Whitespace {
-                line_breaks,
-                has_lf,
-            }
+            JsxTextChunk::Whitespace { line_breaks }
         } else {
             JsxTextChunk::Word(chunk)
         })
@@ -257,18 +291,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
                 if let JsxChildData::JsxText(text) = data {
                     let raw = ast.get_utf8(text.value(ast));
-                    // Ignore uses the original sibling, not canonical spelling.
-                    if previous_ignore && jsx_text_is_meaningful(raw) {
+                    if jsx_text_needs_literal(raw) {
+                        // Opaque text contains a non-formatting character.
                         previous_ignore = false;
-                    }
-                    if let Some(literal) = jsx_literal_text(raw) {
                         stream.before(JsxContentEdge::Literal, writer);
-                        writer.fill_entry(|writer| writer.literal_text(literal));
+                        writer.fill_entry(|writer| writer.literal_text(raw));
                         stream.after(JsxContentEdge::Literal);
                         stream.contains_text = true;
                         continue;
                     }
-                    let mut chunks = JsxTextChunks { remaining: raw };
+                    let mut chunks = JsxTextChunks {
+                        remaining: raw,
+                        meaningful: raw.is_empty(),
+                    };
                     let mut first = true;
                     while let Some(chunk) = chunks.next() {
                         match chunk {
@@ -282,26 +317,28 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                                 stream.after(edge);
                                 stream.contains_text = true;
                             }
-                            JsxTextChunk::Whitespace {
-                                line_breaks,
-                                has_lf,
-                            } => {
-                                stream.contains_text |= !has_lf;
-                                let separator = if first || chunks.remaining.is_empty() {
-                                    if line_breaks == 0 {
-                                        JsxSeparator::Space
-                                    } else {
-                                        JsxSeparator::Newline {
-                                            empty_line: line_breaks == 2,
-                                        }
+                            JsxTextChunk::Whitespace { line_breaks } => {
+                                stream.contains_text |= line_breaks == 0;
+                                let last = chunks.remaining.is_empty();
+                                let separator = if !first && !last {
+                                    JsxSeparator::Words
+                                } else if line_breaks == 0 {
+                                    JsxSeparator::Space
+                                } else if first && last {
+                                    JsxSeparator::Newline {
+                                        empty_line: line_breaks == 2,
                                     }
                                 } else {
-                                    JsxSeparator::Words
+                                    JsxSeparator::TextLine
                                 };
                                 stream.separator(separator);
                             }
                         }
                         first = false;
+                    }
+                    // Ignore follows the original sibling, not its canonical spelling.
+                    if chunks.meaningful {
+                        previous_ignore = false;
                     }
                     continue;
                 }
@@ -411,54 +448,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             space,
         })
     }
-}
-
-/// Ambiguous Unicode text stays borrowed. Only possible TAB inputs need the
-/// existing common physical-edge fold; surviving TABs cannot gain trim edges.
-fn jsx_literal_text(raw: &str) -> Option<Cow<'_, str>> {
-    if jsx_text_needs_literal(raw) {
-        return Some(Cow::Borrowed(raw));
-    }
-    if !raw.contains('\t') {
-        return None;
-    }
-    let text = jsx_semantic_text(raw);
-    text.contains('\t').then_some(text)
-}
-
-/// Prettier's sibling-ignore predicate only skips LF-containing formatting
-/// whitespace. Other Unicode whitespace and same-line blanks remain barriers.
-fn jsx_text_is_meaningful(raw: &str) -> bool {
-    !raw.contains('\n') || !raw.bytes().all(is_jsx_whitespace)
-}
-
-/// Common physical lines trim ASCII edges before entity decoding.
-fn jsx_semantic_text(raw: &str) -> Cow<'_, str> {
-    if !raw.contains(['\r', '\n']) {
-        return Cow::Borrowed(raw);
-    }
-    let mut output = String::with_capacity(raw.len());
-    let mut lines = raw.split(['\r', '\n']).enumerate().peekable();
-    while let Some((index, line)) = lines.next() {
-        let line = if index == 0 {
-            line
-        } else {
-            line.trim_start_matches([' ', '\t'])
-        };
-        let line = if lines.peek().is_none() {
-            line
-        } else {
-            line.trim_end_matches([' ', '\t'])
-        };
-        if line.is_empty() {
-            continue;
-        }
-        if !output.is_empty() {
-            output.push(' ');
-        }
-        output.push_str(line);
-    }
-    Cow::Owned(output)
 }
 
 fn jsx_text_needs_literal(raw: &str) -> bool {
