@@ -16,7 +16,9 @@ use super::parameters::{CallbackParameterShape, FunctionParameters};
 use super::statements::IncomingStatement;
 use super::suppression::{ContentMode, SuppressionPosition, is_suppression_comment};
 use super::types::TypeGap;
-use super::types::callable::{SignatureReturn, SignatureReturnDelimiter, SignatureReturnEolTarget};
+use super::types::callable::{
+    SignatureParameterLayout, SignatureReturn, SignatureReturnDelimiter, SignatureReturnEolTarget,
+};
 use super::types::generics::{TypeListKind, TypeListPrefix, TypeParameterContext};
 use crate::{FormatError, document::Writer};
 
@@ -640,20 +642,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         callback_shape: Option<&mut CallbackParameterShape>,
         writer: &mut Writer<'ast>,
     ) -> Result<SourceFunctionBody<'ast>, FormatError> {
-        let object = signature.parameters.signature_object;
-        let independent_parameters = object.is_some()
-            && signature.result.is_some()
-            && signature.generics.as_ref().is_none_or(|generic| {
-                let parameters = generic.node.params(self.ast);
-                if parameters.len() > 1 {
-                    return false;
-                }
-                parameters.iter().next().is_none_or(|id| {
-                    let parameter = self.ast.get_node_in_sub_range(id);
-                    parameter.constraint(self.ast).is_none()
-                        && parameter.default(self.ast).is_none()
-                })
-            });
+        let independent_parameters = self.signature_parameters_can_group(
+            signature.parameters.has_single_parameter,
+            signature.generics.as_ref().map(|generic| generic.node),
+            signature.result.as_ref(),
+        );
         if let Some(generic) = signature.generics {
             match generic.prefix {
                 FunctionGenericPrefix::Header(prefix) => {
@@ -671,13 +664,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             )?;
             self.format_type_gap(generic.following, FlatSeparator::Empty, writer)?;
         }
-        match (object, signature.result) {
-            (Some(object), Some(result)) => {
+        match signature.result {
+            Some(result) if independent_parameters => {
                 let (parameters, ()) = writer.record_group_with_value(|writer| {
-                    self.format_source_parameters_with_object(
+                    self.format_source_parameters_with_layout(
                         signature.parameters.source,
                         callback_shape,
-                        Some(object),
+                        SignatureParameterLayout::Shared,
                         writer,
                     )
                 })?;
@@ -688,26 +681,38 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     self.format_expression_tail(tail, writer)
                 })?;
                 writer.group(false, |writer| {
-                    writer.write_fragment(
-                        if independent_parameters && (object_return || result.preferred_breaks()) {
-                            parameters.grouped
-                        } else {
-                            parameters.contents
-                        },
-                    );
+                    writer.write_fragment(if object_return || result.preferred_breaks() {
+                        parameters.grouped
+                    } else {
+                        parameters.contents
+                    });
                     writer.write_fragment(result);
                 });
             }
-            (_, result) => {
-                self.format_source_parameters_with_shape(
-                    signature.parameters.source,
-                    callback_shape,
-                    writer,
-                )?;
-                if let Some(result) = result {
-                    let tail = self.format_signature_return(result, writer)?;
-                    self.format_expression_tail(tail, writer)?;
-                }
+            result => {
+                let layout = if signature.parameters.force_break {
+                    SignatureParameterLayout::Forced
+                } else if result
+                    .as_ref()
+                    .is_some_and(|result| result.preceding_mode == ContentMode::Verbatim)
+                {
+                    SignatureParameterLayout::Independent
+                } else {
+                    SignatureParameterLayout::Shared
+                };
+                writer.group(false, |writer| {
+                    self.format_source_parameters_with_layout(
+                        signature.parameters.source,
+                        callback_shape,
+                        layout,
+                        writer,
+                    )?;
+                    if let Some(result) = result {
+                        let tail = self.format_signature_return(result, writer)?;
+                        self.format_expression_tail(tail, writer)?;
+                    }
+                    Ok::<_, FormatError>(())
+                })?;
             }
         }
         Ok(signature.body)

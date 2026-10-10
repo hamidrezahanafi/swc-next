@@ -73,6 +73,7 @@ pub(super) struct PreparedType {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TypeLayout {
     Root,
+    SignatureParameter,
     AliasRhs,
     ConditionalConsequent,
     ConditionalAlternate,
@@ -829,7 +830,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 layout,
                 writer,
             ),
-            TsTypeData::TsTypeLiteral(node) => self.format_type_literal(node, writer),
+            TsTypeData::TsTypeLiteral(node) => self.format_type_literal(node, layout, writer),
             TsTypeData::TsTupleType(node) => self.format_tuple_type(node, writer),
             TsTypeData::TsFunctionType(node) => {
                 self.format_callable_type(callable::CallableType::Function(node), writer)
@@ -1208,6 +1209,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         content: PreparedAnnotation<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_annotation_content_with_layout(content, TypeLayout::Root, writer)
+    }
+
+    fn format_annotation_content_with_layout(
+        &mut self,
+        content: PreparedAnnotation<'ast>,
+        layout: TypeLayout,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         match content.prefix {
             TypeBoundaryLayout::Source(gap) => self.format_verbatim(gap, writer)?,
             TypeBoundaryLayout::Formatted { before, after } => {
@@ -1220,12 +1230,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .write(writer, FlatSeparator::Space, Writer::space);
             }
         }
-        self.format_annotation_type_content(content.content, writer)
+        self.format_annotation_type_content_with_layout(content.content, layout, writer)
     }
 
     fn format_annotation_type_content(
         &mut self,
         content: AnnotationContent,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_annotation_type_content_with_layout(content, TypeLayout::Root, writer)
+    }
+
+    fn format_annotation_type_content_with_layout(
+        &mut self,
+        content: AnnotationContent,
+        layout: TypeLayout,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         match content {
@@ -1234,7 +1253,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Ok(None)
             }
             AnnotationContent::Formatted(type_node) => {
-                self.format_prepared_type(type_node, TypeContext::Root, writer)
+                self.format_prepared_type_with_layout(type_node, TypeContext::Root, layout, writer)
             }
         }
     }

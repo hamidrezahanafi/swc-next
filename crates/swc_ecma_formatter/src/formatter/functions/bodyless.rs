@@ -253,6 +253,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         signature: PreparedBodylessSignature<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let generics = signature.generics.as_ref().map(|generic| generic.node);
+        let can_group_parameters = self.signature_parameters_can_group(
+            signature.parameters.count() == 1,
+            generics,
+            signature.result.as_ref(),
+        );
         if let Some(prefix) = signature.prefix {
             self.format_type_gap(
                 prefix,
@@ -276,10 +282,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             )?;
             self.format_type_gap(generic.following, FlatSeparator::Empty, writer)?;
         }
-        self.format_callable_parameters(signature.parameters, writer)?;
-        match signature.result {
-            Some(result) => self.format_signature_return(result, writer),
-            None => Ok(None),
-        }
+        writer.group(false, |writer| {
+            self.format_callable_signature_contents(
+                signature.parameters,
+                signature.result,
+                None,
+                can_group_parameters,
+                false,
+                writer,
+            )
+        })
     }
 }

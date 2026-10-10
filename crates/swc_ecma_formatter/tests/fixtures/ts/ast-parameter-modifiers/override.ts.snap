@@ -7,7 +7,7 @@ class C { constructor(readonly override /* keep */ override public value: number
 {"printWidth":80}
 ---------- Output ----------
 class C {
-  constructor(readonly override /* keep */ public value: number) {}
+  constructor(public override /* keep */ readonly value: number) {}
 }
 
 ---------- Options ----------
@@ -15,6 +15,6 @@ class C {
 ---------- Output ----------
 class C {
   constructor(
-    readonly override /* keep */ public value: number,
+    public override /* keep */ readonly value: number,
   ) {}
 }

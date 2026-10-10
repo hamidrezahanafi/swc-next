@@ -1,9 +1,10 @@
 //! Shared parameter items retain real bindings and annotation wrappers.
 
 use swc_next_ecma_ast::{
-    Ast, BindingPattern, Expr, FormalParameter, FormalParameterItemData, FormalParameterRest,
-    FormalParameters, GetSpan, Span, TsConstructorType, TsFunctionType, TsThisParameter,
-    TsTypeAnnotation, TsTypeParameterDeclaration, TsTypePredicate, TsTypePredicateNameData,
+    Ast, BindingPattern, Expr, FormalParameter, FormalParameterItemData,
+    FormalParameterPatternData, FormalParameterRest, FormalParameters, GetSpan, Span,
+    TsConstructorType, TsFunctionType, TsThisParameter, TsType, TsTypeAnnotation, TsTypeData,
+    TsTypeParameterDeclaration, TsTypePredicate, TsTypePredicateNameData,
 };
 
 use super::generics::TypeParameterContext;
@@ -126,6 +127,26 @@ pub(in crate::formatter) enum SignatureReturnDelimiter {
     Colon,
 }
 
+#[derive(Clone, Copy)]
+pub(in crate::formatter) enum SignatureParameterLayout {
+    Shared,
+    Independent,
+    Forced,
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::formatter) enum SignatureParameterHug {
+    Pattern,
+    Object,
+    Type,
+}
+
+pub(in crate::formatter) struct SignatureGenerics<'ast> {
+    pub(in crate::formatter) node: TsTypeParameterDeclaration,
+    pub(in crate::formatter) mode: ContentMode,
+    pub(in crate::formatter) following: TypeGap<'ast>,
+}
+
 pub(in crate::formatter) enum SignatureReturnEolTarget<'mode> {
     Parameter,
     Header(&'mode mut ContentMode),
@@ -167,7 +188,8 @@ struct CallableTerminal {
 pub(in crate::formatter) struct CallableParameters {
     node: FormalParameters,
     this_parameter: Option<TsThisParameter>,
-    has_parameters: bool,
+    count: usize,
+    hug: Option<SignatureParameterHug>,
     pub(in crate::formatter) source_head: Option<CallableParameter>,
     suppressed_tail: Option<CallableParameter>,
     terminal: Option<CallableTerminal>,
@@ -175,7 +197,11 @@ pub(in crate::formatter) struct CallableParameters {
 
 impl CallableParameters {
     pub(in crate::formatter) fn has_parameters(&self) -> bool {
-        self.has_parameters
+        self.count != 0
+    }
+
+    pub(in crate::formatter) fn count(&self) -> usize {
+        self.count
     }
 }
 
@@ -186,7 +212,7 @@ enum ParameterBinding<'ast> {
         spread: Option<TypeGap<'ast>>,
     },
     This(TsThisParameter),
-    SignatureObject(swc_next_ecma_ast::ObjectPattern),
+    SignatureObject(BindingPattern),
 }
 
 struct PreparedParameterDefault<'ast> {
@@ -200,6 +226,7 @@ struct ParameterLeft<'ast> {
     binding: ParameterBinding<'ast>,
     optional: bool,
     annotation: Option<PreparedAnnotation<'ast>>,
+    annotation_layout: TypeLayout,
     end: u32,
 }
 
@@ -249,19 +276,25 @@ impl PreparedParameterItem<'_> {
         matches!(self.0, ParameterItemState::Source(_))
     }
 
-    pub(in crate::formatter) fn share_object_group(
+    pub(in crate::formatter) fn share_signature_group(
         mut self,
-        object: swc_next_ecma_ast::ObjectPattern,
+        hug: SignatureParameterHug,
     ) -> Self {
-        if let ParameterItemState::Formatted(left) = &mut self.0
-            && let ParameterBinding::Pattern {
-                node,
-                mode: ContentMode::Formatted,
-                spread: None,
-            } = &left.binding
-            && *node == BindingPattern::ObjectPattern(object)
-        {
-            left.binding = ParameterBinding::SignatureObject(object);
+        if let ParameterItemState::Formatted(left) = &mut self.0 {
+            if matches!(hug, SignatureParameterHug::Object)
+                && let ParameterBinding::Pattern {
+                    node,
+                    mode: ContentMode::Formatted,
+                    spread: None,
+                } = &left.binding
+            {
+                left.binding = ParameterBinding::SignatureObject(*node);
+            }
+            if let Some(annotation) = &left.annotation
+                && matches!(&annotation.content, super::AnnotationContent::Formatted(_))
+            {
+                left.annotation_layout = TypeLayout::SignatureParameter;
+            }
         }
         self
     }
@@ -391,6 +424,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             SignatureReturnDelimiter::Arrow,
         );
         self.prepare_callable_parameter_tail(&mut parameters, return_type.preceding_mode)?;
+        let can_group_parameters = self.signature_parameters_can_group(
+            parameters.count() == 1,
+            parts.type_parameters,
+            Some(&return_type),
+        );
+        let generics = generic_tail.map(|(node, following)| SignatureGenerics {
+            node,
+            mode: generic_mode,
+            following,
+        });
         writer.group(false, |writer| {
             if let CallableHead::Constructor { abstract_gap } = head {
                 if let Some(gap) = abstract_gap {
@@ -402,17 +445,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             } else {
                 self.format_type_gap(prefix, FlatSeparator::Empty, writer)?;
             }
-            if let Some((generic, gap)) = generic_tail {
-                self.format_type_parameters(
-                    generic,
-                    TypeParameterContext::Callable,
-                    generic_mode,
-                    writer,
-                )?;
-                self.format_type_gap(gap, FlatSeparator::Empty, writer)?;
-            }
-            self.format_callable_parameters(parameters, writer)?;
-            self.format_signature_return(return_type, writer)
+            self.format_callable_signature_contents(
+                parameters,
+                Some(return_type),
+                generics,
+                can_group_parameters,
+                false,
+                writer,
+            )
         })
     }
 
@@ -441,16 +481,138 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         node: FormalParameters,
         this_parameter: Option<TsThisParameter>,
     ) -> CallableParameters {
-        let has_parameters = this_parameter.is_some()
-            || !node.items(self.ast).is_empty()
-            || node.rest(self.ast).is_some();
+        let count = node.items(self.ast).len()
+            + usize::from(this_parameter.is_some())
+            + usize::from(node.rest(self.ast).is_some());
+        let hug = if count == 1 {
+            let parameter = if let Some(this) = this_parameter {
+                Some(CallableParameter::This(this))
+            } else {
+                node.items(self.ast).iter().next().and_then(|id| {
+                    match self
+                        .ast
+                        .formal_parameter_item_data(self.ast.get_node_in_sub_range(id))
+                    {
+                        FormalParameterItemData::FormalParameter(parameter) => {
+                            Some(CallableParameter::Formal(parameter))
+                        }
+                        FormalParameterItemData::TsParameterProperty(_) => None,
+                    }
+                })
+            };
+            parameter
+                .and_then(|parameter| self.callable_parameter_hug(parameter, node.span(self.ast)))
+        } else {
+            None
+        };
         CallableParameters {
             node,
             this_parameter,
-            has_parameters,
+            count,
+            hug,
             source_head: None,
             suppressed_tail: None,
             terminal: None,
+        }
+    }
+
+    pub(in crate::formatter) fn callable_parameter_hug(
+        &self,
+        parameter: CallableParameter,
+        envelope: Span,
+    ) -> Option<SignatureParameterHug> {
+        let ast = self.ast;
+        let (hug, start) = match parameter {
+            CallableParameter::Formal(node) => {
+                if !node.decorators(ast).is_empty() {
+                    return None;
+                }
+                let pattern = node.pattern(ast);
+                let initializer = node.initializer(ast);
+                if initializer.is_some_and(|expression| {
+                    match self.expression_content(expression).data {
+                        swc_next_ecma_ast::ExprData::IdentifierReference(_) => false,
+                        swc_next_ecma_ast::ExprData::ArrayExpression(array) => {
+                            !array.elements(ast).is_empty()
+                        }
+                        swc_next_ecma_ast::ExprData::ObjectExpression(object) => {
+                            !object.properties(ast).is_empty()
+                        }
+                        _ => true,
+                    }
+                }) {
+                    return None;
+                }
+                let hug = match ast.formal_parameter_pattern_data(pattern) {
+                    FormalParameterPatternData::ObjectPattern(_) if initializer.is_none() => {
+                        SignatureParameterHug::Object
+                    }
+                    FormalParameterPatternData::ObjectPattern(_)
+                    | FormalParameterPatternData::ArrayPattern(_) => SignatureParameterHug::Pattern,
+                    FormalParameterPatternData::BindingIdentifier(_) if initializer.is_none() => {
+                        let annotation = node.type_annotation(ast)?;
+                        let type_node = annotation.type_annotation(ast);
+                        if !self.parameter_has_object_type(type_node)
+                            || !self
+                                .comments
+                                .in_range(Span::new(
+                                    pattern.span(ast).end,
+                                    type_node.span(ast).start,
+                                ))
+                                .is_empty()
+                        {
+                            return None;
+                        }
+                        SignatureParameterHug::Type
+                    }
+                    _ => return None,
+                };
+                (hug, pattern.span(ast).start)
+            }
+            CallableParameter::This(node) => {
+                let annotation = node.type_annotation(ast)?;
+                let type_node = annotation.type_annotation(ast);
+                if !self.parameter_has_object_type(type_node)
+                    || !self
+                        .comments
+                        .in_range(Span::new(
+                            node.span(ast).start + 4,
+                            type_node.span(ast).start,
+                        ))
+                        .is_empty()
+                {
+                    return None;
+                }
+                (SignatureParameterHug::Type, node.span(ast).start)
+            }
+            CallableParameter::Rest(_) => return None,
+        };
+        if self.diagnostic_range_is_sensitive(envelope) {
+            return None;
+        }
+        if !self
+            .comments
+            .in_range(Span::new(envelope.start, start))
+            .is_empty()
+            || !self
+                .comments
+                .in_range(Span::new(parameter.span(ast).end, envelope.end))
+                .is_empty()
+        {
+            return None;
+        }
+        Some(hug)
+    }
+
+    fn parameter_has_object_type(&self, mut node: TsType) -> bool {
+        loop {
+            match self.ast.ts_type_data(node) {
+                TsTypeData::TsTypeLiteral(_) | TsTypeData::TsMappedType(_) => return true,
+                TsTypeData::TsParenthesizedType(parentheses) => {
+                    node = parentheses.type_annotation(self.ast)
+                }
+                _ => return false,
+            }
         }
     }
 
@@ -669,6 +831,131 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.format_annotation_owner(result.content, context, writer)
     }
 
+    pub(in crate::formatter) fn signature_parameters_can_group(
+        &self,
+        has_single_parameter: bool,
+        generics: Option<TsTypeParameterDeclaration>,
+        result: Option<&SignatureReturn<'ast>>,
+    ) -> bool {
+        if !has_single_parameter {
+            return false;
+        }
+        let Some(result) = result else {
+            return false;
+        };
+        if let AnnotationContent::Type(node) = &result.content
+            && node.source_owner.is_none()
+            && let TypeBoundaryLayout::Formatted { before, after } = &result.prefix
+            && before.is_empty()
+            && after.is_empty()
+            && !before.gap().requires_line()
+            && !after.gap().requires_line()
+        {
+            let simple = match node.data {
+                TsTypeData::TsAnyKeyword(_)
+                | TsTypeData::TsUnknownKeyword(_)
+                | TsTypeData::TsNeverKeyword(_)
+                | TsTypeData::TsVoidKeyword(_)
+                | TsTypeData::TsNullKeyword(_)
+                | TsTypeData::TsUndefinedKeyword(_)
+                | TsTypeData::TsStringKeyword(_)
+                | TsTypeData::TsNumberKeyword(_)
+                | TsTypeData::TsBigIntKeyword(_)
+                | TsTypeData::TsBooleanKeyword(_)
+                | TsTypeData::TsSymbolKeyword(_)
+                | TsTypeData::TsObjectKeyword(_)
+                | TsTypeData::TsIntrinsicKeyword(_)
+                | TsTypeData::TsThisType(_) => true,
+                TsTypeData::TsTypeReference(reference) => {
+                    reference.type_arguments(self.ast).is_none()
+                        && self.comments.in_range(reference.span(self.ast)).is_empty()
+                }
+                _ => false,
+            };
+            if simple {
+                return false;
+            }
+        }
+        let Some(generics) = generics else {
+            return true;
+        };
+        let parameters = generics.params(self.ast);
+        if parameters.len() > 1 {
+            return false;
+        }
+        parameters.iter().next().is_none_or(|id| {
+            let parameter = self.ast.get_node_in_sub_range(id);
+            parameter.constraint(self.ast).is_none() && parameter.default(self.ast).is_none()
+        })
+    }
+
+    pub(in crate::formatter) fn format_callable_signature_contents(
+        &mut self,
+        parameters: CallableParameters,
+        result: Option<SignatureReturn<'ast>>,
+        generics: Option<SignatureGenerics<'ast>>,
+        can_group_parameters: bool,
+        group_return: bool,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        if can_group_parameters && let Some(result) = result {
+            let (parameters, ()) = writer.record_group_with_value(|writer| {
+                self.format_callable_signature_parameters(parameters, generics, writer)
+            })?;
+            let result = self.prepare_function_return(result);
+            let object_return = result.has_object_type();
+            let (result, tail) = writer.record_with_value(|writer| {
+                if group_return {
+                    writer.group(false, |writer| self.format_function_return(result, writer))
+                } else {
+                    self.format_function_return(result, writer)
+                }
+            })?;
+            writer.write_fragment(if object_return || result.preferred_breaks() {
+                parameters.grouped
+            } else {
+                parameters.contents
+            });
+            writer.write_fragment(result);
+            return Ok(tail);
+        }
+        if result
+            .as_ref()
+            .is_some_and(|result| result.preceding_mode == ContentMode::Verbatim)
+        {
+            writer.group(false, |writer| {
+                self.format_callable_signature_parameters(parameters, generics, writer)
+            })?;
+        } else {
+            self.format_callable_signature_parameters(parameters, generics, writer)?;
+        }
+        match result {
+            Some(result) if group_return => {
+                writer.group(false, |writer| self.format_signature_return(result, writer))
+            }
+            Some(result) => self.format_signature_return(result, writer),
+            None => Ok(None),
+        }
+    }
+
+    fn format_callable_signature_parameters(
+        &mut self,
+        parameters: CallableParameters,
+        generics: Option<SignatureGenerics<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        if let Some(generic) = generics {
+            self.format_type_parameters(
+                generic.node,
+                TypeParameterContext::Callable,
+                generic.mode,
+                writer,
+            )?;
+            self.format_type_gap(generic.following, FlatSeparator::Empty, writer)?;
+        }
+        self.format_callable_parameters(parameters, writer)
+    }
+
     fn format_signature_return_prefix(
         &mut self,
         prefix: TypeBoundaryLayout<'ast>,
@@ -742,6 +1029,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let span = parameters.node.span(ast);
         let content = Span::new(span.start + 1, span.end - 1);
         let has_parameters = parameters.has_parameters();
+        let hug = parameters
+            .hug
+            .filter(|_| parameters.source_head.is_none() && parameters.suppressed_tail.is_none());
         let members = parameters
             .this_parameter
             .into_iter()
@@ -768,95 +1058,104 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .into_iter()
                     .map(|node| Ok(CallableParameter::Rest(node))),
             );
-        writer.group(false, |writer| {
-            writer.text("(");
-            let (end, closing) = writer.indent(|writer| {
-                if has_parameters || !self.comments.in_range(content).is_empty() {
-                    self.opening_line_constraint(content).write(
+        writer.text("(");
+        let write_items = |writer: &mut Writer<'ast>| {
+            if hug.is_none() && (has_parameters || !self.comments.in_range(content).is_empty()) {
+                self.opening_line_constraint(content).write(
+                    writer,
+                    FlatSeparator::Empty,
+                    Writer::soft_line,
+                );
+            }
+            let mut members = members.peekable();
+            let mut end = content.start;
+            let mut following_mode = None;
+            let mut separator = Separator::Line;
+            let mut has_previous = false;
+            while let Some(member) = members.next() {
+                let member = member?;
+                let member_span = member.span(ast);
+                if has_previous {
+                    let next = self
+                        .comments
+                        .between(Span::new(end, member_span.start))?
+                        .first()
+                        .map_or(member_span.start, |comment| comment.span.start);
+                    ArgumentLayout::Lines.separator(
+                        separator,
+                        self.line_constraint(end, next),
                         writer,
-                        FlatSeparator::Empty,
-                        Writer::soft_line,
                     );
                 }
-                let mut members = members.peekable();
-                let mut end = content.start;
-                let mut following_mode = None;
-                let mut separator = Separator::Line;
-                let mut has_previous = false;
-                while let Some(member) = members.next() {
-                    let member = member?;
-                    let member_span = member.span(ast);
-                    if has_previous {
-                        let next = self
-                            .comments
-                            .between(Span::new(end, member_span.start))?
-                            .first()
-                            .map_or(member_span.start, |comment| comment.span.start);
-                        ArgumentLayout::Lines.separator(
-                            separator,
-                            self.line_constraint(end, next),
-                            writer,
-                        );
-                    }
-                    let following = match members.peek() {
-                        Some(Ok(node)) => FollowingItem::Node(node.span(ast)),
-                        Some(Err(_)) | None => FollowingItem::End,
-                    };
-                    let following = parameters
-                        .terminal
-                        .as_ref()
-                        .filter(|terminal| terminal.parameter == member)
-                        .map_or(following, |_| {
-                            FollowingItem::ResolvedTerminal(DelimitedSuppression {
-                                preceding: Some(member_span),
-                                following: ContentMode::Formatted,
-                            })
-                        });
-                    let mut item = self.prepare_delimited_item(
-                        member_span,
-                        following,
-                        Span::new(end, content.end),
-                        !matches!(member, CallableParameter::Rest(_))
-                            && self.options.trailing_commas == TrailingCommas::All,
-                        writer,
-                    )?;
-                    if let Some(mode) = following_mode {
-                        item.set_leading_mode(mode);
-                    }
-                    if parameters.source_head == Some(member)
-                        || parameters.suppressed_tail == Some(member)
-                    {
-                        item.set_leading_mode(ContentMode::Verbatim);
-                    }
-                    let prepared = self.prepare_callable_parameter(member, item.mode)?;
-                    let tail = self.format_prepared_parameter_item(prepared, writer)?;
-                    let boundary = self.finish_delimited_item(item, tail, writer)?;
-                    end = boundary.end;
-                    following_mode = Some(boundary.following_mode);
-                    separator = boundary.separator;
-                    has_previous = true;
+                let following = match members.peek() {
+                    Some(Ok(node)) => FollowingItem::Node(node.span(ast)),
+                    Some(Err(_)) | None => FollowingItem::End,
+                };
+                let following = parameters
+                    .terminal
+                    .as_ref()
+                    .filter(|terminal| terminal.parameter == member)
+                    .map_or(following, |_| {
+                        FollowingItem::ResolvedTerminal(DelimitedSuppression {
+                            preceding: Some(member_span),
+                            following: ContentMode::Formatted,
+                        })
+                    });
+                let mut item = self.prepare_delimited_item(
+                    member_span,
+                    following,
+                    Span::new(end, content.end),
+                    hug.is_none()
+                        && !matches!(member, CallableParameter::Rest(_))
+                        && self.options.trailing_commas == TrailingCommas::All,
+                    writer,
+                )?;
+                if let Some(mode) = following_mode {
+                    item.set_leading_mode(mode);
                 }
-                let dangling = self.comments.between(Span::new(end, content.end))?;
-                let boundary = self.prepare_comment_boundary(dangling, end, content.end);
-                self.comments.claim(dangling)?;
-                self.format_comment_run(dangling, CommentRunLayout::Lines, writer)?;
-                Ok::<_, FormatError>((
-                    dangling.last().map_or(end, |comment| comment.span.end),
-                    boundary.gap(),
-                ))
-            })?;
-            if has_parameters || end != content.start {
-                if let Some(terminal) = &parameters.terminal {
-                    terminal
-                        .closing
-                        .write(writer, FlatSeparator::Empty, Writer::soft_line);
+                if parameters.source_head == Some(member)
+                    || parameters.suppressed_tail == Some(member)
+                {
+                    item.set_leading_mode(ContentMode::Verbatim);
+                }
+                let prepared = self.prepare_callable_parameter(member, item.mode)?;
+                let prepared = if let Some(hug) = hug {
+                    prepared.share_signature_group(hug)
                 } else {
-                    closing.write(writer, FlatSeparator::Empty, Writer::soft_line);
-                }
+                    prepared
+                };
+                let tail = self.format_prepared_parameter_item(prepared, writer)?;
+                let boundary = self.finish_delimited_item(item, tail, writer)?;
+                end = boundary.end;
+                following_mode = Some(boundary.following_mode);
+                separator = boundary.separator;
+                has_previous = true;
             }
-            writer.text(")");
-            Ok(())
-        })
+            let dangling = self.comments.between(Span::new(end, content.end))?;
+            let boundary = self.prepare_comment_boundary(dangling, end, content.end);
+            self.comments.claim(dangling)?;
+            self.format_comment_run(dangling, CommentRunLayout::Lines, writer)?;
+            Ok::<_, FormatError>((
+                dangling.last().map_or(end, |comment| comment.span.end),
+                boundary.gap(),
+            ))
+        };
+        let (end, closing) = if hug.is_some() {
+            write_items(writer)?
+        } else {
+            writer.indent(write_items)?
+        };
+        if hug.is_none() && (has_parameters || end != content.start) {
+            if let Some(terminal) = &parameters.terminal {
+                terminal
+                    .closing
+                    .write(writer, FlatSeparator::Empty, Writer::soft_line);
+            } else {
+                closing.write(writer, FlatSeparator::Empty, Writer::soft_line);
+            }
+        }
+        writer.text(")");
+        Ok(())
     }
 
     fn prepare_callable_parameter(
@@ -1092,6 +1391,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             binding,
             optional,
             annotation,
+            annotation_layout: TypeLayout::Root,
             end: initializer
                 .as_ref()
                 .map_or(node.span(ast).end, |initializer| initializer.left.end),
@@ -1160,9 +1460,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.text("this");
                 this.span(self.ast).start + 4
             }
-            ParameterBinding::SignatureObject(object) => {
-                self.format_object_binding_contents(object, writer)?;
-                object.span(self.ast).end
+            ParameterBinding::SignatureObject(pattern) => {
+                if let Some(object) = pattern.as_object_pattern(self.ast) {
+                    self.format_object_binding_contents(object, writer)?;
+                } else {
+                    let tail =
+                        self.format_declaration_binding(pattern, ContentMode::Formatted, writer)?;
+                    self.format_expression_tail(tail, writer)?;
+                }
+                pattern.span(self.ast).end
             }
             ParameterBinding::Pattern { node, mode, spread } => {
                 if let Some(gap) = spread {
@@ -1179,7 +1485,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             if optional && matches!(&annotation.prefix, TypeBoundaryLayout::Formatted { .. }) {
                 writer.text("?");
             }
-            self.format_annotation_content(annotation, writer)
+            self.format_annotation_content_with_layout(annotation, left.annotation_layout, writer)
         } else {
             if optional {
                 writer.text("?");

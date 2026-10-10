@@ -8,11 +8,10 @@ use swc_next_ecma_ast::{
 };
 
 use super::callable::{
-    AnnotationContent, CallableParameters, SignatureIncoming, SignatureReturn,
+    AnnotationContent, CallableParameters, SignatureGenerics, SignatureIncoming, SignatureReturn,
     SignatureReturnDelimiter, SignatureReturnEolTarget,
 };
-use super::generics::TypeParameterContext;
-use super::{Formatter, PreparedType, TypeBoundaryLayout, TypeContext, TypeGap};
+use super::{Formatter, PreparedType, TypeBoundaryLayout, TypeContext, TypeGap, TypeLayout};
 use crate::formatter::comments::{CommentBoundary, CommentGap, CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::expressions::arguments::{ArgumentLayout, FollowingItem, Separator};
@@ -205,13 +204,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_type_literal(
         &mut self,
         node: TsTypeLiteral,
+        layout: TypeLayout,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        self.format_type_member_body(
+        self.format_type_member_body_with_layout(
             node.span(self.ast),
             node.members(self.ast),
             TypeMemberBodyKind::Literal,
             None,
+            layout,
             writer,
         )?;
         Ok(None)
@@ -223,6 +224,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         members: SubRange<TsTypeElement>,
         kind: TypeMemberBodyKind,
         incoming: Option<IncomingTypeMember>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        self.format_type_member_body_with_layout(
+            span,
+            members,
+            kind,
+            incoming,
+            TypeLayout::Root,
+            writer,
+        )
+    }
+
+    fn format_type_member_body_with_layout(
+        &mut self,
+        span: Span,
+        members: SubRange<TsTypeElement>,
+        kind: TypeMemberBodyKind,
+        incoming: Option<IncomingTypeMember>,
+        layout: TypeLayout,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let ast = self.ast;
@@ -247,6 +267,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 return Ok(());
             }
             let boundary = self.prepare_comment_boundary(comments, content.start, content.end);
+            if layout == TypeLayout::SignatureParameter {
+                writer.text("{");
+                let before = self.line_constraint(content.start, comments[0].span.start);
+                writer.indent(|writer| {
+                    before.write(writer, FlatSeparator::Empty, Writer::soft_line);
+                    self.format_comment_boundary_with_layout(
+                        &boundary,
+                        CommentRunLayout::Source,
+                        writer,
+                    )
+                })?;
+                boundary
+                    .gap()
+                    .write(writer, FlatSeparator::Empty, Writer::soft_line);
+                writer.text("}");
+                return Ok(());
+            }
             return writer.group(matches!(kind, TypeMemberBodyKind::Interface), |writer| {
                 writer.text("{");
                 writer.indent(|writer| self.format_comment_boundary(&boundary, writer))?;
@@ -280,7 +317,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let leading = self.prepare_member_gap(leading_span);
         let expanded = matches!(kind, TypeMemberBodyKind::Interface)
             || self.line_breaks(content.start, first_start) != 0;
-        writer.group(expanded, |writer| {
+        let write = |writer: &mut Writer<'ast>| {
             writer.text("{");
             let closing = writer.indent(|writer| {
                 self.format_member_gap(leading, MemberGapRole::Opening, kind, writer)?;
@@ -365,7 +402,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             writer.text("}");
             Ok(())
-        })
+        };
+        if layout == TypeLayout::SignatureParameter {
+            write(writer)
+        } else {
+            writer.group(expanded, write)
+        }
     }
 
     fn prepare_member_gap(&self, gap: Span) -> MemberGap<'ast> {
@@ -1068,6 +1110,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
             }
             MemberContent::Signature(mut signature) => {
+                let generics = signature.generics.as_ref().map(|(node, _, _)| *node);
+                let can_group_parameters = self.signature_parameters_can_group(
+                    signature.parameters.count() == 1,
+                    generics,
+                    signature.result.as_ref(),
+                );
+                let group_return = signature.key.is_some();
                 if let Some(key) = &mut signature.key {
                     self.format_type_member_leading(key.leading.take(), writer)?;
                 }
@@ -1089,20 +1138,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         },
                         writer,
                     )?;
-                    if let Some((node, mode, gap)) = signature.generics {
-                        self.format_type_parameters(
-                            node,
-                            TypeParameterContext::Callable,
-                            mode,
-                            writer,
-                        )?;
-                        self.format_type_gap(gap, FlatSeparator::Empty, writer)?;
-                    }
-                    self.format_callable_parameters(signature.parameters, writer)?;
-                    match signature.result {
-                        Some(result) => self.format_signature_return(result, writer),
-                        None => Ok(None),
-                    }
+                    self.format_callable_signature_contents(
+                        signature.parameters,
+                        signature.result,
+                        signature
+                            .generics
+                            .map(|(node, mode, following)| SignatureGenerics {
+                                node,
+                                mode,
+                                following,
+                            }),
+                        can_group_parameters,
+                        group_return,
+                        writer,
+                    )
                 })
             }
             MemberContent::Index(index) => self.format_index_signature(index, writer),

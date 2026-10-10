@@ -1,9 +1,9 @@
 //! Actual runtime parameter boundaries and receiver/formal/rest ownership.
 
 use swc_next_ecma_ast::{
-    Ast, Decorator, ExprData, FormalParameter, FormalParameterItemData, FormalParameterPatternData,
-    FormalParameterRest, FormalParameters, FunctionBody, GetSpan, MethodDefinition, ObjectPattern,
-    Span, SubRange, TsParameterProperty, TsThisParameter,
+    Ast, Decorator, FormalParameter, FormalParameterItemData, FormalParameterPatternData,
+    FormalParameterRest, FormalParameters, FunctionBody, GetSpan, MethodDefinition, Span, SubRange,
+    TsParameterProperty, TsThisParameter,
 };
 
 use super::Formatter;
@@ -13,8 +13,11 @@ use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::arguments::{ArgumentLayout, FollowingItem, Separator};
 use super::suppression::{ContentMode, DelimitedSuppression, SuppressionPosition};
 use super::types::TypeGap;
-use super::types::callable::CallableParameter;
-use crate::{ArrowParentheses, FormatError, TrailingCommas, document::Writer};
+use super::types::callable::{CallableParameter, SignatureParameterHug, SignatureParameterLayout};
+use crate::{
+    ArrowParentheses, FormatError, TrailingCommas,
+    document::{Fragment, Writer},
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum ArrowParameterParentheses {
@@ -114,14 +117,44 @@ impl RuntimeParameterEntry {
     }
 }
 
+#[derive(Clone, Copy)]
+enum ParameterModifierKind {
+    Accessibility(&'static str),
+    Override,
+    Readonly,
+}
+
+impl ParameterModifierKind {
+    fn keyword(self) -> &'static str {
+        match self {
+            Self::Accessibility(keyword) => keyword,
+            Self::Override => "override",
+            Self::Readonly => "readonly",
+        }
+    }
+
+    fn canonical_index(self) -> usize {
+        match self {
+            Self::Accessibility(_) => 0,
+            Self::Override => 1,
+            Self::Readonly => 2,
+        }
+    }
+}
+
 struct ParameterModifier<'ast> {
-    keyword: &'static str,
-    before: super::comments::CommentBoundary<'ast>,
+    kind: ParameterModifierKind,
+    after: super::comments::CommentBoundary<'ast>,
+}
+
+enum ParameterModifierGap<'ast> {
+    Space,
+    Layout(Fragment<'ast>),
 }
 
 struct ParameterPropertyPrefix<'ast> {
+    leading: super::comments::CommentBoundary<'ast>,
     modifiers: [Option<ParameterModifier<'ast>>; 3],
-    following: super::comments::CommentBoundary<'ast>,
 }
 
 struct PrivateParameterBoundary {
@@ -154,19 +187,13 @@ impl CallbackParameterShape {
     }
 }
 
-#[derive(Clone, Copy)]
-enum HuggedParameter {
-    Pattern,
-    Object(ObjectPattern),
-}
-
 pub(super) struct SourceParameters {
     node: FormalParameters,
     source: ParameterSource,
     first: Option<RuntimeParameterHead>,
     rest: Option<FormalParameterRest>,
     omit_parentheses: bool,
-    hug: bool,
+    hug: Option<SignatureParameterHug>,
     leading_mode: ContentMode,
     enclosing_mode: ContentMode,
     suppressed_tail: Option<RuntimeParameter>,
@@ -177,7 +204,8 @@ pub(super) struct SourceParameters {
 
 pub(super) struct FunctionParameters {
     pub(super) source: SourceParameters,
-    pub(super) signature_object: Option<ObjectPattern>,
+    pub(super) has_single_parameter: bool,
+    pub(super) force_break: bool,
 }
 
 impl SourceParameters {
@@ -203,6 +231,7 @@ impl SourceParameters {
     }
 
     pub(super) fn suppress_last(&mut self, ast: &Ast<'_>) -> Result<(), FormatError> {
+        self.hug = None;
         let constructor = match self.source {
             ParameterSource::Constructor { owner, .. } => Some(owner),
             _ => None,
@@ -229,6 +258,9 @@ impl SourceParameters {
 
     pub(super) fn set_leading_mode(&mut self, mode: ContentMode) {
         self.leading_mode = mode;
+        if mode == ContentMode::Verbatim {
+            self.hug = None;
+        }
     }
 
     pub(super) fn starts_with_parenthesis(&self) -> bool {
@@ -280,10 +312,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let span = node.span(ast);
         let items = node.items(ast);
         let rest = node.rest(ast);
+        let count = items.len() + usize::from(receiver.is_some()) + usize::from(rest.is_some());
+        let has_single_parameter = count == 1;
         let constructor = match role {
             ParameterRole::Constructor(owner) => Some(owner),
             _ => None,
         };
+        let force_break = constructor.is_some()
+            && count > 1
+            && items.iter().any(|id| {
+                matches!(
+                    ast.formal_parameter_item_data(ast.get_node_in_sub_range(id)),
+                    FormalParameterItemData::TsParameterProperty(_)
+                )
+            });
         let first = if let Some(receiver) = receiver {
             Some(RuntimeParameter::Callable(CallableParameter::This(
                 receiver,
@@ -351,53 +393,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             })
             && self.comments.in_range(span).is_empty()
             && !self.diagnostic_range_is_sensitive(span);
-        let hug = single.and_then(|parameter| {
-            if first_head.is_some_and(|head| !head.decorators.is_empty()) {
-                return None;
-            }
-            let pattern = parameter.pattern(ast);
-            let object = match ast.formal_parameter_pattern_data(pattern) {
-                FormalParameterPatternData::ArrayPattern(_) => None,
-                FormalParameterPatternData::ObjectPattern(object) => Some(object),
-                _ => return None,
-            };
-            let initializer = parameter.initializer(ast);
-            let default_hugs = initializer.is_none_or(|expression| {
-                match self.expression_content(expression).data {
-                    ExprData::IdentifierReference(_) => true,
-                    ExprData::ArrayExpression(array) => array.elements(ast).is_empty(),
-                    ExprData::ObjectExpression(object) => object.properties(ast).is_empty(),
-                    _ => false,
+        let hug = if has_single_parameter {
+            match first {
+                Some(RuntimeParameter::Callable(parameter)) => {
+                    self.callable_parameter_hug(parameter, span)
                 }
-            });
-            if !default_hugs || self.diagnostic_range_is_sensitive(span) {
-                return None;
+                Some(RuntimeParameter::Property(_)) | None => None,
             }
-            let parameter_span = parameter.span(ast);
-            let binding_start = pattern.span(ast).start;
-            if !self
-                .comments
-                .in_range(Span::new(span.start, binding_start))
-                .is_empty()
-                || !self
-                    .comments
-                    .in_range(Span::new(parameter_span.end, span.end))
-                    .is_empty()
-            {
-                return None;
-            }
-            Some(match (object, initializer) {
-                (Some(object), None) => HuggedParameter::Object(object),
-                _ => HuggedParameter::Pattern,
-            })
-        });
-        let signature_object = match hug {
-            Some(HuggedParameter::Object(object)) if !matches!(role, ParameterRole::Arrow(_)) => {
-                Some(object)
-            }
-            _ => None,
+        } else {
+            None
         };
-        let hug = hug.is_some();
         let mut key_mode = ContentMode::Formatted;
         let mut body_mode = ContentMode::Formatted;
         let mut private_boundary = None;
@@ -457,7 +462,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             // The function signature consumes this actual body target below.
         }
         Ok(FunctionParameters {
-            signature_object,
+            has_single_parameter,
+            force_break,
             source: SourceParameters {
                 node,
                 source,
@@ -494,14 +500,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         callback_shape: Option<&mut CallbackParameterShape>,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        self.format_source_parameters_with_object(parameters, callback_shape, None, writer)
+        self.format_source_parameters_with_layout(
+            parameters,
+            callback_shape,
+            SignatureParameterLayout::Independent,
+            writer,
+        )
     }
 
-    pub(super) fn format_source_parameters_with_object(
+    pub(super) fn format_source_parameters_with_layout(
         &mut self,
         parameters: SourceParameters,
         mut callback_shape: Option<&mut CallbackParameterShape>,
-        signature_object: Option<ObjectPattern>,
+        layout: SignatureParameterLayout,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let ast = self.ast;
@@ -519,6 +530,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             key_mode: _,
             body_target: _,
         } = parameters;
+        let hugged_parameter = hug;
+        let hug = hug.is_some();
         if let ParameterSource::PrivateEmpty = source {
             return self.format_verbatim(node.span(ast), writer);
         }
@@ -639,9 +652,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     if suppressed_tail == Some(parameter.node) {
                         item.set_leading_mode(ContentMode::Verbatim);
                     }
-                    let object = if has_previous { None } else { signature_object };
-                    let tail =
-                        self.format_runtime_parameter(parameter, item.mode, object, writer)?;
+                    let hug = if has_previous { None } else { hugged_parameter };
+                    let tail = self.format_runtime_parameter(parameter, item.mode, hug, writer)?;
                     let boundary = self.finish_delimited_item(item, tail, writer)?;
                     end = boundary.end;
                     separator = boundary.separator;
@@ -676,10 +688,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text(")");
             Ok(())
         };
-        if signature_object.is_some() {
-            write(writer)
-        } else {
-            writer.group(false, write)
+        match layout {
+            SignatureParameterLayout::Shared => write(writer),
+            SignatureParameterLayout::Independent => writer.group(false, write),
+            SignatureParameterLayout::Forced => writer.group(true, write),
         }
     }
 
@@ -687,7 +699,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         entry: RuntimeParameterEntry,
         mode: ContentMode,
-        signature_object: Option<ObjectPattern>,
+        signature_hug: Option<SignatureParameterHug>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         if mode == ContentMode::Verbatim {
@@ -700,7 +712,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if entry.decorators.is_none() && !displaced {
             return match entry.node {
                 RuntimeParameter::Callable(CallableParameter::Formal(node)) => {
-                    self.format_formal_parameter(node, mode, signature_object, writer)
+                    self.format_formal_parameter(node, mode, signature_hug, writer)
                 }
                 RuntimeParameter::Callable(CallableParameter::Rest(node)) => {
                     self.format_rest_parameter(node, mode, writer)
@@ -710,6 +722,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
                 RuntimeParameter::Callable(CallableParameter::This(node)) => {
                     let prepared = self.prepare_runtime_this_parameter(node, mode)?;
+                    let prepared = if let Some(hug) = signature_hug {
+                        prepared.share_signature_group(hug)
+                    } else {
+                        prepared
+                    };
                     self.format_prepared_parameter_item(prepared, writer)
                 }
             };
@@ -739,8 +756,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ));
             }
         };
-        let prepared = if let Some(object) = signature_object {
-            prepared.share_object_group(object)
+        let prepared = if let Some(hug) = signature_hug {
+            prepared.share_signature_group(hug)
         } else {
             prepared
         };
@@ -813,26 +830,36 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         prefix: ParameterPropertyPrefix<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        let mut has_modifiers = false;
-        for (index, modifier) in prefix.modifiers.into_iter().flatten().enumerate() {
-            has_modifiers = true;
-            let separator = if index == 0 {
-                FlatSeparator::Empty
-            } else {
-                FlatSeparator::Space
-            };
-            self.format_type_gap(TypeGap::Formatted(modifier.before), separator, writer)?;
-            writer.text(modifier.keyword);
-        }
         self.format_type_gap(
-            TypeGap::Formatted(prefix.following),
-            if has_modifiers {
-                FlatSeparator::Space
-            } else {
-                FlatSeparator::Empty
-            },
+            TypeGap::Formatted(prefix.leading),
+            FlatSeparator::Empty,
             writer,
-        )
+        )?;
+        let mut modifiers = std::array::from_fn::<_, 3, _>(|_| None);
+        // Claim each source boundary once before replaying the AST's modifier order.
+        for modifier in prefix.modifiers.into_iter().flatten() {
+            let after = if modifier.after.is_empty() && !modifier.after.gap().requires_line() {
+                ParameterModifierGap::Space
+            } else {
+                let (fragment, ()) = writer.record_with_value(|writer| {
+                    self.format_type_gap(
+                        TypeGap::Formatted(modifier.after),
+                        FlatSeparator::Space,
+                        writer,
+                    )
+                })?;
+                ParameterModifierGap::Layout(fragment)
+            };
+            modifiers[modifier.kind.canonical_index()] = Some((modifier.kind, after));
+        }
+        for (kind, after) in modifiers.into_iter().flatten() {
+            writer.text(kind.keyword());
+            match after {
+                ParameterModifierGap::Space => writer.space(),
+                ParameterModifierGap::Layout(fragment) => writer.write_fragment(fragment),
+            }
+        }
+        Ok(())
     }
 
     fn prepare_parameter_property_prefix(
@@ -852,45 +879,56 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             swc_next_ecma_ast::Accessibility::Protected => Some("protected"),
             swc_next_ecma_ast::Accessibility::Private => Some("private"),
         };
-        let keywords = [
-            accessibility,
-            property.r#override(ast).then_some("override"),
-            property.readonly(ast).then_some("readonly"),
+        let kinds = [
+            accessibility.map(ParameterModifierKind::Accessibility),
+            property
+                .r#override(ast)
+                .then_some(ParameterModifierKind::Override),
+            property
+                .readonly(ast)
+                .then_some(ParameterModifierKind::Readonly),
         ];
         let mut tokens = [None; 3];
-        for (slot, keyword) in tokens.iter_mut().zip(keywords) {
-            let Some(keyword) = keyword else {
+        for (slot, kind) in tokens.iter_mut().zip(kinds) {
+            let Some(kind) = kind else {
                 continue;
             };
+            let keyword = kind.keyword();
             let position = self.find_token(span, comments, keyword).ok_or_else(|| {
                 self.unsupported("constructor parameter modifier boundary", property)
             })?;
-            *slot = Some((position, keyword));
+            *slot = Some((position, kind));
         }
         tokens.sort_unstable_by_key(|token| token.map(|(position, _)| position));
-        let mut end = span.start;
+        let mut tokens = tokens.into_iter().flatten().peekable();
+        let leading_end = tokens.peek().map_or(span.end, |(position, _)| *position);
+        let split = comments.partition_point(|comment| comment.span.end <= leading_end);
+        let (leading, following) = comments.split_at(split);
+        let leading = self.prepare_comment_boundary(leading, span.start, leading_end);
+        comments = following;
         let mut modifiers = std::array::from_fn(|_| None);
-        for (slot, (position, keyword)) in modifiers.iter_mut().zip(tokens.into_iter().flatten()) {
-            let split = comments.partition_point(|comment| comment.span.end <= position);
-            let (before, following) = comments.split_at(split);
-            *slot = Some(ParameterModifier {
-                keyword,
-                before: self.prepare_comment_boundary(before, end, position),
+        for modifier in &mut modifiers {
+            let Some((position, kind)) = tokens.next() else {
+                break;
+            };
+            let end = position + kind.keyword().len() as u32;
+            let next = tokens.peek().map_or(span.end, |(position, _)| *position);
+            let split = comments.partition_point(|comment| comment.span.end <= next);
+            let (after, following) = comments.split_at(split);
+            *modifier = Some(ParameterModifier {
+                kind,
+                after: self.prepare_comment_boundary(after, end, next),
             });
             comments = following;
-            end = position + keyword.len() as u32;
         }
-        Ok(ParameterPropertyPrefix {
-            modifiers,
-            following: self.prepare_comment_boundary(comments, end, span.end),
-        })
+        Ok(ParameterPropertyPrefix { leading, modifiers })
     }
 
     fn format_formal_parameter(
         &mut self,
         parameter: FormalParameter,
         mode: ContentMode,
-        signature_object: Option<ObjectPattern>,
+        signature_hug: Option<SignatureParameterHug>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         if mode == ContentMode::Verbatim {
@@ -903,11 +941,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             if annotation.is_some() || optional {
                 let prepared =
                     self.prepare_typed_formal_parameter(parameter, mode, annotation, optional)?;
-                if let Some(object) = signature_object
+                if let Some(hug) = signature_hug
                     && !prepared.is_source()
                 {
                     return self.format_prepared_parameter_item(
-                        prepared.share_object_group(object),
+                        prepared.share_signature_group(hug),
                         writer,
                     );
                 }
@@ -916,12 +954,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 });
             }
         }
-        if let Some(object) = signature_object {
+        let pattern = parameter.pattern(self.ast);
+        if matches!(signature_hug, Some(SignatureParameterHug::Object))
+            && let FormalParameterPatternData::ObjectPattern(object) =
+                self.ast.formal_parameter_pattern_data(pattern)
+        {
             return self
                 .format_object_binding_contents(object, writer)
                 .map(|()| None);
         }
-        let pattern = parameter.pattern(self.ast);
         let default = parameter
             .initializer(self.ast)
             .map(|initializer| {

@@ -7,7 +7,7 @@ class C { constructor(readonly private /* access */ public override value: numbe
 {"printWidth":80}
 ---------- Output ----------
 class C {
-  constructor(readonly /* access */ public override value: number) {}
+  constructor(public override readonly /* access */ value: number) {}
 }
 
 ---------- Options ----------
@@ -15,6 +15,6 @@ class C {
 ---------- Output ----------
 class C {
   constructor(
-    readonly /* access */ public override value: number,
+    public override readonly /* access */ value: number,
   ) {}
 }

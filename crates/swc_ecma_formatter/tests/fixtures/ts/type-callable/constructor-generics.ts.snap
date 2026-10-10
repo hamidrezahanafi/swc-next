@@ -15,9 +15,9 @@ type C = abstract new <
   const T extends
     string =
     string,
->(value: T) => Box<
-  T
->;
+>(
+  value: T,
+) => Box<T>;
 
 ---------- Options ----------
 {"printWidth":1,"semi":false}
@@ -39,6 +39,6 @@ type C = abstract new <
 	const T extends
 		string =
 		string
->(value: T) => Box<
-	T
->;
+>(
+	value: T
+) => Box<T>;
