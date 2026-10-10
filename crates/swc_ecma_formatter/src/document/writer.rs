@@ -5,14 +5,15 @@ use std::borrow::Cow;
 use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
 
 use super::{
-    Alternatives, Doc, FlatFragment, FormatElement, Fragment, FragmentCapabilities, GroupId,
-    NeutralFragment, RecordedGroup, text::Text,
+    Alternatives, BreakEffect, CanonicalCandidate, Doc, FlatFragment, FormatElement, Fragment,
+    FragmentCapabilities, GroupId, GroupRequest, Measurement, NeutralFragment, RecordedGroup,
+    text::Text,
 };
 
 pub(crate) struct Writer<'a> {
     allocator: &'a Allocator,
     elements: ArenaVec<'a, FormatElement<'a>>,
-    breaks: usize,
+    effect: BreakEffect,
     flattening: bool,
     group_count: usize,
     conditional_lines: bool,
@@ -23,7 +24,7 @@ impl<'a> Writer<'a> {
         Self {
             allocator,
             elements: ArenaVec::new_in(allocator),
-            breaks: 0,
+            effect: BreakEffect::default(),
             flattening: false,
             group_count: 0,
             conditional_lines: false,
@@ -75,12 +76,12 @@ impl<'a> Writer<'a> {
 
     pub(crate) fn hard_line(&mut self) {
         self.elements.push(FormatElement::HardLine);
-        self.breaks += 1;
+        self.effect = self.effect.join(BreakEffect::REQUIRED);
     }
 
     pub(crate) fn literal_line(&mut self) {
         self.elements.push(FormatElement::LiteralLine);
-        self.breaks += 1;
+        self.effect = self.effect.join(BreakEffect::REQUIRED);
     }
 
     pub(crate) fn space(&mut self) {
@@ -127,38 +128,61 @@ impl<'a> Writer<'a> {
 
     pub(crate) fn break_parent(&mut self) {
         self.elements.push(FormatElement::BreakParent);
-        self.breaks += 1;
+        self.effect = self.effect.join(BreakEffect::REQUIRED);
     }
 
     pub(crate) fn group<T>(&mut self, expand: bool, write: impl FnOnce(&mut Self) -> T) -> T {
-        self.group_with_id(expand, None, write)
+        self.group_with_request(GroupRequest::from(expand), write)
+    }
+
+    pub(crate) fn group_with_request<T>(
+        &mut self,
+        request: GroupRequest,
+        write: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        self.group_with_id(request, None, write)
     }
 
     /// The returned handle refers to a group already written in this document.
     pub(crate) fn named_group(&mut self, expand: bool, write: impl FnOnce(&mut Self)) -> GroupId {
+        self.named_group_with_request(GroupRequest::from(expand), write)
+    }
+
+    pub(crate) fn named_group_with_request(
+        &mut self,
+        request: GroupRequest,
+        write: impl FnOnce(&mut Self),
+    ) -> GroupId {
         let id = GroupId(self.group_count);
         self.group_count += 1;
-        self.group_with_id(expand, Some(id), write);
+        self.group_with_id(request, Some(id), write);
         id
     }
 
     fn group_with_id<T>(
         &mut self,
-        expand: bool,
+        request: GroupRequest,
         id: Option<GroupId>,
         write: impl FnOnce(&mut Self) -> T,
     ) -> T {
         let start = self.elements.len();
-        let breaks = self.breaks;
-        self.elements.push(FormatElement::StartGroup { expand, id });
-        if expand {
-            self.breaks += 1;
-        }
+        let outer_effect = self.effect;
+        self.effect = BreakEffect::from_request(request);
+        self.elements.push(FormatElement::StartGroup {
+            effect: self.effect,
+            id,
+        });
         let result = write(self);
-        let FormatElement::StartGroup { expand, .. } = &mut self.elements[start] else {
+        let effect = self.effect;
+        self.effect = outer_effect.join(effect);
+        let FormatElement::StartGroup {
+            effect: group_effect,
+            ..
+        } = &mut self.elements[start]
+        else {
             unreachable!("group scope retains its opening instruction");
         };
-        *expand |= self.breaks != breaks;
+        *group_effect = effect;
         self.elements.push(FormatElement::EndGroup);
         result
     }
@@ -170,7 +194,7 @@ impl<'a> Writer<'a> {
             return write(self);
         }
         let start = self.elements.len();
-        let breaks = self.breaks;
+        let effect = self.effect;
         let conditional_lines = self.conditional_lines;
         self.flattening = true;
         let result = write(self);
@@ -190,7 +214,7 @@ impl<'a> Writer<'a> {
             output += 1;
         }
         self.elements.truncate(output);
-        self.breaks = breaks;
+        self.effect = effect;
         self.conditional_lines = conditional_lines;
         result
     }
@@ -284,7 +308,7 @@ impl<'a> Writer<'a> {
         child.group_count = self.group_count;
         let value = write(&mut child)?;
         self.group_count = child.group_count;
-        let capabilities = if child.breaks != 0 || child.conditional_lines {
+        let capabilities = if child.effect.preferred_breaks() || child.conditional_lines {
             FragmentCapabilities::from_flat(
                 child.elements.iter().all(|element| element.permits_flat()),
             )
@@ -293,7 +317,7 @@ impl<'a> Writer<'a> {
         };
         let fragment = Fragment {
             elements: child.elements.into_bump_slice(),
-            breaks: child.breaks != 0,
+            effect: child.effect,
             capabilities,
             conditional_lines: child.conditional_lines,
         };
@@ -304,41 +328,43 @@ impl<'a> Writer<'a> {
         &mut self,
         write: impl FnOnce(&mut Self) -> Result<T, E>,
     ) -> Result<(RecordedGroup<'a>, T), E> {
-        let (grouped, value) = self.record_with_value(|writer| writer.group(false, write))?;
+        let (grouped, value) =
+            self.record_with_value(|writer| writer.group_with_request(GroupRequest::Auto, write))?;
         let [
             FormatElement::StartGroup { id: None, .. },
-            elements @ ..,
+            ..,
             FormatElement::EndGroup,
         ] = grouped.elements
         else {
             unreachable!("recorded group retains its complete anonymous outer scope");
         };
-        let contents = Fragment {
-            elements,
-            ..grouped
-        };
-        Ok((RecordedGroup { grouped, contents }, value))
+        Ok((RecordedGroup { grouped }, value))
     }
 
     /// Wraps a completed scope without recording its syntax or allocating a named group.
     pub(crate) fn group_fragment(&self, expand: bool, fragment: Fragment<'a>) -> Fragment<'a> {
-        let breaks = expand || fragment.breaks;
-        let capabilities = if breaks || fragment.conditional_lines {
+        self.group_fragment_with_request(GroupRequest::from(expand), fragment)
+    }
+
+    pub(crate) fn group_fragment_with_request(
+        &self,
+        request: GroupRequest,
+        fragment: Fragment<'a>,
+    ) -> Fragment<'a> {
+        let effect = BreakEffect::from_request(request).join(fragment.effect);
+        let capabilities = if effect.preferred_breaks() || fragment.conditional_lines {
             FragmentCapabilities::from_flat(fragment.capabilities.permits_flat())
         } else {
             fragment.capabilities
         };
         let elements = self.allocator.alloc([
-            FormatElement::StartGroup {
-                expand: breaks,
-                id: None,
-            },
+            FormatElement::StartGroup { effect, id: None },
             FormatElement::Fragment(fragment),
             FormatElement::EndGroup,
         ]);
         Fragment {
             elements,
-            breaks,
+            effect,
             capabilities,
             conditional_lines: fragment.conditional_lines,
         }
@@ -360,7 +386,7 @@ impl<'a> Writer<'a> {
             || !close.is_single_line()
         {
             FragmentCapabilities::General
-        } else if !body.breaks
+        } else if !body.effect.preferred_breaks()
             && !body.conditional_lines
             && matches!(prefix.0.capabilities, FragmentCapabilities::Neutral)
             && matches!(body.capabilities, FragmentCapabilities::Neutral)
@@ -379,7 +405,7 @@ impl<'a> Writer<'a> {
         ]);
         Fragment {
             elements,
-            breaks: body.breaks,
+            effect: body.effect,
             capabilities,
             conditional_lines: body.conditional_lines,
         }
@@ -396,7 +422,7 @@ impl<'a> Writer<'a> {
     ) -> Fragment<'a> {
         let open = Text::new(open);
         let close = Text::new(close);
-        let breaks = prefix.breaks || body.breaks || suffix.breaks;
+        let effect = prefix.effect.join(body.effect).join(suffix.effect);
         let conditional_lines =
             prefix.conditional_lines || body.conditional_lines || suffix.conditional_lines;
         let capabilities = FragmentCapabilities::from_flat(
@@ -407,10 +433,7 @@ impl<'a> Writer<'a> {
                 && close.is_single_line(),
         );
         let elements = self.allocator.alloc([
-            FormatElement::StartGroup {
-                expand: breaks,
-                id: None,
-            },
+            FormatElement::StartGroup { effect, id: None },
             FormatElement::Text(open),
             FormatElement::StartIndent,
             FormatElement::Fragment(prefix),
@@ -422,14 +445,14 @@ impl<'a> Writer<'a> {
         ]);
         Fragment {
             elements,
-            breaks,
+            effect,
             capabilities,
             conditional_lines,
         }
     }
 
     pub(crate) fn write_fragment(&mut self, fragment: Fragment<'a>) {
-        self.breaks += usize::from(fragment.breaks);
+        self.effect = self.effect.join(fragment.effect);
         self.conditional_lines |= fragment.conditional_lines;
         self.elements.push(FormatElement::Fragment(fragment));
     }
@@ -442,7 +465,7 @@ impl<'a> Writer<'a> {
         &mut self,
         NeutralFragment(fragment): NeutralFragment<'a>,
     ) {
-        self.breaks += usize::from(fragment.breaks);
+        self.effect = self.effect.join(fragment.effect);
         self.conditional_lines |= fragment.conditional_lines;
         self.elements
             .push(FormatElement::FlatFragment(FlatFragment(fragment)));
@@ -458,20 +481,48 @@ impl<'a> Writer<'a> {
             self.write_fragment(fallback);
             return;
         }
+        let mut choices = ArenaVec::with_capacity_in(preferred.len(), self.allocator);
+        choices.extend_from_slice(preferred);
+        self.write_recorded_alternatives(normal, choices, fallback, Measurement::Display);
+    }
+
+    pub(crate) fn write_canonical_alternatives(
+        &mut self,
+        normal: Fragment<'a>,
+        preferred: &[CanonicalCandidate<'a>],
+        fallback: Fragment<'a>,
+    ) {
+        if preferred.is_empty() {
+            self.write_fragment(fallback);
+            return;
+        }
+        let mut choices = ArenaVec::with_capacity_in(preferred.len(), self.allocator);
+        choices.extend(preferred.iter().map(|candidate| candidate.0));
+        self.write_recorded_alternatives(normal, choices, fallback, Measurement::Canonical);
+    }
+
+    fn write_recorded_alternatives(
+        &mut self,
+        normal: Fragment<'a>,
+        preferred: ArenaVec<'a, Fragment<'a>>,
+        fallback: Fragment<'a>,
+        measurement: Measurement,
+    ) {
         // The normal layout owns outward expansion. Optional display variants
         // retain their own groups without expanding the parent.
-        self.breaks += usize::from(normal.breaks);
+        self.effect = self.effect.join(normal.effect);
         self.conditional_lines |= normal.conditional_lines
             || fallback.conditional_lines
             || preferred.iter().any(|fragment| fragment.conditional_lines);
-        let mut choices = ArenaVec::with_capacity_in(preferred.len(), self.allocator);
-        choices.extend_from_slice(preferred);
         let alternatives = self.allocator.alloc(Alternatives {
-            preferred: choices.into_bump_slice(),
+            preferred: preferred.into_bump_slice(),
             fallback,
         });
-        self.elements
-            .push(FormatElement::Alternatives(alternatives));
+        let element = match measurement {
+            Measurement::Display => FormatElement::Alternatives(alternatives),
+            Measurement::Canonical => FormatElement::CanonicalAlternatives(alternatives),
+        };
+        self.elements.push(element);
     }
 
     pub(crate) fn finish(self) -> Doc<'a> {

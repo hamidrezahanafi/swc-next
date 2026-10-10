@@ -1,6 +1,6 @@
 //! Interpretation of flat formatting instructions and bounded fit probes.
 
-use super::{FormatElement, text::Text};
+use super::{FormatElement, Measurement, text::Text};
 use crate::{FormatOptions, IndentStyle};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -36,6 +36,7 @@ struct Frame<'a> {
     end: usize,
     flat: bool,
     restore_mode: Option<Mode>,
+    measurement: Measurement,
 }
 
 impl<'a> Frame<'a> {
@@ -46,6 +47,7 @@ impl<'a> Frame<'a> {
             end: elements.len(),
             flat: false,
             restore_mode: None,
+            measurement: Measurement::Display,
         }
     }
 
@@ -105,10 +107,12 @@ struct ProbeCursor<'a, 'scratch> {
 
 impl<'a> ProbeCursor<'a, '_> {
     fn enter(&mut self, elements: &'a [FormatElement<'a>], flat: bool, restore_mode: Option<Mode>) {
+        let measurement = self.current.measurement;
         self.frames.push(self.current);
         self.current = Frame {
             flat,
             restore_mode,
+            measurement,
             ..Frame::new(elements)
         };
     }
@@ -194,12 +198,18 @@ pub(super) fn print(
         match element {
             FormatElement::Fragment(fragment) => cursor.enter(fragment.elements, false, None),
             FormatElement::FlatFragment(fragment) => cursor.enter(fragment.0.elements, true, None),
-            FormatElement::Alternatives(alternatives) => {
+            FormatElement::Alternatives(alternatives)
+            | FormatElement::CanonicalAlternatives(alternatives) => {
+                let measurement = match element {
+                    FormatElement::CanonicalAlternatives(_) => Measurement::Canonical,
+                    _ => Measurement::Display,
+                };
                 let selected = alternatives.preferred.iter().find(|fragment| {
                     probe.fits(
                         ProbeRequest {
                             current: Frame {
                                 restore_mode: Some(mode),
+                                measurement,
                                 ..Frame::new(fragment.elements)
                             },
                             pending: &cursor.suspended,
@@ -264,8 +274,8 @@ pub(super) fn print(
                 }
             }
             FormatElement::LineSuffix(text) => suffixes.push(text),
-            FormatElement::StartGroup { expand, id } => {
-                let flat = !expand
+            FormatElement::StartGroup { effect, id } => {
+                let flat = !effect.preferred_breaks()
                     && (mode == Mode::Flat
                         || probe.fits(
                             ProbeRequest {
@@ -586,7 +596,11 @@ impl<'a> Probe<'a> {
                 | FormatElement::Line
                 | FormatElement::HardLine
                 | FormatElement::LiteralLine => return true,
-                FormatElement::StartGroup { expand, id } => {
+                FormatElement::StartGroup { effect, id } => {
+                    let expand = match cursor.current.measurement {
+                        Measurement::Display => effect.preferred_breaks(),
+                        Measurement::Canonical => effect.required(),
+                    };
                     if expand && matches!(kind, ProbeKind::Fill) {
                         return false;
                     }
@@ -617,7 +631,8 @@ impl<'a> Probe<'a> {
                 FormatElement::FlatFragment(fragment) => {
                     cursor.enter(fragment.0.elements, true, None)
                 }
-                FormatElement::Alternatives(alternatives) => {
+                FormatElement::Alternatives(alternatives)
+                | FormatElement::CanonicalAlternatives(alternatives) => {
                     let fragment = if mode == Mode::Flat {
                         alternatives.first()
                     } else {

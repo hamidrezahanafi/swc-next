@@ -3,12 +3,12 @@ formatter * prettier 3.9.9 * typescript
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 657
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 596/804 (74.13%)
-Snapshot matched: 596/804
+Passed: 597/804 (74.25%)
+Snapshot matched: 597/804
 AST parity: 804/804
 AST mismatched: 0/804
 AST format errors: 0/804
-Mismatched: 208/804
+Mismatched: 207/804
 Format errors: 0/804
 Panicked: 0/804
 Not idempotent: 0/804
@@ -44,7 +44,6 @@ Unsupported option sets: 7
 - typescript/argument-expansion/arrow-with-return-type.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/as/as-const/as-const.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/as/as.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/as/assignment2.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/as/break-after-keyword/18148.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/as/comments/17407.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/as/comments/18160.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent

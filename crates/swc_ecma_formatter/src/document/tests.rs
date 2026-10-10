@@ -1,6 +1,6 @@
 use swc_next_allocator::Allocator;
 
-use super::{Doc, FormatElement, Writer};
+use super::{Doc, FormatElement, GroupRequest, Writer};
 use crate::{FormatOptions, IndentStyle, LineEnding};
 
 fn nested_document(options: FormatOptions) -> String {
@@ -532,7 +532,7 @@ fn recorded_fill_document(width: u16, inherited: bool, nested: bool) -> String {
                 Ok::<_, std::convert::Infallible>(())
             })
             .unwrap();
-        group.contents
+        group.contents()
     });
     let (group, ()) = writer
         .record_group_with_value(|writer| {
@@ -552,9 +552,9 @@ fn recorded_fill_document(width: u16, inherited: bool, nested: bool) -> String {
         })
         .unwrap();
     let fragment = if inherited {
-        group.contents
+        group.contents()
     } else {
-        group.grouped
+        group.grouped()
     };
     let relocated = record(&mut writer, |writer| {
         writer.text("p:");
@@ -923,9 +923,9 @@ fn recorded_group_document(write: impl FnOnce(&mut Writer<'_>), inherited: bool)
         .unwrap();
     writer.group(true, |writer| {
         let fragment = if inherited {
-            group.contents
+            group.contents()
         } else {
-            group.grouped
+            group.grouped()
         };
         writer.write_fragment(fragment);
     });
@@ -1607,5 +1607,266 @@ fn alternative_expansion_boundaries() {
     assert_eq!(
         writer.finish().print(FormatOptions::prettier()),
         "body value"
+    );
+}
+
+fn write_preserved_pair(writer: &mut Writer<'_>) {
+    writer.group_with_request(GroupRequest::PreserveSource, |writer| {
+        writer.text("a");
+        writer.line();
+        writer.text("bbb");
+    });
+}
+
+fn canonical_group_document(request: GroupRequest, width: u16) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let candidate = record(&mut writer, |writer| {
+        writer.group_with_request(request, |writer| {
+            writer.group(false, write_preserved_pair);
+        });
+    });
+    let fallback = record(&mut writer, |writer| writer.text("fallback"));
+    writer.write_canonical_alternatives(candidate, &[candidate.canonical_candidate()], fallback);
+    writer.finish().print(FormatOptions {
+        line_width: width,
+        ..FormatOptions::prettier()
+    })
+}
+
+#[test]
+fn canonical_group_scopes() {
+    assert_eq!(canonical_group_document(GroupRequest::Auto, 4), "fallback");
+
+    assert_eq!(canonical_group_document(GroupRequest::Auto, 5), "a\nbbb");
+
+    assert_eq!(
+        canonical_group_document(GroupRequest::Expanded, 4),
+        "a\nbbb"
+    );
+
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    writer.group_with_request(GroupRequest::PreserveSource, |writer| {
+        write_preserved_pair(writer);
+        writer.line();
+        write_preserved_pair(writer);
+    });
+    assert_eq!(
+        writer.finish().print(FormatOptions::prettier()),
+        "a\nbbb\na\nbbb"
+    );
+}
+
+fn canonical_named_document(width: u16) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let (candidate, id) = writer
+        .record_with_value(|writer| {
+            let id = writer.group(false, |writer| {
+                let id = writer.named_group_with_request(GroupRequest::PreserveSource, |writer| {
+                    writer.text("a");
+                    writer.line();
+                    writer.if_flat("ffff");
+                    writer.if_break("b");
+                });
+                writer.soft_line_if_break(id);
+                writer.text("cc");
+                id
+            });
+            Ok::<_, std::convert::Infallible>(id)
+        })
+        .unwrap();
+    let fallback = record(&mut writer, |writer| writer.text("fallback"));
+    writer.write_canonical_alternatives(candidate, &[candidate.canonical_candidate()], fallback);
+    writer.indent_if_break(id, |writer| {
+        writer.hard_line();
+        writer.text("after");
+    });
+    writer.finish().print(FormatOptions {
+        line_width: width,
+        ..FormatOptions::prettier()
+    })
+}
+
+#[test]
+fn canonical_named_scopes() {
+    assert_eq!(canonical_named_document(8), "a\nb\ncc\n  after");
+
+    assert_eq!(canonical_named_document(7), "fallback\nafter");
+}
+
+fn canonical_nested_alternative(width: u16) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let preserved = record(&mut writer, write_preserved_pair);
+    let unused = record(&mut writer, |writer| writer.text("unused"));
+    let candidate = record(&mut writer, |writer| {
+        writer.group(false, |writer| {
+            writer.write_alternatives(preserved, &[preserved], unused);
+        });
+    });
+    let fallback = record(&mut writer, |writer| writer.text("fallback"));
+    writer.write_canonical_alternatives(candidate, &[candidate.canonical_candidate()], fallback);
+    writer.finish().print(FormatOptions {
+        line_width: width,
+        ..FormatOptions::prettier()
+    })
+}
+
+fn canonical_continuation(width: u16) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let candidate = record(&mut writer, |writer| writer.text("aaa"));
+    let fallback = record(&mut writer, |writer| writer.text("k"));
+    let continuation = record(&mut writer, |writer| {
+        writer.if_current_break("!");
+        writer.group_with_request(GroupRequest::PreserveSource, |writer| {
+            writer.text("x");
+            writer.line();
+            writer.text("long value");
+        });
+    });
+    writer.write_canonical_alternatives(candidate, &[candidate.canonical_candidate()], fallback);
+    writer.write_fragment(continuation);
+    writer.finish().print(FormatOptions {
+        line_width: width,
+        ..FormatOptions::prettier()
+    })
+}
+
+fn canonical_choice_continuation() -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let first = record(&mut writer, |writer| writer.text("aaa"));
+    let first_fallback = record(&mut writer, |writer| writer.text("k"));
+    let second = record(&mut writer, write_preserved_pair);
+    let normal = record(&mut writer, |writer| writer.text("a"));
+    let second_fallback = record(&mut writer, |writer| writer.text("z"));
+    writer.group(false, |writer| {
+        writer.write_canonical_alternatives(first, &[first.canonical_candidate()], first_fallback);
+        writer.write_canonical_alternatives(
+            normal,
+            &[second.canonical_candidate()],
+            second_fallback,
+        );
+    });
+    writer.finish().print(FormatOptions {
+        line_width: 4,
+        ..FormatOptions::prettier()
+    })
+}
+
+#[test]
+fn canonical_candidate_boundaries() {
+    assert_eq!(canonical_nested_alternative(4), "fallback");
+
+    assert_eq!(canonical_nested_alternative(5), "a\nbbb");
+
+    assert_eq!(canonical_continuation(5), "aaa!x\nlong value");
+
+    assert_eq!(canonical_continuation(4), "k!x\nlong value");
+
+    assert_eq!(canonical_choice_continuation(), "aaaz");
+}
+
+fn canonical_fill_document() -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let candidate = record(&mut writer, write_preserved_pair);
+    let fallback = record(&mut writer, |writer| writer.text("fallback"));
+    writer.fill(|writer| {
+        writer.fill_entry(|writer| {
+            writer.write_canonical_alternatives(
+                candidate,
+                &[candidate.canonical_candidate()],
+                fallback,
+            );
+            writer.if_current_flat("F");
+            writer.if_current_break("B");
+        });
+        writer.fill_entry(Writer::line);
+        writer.fill_entry(|writer| writer.text("z"));
+    });
+    writer.finish().print(FormatOptions::prettier())
+}
+
+fn canonical_display_group() -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let candidate = record(&mut writer, write_preserved_pair);
+    let normal = record(&mut writer, |writer| writer.text("a"));
+    let fallback = record(&mut writer, |writer| writer.text("f"));
+    writer.group(false, |writer| {
+        writer.if_flat("F");
+        writer.if_break("B");
+        writer.write_canonical_alternatives(normal, &[candidate.canonical_candidate()], fallback);
+        writer.line();
+        writer.text("tail");
+    });
+    writer.finish().print(FormatOptions {
+        line_width: 8,
+        ..FormatOptions::prettier()
+    })
+}
+
+#[test]
+fn canonical_display_probes() {
+    assert_eq!(canonical_fill_document(), "a\nbbbB\nz");
+
+    assert_eq!(canonical_display_group(), "Ff tail");
+}
+
+fn canonical_normal_effect(width: u16) -> String {
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let normal = record(&mut writer, write_preserved_pair);
+    let preferred = record(&mut writer, |writer| writer.text("a"));
+    let unused = record(&mut writer, |writer| writer.text("b"));
+    let candidate = record(&mut writer, |writer| {
+        writer.group(false, |writer| {
+            writer.write_alternatives(normal, &[preferred], unused);
+            writer.line();
+            writer.text("bbb");
+        });
+    });
+    let fallback = record(&mut writer, |writer| writer.text("fallback"));
+    writer.write_canonical_alternatives(candidate, &[candidate.canonical_candidate()], fallback);
+    writer.finish().print(FormatOptions {
+        line_width: width,
+        ..FormatOptions::prettier()
+    })
+}
+
+#[test]
+fn canonical_retained_views() {
+    assert_eq!(canonical_normal_effect(4), "fallback");
+
+    assert_eq!(canonical_normal_effect(5), "a\nbbb");
+
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let preserved = record(&mut writer, write_preserved_pair);
+    let body = record(&mut writer, |writer| writer.text("body"));
+    let flat = preserved.try_flat().unwrap();
+    let scope = writer.flat_delimited_fragment("(", flat, body, flat, ")");
+    writer.group(false, |writer| {
+        writer.if_flat("F");
+        writer.write_fragment(scope);
+    });
+    assert_eq!(
+        writer.finish().print(FormatOptions::prettier()),
+        "F(a bbbbodya bbb)"
+    );
+
+    let mut writer = Writer::new(&allocator);
+    let normal = writer.indented_delimited_fragment("(", body, preserved, body, ")");
+    writer.group(false, |writer| {
+        writer.if_break("B");
+        writer.write_fragment(normal);
+    });
+    assert_eq!(
+        writer.finish().print(FormatOptions::prettier()),
+        "B(bodya\n  bbbbody)"
     );
 }

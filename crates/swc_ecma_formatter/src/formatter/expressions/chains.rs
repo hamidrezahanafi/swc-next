@@ -208,6 +208,7 @@ struct GroupFacts {
 #[derive(Clone, Copy)]
 enum ChainGroupDoc<'ast> {
     Recorded(Fragment<'ast>),
+    Grouped(RecordedGroup<'ast>),
     ParentCall(Fragment<'ast>),
     Neutral(NeutralFragment<'ast>),
 }
@@ -215,22 +216,18 @@ enum ChainGroupDoc<'ast> {
 impl<'ast> ChainGroupDoc<'ast> {
     fn for_group(group: RecordedGroup<'ast>, parent_call: bool) -> Self {
         if parent_call {
-            Self::ParentCall(group.contents)
+            Self::ParentCall(group.contents())
+        } else if let Some(fragment) = group.grouped().try_neutral() {
+            Self::Neutral(fragment)
         } else {
-            Self::for_tail(group.grouped)
-        }
-    }
-
-    fn for_tail(fragment: Fragment<'ast>) -> Self {
-        match fragment.try_neutral() {
-            Some(fragment) => Self::Neutral(fragment),
-            None => Self::Recorded(fragment),
+            Self::Grouped(group)
         }
     }
 
     fn can_flat(self) -> bool {
         match self {
             Self::Recorded(fragment) | Self::ParentCall(fragment) => fragment.try_flat().is_some(),
+            Self::Grouped(group) => group.contents().try_flat().is_some(),
             Self::Neutral(_) => true,
         }
     }
@@ -527,7 +524,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 parts: parts.by_ref().take(chain.callee_parts).peekable(),
                 pending: None,
                 tail: None,
-                argument_layout: if chain.groups > 2 {
+                // Call count owns the complex-argument expansion rule. Group
+                // count only skips inspection on the shared short-chain path.
+                argument_layout: if chain.calls > 2 && chain.groups > 2 {
                     ChainArgumentLayout::Inspect
                 } else {
                     ChainArgumentLayout::ByWidth
@@ -581,7 +580,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     write_compact(&groups, writer);
                     Ok::<_, FormatError>(())
                 })?;
-                writer.write_alternatives(compact, &[compact], expanded);
+                writer.write_canonical_alternatives(
+                    compact,
+                    &[compact.canonical_candidate()],
+                    expanded,
+                );
             }
             source.tail
         };
@@ -742,12 +745,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             ChainHeadLayout::Grouped => {
                 let (group, ()) = writer.record_group_with_value(write_head)?;
-                let doc = if facts.has_parent_call_group {
-                    ChainGroupDoc::ParentCall(group.contents)
-                } else {
-                    ChainGroupDoc::Recorded(group.grouped)
-                };
-                (doc, group.grouped.preferred_breaks())
+                let doc = ChainGroupDoc::for_group(group, facts.has_parent_call_group);
+                (doc, group.grouped().preferred_breaks())
             }
         };
         facts.preferred_breaks = preferred_breaks;
@@ -811,7 +810,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             Ok::<_, FormatError>(())
         })?;
-        facts.preferred_breaks = group.grouped.preferred_breaks();
+        facts.preferred_breaks = group.grouped().preferred_breaks();
         Ok(ChainGroup::new(
             ChainGroupDoc::for_group(group, facts.has_parent_call_group),
             before,
@@ -905,6 +904,16 @@ fn write_group_boundary<'ast>(group: &ChainGroup<'ast>, expanded: bool, writer: 
 fn write_group_contents<'ast>(group: &ChainGroup<'ast>, expanded: bool, writer: &mut Writer<'ast>) {
     match group.doc {
         ChainGroupDoc::Recorded(fragment) => writer.write_fragment(fragment),
+        ChainGroupDoc::Grouped(group) => {
+            // The compact candidate measures actual member and call scopes.
+            // Only the expanded layout owns this anonymous segment group.
+            let fragment = if expanded {
+                group.grouped()
+            } else {
+                group.contents()
+            };
+            writer.write_fragment(fragment);
+        }
         ChainGroupDoc::ParentCall(fragment) => {
             if expanded {
                 writer.write_fragment(fragment);

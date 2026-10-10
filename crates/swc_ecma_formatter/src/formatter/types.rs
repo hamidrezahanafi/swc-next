@@ -378,7 +378,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let layout = content.alias_layout();
         let expand = head.preferred_breaks();
         if expand || layout == TypeLayout::AliasRhs {
-            writer.group(expand, |writer| {
+            writer.group(false, |writer| {
                 writer.indent(|writer| {
                     writer.line();
                     writer.write_fragment(head);

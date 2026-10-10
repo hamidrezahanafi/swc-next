@@ -643,12 +643,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     if selected.role == CallbackRole::Last
                         && recorded.body_layout == ArrowBodyLayout::Expression
                     {
-                        CallbackBody::Terminal(recorded.body.contents)
+                        CallbackBody::Terminal(recorded.body.contents())
                     } else {
                         CallbackBody::Retained(if recorded.body_layout == ArrowBodyLayout::Hug {
-                            recorded.body.contents
+                            recorded.body.contents()
                         } else {
-                            recorded.body.grouped
+                            recorded.body.grouped()
                         })
                     },
                     recorded.normal,

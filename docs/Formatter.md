@@ -45,9 +45,9 @@ It does not retain formatter allocations in the caller's AST.
 Doc construction owns flat instruction buffers. Finishing construction transfers
 the completed instructions to an immutable document.
 
-Group and indentation scopes form a paired layout protocol. Layout choices
-carry the normal layout's expansion obligations separately from optional
-candidate expansion. Recorded views retain their syntax scope's layout owner.
+Group and indentation scopes form a paired layout protocol. Normal expansion
+retains its source preference or required cause, distinct from candidate
+measurement. Recorded views retain their syntax scope's layout owner.
 Fill entry bounds are relative to the entry, so complete recorded scopes keep
 their meaning when viewed or replayed from a different slice origin.
 
@@ -57,9 +57,10 @@ immutable instructions, preserving required breaks, suffixes, and named scopes.
 Syntax and comments are consumed once, before the printer selects a candidate.
 
 Fit probes use the available width and remaining document without committing
-tentative state to printing. Only the selected layout affects output,
-indentation, and line suffixes. Layout selection does not change syntax or
-comment ownership.
+tentative state to printing. A candidate can ignore source-only expansion during
+its own measurement while retaining it for rendering. Only the selected layout
+affects output, indentation, and line suffixes; syntax and comment ownership
+remain unchanged.
 
 ## Source and comments
 

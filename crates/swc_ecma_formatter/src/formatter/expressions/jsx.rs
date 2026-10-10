@@ -98,9 +98,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let expand = children_layout.has_content
             && (opening_layout.multiple_attributes
                 || children_layout.contains_tag
-                || children_layout.multiple_expressions
-                || opening_doc.preferred_breaks()
-                || children_doc.preferred_breaks());
+                || children_layout.multiple_expressions);
         writer.group(expand, |writer| {
             writer.write_fragment(opening_doc);
             writer.indent(|writer| {
@@ -148,11 +146,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.record_with_value(|writer| self.format_jsx_fragment_opening(opening, writer))?;
         let (children_doc, layout) = writer
             .record_with_value(|writer| self.format_jsx_children(node.children(ast), writer))?;
-        let expand = layout.has_content
-            && (layout.contains_tag
-                || layout.multiple_expressions
-                || opening_doc.preferred_breaks()
-                || children_doc.preferred_breaks());
+        let expand = layout.has_content && (layout.contains_tag || layout.multiple_expressions);
         writer.group(expand, |writer| {
             writer.write_fragment(opening_doc);
             writer.indent(|writer| {

@@ -636,9 +636,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.group(false, |writer| {
                     writer.write_fragment(signature);
                     writer.write_fragment(if body_layout == ArrowBodyLayout::Hug {
-                        body.contents
+                        body.contents()
                     } else {
-                        body.grouped
+                        body.grouped()
                     });
                 });
                 Ok::<_, FormatError>(())
@@ -1018,7 +1018,7 @@ impl<'a> RecordedArrowChain<'a> {
                 }
             });
             writer.text("=>");
-            writer.indent_if_break(group, |writer| writer.write_fragment(body.contents));
+            writer.indent_if_break(group, |writer| writer.write_fragment(body.contents()));
             if callee {
                 writer.soft_line_if_break(group);
             } else if layout == ArrowLayout::JsxExpression && !hug_body {

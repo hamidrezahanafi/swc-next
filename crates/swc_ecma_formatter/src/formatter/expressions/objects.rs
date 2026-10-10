@@ -14,7 +14,7 @@ use crate::formatter::literals::StringContext;
 use crate::formatter::suppression::{ContentMode, DelimitedFollowing, SuppressionPosition};
 use crate::{
     FormatError, QuoteProperties, TrailingCommas,
-    document::{Fragment, Writer},
+    document::{Fragment, GroupRequest, Writer},
 };
 
 #[derive(Clone, Copy)]
@@ -90,9 +90,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<(), FormatError> {
         match self.source_object(object)? {
             SourceObject::Verbatim(span) => self.format_verbatim(span, writer),
-            SourceObject::Formatted(source) => writer.group(source.expand, |writer| {
-                self.format_object_contents(source.contents, writer)
-            }),
+            SourceObject::Formatted(source) => {
+                let request = if source.expand {
+                    GroupRequest::PreserveSource
+                } else {
+                    GroupRequest::Auto
+                };
+                writer.group_with_request(request, |writer| {
+                    self.format_object_contents(source.contents, writer)
+                })
+            }
         }
     }
 
@@ -144,7 +151,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             SourceObject::Formatted(FormattedObject { expand, contents }) => {
                 let (content, ()) = writer
                     .record_with_value(|writer| self.format_object_contents(contents, writer))?;
-                let normal = writer.group_fragment(expand, content);
+                let request = if expand {
+                    GroupRequest::PreserveSource
+                } else {
+                    GroupRequest::Auto
+                };
+                let normal = writer.group_fragment_with_request(request, content);
                 let forced = if normal.preferred_breaks() {
                     None
                 } else {

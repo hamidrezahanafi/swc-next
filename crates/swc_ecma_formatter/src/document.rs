@@ -17,6 +17,56 @@ use text::Text;
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct GroupId(usize);
 
+/// Explicit layout requests stay distinct from preserved source layout.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum GroupRequest {
+    Auto,
+    Expanded,
+    PreserveSource,
+}
+
+impl From<bool> for GroupRequest {
+    fn from(expand: bool) -> Self {
+        if expand { Self::Expanded } else { Self::Auto }
+    }
+}
+
+/// Effects join within each complete scope. Source preferences remain effective
+/// when printing, while required expansion also constrains canonical measurement.
+#[derive(Debug, Clone, Copy, Default)]
+struct BreakEffect(u8);
+
+impl BreakEffect {
+    const SOURCE: Self = Self(1);
+    const REQUIRED: Self = Self(2);
+
+    fn from_request(request: GroupRequest) -> Self {
+        match request {
+            GroupRequest::Auto => Self::default(),
+            GroupRequest::Expanded => Self::REQUIRED,
+            GroupRequest::PreserveSource => Self::SOURCE,
+        }
+    }
+
+    fn join(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    fn preferred_breaks(self) -> bool {
+        self.0 != 0
+    }
+
+    fn required(self) -> bool {
+        self.0 & Self::REQUIRED.0 != 0
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Measurement {
+    Display,
+    Canonical,
+}
+
 #[derive(Debug, Clone, Copy)]
 enum FormatElement<'a> {
     Text(Text<'a>),
@@ -33,7 +83,7 @@ enum FormatElement<'a> {
     IfCurrentFlat(Text<'a>),
     LineSuffix(Text<'a>),
     StartGroup {
-        expand: bool,
+        effect: BreakEffect,
         id: Option<GroupId>,
     },
     EndGroup,
@@ -57,13 +107,14 @@ enum FormatElement<'a> {
     Fragment(Fragment<'a>),
     FlatFragment(FlatFragment<'a>),
     Alternatives(&'a Alternatives<'a>),
+    CanonicalAlternatives(&'a Alternatives<'a>),
 }
 
 /// A complete immutable scope, owned by the current formatting call.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Fragment<'a> {
     elements: &'a [FormatElement<'a>],
-    breaks: bool,
+    effect: BreakEffect,
     capabilities: FragmentCapabilities,
     conditional_lines: bool,
 }
@@ -71,13 +122,34 @@ pub(crate) struct Fragment<'a> {
 /// Both views retain the same complete scope; only the anonymous outer group differs.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct RecordedGroup<'a> {
-    pub(crate) grouped: Fragment<'a>,
-    pub(crate) contents: Fragment<'a>,
+    grouped: Fragment<'a>,
+}
+
+impl<'a> RecordedGroup<'a> {
+    pub(crate) fn grouped(self) -> Fragment<'a> {
+        self.grouped
+    }
+
+    pub(crate) fn contents(self) -> Fragment<'a> {
+        // Construction retains one complete anonymous Auto group. Its wrapper
+        // inherits the contents' effects and capabilities without adding any.
+        let elements = self.grouped.elements;
+        let elements = &elements[1..elements.len() - 1];
+        Fragment {
+            elements,
+            ..self.grouped
+        }
+    }
 }
 
 impl<'a> Fragment<'a> {
     pub(crate) fn preferred_breaks(self) -> bool {
-        self.breaks
+        self.effect.preferred_breaks()
+    }
+
+    /// Measures this complete scope without changing its retained render view.
+    pub(crate) fn canonical_candidate(self) -> CanonicalCandidate<'a> {
+        CanonicalCandidate(self)
     }
 
     pub(crate) fn try_flat(self) -> Option<FlatFragment<'a>> {
@@ -94,6 +166,10 @@ impl<'a> Fragment<'a> {
 /// A flat view whose complete scope cannot observe layout mode.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct NeutralFragment<'a>(Fragment<'a>);
+
+/// A zero-copy measurement request, distinct from a printed Flat projection.
+#[derive(Clone, Copy)]
+pub(crate) struct CanonicalCandidate<'a>(Fragment<'a>);
 
 #[derive(Debug, Clone, Copy)]
 enum FragmentCapabilities {
@@ -129,7 +205,7 @@ impl FragmentCapabilities {
                 }
                 FormatElement::Space
                 | FormatElement::StartGroup {
-                    expand: false,
+                    effect: BreakEffect(0),
                     id: None,
                 }
                 | FormatElement::EndGroup => continue,
@@ -174,7 +250,9 @@ impl FormatElement<'_> {
             Self::HardLine | Self::LiteralLine | Self::LineSuffix(_) | Self::BreakParent => false,
             Self::Text(text) | Self::IfCurrentFlat(text) => text.is_single_line(),
             Self::Fragment(fragment) => fragment.capabilities.permits_flat(),
-            Self::Alternatives(alternatives) => alternatives.first().capabilities.permits_flat(),
+            Self::Alternatives(alternatives) | Self::CanonicalAlternatives(alternatives) => {
+                alternatives.first().capabilities.permits_flat()
+            }
             _ => true,
         }
     }
@@ -186,7 +264,7 @@ impl FormatElement<'_> {
             Self::IfFlat(text) | Self::IfCurrentFlat(text) => Some(Self::Text(text)),
             Self::StartGroup { id: Some(id), .. } => Some(Self::FlatGroup(id)),
             Self::Fragment(fragment) => Some(Self::FlatFragment(FlatFragment(fragment))),
-            Self::Alternatives(alternatives) => {
+            Self::Alternatives(alternatives) | Self::CanonicalAlternatives(alternatives) => {
                 Some(Self::FlatFragment(FlatFragment(alternatives.first())))
             }
             element

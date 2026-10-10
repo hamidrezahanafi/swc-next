@@ -682,9 +682,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 })?;
                 writer.group(false, |writer| {
                     writer.write_fragment(if object_return || result.preferred_breaks() {
-                        parameters.grouped
+                        parameters.grouped()
                     } else {
-                        parameters.contents
+                        parameters.contents()
                     });
                     writer.write_fragment(result);
                 });
