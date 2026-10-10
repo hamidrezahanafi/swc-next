@@ -33,7 +33,7 @@ function isNumber(
 ): value is number
 // prettier-ignore
 {
-  return typeof  value === "number";
+  return typeof  value === "number"
 }
 
 ---------- Options ----------

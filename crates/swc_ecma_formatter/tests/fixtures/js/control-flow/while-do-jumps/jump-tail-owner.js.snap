@@ -10,8 +10,8 @@ outer: while (test()) {break outer
 ---------- Output ----------
 outer: while (test()) {
   break outer
-// prettier-ignore
-;
+  // prettier-ignore
+  ;
 }
 
 ---------- Options ----------
@@ -21,8 +21,8 @@ outer: while (
   test()
 ) {
   break outer
-// prettier-ignore
-;
+  // prettier-ignore
+  ;
 }
 
 ---------- Options ----------
@@ -30,8 +30,8 @@ outer: while (
 ---------- Output ----------
 outer: while (test()) {
   break outer
-// prettier-ignore
-;
+  // prettier-ignore
+  ;
 }
 
 ---------- Options ----------
@@ -41,8 +41,8 @@ outer: while (
   test()
 ) {
   break outer
-// prettier-ignore
-;
+  // prettier-ignore
+  ;
 }
 
 ---------- Options ----------
@@ -52,8 +52,8 @@ outer: while (
 	test()
 ) {
 	break outer
-// prettier-ignore
-;
+	// prettier-ignore
+	;
 }
 
 ---------- Options ----------
@@ -61,6 +61,6 @@ outer: while (
 ---------- Output ----------
 outer: while (test()) {
   break outer
-// prettier-ignore
-;
+  // prettier-ignore
+  ;
 }

@@ -35,10 +35,25 @@ pub(super) struct StatementSourcePacket {
 }
 
 pub(super) struct StatementSuppressionTail {
+    pub(super) content: StatementContent,
     pub(super) terminator: Option<StatementSourceTerminator>,
     pub(super) modes: StatementTailModes,
     pub(super) following_gap: Option<LineConstraint>,
     pub(super) source_packet: Option<StatementSourcePacket>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum StatementContent {
+    Semicolon(u32),
+    Complete(u32),
+}
+
+impl StatementContent {
+    pub(super) fn end(self) -> u32 {
+        match self {
+            Self::Semicolon(end) | Self::Complete(end) => end,
+        }
+    }
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -85,7 +100,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if !suppression {
             return None;
         }
-        let content_end = self.statement_content_end(statement);
+        let content = self.statement_content(statement);
+        let content_end = content.end();
         let comments = &comments[first..];
         let first = comments.partition_point(|comment| comment.span.start < content_end);
         let comments = &comments[first..];
@@ -129,6 +145,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             None
         };
         Some(StatementSuppressionTail {
+            content,
             terminator,
             modes,
             following_gap,
@@ -182,8 +199,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     }
 
     pub(super) fn statement_content_end(&self, item: StatementItem) -> u32 {
+        self.statement_content(item).end()
+    }
+
+    pub(super) fn statement_content(&self, item: StatementItem) -> StatementContent {
+        use StatementContent::{Complete, Semicolon};
+
         let mut statement = match item {
-            StatementItem::Directive(node) => return node.expression(self.ast).span(self.ast).end,
+            StatementItem::Directive(node) => {
+                return Semicolon(node.expression(self.ast).span(self.ast).end);
+            }
             StatementItem::Statement(statement) => statement,
         };
         loop {
@@ -205,7 +230,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     let end = node.span(self.ast).end;
                     let span = Span::new(expression.end, end);
                     let closing = self.find_token(span, self.comments.in_range(span), ")");
-                    return closing.map_or(end, |closing| closing + 1);
+                    return Semicolon(closing.map_or(end, |closing| closing + 1));
                 }
                 StmtData::WithStatement(node) => {
                     statement = node.body(self.ast);
@@ -214,109 +239,127 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     statement = node.body(self.ast);
                 }
                 StmtData::BreakStatement(node) => {
-                    return node
+                    let end = node
                         .label(self.ast)
                         .map_or(node.span(self.ast).start + "break".len() as u32, |label| {
                             label.span(self.ast).end
                         });
+                    return Semicolon(end);
                 }
                 StmtData::ContinueStatement(node) => {
-                    return node.label(self.ast).map_or(
+                    let end = node.label(self.ast).map_or(
                         node.span(self.ast).start + "continue".len() as u32,
                         |label| label.span(self.ast).end,
                     );
+                    return Semicolon(end);
                 }
                 StmtData::ExpressionStatement(node) => {
-                    return node.expression(self.ast).span(self.ast).end;
+                    return Semicolon(node.expression(self.ast).span(self.ast).end);
                 }
                 StmtData::ReturnStatement(node) => {
-                    return node.argument(self.ast).map_or(
+                    let end = node.argument(self.ast).map_or(
                         node.span(self.ast).start + "return".len() as u32,
                         |argument| argument.span(self.ast).end,
                     );
+                    return Semicolon(end);
                 }
                 StmtData::ThrowStatement(node) => {
-                    return node.argument(self.ast).span(self.ast).end;
+                    return Semicolon(node.argument(self.ast).span(self.ast).end);
                 }
                 StmtData::Declaration(declaration) => {
-                    return self.declaration_content_end(declaration);
+                    return self.declaration_content(declaration);
                 }
                 StmtData::ImportDeclaration(node) => {
-                    return self.module_source_content_end(
+                    return Semicolon(self.module_source_content_end(
                         node.source(self.ast),
                         node.attributes(self.ast),
                         node.span(self.ast).end,
-                    );
+                    ));
                 }
                 StmtData::ExportAllDeclaration(node) => {
-                    return self.module_source_content_end(
+                    return Semicolon(self.module_source_content_end(
                         node.source(self.ast),
                         node.attributes(self.ast),
                         node.span(self.ast).end,
-                    );
+                    ));
                 }
                 StmtData::ExportNamedDeclaration(node) => {
-                    return self.module_named_content_end(node);
+                    return node.declaration(self.ast).map_or_else(
+                        || Semicolon(self.module_named_content_end(node)),
+                        |declaration| self.declaration_content(declaration),
+                    );
                 }
                 StmtData::ExportDefaultDeclaration(node) => {
                     let declaration = node.declaration(self.ast);
                     return match self.ast.export_default_declaration_kind_data(declaration) {
                         swc_next_ecma_ast::ExportDefaultDeclarationKindData::TsFunction(
                             function,
-                        ) => self.declaration_content_end(Decl::TsFunction(function)),
-                        _ => declaration.span(self.ast).end,
+                        ) => self.declaration_content(Decl::TsFunction(function)),
+                        swc_next_ecma_ast::ExportDefaultDeclarationKindData::Expr(expression) => {
+                            Semicolon(expression.span(self.ast).end)
+                        }
+                        _ => Complete(declaration.span(self.ast).end),
                     };
                 }
                 StmtData::TsExportAssignment(node) => {
-                    return node.expression(self.ast).span(self.ast).end;
+                    return Semicolon(node.expression(self.ast).span(self.ast).end);
                 }
                 StmtData::TsNamespaceExportDeclaration(node) => {
-                    return node.id(self.ast).span(self.ast).end;
+                    return Semicolon(node.id(self.ast).span(self.ast).end);
                 }
                 StmtData::DebuggerStatement(node) => {
-                    return node.span(self.ast).start + "debugger".len() as u32;
+                    return Semicolon(node.span(self.ast).start + "debugger".len() as u32);
                 }
-                _ => return statement.span(self.ast).end,
+                _ => return Complete(statement.span(self.ast).end),
             }
         }
     }
 
     pub(super) fn declaration_content_end(&self, declaration: Decl) -> u32 {
+        self.declaration_content(declaration).end()
+    }
+
+    fn declaration_content(&self, declaration: Decl) -> StatementContent {
+        use StatementContent::{Complete, Semicolon};
+
         let variable = match self.ast.decl_data(declaration) {
             DeclData::TsFunction(function) => {
-                return function
+                let end = function
                     .return_type(self.ast)
                     .map_or(function.params(self.ast).span(self.ast).end, |annotation| {
                         annotation.span(self.ast).end
                     });
+                return Semicolon(end);
             }
             DeclData::VariableDeclaration(variable) => variable,
             DeclData::TsTypeAliasDeclaration(alias) => {
-                return alias.type_annotation(self.ast).span(self.ast).end;
+                return Semicolon(alias.type_annotation(self.ast).span(self.ast).end);
             }
             DeclData::TsModuleDeclaration(mut node) => loop {
                 let Some(body) = node.body(self.ast) else {
-                    return node.id(self.ast).span(self.ast).end;
+                    return Semicolon(node.id(self.ast).span(self.ast).end);
                 };
                 match self.ast.ts_module_body_data(body) {
                     swc_next_ecma_ast::TsModuleBodyData::TsModuleBlock(body) => {
-                        return body.span(self.ast).end;
+                        return Complete(body.span(self.ast).end);
                     }
                     swc_next_ecma_ast::TsModuleBodyData::TsModuleDeclaration(nested) => {
                         node = nested
                     }
                 }
             },
-            DeclData::TsGlobalDeclaration(node) => return node.body(self.ast).span(self.ast).end,
-            DeclData::TsImportEqualsDeclaration(node) => {
-                return node.module_reference(self.ast).span(self.ast).end;
+            DeclData::TsGlobalDeclaration(node) => {
+                return Complete(node.body(self.ast).span(self.ast).end);
             }
-            _ => return declaration.span(self.ast).end,
+            DeclData::TsImportEqualsDeclaration(node) => {
+                return Semicolon(node.module_reference(self.ast).span(self.ast).end);
+            }
+            _ => return Complete(declaration.span(self.ast).end),
         };
         let Some(last) = variable.declarators(self.ast).last() else {
-            return variable.span(self.ast).end;
+            return Complete(variable.span(self.ast).end);
         };
-        self.ast.get_node_in_sub_range(last).span(self.ast).end
+        Semicolon(self.ast.get_node_in_sub_range(last).span(self.ast).end)
     }
 
     pub(super) fn statement_source_terminator(

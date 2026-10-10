@@ -4,7 +4,9 @@ use swc_next_ecma_ast::{
     BreakStatement, ContinueStatement, GetSpan, LabelIdentifier, LabeledStatement, Span,
 };
 
-use super::super::{Formatter, PrintedStatement, StatementBoundary, StatementPunctuation};
+use super::super::{
+    Formatter, PrintedStatement, StatementContent, StatementItem, StatementPunctuation,
+};
 use super::{ControlledBodyEnd, ControlledBodyRole};
 use crate::formatter::suppression::{ContentMode, SuppressionPosition};
 use crate::{FormatError, document::Writer};
@@ -32,12 +34,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if self.trailing_content_mode(Span::new(content_end, span.end), true)
             == ContentMode::Verbatim
         {
-            self.format_verbatim(span, writer)?;
-            return Ok(StatementBoundary::SourceEnd {
-                end: span.end,
-                has_terminator: self.statement_source_terminator(span).is_some(),
-            }
-            .into());
+            return self.format_verbatim_statement(
+                span,
+                StatementContent::Semicolon(content_end),
+                punctuation,
+                writer,
+            );
         }
         let mode = if self.has_suppression {
             label.map_or(ContentMode::Formatted, |label| {
@@ -103,12 +105,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         if enclosing_mode == ContentMode::Verbatim {
             let span = node.span(ast);
-            self.format_verbatim(span, writer)?;
-            return Ok(StatementBoundary::SourceEnd {
-                end: span.end,
-                has_terminator: self.statement_source_terminator(span).is_some(),
-            }
-            .into());
+            let content = self.statement_content(StatementItem::Statement(statement));
+            return self.format_verbatim_statement(span, content, punctuation, writer);
         }
         let body = self
             .prepare_controlled_body(

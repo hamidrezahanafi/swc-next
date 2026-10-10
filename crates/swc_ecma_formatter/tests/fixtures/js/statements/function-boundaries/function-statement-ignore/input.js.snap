@@ -14,7 +14,7 @@ function f() {
 {"printWidth":20,"semi":false}
 ---------- Output ----------
 function f() {
-  /* prettier-ignore */ return   first(  );
+  /* prettier-ignore */ return   first(  )
 }
 
 ---------- Options ----------
