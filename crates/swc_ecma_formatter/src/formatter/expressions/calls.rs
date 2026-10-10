@@ -5,7 +5,9 @@ use swc_next_ecma_ast::{
 };
 
 use super::arguments::{ArgumentGroup, SourceArguments};
-use super::{AccessKind, ExpressionContext, ExpressionPosition, Formatter, TailOwner};
+use super::{
+    AccessKind, ExpressionContext, ExpressionPosition, Formatter, JsxCallbackContext, TailOwner,
+};
 use crate::formatter::comments::ExpressionTail;
 use crate::formatter::suppression::ContentMode;
 use crate::{FormatError, document::Writer};
@@ -111,6 +113,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut arguments =
             source.ok_or_else(|| self.unsupported("call opening boundary", call))?;
         arguments.test_callback = self.test_call_callback(call);
+        arguments.jsx_call = match context.jsx_callback {
+            JsxCallbackContext::ContainerCall(owner) if owner == call => Some(call),
+            _ => None,
+        };
         arguments.group = if matches!(context.position,
             ExpressionPosition::CallCallee { curried_call: Some(curried), .. } if curried == call)
         {

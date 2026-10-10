@@ -8,7 +8,10 @@ use swc_next_ecma_ast::{
 
 use super::arguments::TrailingCommaPolicy;
 use super::parentheses::{ExpressionContent, SourceParentheses};
-use super::{ExpressionContext, ExpressionLayout, ExpressionPosition, Formatter, TailOwner};
+use super::{
+    ExpressionContext, ExpressionLayout, ExpressionPosition, Formatter, JsxCallbackContext,
+    TailOwner,
+};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::functions::SignatureBoundaryRole;
@@ -57,9 +60,17 @@ pub(super) enum RecordedArrow<'a> {
 
 pub(super) struct FormattedRecordedArrow<'a> {
     pub(super) signature: Fragment<'a>,
-    pub(super) body: Fragment<'a>,
+    pub(super) body: RecordedGroup<'a>,
+    pub(super) body_layout: ArrowBodyLayout,
     pub(super) normal: Fragment<'a>,
     pub(super) tail: Option<ExpressionTail<'a>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ArrowBodyLayout {
+    Hug,
+    Block,
+    Expression,
 }
 
 struct ArrowLink<'a> {
@@ -74,7 +85,7 @@ struct RecordedArrowChain<'a> {
     body: RecordedGroup<'a>,
     tail: Option<ExpressionTail<'a>>,
     should_break: bool,
-    hug_body: bool,
+    body_layout: ArrowBodyLayout,
 }
 
 struct ArrowChainChild<'a> {
@@ -165,6 +176,19 @@ pub(super) struct SourceArrowBody<'a> {
     leading_layout: CommentRunLayout,
     body_starts_line: bool,
     hug_body: bool,
+    jsx_callback: JsxCallbackContext,
+}
+
+impl SourceArrowBody<'_> {
+    fn layout(&self) -> ArrowBodyLayout {
+        if self.hug_body {
+            ArrowBodyLayout::Hug
+        } else if matches!(self.body, PreparedArrowBody::FunctionBody(_)) {
+            ArrowBodyLayout::Block
+        } else {
+            ArrowBodyLayout::Expression
+        }
+    }
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -460,6 +484,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             leading_layout,
             body_starts_line,
             hug_body,
+            jsx_callback: JsxCallbackContext::Ordinary,
         };
         if body_mode == ContentMode::Verbatim {
             body.mode = body_mode;
@@ -603,18 +628,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let Some(first_child) = source.next.take() else {
             let (signature, source_body) = writer
                 .record_with_value(|writer| self.format_arrow_head(source, context, writer))?;
-            let (body, tail) =
-                writer.record_with_value(|writer| self.format_arrow_body(source_body, writer))?;
+            let body_layout = source_body.layout();
+            let (body, tail) = writer.record_group_with_value(|writer| {
+                self.format_arrow_body_content(source_body, writer)
+            })?;
             let (normal, ()) = writer.record_with_value(|writer| {
                 writer.group(false, |writer| {
                     writer.write_fragment(signature);
-                    writer.write_fragment(body);
+                    writer.write_fragment(if body_layout == ArrowBodyLayout::Hug {
+                        body.contents
+                    } else {
+                        body.grouped
+                    });
                 });
                 Ok::<_, FormatError>(())
             })?;
             return Ok(RecordedArrow::Formatted(FormattedRecordedArrow {
                 signature,
                 body,
+                body_layout,
                 normal,
                 tail,
             }));
@@ -634,14 +666,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             chain.write(context.arrow_layout, writer);
             Ok::<_, FormatError>(())
         })?;
-        let body = if chain.hug_body {
-            chain.body.contents
-        } else {
-            chain.body.grouped
-        };
         Ok(RecordedArrow::Formatted(FormattedRecordedArrow {
             signature,
-            body,
+            body: chain.body,
+            body_layout: chain.body_layout,
             normal,
             tail: chain.tail,
         }))
@@ -669,7 +697,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         source = self.source_formatted_arrow(first_child.head, None)?;
         let mut links = Vec::new();
-        let (body, mut tail, hug_body) = loop {
+        let (body, mut tail, body_layout) = loop {
             should_break |= self.arrow_chain_breaks(&source);
             let next = source.next.take();
             let (signature, source_body) = writer.record_with_value(|writer| {
@@ -692,7 +720,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 });
                 source = self.source_formatted_arrow(child.head, None)?;
             } else {
-                let hug_body = source_body.hug_body;
+                let body_layout = source_body.layout();
                 let (body, tail) = writer.record_group_with_value(|writer| {
                     self.format_arrow_body_content(source_body, writer)
                 })?;
@@ -701,7 +729,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     following: None,
                     trailing: None,
                 });
-                break (body, tail, hug_body);
+                break (body, tail, body_layout);
             }
         };
         for link in links.iter().rev().chain(std::iter::once(&first)) {
@@ -715,7 +743,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             body,
             tail,
             should_break,
-            hug_body,
+            body_layout,
         })
     }
 
@@ -831,6 +859,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             Writer::space,
         );
         body.parent_layout = context.arrow_layout;
+        body.jsx_callback = context.jsx_callback.body(arrow);
         Ok(body)
     }
 
@@ -865,6 +894,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             leading_layout,
             body_starts_line,
             hug_body,
+            jsx_callback,
         } = source;
         let first = leading
             .first()
@@ -903,6 +933,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     },
                     ExpressionContext::at(ExpressionPosition::ArrowBody)
                         .with_content_mode(mode)
+                        .with_jsx_callback(jsx_callback)
                         .with_tail_owner(TailOwner::ParentOperation),
                     writer,
                 ),
@@ -941,14 +972,15 @@ impl<'a> RecordedArrowChain<'a> {
             rest,
             body,
             should_break,
-            hug_body,
+            body_layout,
             ..
         } = self;
+        let hug_body = *body_layout == ArrowBodyLayout::Hug;
         writer.group(false, |writer| {
             let callee = layout == ArrowLayout::Callee;
             // A broken callee can keep its signatures flat. The final arrow and
             // body observe the enclosing group independently of the signatures.
-            let group = writer.named_group(callee && !*hug_body, |writer| {
+            let group = writer.named_group(callee && !hug_body, |writer| {
                 let write_remaining = |writer: &mut Writer<'a>| {
                     if let Some(following) = first.following {
                         writer.write_fragment(following);

@@ -171,7 +171,9 @@ const logical_active = (
 const jsx_arrow_owners = (
   <Box
     data={(value) => <Box>{value}</Box>}
-    mapped={items.map((value) => <Box>{value}</Box>)}
+    mapped={items.map((value) => (
+      <Box>{value}</Box>
+    ))}
   >
     {(value) => (next) => <Box>{value + next}</Box>}
     {(value) =>

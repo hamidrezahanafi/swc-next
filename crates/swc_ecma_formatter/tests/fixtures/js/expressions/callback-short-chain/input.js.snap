@@ -10,7 +10,8 @@ expect(() =>
   request({
     url:
       "/test-endpoint-with-a-long-url",
-  })).done();
+  }),
+).done();
 
 ---------- Options ----------
 {"printWidth":80}
@@ -24,4 +25,5 @@ expect(() =>
   request({
     url:
       "/test-endpoint-with-a-long-url",
-  })).done()
+  }),
+).done()

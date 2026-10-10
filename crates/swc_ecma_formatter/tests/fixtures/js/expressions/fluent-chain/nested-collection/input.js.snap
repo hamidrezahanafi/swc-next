@@ -20,5 +20,6 @@ function run(source) {
         }),
       })
         .map((x) => x)
-        .retry((x) => x));
+        .retry((x) => x),
+    );
 }

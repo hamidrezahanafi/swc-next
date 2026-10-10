@@ -3,7 +3,7 @@
 use super::callbacks::{SelectedArgument, SelectedCallback};
 use super::calls::CallCallee;
 use super::typescript::ExpressionTypeArguments;
-use super::{AccessKind, ExpressionContext, Formatter};
+use super::{AccessKind, ExpressionContext, ExpressionPosition, Formatter, JsxCallbackContext};
 use crate::formatter::comments::{ArrayCommentOwner, CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::suppression::{
@@ -551,6 +551,7 @@ pub(super) struct SourceArguments<'ast> {
     pub(super) test_callback: Option<SelectedCallback>,
     pub(super) group: ArgumentGroup,
     pub(super) curried_callee: Option<CallExpression>,
+    pub(super) jsx_call: Option<CallExpression>,
 }
 
 #[derive(Clone, Copy)]
@@ -563,6 +564,7 @@ pub(super) struct ArgumentHead {
     pub(super) first_mode: ContentMode,
     pub(super) source_opening: Option<SourceArgumentOpening>,
     pub(super) ordinary_group: ArgumentGroup,
+    pub(super) jsx_call: Option<CallExpression>,
 }
 
 #[derive(Clone, Copy)]
@@ -859,6 +861,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             test_callback: None,
             group: ArgumentGroup::Local,
             curried_callee: None,
+            jsx_call: None,
         })
     }
 
@@ -866,24 +869,45 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         argument: Argument,
         mode: ContentMode,
+        jsx_call: Option<CallExpression>,
         missing_function: &mut Option<&mut bool>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        if missing_function.is_none() {
+        if missing_function.is_none() && (jsx_call.is_none() || mode == ContentMode::Verbatim) {
             return self.format_argument(argument, mode, writer);
         }
         let data = self.ast.argument_data(argument);
-        let has_function = match data {
-            ArgumentData::Expr(expression) => matches!(
-                self.expression_content(expression).data,
-                ExprData::Function(_) | ExprData::ArrowFunctionExpression(_)
-            ),
-            ArgumentData::SpreadElement(_) => false,
+        let content = match data {
+            ArgumentData::Expr(expression) => Some(self.expression_content(expression)),
+            ArgumentData::SpreadElement(_) => None,
         };
+        let has_function = matches!(
+            content.as_ref().map(|content| content.data),
+            Some(ExprData::Function(_) | ExprData::ArrowFunctionExpression(_))
+        );
         if has_function && let Some(function) = missing_function.take() {
             *function = true;
         }
-        self.format_argument_data(data, mode, writer)
+        let jsx_callback = content
+            .as_ref()
+            .map_or(JsxCallbackContext::Ordinary, |content| {
+                JsxCallbackContext::argument(
+                    jsx_call.filter(|_| mode == ContentMode::Formatted),
+                    content.data,
+                )
+            });
+        let context = ExpressionContext::at(ExpressionPosition::Nested)
+            .with_content_mode(mode)
+            .with_arrow_layout(super::arrows::ArrowLayout::Argument)
+            .with_jsx_callback(jsx_callback);
+        match data {
+            ArgumentData::Expr(expression) => self.format_expression_prepared_with_array_comments(
+                expression, content, context, None, writer,
+            ),
+            ArgumentData::SpreadElement(_) => {
+                self.format_argument_data_with_array_comments(data, mode, None, writer)
+            }
+        }
     }
 
     #[inline]
@@ -1005,6 +1029,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             prefix,
             test_callback,
             group,
+            jsx_call,
             ..
         } = list;
         let first_mode = first.map_or(ContentMode::Formatted, |argument| argument.mode);
@@ -1113,10 +1138,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             && self.comments.in_range(content).is_empty()
             && !self.diagnostic_range_is_sensitive(content)
             && first.is_some_and(|argument| match ast.argument_data(argument.node) {
-                ArgumentData::Expr(expression) => matches!(
-                    self.expression_content(expression).data,
-                    ExprData::ArrayExpression(_) | ExprData::ObjectExpression(_)
-                ),
+                ArgumentData::Expr(expression) => self.call_argument_is_collection(expression),
                 ArgumentData::SpreadElement(_) => false,
             });
         let expand = arguments
@@ -1142,6 +1164,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     first_mode,
                     source_opening,
                     ordinary_group: group,
+                    jsx_call,
                 },
                 selected,
                 missing_function,
@@ -1188,6 +1211,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     let tail = self.format_argument_with_function_fact(
                         argument,
                         item.mode,
+                        jsx_call,
                         &mut missing_function,
                         writer,
                     )?;

@@ -102,6 +102,73 @@ enum BinaryTypeLayout<'ast> {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    /// Postfix chain wrappers retain their source owners while sharing the operand's shape.
+    pub(super) fn chain_element_data(&self, mut data: ExprData) -> ExprData {
+        loop {
+            let expression = match data {
+                ExprData::ChainExpression(chain) => chain.expression(self.ast),
+                ExprData::TsNonNullExpression(assertion) => assertion.expression(self.ast),
+                _ => return data,
+            };
+            data = self.expression_content(expression).data;
+        }
+    }
+
+    /// Collection arguments can keep their call delimiters around a type wrapper.
+    pub(super) fn call_argument_is_collection(&self, mut expression: Expr) -> bool {
+        loop {
+            let content = self.expression_content(expression);
+            expression = match content.data {
+                ExprData::ArrayExpression(_) | ExprData::ObjectExpression(_) => return true,
+                ExprData::TsAsExpression(assertion) => assertion.expression(self.ast),
+                ExprData::TsSatisfiesExpression(assertion) => assertion.expression(self.ast),
+                ExprData::TsTypeAssertion(assertion) => assertion.expression(self.ast),
+                _ => return false,
+            };
+        }
+    }
+
+    /// A short cast neighbor has an atomic type after bounded array/reference peeling.
+    pub(super) fn short_argument_type(&self, mut annotation: TsType) -> bool {
+        let ast = self.ast;
+        for _ in 0..2 {
+            let TsTypeData::TsArrayType(array) = ast.ts_type_data(annotation) else {
+                break;
+            };
+            annotation = array.element_type(ast);
+        }
+        if let TsTypeData::TsTypeReference(reference) = ast.ts_type_data(annotation)
+            && let Some(arguments) = reference.type_arguments(ast)
+        {
+            let parameters = arguments.params(ast);
+            if parameters.len() == 1
+                && let Some(parameter) = parameters.first()
+            {
+                annotation = ast.get_node_in_sub_range(parameter);
+            }
+        }
+        match ast.ts_type_data(annotation) {
+            TsTypeData::TsAnyKeyword(_)
+            | TsTypeData::TsUnknownKeyword(_)
+            | TsTypeData::TsNeverKeyword(_)
+            | TsTypeData::TsVoidKeyword(_)
+            | TsTypeData::TsNullKeyword(_)
+            | TsTypeData::TsUndefinedKeyword(_)
+            | TsTypeData::TsStringKeyword(_)
+            | TsTypeData::TsNumberKeyword(_)
+            | TsTypeData::TsBigIntKeyword(_)
+            | TsTypeData::TsBooleanKeyword(_)
+            | TsTypeData::TsSymbolKeyword(_)
+            | TsTypeData::TsObjectKeyword(_)
+            | TsTypeData::TsIntrinsicKeyword(_)
+            | TsTypeData::TsThisType(_)
+            | TsTypeData::TsLiteralType(_)
+            | TsTypeData::TsTemplateLiteralType(_) => true,
+            TsTypeData::TsTypeReference(reference) => reference.type_arguments(ast).is_none(),
+            _ => false,
+        }
+    }
+
     pub(in crate::formatter) fn prepare_expression_type_arguments(
         &self,
         expression: Expr,

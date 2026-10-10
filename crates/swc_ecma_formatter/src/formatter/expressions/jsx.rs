@@ -15,7 +15,8 @@ use swc_next_ecma_ast::{
 use super::arrows::ArrowLayout;
 use super::parentheses::ExpressionContent;
 use super::{
-    ExpressionContext, ExpressionPosition, Formatter, OperandIndent, ParenthesesOwner, TailOwner,
+    ExpressionContext, ExpressionPosition, Formatter, JsxCallbackContext, OperandIndent,
+    ParenthesesOwner, TailOwner,
 };
 use crate::formatter::comments::{CommentRunLayout, NodeHead};
 use crate::formatter::diagnostics::FlatSeparator;
@@ -57,7 +58,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             return content(self, writer);
         }
-        writer.group(false, |writer| {
+        let callback_body = matches!(context.jsx_callback, JsxCallbackContext::Body);
+        writer.group(callback_body, |writer| {
             writer.if_break("(");
             writer.indent(|writer| {
                 writer.soft_line();
@@ -602,7 +604,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ContentMode::Formatted
         };
         let mut content = content;
-        let (hug, arrow_layout) = if !spread && mode == ContentMode::Formatted {
+        let (hug, arrow_layout, jsx_callback) = if !spread && mode == ContentMode::Formatted {
             let data = content
                 .as_ref()
                 .map_or_else(|| ast.expr_data(expression), |content| content.data);
@@ -615,14 +617,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             } else {
                 data
             };
-            let hug = matches!(
+            let jsx_callback = self.jsx_container_callback(data);
+            let hug = (matches!(
                 data,
                 ExprData::ObjectExpression(_)
                     | ExprData::ArrayExpression(_)
                     | ExprData::CallExpression(_)
                     | ExprData::Function(_)
                     | ExprData::ArrowFunctionExpression(_)
-            ) && self.comments.in_range(envelope).is_empty();
+            ) || matches!(jsx_callback, JsxCallbackContext::ContainerCall(_)))
+                && self.comments.in_range(envelope).is_empty();
             let arrow_layout = if hug && matches!(data, ExprData::ArrowFunctionExpression(_)) {
                 if content.is_none() {
                     content = Some(ExpressionContent {
@@ -635,9 +639,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             } else {
                 ArrowLayout::Ordinary
             };
-            (hug, arrow_layout)
+            (hug, arrow_layout, jsx_callback)
         } else {
-            (false, ArrowLayout::Ordinary)
+            (false, ArrowLayout::Ordinary, JsxCallbackContext::Ordinary)
         };
         // Attribute braces own the indent only on this actual non-hug path.
         let operand_indent = if matches!(role, JsxBraceRole::Attribute)
@@ -678,6 +682,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 let context = ExpressionContext::at(ExpressionPosition::JsxExpression)
                     .with_content_mode(mode)
                     .with_arrow_layout(arrow_layout)
+                    .with_jsx_callback(jsx_callback)
                     .with_operand_indent(operand_indent)
                     .with_tail_owner(TailOwner::ParentOperation);
                 let tail = match content {
@@ -713,6 +718,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text("}");
             Ok(())
         })
+    }
+
+    fn jsx_container_callback(&self, mut data: ExprData) -> JsxCallbackContext {
+        while let ExprData::ChainExpression(chain) = data {
+            data = self.expression_content(chain.expression(self.ast)).data;
+        }
+        match data {
+            ExprData::CallExpression(call) => JsxCallbackContext::ContainerCall(call),
+            _ => JsxCallbackContext::Ordinary,
+        }
     }
 }
 

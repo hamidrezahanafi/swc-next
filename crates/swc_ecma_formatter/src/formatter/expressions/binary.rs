@@ -438,6 +438,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     member_layout: super::MemberLayout::Normal,
                     member_chain_layout: super::MemberChainLayout::Fluent,
                     arrow_layout: super::arrows::ArrowLayout::Argument,
+                    jsx_callback: super::JsxCallbackContext::Ordinary,
                     operand_indent: super::OperandIndent::Expression,
                     conditional_envelope: super::ConditionalEnvelope::Local,
                     conditional_closing: super::ConditionalClosing::Inline,

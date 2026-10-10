@@ -24,8 +24,9 @@ mod typescript;
 mod unary;
 
 use swc_next_ecma_ast::{
-    Argument, ArgumentData, ArrayExpression, AssignmentTargetData, CallExpression, Expr, ExprData,
-    GetSpan, IdentifierReference, ObjectExpression, Span, UnaryOperator, UpdateOperator,
+    Argument, ArgumentData, ArrayExpression, ArrowFunctionExpression, AssignmentTargetData,
+    CallExpression, Expr, ExprData, GetSpan, IdentifierReference, ObjectExpression, Span,
+    UnaryOperator, UpdateOperator,
 };
 
 pub(in crate::formatter) use self::typescript::ExpressionTypeArguments;
@@ -183,6 +184,31 @@ impl ExpressionLayout {
 }
 
 #[derive(Clone, Copy)]
+pub(super) enum JsxCallbackContext {
+    Ordinary,
+    ContainerCall(CallExpression),
+    Argument(ArrowFunctionExpression),
+    /// The actual argument arrow has consumed its call/arrow ownership proof.
+    Body,
+}
+
+impl JsxCallbackContext {
+    fn argument(call: Option<CallExpression>, data: ExprData) -> Self {
+        match (call, data) {
+            (Some(_), ExprData::ArrowFunctionExpression(arrow)) => Self::Argument(arrow),
+            _ => Self::Ordinary,
+        }
+    }
+
+    fn body(self, owner: ArrowFunctionExpression) -> Self {
+        match self {
+            Self::Argument(arrow) if arrow == owner => Self::Body,
+            _ => Self::Ordinary,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub(super) struct ExpressionContext {
     position: ExpressionPosition,
     expression_start: ExpressionStart,
@@ -193,6 +219,7 @@ pub(super) struct ExpressionContext {
     member_layout: MemberLayout,
     member_chain_layout: MemberChainLayout,
     arrow_layout: arrows::ArrowLayout,
+    jsx_callback: JsxCallbackContext,
     operand_indent: OperandIndent,
     conditional_envelope: ConditionalEnvelope,
     conditional_closing: ConditionalClosing,
@@ -251,6 +278,7 @@ impl ExpressionContext {
                 ExpressionPosition::BinaryOperand { .. } => arrows::ArrowLayout::Argument,
                 _ => arrows::ArrowLayout::Ordinary,
             },
+            jsx_callback: JsxCallbackContext::Ordinary,
         }
     }
 
@@ -271,6 +299,11 @@ impl ExpressionContext {
 
     fn with_arrow_layout(mut self, layout: arrows::ArrowLayout) -> Self {
         self.arrow_layout = layout;
+        self
+    }
+
+    fn with_jsx_callback(mut self, context: JsxCallbackContext) -> Self {
+        self.jsx_callback = context;
         self
     }
 
@@ -1554,15 +1587,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             array_comments,
             writer,
         )
-    }
-
-    fn format_argument_data(
-        &mut self,
-        argument: ArgumentData,
-        mode: ContentMode,
-        writer: &mut Writer<'ast>,
-    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        self.format_argument_data_with_array_comments(argument, mode, None, writer)
     }
 
     fn format_argument_data_with_array_comments(
