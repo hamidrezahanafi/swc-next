@@ -68,9 +68,16 @@ enum Measurement {
 }
 
 #[derive(Debug, Clone, Copy)]
+enum SpaceKind {
+    Deferred,
+    /// One canonical gap reserves fit width before the next text commits it.
+    Reserved,
+}
+
+#[derive(Debug, Clone, Copy)]
 enum FormatElement<'a> {
     Text(Text<'a>),
-    Space,
+    Space(SpaceKind),
     SoftLine,
     SoftLineIfBreak(GroupId),
     Line,
@@ -203,7 +210,7 @@ impl FragmentCapabilities {
                     }
                     continue;
                 }
-                FormatElement::Space
+                FormatElement::Space(_)
                 | FormatElement::StartGroup {
                     effect: BreakEffect(0),
                     id: None,
@@ -260,17 +267,17 @@ impl FormatElement<'_> {
     /// Applies a flat view without changing any retained instructions.
     fn flattened(self) -> Option<Self> {
         match self {
-            Self::Line => Some(Self::Space),
+            Self::Line => Some(Self::Space(SpaceKind::Deferred)),
             Self::IfFlat(text) | Self::IfCurrentFlat(text) => Some(Self::Text(text)),
             Self::StartGroup { id: Some(id), .. } => Some(Self::FlatGroup(id)),
             Self::Fragment(fragment) => Some(Self::FlatFragment(FlatFragment(fragment))),
             Self::Alternatives(alternatives) | Self::CanonicalAlternatives(alternatives) => {
                 Some(Self::FlatFragment(FlatFragment(alternatives.first())))
             }
-            element
-            @ (Self::Text(_) | Self::Space | Self::FlatGroup(_) | Self::FlatFragment(_)) => {
-                Some(element)
-            }
+            element @ (Self::Text(_)
+            | Self::Space(_)
+            | Self::FlatGroup(_)
+            | Self::FlatFragment(_)) => Some(element),
             _ => None,
         }
     }

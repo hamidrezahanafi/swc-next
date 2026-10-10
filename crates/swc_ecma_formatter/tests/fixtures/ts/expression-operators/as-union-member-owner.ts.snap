@@ -27,7 +27,7 @@ result =
     1,
   ) as
  /* prettier-ignore */
- string
+ | string
     | number
 
 ---------- Options ----------

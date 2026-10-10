@@ -26,8 +26,8 @@ type Values = [
 ---------- Output ----------
 type Values = [
   /* prettier-ignore */
-  12.00
-    | 13.0,
+  | 12.00
+  | 13.0,
 ]
 
 ---------- Options ----------

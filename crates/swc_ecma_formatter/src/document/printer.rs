@@ -1,6 +1,6 @@
 //! Interpretation of flat formatting instructions and bounded fit probes.
 
-use super::{FormatElement, Measurement, text::Text};
+use super::{FormatElement, Measurement, SpaceKind, text::Text};
 use crate::{FormatOptions, IndentStyle};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -140,7 +140,41 @@ struct Output {
     text: String,
     column: usize,
     pending_indent: Indentation,
-    pending_space: bool,
+    pending_gap: PendingGap,
+}
+
+#[derive(Clone, Copy, Default)]
+enum PendingGap {
+    #[default]
+    None,
+    Deferred,
+    Reserved,
+}
+
+impl PendingGap {
+    fn defer(&mut self) {
+        if matches!(self, Self::None) {
+            *self = Self::Deferred;
+        }
+    }
+
+    fn reserve(&mut self) -> bool {
+        let added = !matches!(self, Self::Reserved);
+        *self = Self::Reserved;
+        added
+    }
+
+    fn reserved_width(self) -> usize {
+        usize::from(matches!(self, Self::Reserved))
+    }
+
+    fn deferred_width(self) -> usize {
+        usize::from(matches!(self, Self::Deferred))
+    }
+
+    fn has_space(self) -> bool {
+        !matches!(self, Self::None)
+    }
 }
 
 #[derive(Clone, Copy, Default)]
@@ -176,7 +210,7 @@ pub(super) fn print(
         text: String::new(),
         column: 0,
         pending_indent: Indentation::default(),
-        pending_space: false,
+        pending_gap: PendingGap::None,
     };
     let mut suffixes = Vec::new();
     let mut indent = Indentation::default();
@@ -238,10 +272,15 @@ pub(super) fn print(
             }
             FormatElement::BreakParent => {}
             FormatElement::Text(text) => output.write(text, options),
-            FormatElement::Space => output.pending_space = true,
+            FormatElement::Space(kind) => match kind {
+                SpaceKind::Deferred => output.pending_gap.defer(),
+                SpaceKind::Reserved => {
+                    output.pending_gap.reserve();
+                }
+            },
             FormatElement::SoftLine | FormatElement::Line if mode == Mode::Flat => {
                 if matches!(element, FormatElement::Line) {
-                    output.pending_space = true;
+                    output.pending_gap.defer();
                 }
             }
             FormatElement::SoftLine | FormatElement::Line | FormatElement::HardLine => {
@@ -454,27 +493,27 @@ impl Output {
         self.text.extend(std::iter::repeat_n(character, count));
         self.text
             .extend(std::iter::repeat_n(' ', self.pending_indent.alignment));
-        if self.pending_space {
+        if self.pending_gap.has_space() {
             self.text.push(' ');
             self.column += 1;
         }
         self.text.push_str(text.source);
         self.column = text.last_line(self.column, options.indent_width.value());
         self.pending_indent = Indentation::default();
-        self.pending_space = false;
+        self.pending_gap = PendingGap::None;
     }
 
     fn line(&mut self, indent: Indentation, options: FormatOptions) {
         self.text.push_str(options.line_ending.as_str());
         self.column = indent.width(options);
         self.pending_indent = indent;
-        self.pending_space = false;
+        self.pending_gap = PendingGap::None;
     }
 }
 
 fn flush_suffixes(suffixes: &mut Vec<Text<'_>>, output: &mut Output, options: FormatOptions) {
     for text in suffixes.drain(..) {
-        output.pending_space = true;
+        output.pending_gap.defer();
         output.write(text, options);
     }
 }
@@ -517,8 +556,8 @@ impl<'a> Probe<'a> {
             frames,
         } = self;
         group_writes.clear();
-        let mut column = output.column;
-        let mut pending_space = output.pending_space;
+        let mut pending_gap = output.pending_gap;
+        let mut column = output.column + pending_gap.reserved_width();
         modes.clear();
         frames.clear();
         if let Some(continuation) = continuation {
@@ -576,8 +615,8 @@ impl<'a> Probe<'a> {
                     if inactive_current {
                         continue;
                     }
-                    column += usize::from(pending_space);
-                    pending_space = false;
+                    column += pending_gap.deferred_width();
+                    pending_gap = PendingGap::None;
                     let (next_column, multiline) =
                         text.first_line(column, options.indent_width.value());
                     column = next_column;
@@ -586,10 +625,13 @@ impl<'a> Probe<'a> {
                     }
                 }
                 FormatElement::LineSuffix(_) => {}
-                FormatElement::Space => pending_space = true,
+                FormatElement::Space(kind) => match kind {
+                    SpaceKind::Deferred => pending_gap.defer(),
+                    SpaceKind::Reserved => column += usize::from(pending_gap.reserve()),
+                },
                 FormatElement::SoftLine | FormatElement::Line if mode == Mode::Flat => {
                     if matches!(element, FormatElement::Line) {
-                        pending_space = true;
+                        pending_gap.defer();
                     }
                 }
                 FormatElement::SoftLine

@@ -798,19 +798,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         result: FunctionReturn<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        self.format_signature_return_prefix(result.prefix, result.delimiter, writer)?;
-        match result.content {
-            FunctionReturnContent::Annotation(content) => {
-                self.format_annotation_owner(content, TypeContext::Root, writer)
-            }
-            FunctionReturnContent::Parenthesized(parentheses) => self
-                .format_prepared_type_parentheses(
-                    parentheses,
-                    TypeContext::Root,
-                    TypeLayout::Root,
-                    writer,
-                ),
-        }
+        self.format_function_return_with_context(result, TypeContext::Root, writer)
     }
 
     pub(in crate::formatter) fn format_signature_return(
@@ -827,8 +815,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: TypeContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        self.format_signature_return_prefix(result.prefix, result.delimiter, writer)?;
-        self.format_annotation_owner(result.content, context, writer)
+        self.format_function_return_with_context(
+            FunctionReturn {
+                content: FunctionReturnContent::Annotation(result.content),
+                prefix: result.prefix,
+                delimiter: result.delimiter,
+            },
+            context,
+            writer,
+        )
     }
 
     pub(in crate::formatter) fn signature_parameters_can_group(
@@ -956,31 +951,54 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.format_callable_parameters(parameters, writer)
     }
 
-    fn format_signature_return_prefix(
+    fn format_function_return_with_context(
         &mut self,
-        prefix: TypeBoundaryLayout<'ast>,
-        delimiter: SignatureReturnDelimiter,
+        result: FunctionReturn<'ast>,
+        context: TypeContext,
         writer: &mut Writer<'ast>,
-    ) -> Result<(), FormatError> {
-        match prefix {
-            TypeBoundaryLayout::Source(gap) => self.format_verbatim(gap, writer)?,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let layout = match result.prefix {
+            TypeBoundaryLayout::Source(gap) => {
+                self.format_verbatim(gap, writer)?;
+                TypeLayout::OpeningProvided
+            }
             TypeBoundaryLayout::Formatted { before, after } => {
                 self.format_comment_boundary(&before, writer)?;
                 before
                     .gap()
-                    .write(writer, delimiter.preceding_space(), |writer| {
-                        if matches!(delimiter, SignatureReturnDelimiter::Arrow) {
+                    .write(writer, result.delimiter.preceding_space(), |writer| {
+                        if matches!(result.delimiter, SignatureReturnDelimiter::Arrow) {
                             writer.space();
                         }
                     });
-                writer.text(delimiter.token());
-                self.format_comment_boundary(&after, writer)?;
-                after
-                    .gap()
-                    .write(writer, FlatSeparator::Space, Writer::space);
+                writer.text(result.delimiter.token());
+                if let FunctionReturnContent::Annotation(AnnotationContent::Type(node)) =
+                    &result.content
+                {
+                    return self.format_prepared_type_after_comments(
+                        *node,
+                        context,
+                        &after,
+                        TypeLayout::Root,
+                        writer,
+                    );
+                }
+                self.format_type_comment_gap(&after, FlatSeparator::Space, writer)?;
+                TypeLayout::Root
+            }
+        };
+        match result.content {
+            FunctionReturnContent::Annotation(AnnotationContent::Wrapper(annotation)) => {
+                self.format_verbatim(annotation.span(self.ast), writer)?;
+                Ok(None)
+            }
+            FunctionReturnContent::Annotation(AnnotationContent::Type(node)) => {
+                self.format_prepared_type_with_layout(node, context, layout, writer)
+            }
+            FunctionReturnContent::Parenthesized(parentheses) => {
+                self.format_prepared_type_parentheses(parentheses, context, layout, writer)
             }
         }
-        Ok(())
     }
 
     fn format_annotation_owner(

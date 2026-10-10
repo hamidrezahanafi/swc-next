@@ -7,7 +7,8 @@ try{}catch(error:( Alpha | Beta )) /* prettier-ignore */ {use( 1+  2 );}
 {"printWidth":20}
 ---------- Output ----------
 try {
-} catch (error: Alpha
+} catch (error:
+  | Alpha
   | Beta) /* prettier-ignore */ {use( 1+  2 );}
 
 ---------- Options ----------
@@ -20,5 +21,6 @@ try {
 {"endOfLine":"crlf","printWidth":1,"semi":false}
 ---------- Output ----------
 try {
-} catch (error: Alpha
+} catch (error:
+  | Alpha
   | Beta) /* prettier-ignore */ {use( 1+  2 );}

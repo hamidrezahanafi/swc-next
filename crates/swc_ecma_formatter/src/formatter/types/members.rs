@@ -1095,10 +1095,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         TypeBoundaryLayout::Formatted { before, after } => {
                             self.format_type_comment_gap(&before, FlatSeparator::Empty, writer)?;
                             writer.text(":");
-                            self.format_type_comment_gap(&after, FlatSeparator::Space, writer)?;
+                            return self.format_prepared_type_after_comments(
+                                node,
+                                TypeContext::Root,
+                                &after,
+                                TypeLayout::Root,
+                                writer,
+                            );
                         }
                     }
-                    self.format_prepared_type(node, TypeContext::Root, writer)
+                    self.format_prepared_type_with_layout(
+                        node,
+                        TypeContext::Root,
+                        TypeLayout::OpeningProvided,
+                        writer,
+                    )
                 } else {
                     if let Some(ending) = property.ending {
                         self.format_type_gap(ending, FlatSeparator::Empty, writer)?;

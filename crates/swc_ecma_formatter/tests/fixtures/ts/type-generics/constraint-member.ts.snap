@@ -29,8 +29,8 @@ type Alias<
 type Alias<
   T extends
 /* prettier-ignore */
-12.00
-      | 13.0,
+| 12.00
+    | 13.0,
 > = T
 
 ---------- Options ----------

@@ -24,7 +24,7 @@ type Choice=
 ---------- Output ----------
 type Choice=
 /* prettier-ignore */
-12.00
+| 12.00
   | 13.0
 
 ---------- Options ----------

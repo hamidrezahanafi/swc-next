@@ -2,7 +2,7 @@
 
 use swc_next_ecma_ast::{Comment, GetSpan, Span, TsMappedType, TsMappedTypeModifier};
 
-use super::{Formatter, PreparedType, TypeBoundaryLayout, TypeContext};
+use super::{Formatter, PreparedType, TypeBoundaryLayout, TypeContext, TypeLayout};
 use crate::formatter::comments::{CommentBoundary, CommentGap, ExpressionTail};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::suppression::{ContentMode, SuppressionPosition};
@@ -199,9 +199,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         }
                     }
                 })?;
-                match suffix {
+                let (value_layout, annotation_after) = match suffix {
                     MappedSuffix::Source { remaining, .. } => {
-                        self.format_verbatim(remaining, writer)?
+                        self.format_verbatim(remaining, writer)?;
+                        (TypeLayout::OpeningProvided, None)
                     }
                     MappedSuffix::Formatted {
                         optional,
@@ -213,12 +214,28 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         }
                         if let Some((colon, after)) = annotation {
                             self.format_mapped_token(colon, FlatSeparator::Empty, writer)?;
-                            self.format_type_comment_gap(&after, FlatSeparator::Space, writer)?;
+                            (TypeLayout::Root, Some(after))
+                        } else {
+                            (TypeLayout::Root, None)
                         }
                     }
-                }
+                };
                 if let Some(value) = value {
-                    let tail = self.format_prepared_type(value, TypeContext::Root, writer)?;
+                    let tail = match annotation_after {
+                        Some(after) => self.format_prepared_type_after_comments(
+                            value,
+                            TypeContext::Root,
+                            &after,
+                            value_layout,
+                            writer,
+                        )?,
+                        None => self.format_prepared_type_with_layout(
+                            value,
+                            TypeContext::Root,
+                            value_layout,
+                            writer,
+                        )?,
+                    };
                     self.format_expression_tail(tail, writer)?;
                 }
                 if let Some(tail) = tail {

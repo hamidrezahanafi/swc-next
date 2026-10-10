@@ -4,10 +4,13 @@ use swc_next_ecma_ast::{Comment, GetSpan, Span, SubRange, TsType, TsTypeData};
 
 use super::context::TypeContext;
 use super::{Formatter, PreparedType, PreparedTypeParentheses, TypeBoundaryLayout, TypeLayout};
-use crate::formatter::comments::{CommentBinding, CommentRunLayout};
-use crate::formatter::diagnostics::FlatSeparator;
+use crate::formatter::comments::{CommentBinding, CommentBoundary, CommentRunLayout};
+use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::suppression::{ContentMode, SuppressionPosition};
-use crate::{FormatError, document::Writer};
+use crate::{
+    FormatError,
+    document::{Fragment, Writer},
+};
 
 #[derive(Clone, Copy)]
 pub(super) enum CompoundTypeKind {
@@ -30,6 +33,89 @@ struct CompoundHead<'ast> {
     first_start: u32,
     leading_comments: Option<&'ast [Comment]>,
     single: bool,
+}
+
+pub(in crate::formatter) struct PreparedUnion<'ast> {
+    data: TsTypeData,
+    leading: UnionLeading<'ast>,
+    links: Vec<UnionLink<'ast>>,
+    last: PreparedType,
+    opening: LineConstraint,
+    hug: bool,
+}
+
+struct UnionLink<'ast> {
+    left: PreparedType,
+    boundary: TypeBoundaryLayout<'ast>,
+}
+
+enum UnionLeading<'ast> {
+    Empty,
+    Source(Span),
+    Formatted {
+        before: CommentBoundary<'ast>,
+        after: UnionMemberPrefix<'ast>,
+        retain_operator: bool,
+    },
+}
+
+enum UnionMemberPrefix<'ast> {
+    Boundary(CommentBoundary<'ast>),
+    Leading {
+        boundary: CommentBoundary<'ast>,
+        member_start: u32,
+    },
+}
+
+impl UnionMemberPrefix<'_> {
+    fn boundary(&self) -> &CommentBoundary<'_> {
+        match self {
+            Self::Boundary(boundary) | Self::Leading { boundary, .. } => boundary,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum UnionHug {
+    NoObject,
+    Object,
+    Unavailable,
+}
+
+impl UnionHug {
+    fn include(&mut self, member: PreparedType) {
+        if member.source_owner.is_some() {
+            *self = Self::Unavailable;
+            return;
+        }
+        match member.data {
+            TsTypeData::TsNullKeyword(_) | TsTypeData::TsVoidKeyword(_) => {}
+            TsTypeData::TsTypeLiteral(_) | TsTypeData::TsTypeReference(_)
+                if matches!(self, Self::NoObject) =>
+            {
+                *self = Self::Object;
+            }
+            _ => *self = Self::Unavailable,
+        }
+    }
+
+    fn include_boundary(&mut self, boundary: &TypeBoundaryLayout<'_>) {
+        if !matches!(boundary, TypeBoundaryLayout::Formatted { before, after }
+            if before.is_empty() && after.is_empty())
+        {
+            *self = Self::Unavailable;
+        }
+    }
+}
+
+impl PreparedUnion<'_> {
+    pub(super) fn alias_layout(&self) -> TypeLayout {
+        if self.hug {
+            TypeLayout::Root
+        } else {
+            TypeLayout::AliasRhs
+        }
+    }
 }
 
 pub(super) struct SingleCompoundHead<'ast> {
@@ -56,13 +142,19 @@ impl SingleCompoundHead<'_> {
 
 pub(super) enum SingleTypeContent<'ast> {
     Type(PreparedType),
+    Union(PreparedUnion<'ast>),
     Parentheses(PreparedTypeParentheses),
     Compound(SingleCompoundHead<'ast>),
 }
 
 impl SingleTypeContent<'_> {
+    pub(super) fn needs_delimiter_envelope(&self) -> bool {
+        matches!(self, Self::Union(union) if !union.hug)
+    }
+
     pub(super) fn alias_layout(&self) -> TypeLayout {
         match self {
+            Self::Union(union) => union.alias_layout(),
             Self::Type(node)
                 if node.source_owner.is_none()
                     && matches!(node.data, TsTypeData::TsUnionType(_)) =>
@@ -102,6 +194,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let content = self.format_single_compound_head(single, writer)?;
             return self.format_single_type_content(content, context, layout, writer);
         }
+        if matches!(kind, CompoundTypeKind::Union) {
+            let union =
+                self.prepare_union_members(node, current, leading, first_span.start, members)?;
+            return self.format_prepared_union(union, context, layout, None, writer);
+        }
         let leading_comments = None;
         self.format_type_in_context(
             node.data,
@@ -119,6 +216,304 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 formatter.group_compound_members(head, members, kind, layout, writer)
             },
         )
+    }
+
+    pub(super) fn prepare_union(
+        &self,
+        node: PreparedType,
+        types: SubRange<TsType>,
+    ) -> Result<PreparedUnion<'ast>, FormatError> {
+        let ast = self.ast;
+        let mut members = types.iter().map(|id| ast.get_node_in_sub_range(id));
+        let Some(first) = members.next() else {
+            return Err(self.unsupported("empty union type", node.node));
+        };
+        let first_start = first.span(ast).start;
+        let mut first = self.prepare_type(first, ContentMode::Formatted);
+        first.source_owner = node.source_owner;
+        self.prepare_union_members(
+            node,
+            first,
+            Span::new(node.node.span(ast).start, first_start),
+            first_start,
+            members,
+        )
+    }
+
+    fn prepare_union_members(
+        &self,
+        node: PreparedType,
+        mut current: PreparedType,
+        leading: Span,
+        first_start: u32,
+        members: impl Iterator<Item = TsType>,
+    ) -> Result<PreparedUnion<'ast>, FormatError> {
+        let leading = if leading.start == leading.end {
+            UnionLeading::Empty
+        } else {
+            let comments = self.comments.in_range(leading);
+            if self.has_suppression && self.content_mode(comments) == ContentMode::Verbatim {
+                self.select_type_head_comments(&mut current, comments, first_start);
+                UnionLeading::Source(leading)
+            } else {
+                let Some(operator) = self.find_token(leading, comments, "|") else {
+                    return Err(FormatError::unsupported(
+                        "union leading operator",
+                        None,
+                        leading,
+                    ));
+                };
+                let split = comments.partition_point(|comment| comment.span.end <= operator);
+                let (before, after) = comments.split_at(split);
+                let after = self.prepare_comment_boundary(after, operator + 1, first_start);
+                let after = if !after.is_empty()
+                    && matches!(
+                        self.comment_boundary_binding(&after, current.node.span(self.ast)),
+                        CommentBinding::Unbound
+                    ) {
+                    UnionMemberPrefix::Leading {
+                        boundary: after,
+                        member_start: first_start,
+                    }
+                } else {
+                    UnionMemberPrefix::Boundary(after)
+                };
+                UnionLeading::Formatted {
+                    before: self.prepare_comment_boundary(before, leading.start, operator),
+                    after,
+                    retain_operator: !comments.is_empty(),
+                }
+            }
+        };
+        let mut hug = match &leading {
+            UnionLeading::Empty => UnionHug::NoObject,
+            UnionLeading::Formatted { before, after, .. }
+                if before.is_empty() && after.boundary().is_empty() =>
+            {
+                UnionHug::NoObject
+            }
+            UnionLeading::Source(_) | UnionLeading::Formatted { .. } => UnionHug::Unavailable,
+        };
+        let mut links = Vec::with_capacity(members.size_hint().0);
+        for next in members {
+            let mut next = self.prepare_type(next, ContentMode::Formatted);
+            let gap = Span::new(
+                current.node.span(self.ast).end,
+                next.node.span(self.ast).start,
+            );
+            let boundary = self.prepare_compound_boundary(
+                gap,
+                CompoundTypeKind::Union,
+                &mut current,
+                &mut next,
+            )?;
+            hug.include(current);
+            hug.include_boundary(&boundary);
+            links.push(UnionLink {
+                left: current,
+                boundary,
+            });
+            current = next;
+        }
+        hug.include(current);
+        let span = node.node.span(self.ast);
+        let hug = matches!(hug, UnionHug::Object) && !self.diagnostic_range_is_sensitive(span);
+        Ok(PreparedUnion {
+            data: node.data,
+            leading,
+            links,
+            last: current,
+            opening: self.line_constraint(span.start, span.start),
+            hug,
+        })
+    }
+
+    pub(in crate::formatter) fn format_prepared_union(
+        &mut self,
+        union: PreparedUnion<'ast>,
+        context: TypeContext,
+        layout: TypeLayout,
+        head: Option<Fragment<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<crate::formatter::comments::ExpressionTail<'ast>>, FormatError> {
+        self.format_type_in_context(
+            union.data,
+            context,
+            layout,
+            writer,
+            |formatter, layout, writer| formatter.format_union_members(union, layout, head, writer),
+        )
+    }
+
+    fn format_union_members(
+        &mut self,
+        union: PreparedUnion<'ast>,
+        layout: TypeLayout,
+        head: Option<Fragment<'ast>>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<crate::formatter::comments::ExpressionTail<'ast>>, FormatError> {
+        let PreparedUnion {
+            leading,
+            links,
+            last,
+            opening,
+            hug,
+            ..
+        } = union;
+        let content = |writer: &mut Writer<'ast>| {
+            if let Some(head) = head {
+                writer.write_fragment(head);
+            }
+            let content = |writer: &mut Writer<'ast>| {
+                let leading = self.format_union_leading(leading, hug, writer)?;
+                let mut prefix = leading;
+                for link in links {
+                    self.format_union_member(link.left, prefix, hug, writer)?;
+                    prefix = self.format_union_separator(link.boundary, hug, writer)?;
+                }
+                self.format_union_member(last, prefix, hug, writer)?;
+                Ok(None)
+            };
+            if hug {
+                content(writer)
+            } else {
+                writer.group(false, content)
+            }
+        };
+        if hug {
+            return content(writer);
+        }
+        match layout {
+            TypeLayout::AliasRhs | TypeLayout::CallerIndented => content(writer),
+            TypeLayout::ConditionalConsequent | TypeLayout::ConditionalAlternate => {
+                writer.align(2, content)
+            }
+            TypeLayout::Root | TypeLayout::SignatureParameter | TypeLayout::OpeningProvided => {
+                writer.group(false, |writer| {
+                    writer.indent(|writer| {
+                        if layout != TypeLayout::OpeningProvided {
+                            opening.write(writer, FlatSeparator::Empty, Writer::soft_line);
+                        }
+                        content(writer)
+                    })
+                })
+            }
+        }
+    }
+
+    fn format_union_leading(
+        &mut self,
+        leading: UnionLeading<'ast>,
+        hug: bool,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<UnionMemberPrefix<'ast>>, FormatError> {
+        match leading {
+            UnionLeading::Source(span) => {
+                self.format_verbatim(span, writer)?;
+                Ok(None)
+            }
+            UnionLeading::Empty => {
+                if !hug {
+                    writer.if_break("| ");
+                }
+                Ok(None)
+            }
+            UnionLeading::Formatted {
+                before,
+                after,
+                retain_operator,
+            } => {
+                self.format_comment_boundary(&before, writer)?;
+                before.gap().write(writer, FlatSeparator::Empty, |_| {});
+                if retain_operator {
+                    writer.text("|");
+                } else if !hug {
+                    writer.if_break("| ");
+                }
+                if after.boundary().is_empty() {
+                    after.boundary().gap().write(
+                        writer,
+                        if retain_operator {
+                            FlatSeparator::Space
+                        } else {
+                            FlatSeparator::Empty
+                        },
+                        |writer| {
+                            if retain_operator {
+                                writer.space();
+                            }
+                        },
+                    );
+                    Ok(None)
+                } else {
+                    Ok(Some(after))
+                }
+            }
+        }
+    }
+
+    fn format_union_member(
+        &mut self,
+        node: PreparedType,
+        prefix: Option<UnionMemberPrefix<'ast>>,
+        hug: bool,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        let content = |writer: &mut Writer<'ast>| {
+            if let Some(prefix) = prefix {
+                match prefix {
+                    UnionMemberPrefix::Boundary(boundary) => {
+                        self.format_comment_boundary(&boundary, writer)?;
+                        boundary
+                            .gap()
+                            .write(writer, FlatSeparator::Space, Writer::space);
+                    }
+                    UnionMemberPrefix::Leading {
+                        boundary,
+                        member_start,
+                    } => {
+                        writer.space();
+                        self.format_comment_boundary_with_layout(
+                            &boundary,
+                            CommentRunLayout::GroupedLeading(member_start),
+                            writer,
+                        )?;
+                    }
+                }
+            }
+            let tail = self.format_prepared_type(node, TypeContext::CompoundMember, writer)?;
+            self.format_expression_tail(tail, writer)
+        };
+        if hug {
+            content(writer)
+        } else {
+            writer.align(2, content)
+        }
+    }
+
+    fn format_union_separator(
+        &mut self,
+        boundary: TypeBoundaryLayout<'ast>,
+        hug: bool,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<UnionMemberPrefix<'ast>>, FormatError> {
+        let (before, after) = match boundary {
+            TypeBoundaryLayout::Source(span) => {
+                self.format_verbatim(span, writer)?;
+                return Ok(None);
+            }
+            TypeBoundaryLayout::Formatted { before, after } => (before, after),
+        };
+        self.format_comment_boundary(&before, writer)?;
+        before.gap().write(writer, FlatSeparator::Space, |writer| {
+            if hug {
+                writer.space();
+            } else {
+                writer.line();
+            }
+        });
+        writer.text("|");
+        Ok(Some(UnionMemberPrefix::Boundary(after)))
     }
 
     pub(super) fn prepare_single_compound(
@@ -239,6 +634,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     let single = self.prepare_single_compound(current)?;
                     return self.format_single_compound_head(single, writer);
                 }
+                TsTypeData::TsUnionType(union) => {
+                    return self
+                        .prepare_union(current, union.types(self.ast))
+                        .map(SingleTypeContent::Union);
+                }
                 _ => return Ok(SingleTypeContent::Type(current)),
             }
         }
@@ -252,6 +652,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<Option<crate::formatter::comments::ExpressionTail<'ast>>, FormatError> {
         match content {
+            SingleTypeContent::Union(union) => {
+                self.format_prepared_union(union, context, layout, None, writer)
+            }
             SingleTypeContent::Type(node) => {
                 self.format_prepared_type_with_layout(node, context, layout, writer)
             }

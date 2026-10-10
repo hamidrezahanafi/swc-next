@@ -13,8 +13,8 @@ type Narrow<in T extends string | number = string, out U = T> = [T, U];
 ---------- Output ----------
 type Narrow<
   in T extends
-    string
-      | number =
+    | string
+    | number =
     string,
   out U = T,
 > = [T, U];
@@ -24,8 +24,8 @@ type Narrow<
 ---------- Output ----------
 type Narrow<
   in T extends
-    string
-      | number =
+    | string
+    | number =
     string,
   out U =
     T,
@@ -39,8 +39,8 @@ type Narrow<
 ---------- Output ----------
 type Narrow<
 	in T extends
-		string
-			| number =
+		| string
+		| number =
 		string,
 	out U = T
 > = [T, U];

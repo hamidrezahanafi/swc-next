@@ -14,14 +14,14 @@ class Typed {
 {"printWidth":24,"semi":false}
 ---------- Output ----------
 class Typed {
-  value: number
-    | undefined
+  value:
+    number | undefined
 }
 
 ---------- Options ----------
 {"printWidth":24,"useTabs":true}
 ---------- Output ----------
 class Typed {
-	value: number
-		| undefined;
+	value:
+		number | undefined;
 }

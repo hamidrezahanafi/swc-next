@@ -24,8 +24,8 @@ type Values = readonly [
 type Values = readonly [
   first?: A,
   ...rest: (
-    B
-      | C
+    | B
+    | C
   )[],
 ]
 

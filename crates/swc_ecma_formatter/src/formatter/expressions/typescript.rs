@@ -11,7 +11,7 @@ use crate::formatter::Formatter;
 use crate::formatter::comments::{CommentBoundary, ExpressionTail};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::suppression::{ContentMode, SuppressionPosition};
-use crate::formatter::types::{PreparedType, TypeContext};
+use crate::formatter::types::{PreparedType, TypeContext, TypeLayout};
 use crate::{FormatError, document::Writer};
 
 #[derive(Clone, Copy)]
@@ -314,8 +314,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer,
             )?;
             self.format_expression_tail(tail, writer)?;
-            self.format_binary_type_boundary(boundary, writer)?;
-            self.format_prepared_type(type_node, TypeContext::Root, writer)
+            self.format_binary_type_right(boundary, type_node, writer)
         })
     }
 
@@ -375,25 +374,38 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    fn format_binary_type_boundary(
+    fn format_binary_type_right(
         &mut self,
         boundary: BinaryTypeBoundary<'ast>,
+        node: PreparedType,
         writer: &mut Writer<'ast>,
-    ) -> Result<(), FormatError> {
-        let (before, after) = match boundary.layout {
-            BinaryTypeLayout::Source(gap) => return self.format_verbatim(gap, writer),
-            BinaryTypeLayout::Formatted { before, after } => (before, after),
-        };
-        self.format_comment_boundary(&before, writer)?;
-        before
-            .gap()
-            .write(writer, FlatSeparator::Space, Writer::space);
-        writer.text(boundary.operator.token());
-        self.format_comment_boundary(&after, writer)?;
-        after
-            .gap()
-            .write(writer, FlatSeparator::Space, Writer::space);
-        Ok(())
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        match boundary.layout {
+            BinaryTypeLayout::Source(gap) => {
+                self.format_verbatim(gap, writer)?;
+                self.format_prepared_type_with_layout(
+                    node,
+                    TypeContext::Root,
+                    TypeLayout::OpeningProvided,
+                    writer,
+                )
+            }
+            BinaryTypeLayout::Formatted { before, after } => {
+                self.format_comment_boundary(&before, writer)?;
+                before
+                    .gap()
+                    .write(writer, FlatSeparator::Space, Writer::reserved_space);
+                writer.text(boundary.operator.token());
+                writer.reserved_space();
+                self.format_prepared_type_after_comments(
+                    node,
+                    TypeContext::Root,
+                    &after,
+                    TypeLayout::Root,
+                    writer,
+                )
+            }
+        }
     }
 
     /// The expression caller's whole type owner excludes removable type parentheses.
@@ -496,7 +508,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.select_expression_type_head(&mut type_node, position);
             }
         }
-        let before = self.prepare_type_expression_gap(before, type_node.source_owner.is_some());
         let suffix = Span::new(annotation_span.end, expression_span.start);
         let comments = self.comments.in_range(suffix);
         let Some(closing) = self.find_token(suffix, comments, ">") else {
@@ -509,6 +520,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if type_source {
             self.select_expression_type_head(&mut type_node, SuppressionPosition::Inline);
         }
+        let before = self.prepare_type_expression_gap(before, type_node.source_owner.is_some());
+        let body = self.prepare_delimited_type(type_node)?;
         let after_type =
             self.prepare_type_expression_gap(Span::new(suffix.start, closing), type_source);
         let mode = self.content_mode(operand_head);
@@ -517,14 +530,66 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             mode == ContentMode::Verbatim,
         );
         writer.group(false, |writer| {
-            writer.text("<");
-            writer.indent(|writer| {
-                self.format_type_expression_gap(before, FlatSeparator::Empty, writer)?;
-                let tail = self.format_prepared_type(type_node, TypeContext::Root, writer)?;
-                self.format_expression_tail(tail, writer)?;
-                self.format_type_expression_gap(after_type, FlatSeparator::Empty, writer)
-            })?;
-            writer.text(">");
+            if body.needs_delimiter_envelope() {
+                writer.group(false, |writer| {
+                    writer.text("<");
+                    let closing = writer.indent(|writer| {
+                        match before {
+                            TypeExpressionGap::Source(span) => {
+                                self.format_verbatim(span, writer)?
+                            }
+                            TypeExpressionGap::Formatted(boundary) => {
+                                self.format_comment_boundary(&boundary, writer)?;
+                                boundary.gap().write(
+                                    writer,
+                                    FlatSeparator::Empty,
+                                    Writer::soft_line,
+                                );
+                            }
+                        }
+                        let tail = self.format_prepared_delimited_type(
+                            body,
+                            TypeContext::Root,
+                            TypeLayout::CallerIndented,
+                            writer,
+                        )?;
+                        self.format_expression_tail(tail, writer)?;
+                        match after_type {
+                            TypeExpressionGap::Source(span) => {
+                                self.format_verbatim(span, writer)?;
+                                Ok(None)
+                            }
+                            TypeExpressionGap::Formatted(boundary) => {
+                                self.format_comment_boundary(&boundary, writer)?;
+                                Ok(Some(boundary.gap()))
+                            }
+                        }
+                    })?;
+                    if let Some(closing) = closing {
+                        closing.write(writer, FlatSeparator::Empty, Writer::soft_line);
+                    }
+                    writer.text(">");
+                    Ok::<_, FormatError>(())
+                })?;
+            } else {
+                let layout = match &before {
+                    TypeExpressionGap::Source(_) => TypeLayout::CallerIndented,
+                    TypeExpressionGap::Formatted(_) => TypeLayout::Root,
+                };
+                writer.text("<");
+                writer.indent(|writer| {
+                    self.format_type_expression_gap(before, FlatSeparator::Empty, writer)?;
+                    let tail = self.format_prepared_delimited_type(
+                        body,
+                        TypeContext::Root,
+                        layout,
+                        writer,
+                    )?;
+                    self.format_expression_tail(tail, writer)?;
+                    self.format_type_expression_gap(after_type, FlatSeparator::Empty, writer)
+                })?;
+                writer.text(">");
+            }
             self.format_type_expression_gap(after_angle, FlatSeparator::Empty, writer)?;
             self.format_expression(
                 expression,

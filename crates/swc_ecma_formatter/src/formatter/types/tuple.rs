@@ -6,7 +6,7 @@ use swc_next_ecma_ast::{
 };
 
 use super::context::TypeContext;
-use super::{Formatter, PreparedType, TypeBoundaryLayout};
+use super::{Formatter, PreparedType, TypeBoundaryLayout, TypeLayout};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::expressions::arguments::{ArgumentLayout, FollowingItem, Separator};
@@ -225,7 +225,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 if mode == ContentMode::Verbatim {
                     node.source_owner = Some(node.node);
                 }
-                self.format_prepared_type(node, context, writer)
+                self.format_prepared_type_with_layout(
+                    node,
+                    context,
+                    TypeLayout::CallerIndented,
+                    writer,
+                )
             }
             PreparedTupleElement::Named(node) => self.format_named_tuple_member(node, mode, writer),
         }
@@ -297,6 +302,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_type_comment_gap(&after, FlatSeparator::Space, writer)?;
             }
         }
-        self.format_prepared_type(type_node, TypeContext::Root, writer)
+        self.format_prepared_type_with_layout(
+            type_node,
+            TypeContext::Root,
+            TypeLayout::CallerIndented,
+            writer,
+        )
     }
 }

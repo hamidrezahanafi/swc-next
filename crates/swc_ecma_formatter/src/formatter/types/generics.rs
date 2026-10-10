@@ -353,7 +353,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                             if item.mode == ContentMode::Verbatim {
                                 node.source_owner = Some(node.node);
                             }
-                            self.format_prepared_type(node, TypeContext::Root, writer)?
+                            self.format_prepared_type_with_layout(node, TypeContext::Root, super::TypeLayout::CallerIndented, writer)?
                         }
                         PreparedGenericMember::Parameter(node, context) => self.format_type_parameter(node, context, item.mode, writer)?,
                     };
@@ -524,15 +524,24 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.indent(|writer| {
                 if let Some(bound) = parameter.constraint {
                     self.format_type_boundary(&bound.boundary, writer)?;
-                    let tail =
-                        self.format_prepared_type(bound.node, TypeContext::TypeConstraint, writer)?;
+                    let tail = self.format_prepared_type_with_layout(
+                        bound.node,
+                        TypeContext::TypeConstraint,
+                        super::TypeLayout::CallerIndented,
+                        writer,
+                    )?;
                     if parameter.default.is_none() {
                         return Ok(tail);
                     }
                 }
                 if let Some(bound) = parameter.default {
                     self.format_type_boundary(&bound.boundary, writer)?;
-                    return self.format_prepared_type(bound.node, TypeContext::Root, writer);
+                    return self.format_prepared_type_with_layout(
+                        bound.node,
+                        TypeContext::Root,
+                        super::TypeLayout::CallerIndented,
+                        writer,
+                    );
                 }
                 Ok(None)
             })

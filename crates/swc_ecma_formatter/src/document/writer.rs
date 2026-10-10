@@ -7,7 +7,7 @@ use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
 use super::{
     Alternatives, BreakEffect, CanonicalCandidate, Doc, FlatFragment, FormatElement, Fragment,
     FragmentCapabilities, GroupId, GroupRequest, Measurement, NeutralFragment, RecordedGroup,
-    text::Text,
+    SpaceKind, text::Text,
 };
 
 pub(crate) struct Writer<'a> {
@@ -85,7 +85,14 @@ impl<'a> Writer<'a> {
     }
 
     pub(crate) fn space(&mut self) {
-        self.elements.push(FormatElement::Space);
+        self.elements
+            .push(FormatElement::Space(SpaceKind::Deferred));
+    }
+
+    /// A canonical separator counts during fit probing and disappears at a break.
+    pub(crate) fn reserved_space(&mut self) {
+        self.elements
+            .push(FormatElement::Space(SpaceKind::Reserved));
     }
 
     pub(crate) fn soft_line(&mut self) {

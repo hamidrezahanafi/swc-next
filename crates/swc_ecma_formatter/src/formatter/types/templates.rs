@@ -2,7 +2,7 @@
 
 use swc_next_ecma_ast::{GetSpan, Span, TsTemplateLiteralType, TsType};
 
-use super::{PreparedType, TypeContext};
+use super::{PreparedType, TypeContext, TypeLayout};
 use crate::formatter::Formatter;
 use crate::formatter::comments::CommentRunLayout;
 use crate::formatter::diagnostics::FlatSeparator;
@@ -61,7 +61,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 opening.write(writer, FlatSeparator::Empty, Writer::soft_line);
                 self.comments.claim(leading)?;
                 self.format_comment_run(leading, CommentRunLayout::Leading(span.start), writer)?;
-                let tail = self.format_prepared_type(node, TypeContext::Root, writer)?;
+                let tail = self.format_prepared_type_with_layout(
+                    node,
+                    TypeContext::Root,
+                    TypeLayout::CallerIndented,
+                    writer,
+                )?;
                 self.format_expression_tail(tail, writer)?;
                 self.format_comment_boundary(&after, writer)
             })?;

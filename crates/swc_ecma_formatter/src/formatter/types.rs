@@ -15,17 +15,18 @@ mod templates;
 mod tuple;
 
 use swc_next_ecma_ast::{
-    BindingIdentifier, Comment, CommentKind, ExprData, GetSpan, Span, TsLiteralData,
+    BindingIdentifier, Comment, CommentKind, ExprData, GetSpan, Span, SubRange, TsLiteralData,
     TsParenthesizedType, TsQualifiedName, TsQualifiedNameLeft, TsQualifiedNameLeftData, TsType,
     TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeData, TsTypeName, TsTypeNameData,
     UnaryOperator, VariableDeclarator,
 };
 
+pub(super) use self::compound::PreparedUnion;
 pub(super) use self::context::TypeContext;
 pub(in crate::formatter) use self::members::PreparedIndexSignature;
 use super::Formatter;
 use super::bindings::{DefiniteMarker, InitializerLayout};
-use super::comments::{CommentBoundary, CommentRunLayout, ExpressionTail};
+use super::comments::{CommentBinding, CommentBoundary, CommentRunLayout, ExpressionTail};
 use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::ExpressionContext;
 use super::literals::StringContext;
@@ -69,11 +70,25 @@ pub(super) struct PreparedType {
     pub(super) source_owner: Option<TsType>,
 }
 
+pub(super) struct PreparedDelimitedType<'ast> {
+    content: compound::SingleTypeContent<'ast>,
+}
+
+impl PreparedDelimitedType<'_> {
+    pub(super) fn needs_delimiter_envelope(&self) -> bool {
+        self.content.needs_delimiter_envelope()
+    }
+}
+
 /// Layout relationships are independent of the grammar role of a type.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum TypeLayout {
+pub(super) enum TypeLayout {
     Root,
     SignatureParameter,
+    /// The caller already emitted the opening punctuation gap.
+    OpeningProvided,
+    /// The caller owns both the opening gap and its indentation scope.
+    CallerIndented,
     AliasRhs,
     ConditionalConsequent,
     ConditionalAlternate,
@@ -249,7 +264,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let (before, after) = match &boundary.layout {
             TypeBoundaryLayout::Source(gap) => {
                 self.format_verbatim(*gap, writer)?;
-                return self.format_prepared_type(node, TypeContext::Root, writer);
+                return self.format_prepared_type_with_layout(
+                    node,
+                    TypeContext::Root,
+                    TypeLayout::OpeningProvided,
+                    writer,
+                );
             }
             TypeBoundaryLayout::Formatted { before, after } => (before, after),
         };
@@ -340,13 +360,30 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     CommentRunLayout::GroupedLeading(node.node.span(self.ast).start),
                     writer,
                 )?;
-                Ok::<_, FormatError>(compound::SingleTypeContent::Type(node))
+                let content = match node.data {
+                    TsTypeData::TsUnionType(union) => compound::SingleTypeContent::Union(
+                        self.prepare_union(node, union.types(self.ast))?,
+                    ),
+                    _ => compound::SingleTypeContent::Type(node),
+                };
+                Ok::<_, FormatError>(content)
             })?;
             return self.format_type_alias_head(head, content, writer);
         }
-        if !matches!(node.data, TsTypeData::TsUnionType(_)) {
+        let TsTypeData::TsUnionType(union) = node.data else {
             self.format_type_boundary(boundary, writer)?;
             return self.format_prepared_type(node, TypeContext::Root, writer);
+        };
+        let union = self.prepare_union(node, union.types(self.ast))?;
+        if union.alias_layout() == TypeLayout::Root {
+            self.format_type_boundary(boundary, writer)?;
+            return self.format_prepared_union(
+                union,
+                TypeContext::Root,
+                TypeLayout::Root,
+                None,
+                writer,
+            );
         }
         self.format_comment_boundary(before, writer)?;
         before
@@ -359,10 +396,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 after
                     .gap()
                     .write(writer, FlatSeparator::Space, Writer::line);
-                self.format_prepared_type_with_layout(
-                    node,
+                self.format_prepared_union(
+                    union,
                     TypeContext::Root,
                     TypeLayout::AliasRhs,
+                    None,
                     writer,
                 )
             })
@@ -658,7 +696,102 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.format_prepared_type_with_layout(node, context, TypeLayout::Root, writer)
     }
 
-    fn format_prepared_type_with_layout(
+    /// Prepare only the body that can request its caller's delimiter envelope.
+    /// Retained parentheses and source owners keep their existing layout scopes.
+    pub(super) fn prepare_delimited_type(
+        &self,
+        mut node: PreparedType,
+    ) -> Result<PreparedDelimitedType<'ast>, FormatError> {
+        let content = loop {
+            if node.source_owner.is_some() {
+                break compound::SingleTypeContent::Type(node);
+            }
+            match node.data {
+                TsTypeData::TsParenthesizedType(parentheses) => {
+                    let parentheses = self.prepare_type_parentheses(parentheses, None);
+                    if parentheses.retained {
+                        break compound::SingleTypeContent::Parentheses(parentheses);
+                    }
+                    node = parentheses.child;
+                }
+                TsTypeData::TsUnionType(union) => {
+                    let types = union.types(self.ast);
+                    if types.len() > 1 {
+                        break compound::SingleTypeContent::Union(self.prepare_union(node, types)?);
+                    }
+                    break compound::SingleTypeContent::Type(node);
+                }
+                _ => break compound::SingleTypeContent::Type(node),
+            }
+        };
+        Ok(PreparedDelimitedType { content })
+    }
+
+    pub(super) fn format_prepared_delimited_type(
+        &mut self,
+        body: PreparedDelimitedType<'ast>,
+        context: TypeContext,
+        layout: TypeLayout,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_single_type_content(body.content, context, layout, writer)
+    }
+
+    fn union_types_for_comment_head(&self, node: PreparedType) -> Option<SubRange<TsType>> {
+        if node.source_owner.is_some() {
+            return None;
+        }
+        let TsTypeData::TsUnionType(union) = node.data else {
+            return None;
+        };
+        let types = union.types(self.ast);
+        (types.len() > 1).then_some(types)
+    }
+
+    fn prepare_union_comment_head(
+        &self,
+        node: PreparedType,
+        boundary: &CommentBoundary<'ast>,
+    ) -> Result<Option<PreparedUnion<'ast>>, FormatError> {
+        if boundary.is_empty() {
+            return Ok(None);
+        }
+        let Some(types) = self.union_types_for_comment_head(node) else {
+            return Ok(None);
+        };
+        if !matches!(
+            self.comment_boundary_binding(boundary, node.node.span(self.ast)),
+            CommentBinding::Unbound
+        ) {
+            return Ok(None);
+        }
+        self.prepare_union(node, types).map(Some)
+    }
+
+    pub(super) fn format_prepared_type_after_comments(
+        &mut self,
+        node: PreparedType,
+        context: TypeContext,
+        after: &CommentBoundary<'ast>,
+        layout: TypeLayout,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        if let Some(union) = self.prepare_union_comment_head(node, after)? {
+            writer.space();
+            let (head, ()) = writer.record_with_value(|writer| {
+                self.format_comment_boundary_with_layout(
+                    after,
+                    CommentRunLayout::GroupedLeading(node.node.span(self.ast).start),
+                    writer,
+                )
+            })?;
+            return self.format_prepared_union(union, context, layout, Some(head), writer);
+        }
+        self.format_type_comment_gap(after, FlatSeparator::Space, writer)?;
+        self.format_prepared_type_with_layout(node, context, layout, writer)
+    }
+
+    pub(super) fn format_prepared_type_with_layout(
         &mut self,
         node: PreparedType,
         context: TypeContext,
@@ -713,7 +846,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.text("(");
                 writer.indent(|writer| {
                     writer.soft_line();
-                    let tail = print(self, TypeLayout::Root, writer)?;
+                    let tail = print(self, TypeLayout::CallerIndented, writer)?;
                     self.format_expression_tail(tail, writer)
                 })?;
                 writer.soft_line();
@@ -991,7 +1124,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer.group(false, |writer| {
             writer.text("(");
             self.format_verbatim(Span::new(span.start + 1, child_span.start), writer)?;
-            let tail = self.format_prepared_type(child, TypeContext::Root, writer)?;
+            let tail = self.format_prepared_type_with_layout(
+                child,
+                TypeContext::Root,
+                TypeLayout::OpeningProvided,
+                writer,
+            )?;
             self.format_expression_tail(tail, writer)?;
             self.format_verbatim(Span::new(child_span.end, span.end - 1), writer)?;
             writer.text(")");
@@ -1187,8 +1325,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 gap.write(writer, FlatSeparator::Space, Writer::space);
             }
         }
-        match annotation.prefix {
-            BindingAnnotationPrefix::Source(span) => self.format_verbatim(span, writer)?,
+        let layout = match annotation.prefix {
+            BindingAnnotationPrefix::Source(span) => {
+                self.format_verbatim(span, writer)?;
+                TypeLayout::OpeningProvided
+            }
             BindingAnnotationPrefix::Formatted {
                 colon,
                 before,
@@ -1196,12 +1337,40 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 end,
             } => {
                 writer.text(self.source(colon));
+                if !comments.is_empty()
+                    && let AnnotationContent::Formatted(node) = &annotation.content
+                    && let Some(types) = self.union_types_for_comment_head(*node)
+                {
+                    let boundary = self.prepare_comment_boundary(comments, colon.end, end);
+                    if matches!(
+                        self.comment_boundary_binding(&boundary, node.node.span(self.ast)),
+                        CommentBinding::Unbound
+                    ) {
+                        let union = self.prepare_union(*node, types)?;
+                        before.write(writer, FlatSeparator::Space, Writer::space);
+                        let (head, ()) = writer.record_with_value(|writer| {
+                            self.format_comment_boundary_with_layout(
+                                &boundary,
+                                CommentRunLayout::GroupedLeading(end),
+                                writer,
+                            )
+                        })?;
+                        return self.format_prepared_union(
+                            union,
+                            TypeContext::Root,
+                            TypeLayout::Root,
+                            Some(head),
+                            writer,
+                        );
+                    }
+                }
                 before.write(writer, FlatSeparator::Space, Writer::space);
                 self.comments.claim(comments)?;
                 self.format_comment_run(comments, CommentRunLayout::FlatLeading(end), writer)?;
+                TypeLayout::Root
             }
-        }
-        self.format_annotation_type_content(annotation.content, writer)
+        };
+        self.format_annotation_type_content_with_layout(annotation.content, layout, writer)
     }
 
     pub(super) fn format_annotation_content(
@@ -1215,15 +1384,29 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn format_annotation_content_with_layout(
         &mut self,
         content: PreparedAnnotation<'ast>,
-        layout: TypeLayout,
+        mut layout: TypeLayout,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         match content.prefix {
-            TypeBoundaryLayout::Source(gap) => self.format_verbatim(gap, writer)?,
+            TypeBoundaryLayout::Source(gap) => {
+                self.format_verbatim(gap, writer)?;
+                if layout == TypeLayout::Root {
+                    layout = TypeLayout::OpeningProvided;
+                }
+            }
             TypeBoundaryLayout::Formatted { before, after } => {
                 self.format_comment_boundary(&before, writer)?;
                 before.gap().write(writer, FlatSeparator::Empty, |_| {});
                 writer.text(":");
+                if let AnnotationContent::Formatted(node) = content.content {
+                    return self.format_prepared_type_after_comments(
+                        node,
+                        TypeContext::Root,
+                        &after,
+                        layout,
+                        writer,
+                    );
+                }
                 self.format_comment_boundary(&after, writer)?;
                 after
                     .gap()
@@ -1231,14 +1414,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
         }
         self.format_annotation_type_content_with_layout(content.content, layout, writer)
-    }
-
-    fn format_annotation_type_content(
-        &mut self,
-        content: AnnotationContent,
-        writer: &mut Writer<'ast>,
-    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        self.format_annotation_type_content_with_layout(content, TypeLayout::Root, writer)
     }
 
     fn format_annotation_type_content_with_layout(

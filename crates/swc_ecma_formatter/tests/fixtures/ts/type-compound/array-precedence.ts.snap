@@ -19,11 +19,11 @@ type Result = (
 {"printWidth":1,"semi":false}
 ---------- Output ----------
 type Result = (
-  (
+  | (
       A &
         B
     )
-    | C
+  | C
 )[]
 
 ---------- Options ----------
