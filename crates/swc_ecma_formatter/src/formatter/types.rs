@@ -74,12 +74,6 @@ pub(super) struct PreparedDelimitedType<'ast> {
     content: compound::SingleTypeContent<'ast>,
 }
 
-impl PreparedDelimitedType<'_> {
-    pub(super) fn needs_delimiter_envelope(&self) -> bool {
-        self.content.needs_delimiter_envelope()
-    }
-}
-
 /// Layout relationships are independent of the grammar role of a type.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum TypeLayout {
@@ -696,7 +690,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.format_prepared_type_with_layout(node, context, TypeLayout::Root, writer)
     }
 
-    /// Prepare only the body that can request its caller's delimiter envelope.
+    /// Prepare a type body once under its caller's actual delimiter envelope.
     /// Retained parentheses and source owners keep their existing layout scopes.
     pub(super) fn prepare_delimited_type(
         &self,

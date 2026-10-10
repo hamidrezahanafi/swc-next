@@ -1,18 +1,22 @@
 //! TypeScript expression operators keep real operand owners apart from token gaps.
 
 use swc_next_ecma_ast::{
-    BinaryOperator, Expr, ExprData, GetSpan, Span, TsInstantiationExpression, TsNonNullExpression,
-    TsType, TsTypeAssertion, TsTypeData, TsTypeParameterInstantiation,
+    BinaryOperator, Comment, Expr, ExprData, GetSpan, Span, TsInstantiationExpression,
+    TsNonNullExpression, TsType, TsTypeAssertion, TsTypeData, TsTypeParameterInstantiation,
 };
 
 use super::binary::{BinaryOperatorKind, OperandSide};
+use super::parentheses::ExpressionContent;
 use super::{AccessKind, ExpressionContext, ExpressionPosition, TailOwner};
 use crate::formatter::Formatter;
-use crate::formatter::comments::{CommentBoundary, ExpressionTail};
+use crate::formatter::comments::{CommentBoundary, CommentRunLayout, ExpressionTail};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::suppression::{ContentMode, SuppressionPosition};
-use crate::formatter::types::{PreparedType, TypeContext, TypeLayout};
-use crate::{FormatError, document::Writer};
+use crate::formatter::types::{PreparedDelimitedType, PreparedType, TypeContext, TypeLayout};
+use crate::{
+    FormatError,
+    document::{GroupRequest, Writer},
+};
 
 #[derive(Clone, Copy)]
 pub(super) enum TypeBinaryOperator {
@@ -56,6 +60,31 @@ enum ExpressionTypeArgumentPrefix<'ast> {
 enum TypeExpressionGap<'ast> {
     Source(Span),
     Formatted(CommentBoundary<'ast>),
+}
+
+struct TypeAssertionHead<'ast> {
+    body: PreparedDelimitedType<'ast>,
+    before: TypeExpressionGap<'ast>,
+    closing: TypeExpressionGap<'ast>,
+}
+
+enum AssertionOperandLayout {
+    Direct,
+    Enclosable,
+}
+
+struct TypeAssertionOperand<'ast> {
+    expression: Expr,
+    span: Span,
+    content: Option<ExpressionContent>,
+    context: ExpressionContext,
+    before: TypeExpressionGap<'ast>,
+    layout: AssertionOperandLayout,
+}
+
+struct PreparedTypeAssertion<'ast> {
+    head: TypeAssertionHead<'ast>,
+    operand: TypeAssertionOperand<'ast>,
 }
 
 /// One assertion's source-owned operand and prepared token boundary.
@@ -495,6 +524,53 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let PreparedTypeAssertion { head, operand } = self.prepare_type_assertion(node, context)?;
+        writer.group(false, |writer| {
+            if matches!(operand.layout, AssertionOperandLayout::Direct) {
+                writer.group(false, |writer| {
+                    self.format_type_assertion_head(head, writer)
+                })?;
+                return self.format_type_assertion_operand(operand, writer);
+            }
+            let (head, ()) = writer
+                .record_group_with_value(|writer| self.format_type_assertion_head(head, writer))?;
+            let leading_separator = matches!(&operand.before,
+                TypeExpressionGap::Formatted(boundary) if !boundary.is_empty());
+            // A removed operand pair can contribute a head inside the same
+            // fragment even when the after-angle packet is empty.
+            let leading_separator = leading_separator
+                || operand
+                    .content
+                    .as_ref()
+                    .and_then(|content| content.parentheses)
+                    .is_some_and(|pair| {
+                        !self
+                            .comments
+                            .in_range(Span::new(pair.outer.start, pair.inner.start))
+                            .is_empty()
+                    });
+            let (operand, tail) = writer
+                .record_with_value(|writer| self.format_type_assertion_operand(operand, writer))?;
+            let direct = writer.join_fragments(head.grouped(), leading_separator, operand);
+            let enclosed = writer.conditional_group_fragment(
+                head.grouped(),
+                GroupRequest::Expanded,
+                "(",
+                operand,
+                ")",
+            );
+            writer.write_alternatives(direct, &[direct, enclosed], direct);
+            // Ordinary pending comments retain their enclosing expression owner.
+            // Each candidate finishes its operand before returning the same lease.
+            Ok(tail)
+        })
+    }
+
+    fn prepare_type_assertion(
+        &self,
+        node: TsTypeAssertion,
+        context: ExpressionContext,
+    ) -> Result<PreparedTypeAssertion<'ast>, FormatError> {
         let span = node.span(self.ast);
         let expression = node.expression(self.ast);
         let expression_span = expression.span(self.ast);
@@ -520,94 +596,147 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if type_source {
             self.select_expression_type_head(&mut type_node, SuppressionPosition::Inline);
         }
-        let before = self.prepare_type_expression_gap(before, type_node.source_owner.is_some());
+        let before =
+            self.prepare_type_expression_gap(before, leading, type_node.source_owner.is_some());
         let body = self.prepare_delimited_type(type_node)?;
-        let after_type =
-            self.prepare_type_expression_gap(Span::new(suffix.start, closing), type_source);
+        let after_type = self.prepare_type_expression_gap(
+            Span::new(suffix.start, closing),
+            type_tail,
+            type_source,
+        );
         let mode = self.content_mode(operand_head);
         let after_angle = self.prepare_type_expression_gap(
             Span::new(closing + 1, expression_span.start),
+            operand_head,
             mode == ContentMode::Verbatim,
         );
-        writer.group(false, |writer| {
-            if body.needs_delimiter_envelope() {
-                writer.group(false, |writer| {
-                    writer.text("<");
-                    let closing = writer.indent(|writer| {
-                        match before {
-                            TypeExpressionGap::Source(span) => {
-                                self.format_verbatim(span, writer)?
-                            }
-                            TypeExpressionGap::Formatted(boundary) => {
-                                self.format_comment_boundary(&boundary, writer)?;
-                                boundary.gap().write(
-                                    writer,
-                                    FlatSeparator::Empty,
-                                    Writer::soft_line,
-                                );
-                            }
-                        }
-                        let tail = self.format_prepared_delimited_type(
-                            body,
-                            TypeContext::Root,
-                            TypeLayout::CallerIndented,
-                            writer,
-                        )?;
-                        self.format_expression_tail(tail, writer)?;
-                        match after_type {
-                            TypeExpressionGap::Source(span) => {
-                                self.format_verbatim(span, writer)?;
-                                Ok(None)
-                            }
-                            TypeExpressionGap::Formatted(boundary) => {
-                                self.format_comment_boundary(&boundary, writer)?;
-                                Ok(Some(boundary.gap()))
-                            }
-                        }
-                    })?;
-                    if let Some(closing) = closing {
-                        closing.write(writer, FlatSeparator::Empty, Writer::soft_line);
-                    }
-                    writer.text(">");
-                    Ok::<_, FormatError>(())
-                })?;
+        // Keep protected operands direct before preparing optional document variants.
+        let content = (mode == ContentMode::Formatted).then(|| self.expression_content(expression));
+        let direct_body = content.as_ref().is_some_and(|content| {
+            matches!(
+                content.data,
+                ExprData::ArrayExpression(_)
+                    | ExprData::ObjectExpression(_)
+                    // The prepared peel stops at this actual protected source pair.
+                    | ExprData::ParenthesizedExpression(_)
+            )
+        });
+        let layout = if mode == ContentMode::Verbatim
+            || direct_body
+            || self.diagnostic_range_is_sensitive(span)
+        {
+            AssertionOperandLayout::Direct
+        } else {
+            let movable = match &after_angle {
+                TypeExpressionGap::Source(_) => false,
+                TypeExpressionGap::Formatted(boundary) => self
+                    .comment_boundary_binding(boundary, expression_span)
+                    .allows_relocation(Some(expression_span)),
+            };
+            if movable {
+                AssertionOperandLayout::Enclosable
             } else {
-                let layout = match &before {
-                    TypeExpressionGap::Source(_) => TypeLayout::CallerIndented,
-                    TypeExpressionGap::Formatted(_) => TypeLayout::Root,
-                };
-                writer.text("<");
-                writer.indent(|writer| {
-                    self.format_type_expression_gap(before, FlatSeparator::Empty, writer)?;
-                    let tail = self.format_prepared_delimited_type(
-                        body,
-                        TypeContext::Root,
-                        layout,
-                        writer,
-                    )?;
-                    self.format_expression_tail(tail, writer)?;
-                    self.format_type_expression_gap(after_type, FlatSeparator::Empty, writer)
-                })?;
-                writer.text(">");
+                AssertionOperandLayout::Direct
             }
-            self.format_type_expression_gap(after_angle, FlatSeparator::Empty, writer)?;
-            self.format_expression(
+        };
+        Ok(PreparedTypeAssertion {
+            head: TypeAssertionHead {
+                body,
+                before,
+                closing: after_type,
+            },
+            operand: TypeAssertionOperand {
                 expression,
-                context.type_operand(
+                span: expression_span,
+                content,
+                context: context.type_operand(
                     ExpressionPosition::TypeAssertionOperand,
                     mode,
                     context.tail_owner,
                 ),
-                writer,
-            )
+                before: after_angle,
+                layout,
+            },
         })
     }
 
-    fn prepare_type_expression_gap(&self, gap: Span, source: bool) -> TypeExpressionGap<'ast> {
+    /// The actual angle caller owns the opening gap and the type body's indentation.
+    fn format_type_assertion_head(
+        &mut self,
+        head: TypeAssertionHead<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        writer.text("<");
+        let closing = writer.indent(|writer| {
+            match head.before {
+                TypeExpressionGap::Source(span) => self.format_verbatim(span, writer)?,
+                TypeExpressionGap::Formatted(boundary) => {
+                    self.format_comment_boundary(&boundary, writer)?;
+                    boundary
+                        .gap()
+                        .write(writer, FlatSeparator::Empty, Writer::soft_line);
+                }
+            }
+            let tail = self.format_prepared_delimited_type(
+                head.body,
+                TypeContext::Root,
+                TypeLayout::CallerIndented,
+                writer,
+            )?;
+            self.format_expression_tail(tail, writer)?;
+            match head.closing {
+                TypeExpressionGap::Source(span) => {
+                    self.format_verbatim(span, writer)?;
+                    Ok(None)
+                }
+                TypeExpressionGap::Formatted(boundary) => {
+                    self.format_comment_boundary(&boundary, writer)?;
+                    Ok(Some(boundary.gap()))
+                }
+            }
+        })?;
+        if let Some(closing) = closing {
+            closing.write(writer, FlatSeparator::Empty, Writer::soft_line);
+        }
+        writer.text(">");
+        Ok(())
+    }
+
+    fn format_type_assertion_operand(
+        &mut self,
+        operand: TypeAssertionOperand<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        match (operand.layout, operand.before) {
+            (AssertionOperandLayout::Enclosable, TypeExpressionGap::Formatted(boundary)) => {
+                // This packet belongs to the operand in every candidate. Its
+                // leading separator belongs to the direct head/operand join.
+                self.format_comment_boundary_with_layout(
+                    &boundary,
+                    CommentRunLayout::FlatLeading(operand.span.start),
+                    writer,
+                )?;
+            }
+            (_, before) => self.format_type_expression_gap(before, FlatSeparator::Empty, writer)?,
+        }
+        self.format_expression_prepared_with_array_comments(
+            operand.expression,
+            operand.content,
+            operand.context,
+            None,
+            writer,
+        )
+    }
+
+    fn prepare_type_expression_gap(
+        &self,
+        gap: Span,
+        comments: &'ast [Comment],
+        source: bool,
+    ) -> TypeExpressionGap<'ast> {
         if source {
             TypeExpressionGap::Source(gap)
         } else {
-            let comments = self.comments.in_range(gap);
             TypeExpressionGap::Formatted(
                 self.prepare_comment_boundary(comments, gap.start, gap.end),
             )

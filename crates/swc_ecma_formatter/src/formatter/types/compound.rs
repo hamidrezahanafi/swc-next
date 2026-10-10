@@ -148,10 +148,6 @@ pub(super) enum SingleTypeContent<'ast> {
 }
 
 impl SingleTypeContent<'_> {
-    pub(super) fn needs_delimiter_envelope(&self) -> bool {
-        matches!(self, Self::Union(union) if !union.hug)
-    }
-
     pub(super) fn alias_layout(&self) -> TypeLayout {
         match self {
             Self::Union(union) => union.alias_layout(),

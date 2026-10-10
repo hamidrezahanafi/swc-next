@@ -1084,6 +1084,39 @@ fn fragment_capabilities() {
     let required = writer.indented_delimited_fragment("(", atom, mandatory, atom, ")");
     assert!(required.try_flat().is_none());
     assert!(required.preferred_breaks());
+
+    let joined = writer.join_fragments(atom, true, atom);
+    assert!(joined.try_neutral().is_some());
+    assert!(joined.try_flat().is_some());
+
+    let joined = writer.join_fragments(atom, false, conditional);
+    assert!(joined.try_neutral().is_none());
+    assert!(joined.try_flat().is_some());
+
+    let joined = writer.join_fragments(mandatory, true, atom);
+    assert!(joined.try_flat().is_none());
+    assert!(joined.preferred_breaks());
+
+    let enclosed =
+        writer.conditional_group_fragment(atom, GroupRequest::Expanded, "(", conditional, ")");
+    assert!(enclosed.try_neutral().is_none());
+    assert!(enclosed.try_flat().is_some());
+    assert!(enclosed.preferred_breaks());
+
+    let enclosed = writer.conditional_group_fragment(atom, GroupRequest::Auto, "(", mandatory, ")");
+    assert!(enclosed.try_flat().is_none());
+    assert!(enclosed.preferred_breaks());
+
+    let enclosed = writer.conditional_group_fragment(mandatory, GroupRequest::Auto, "(", atom, ")");
+    assert!(enclosed.try_flat().is_none());
+    assert!(enclosed.preferred_breaks());
+
+    let enclosed =
+        writer.conditional_group_fragment(atom, GroupRequest::PreserveSource, "(", atom, ")");
+    assert!(enclosed.try_neutral().is_none());
+    assert!(enclosed.try_flat().is_some());
+    assert!(enclosed.preferred_breaks());
+    assert!(!enclosed.effect.required());
 }
 
 #[test]
@@ -1290,6 +1323,46 @@ fn completed_delimiter_layouts() {
     assert_eq!(doc.group_count, 1);
     assert!(!doc.conditional_lines);
     assert_eq!(doc.print(FormatOptions::prettier()), "(sourcevaluetail)");
+
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let prefix = record(&mut writer, |writer| {
+        let group = writer.named_group(true, |writer| writer.text("<T>"));
+        writer.soft_line_if_break(group);
+    });
+    let body = record(&mut writer, |writer| writer.text("call()"));
+    let enclosed =
+        writer.conditional_group_fragment(prefix, GroupRequest::Expanded, "(", body, ")");
+    writer.write_fragment(enclosed);
+    writer.line_suffix("// outside");
+    writer.hard_line();
+    let doc = writer.finish();
+    assert_eq!(doc.group_count, 1);
+    assert!(doc.conditional_lines);
+    assert_eq!(
+        doc.print(FormatOptions::prettier()),
+        "<T>\n(\n  call()\n) // outside\n"
+    );
+
+    let allocator = Allocator::new();
+    let mut writer = Writer::new(&allocator);
+    let prefix = record(&mut writer, |writer| {
+        let group = writer.named_group(true, |writer| writer.text("<T>"));
+        writer.soft_line_if_break(group);
+    });
+    let body = record(&mut writer, write_group_named_scope);
+    let enclosed =
+        writer.conditional_group_fragment(prefix, GroupRequest::Expanded, "(", body, ")");
+    writer.write_flat_fragment(enclosed.try_flat().unwrap());
+    writer.line_suffix("// outside");
+    writer.hard_line();
+    let doc = writer.finish();
+    assert_eq!(doc.group_count, 2);
+    assert!(!doc.conditional_lines);
+    assert_eq!(
+        doc.print(FormatOptions::prettier()),
+        "<T>first lasttail // outside\n"
+    );
 }
 
 fn neutral_continuation(width: u16, neutral: bool) -> String {

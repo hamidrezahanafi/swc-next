@@ -377,6 +377,86 @@ impl<'a> Writer<'a> {
         }
     }
 
+    /// Joins complete scopes with the same optional deferred separator as `space`.
+    pub(crate) fn join_fragments(
+        &self,
+        left: Fragment<'a>,
+        separate: bool,
+        right: Fragment<'a>,
+    ) -> Fragment<'a> {
+        let effect = left.effect.join(right.effect);
+        let conditional_lines = left.conditional_lines || right.conditional_lines;
+        let capabilities = match (left.capabilities, right.capabilities) {
+            (FragmentCapabilities::General, _) | (_, FragmentCapabilities::General) => {
+                FragmentCapabilities::General
+            }
+            (FragmentCapabilities::Neutral, FragmentCapabilities::Neutral)
+                if !effect.preferred_breaks() && !conditional_lines =>
+            {
+                FragmentCapabilities::Neutral
+            }
+            _ => FragmentCapabilities::FlatEligible,
+        };
+        let elements: &'a [FormatElement<'a>] = if separate {
+            self.allocator.alloc([
+                FormatElement::Fragment(left),
+                FormatElement::Space(SpaceKind::Deferred),
+                FormatElement::Fragment(right),
+            ])
+        } else {
+            self.allocator.alloc([
+                FormatElement::Fragment(left),
+                FormatElement::Fragment(right),
+            ])
+        };
+        Fragment {
+            elements,
+            effect,
+            capabilities,
+            conditional_lines,
+        }
+    }
+
+    /// Delimiters observe one complete group; the prefix keeps its own outer scope.
+    pub(crate) fn conditional_group_fragment(
+        &self,
+        prefix: Fragment<'a>,
+        request: GroupRequest,
+        open: &'a str,
+        body: Fragment<'a>,
+        close: &'a str,
+    ) -> Fragment<'a> {
+        let group_effect = BreakEffect::from_request(request).join(body.effect);
+        let effect = prefix.effect.join(group_effect);
+        let conditional_lines = prefix.conditional_lines || body.conditional_lines;
+        // Conditional delimiters disappear in a flat projection, and both
+        // complete backing scopes retain their own projection eligibility.
+        let capabilities = FragmentCapabilities::from_flat(
+            prefix.capabilities.permits_flat() && body.capabilities.permits_flat(),
+        );
+        let elements = self.allocator.alloc([
+            FormatElement::Fragment(prefix),
+            FormatElement::StartGroup {
+                effect: group_effect,
+                id: None,
+            },
+            FormatElement::IfBreak(Text::new(open)),
+            FormatElement::StartIndent,
+            FormatElement::SoftLine,
+            FormatElement::Fragment(body),
+            FormatElement::EndIndent,
+            FormatElement::SoftLine,
+            FormatElement::IfBreak(Text::new(close)),
+            FormatElement::EndGroup,
+        ]);
+        Fragment {
+            elements,
+            effect,
+            capabilities,
+            conditional_lines,
+        }
+    }
+
     /// Flat views project their backing scopes without propagating backing break flags.
     pub(crate) fn flat_delimited_fragment(
         &self,
