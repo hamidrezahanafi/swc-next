@@ -74,6 +74,11 @@ enum AssignmentRight {
     SourceParentheses(ParenthesizedExpression),
 }
 
+struct RhsContent {
+    data: ExprData,
+    unary_operand: Option<Expr>,
+}
+
 struct AssignmentSuppression {
     gap: Span,
     left: ContentMode,
@@ -565,49 +570,136 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         data: ExprData,
         boundary: &AssignmentBoundary<'ast>,
     ) -> RhsLayout {
-        if boundary.own_line
-            || !boundary.operator_line.is_empty()
-            || self.assignment_right_breaks_after_operator(data)
-        {
+        if boundary.own_line || !boundary.operator_line.is_empty() {
             return RhsLayout::BreakAfterOperator;
         }
+        let Some(operand) = self.assignment_right_fluid_content(data) else {
+            return RhsLayout::BreakAfterOperator;
+        };
         if matches!(
             data,
             ExprData::BooleanLiteral(_) | ExprData::NumericLiteral(_)
         ) {
             return RhsLayout::NeverBreakAfterOperator;
         }
+        if self.assignment_right_is_member_chain(operand, boundary.right_start) {
+            return RhsLayout::BreakAfterOperator;
+        }
         RhsLayout::Fluid
     }
 
     pub(in crate::formatter) fn assignment_right_breaks_after_operator(
         &self,
-        mut data: ExprData,
+        data: ExprData,
     ) -> bool {
+        self.assignment_right_fluid_content(data).is_none()
+    }
+
+    /// Return the inspected operand unless the existing RHS rule requires an outer break.
+    /// Callers can continue classifying it without walking the unary prefix again.
+    fn assignment_right_fluid_content(&self, mut data: ExprData) -> Option<RhsContent> {
+        let mut content = RhsContent {
+            data,
+            unary_operand: None,
+        };
         match data {
             ExprData::AssignmentExpression(assignment) => {
-                return matches!(
+                return (!matches!(
                     self.expression_content(assignment.right(self.ast)).data,
                     ExprData::AssignmentExpression(_)
-                );
+                ))
+                .then_some(content);
             }
             ExprData::ConditionalExpression(conditional) => {
                 let test = self.expression_content(conditional.test(self.ast)).data;
-                return BinaryLike::from_data(test, self.ast).is_some_and(|binary| {
+                let break_after = BinaryLike::from_data(test, self.ast).is_some_and(|binary| {
                     !self.inline_logical_operand(binary.operator, binary.right)
                 });
+                return (!break_after).then_some(content);
             }
             _ => {}
         }
         if let Some(binary) = BinaryLike::from_data(data, self.ast) {
-            return !self.inline_logical_operand(binary.operator, binary.right);
+            return self
+                .inline_logical_operand(binary.operator, binary.right)
+                .then_some(content);
         }
         while let ExprData::UnaryExpression(unary) = data {
-            data = self.expression_content(unary.argument(self.ast)).data;
+            let operand = self.expression_content(unary.argument(self.ast));
+            content.unary_operand = Some(operand.expression);
+            data = operand.data;
         }
-        matches!(
+        content.data = data;
+        (!matches!(
             data,
             ExprData::StringLiteral(_) | ExprData::SequenceExpression(_)
-        )
+        ))
+        .then_some(content)
+    }
+
+    /// Bare lookups have no argument group to break before the outer operator.
+    /// Object properties select their layout separately, including the key width.
+    fn assignment_right_is_member_chain(&self, content: RhsContent, prefix_start: u32) -> bool {
+        if let Some(operand) = content.unary_operand
+            && !self.assignment_unary_head_is_inspectable(prefix_start, operand)
+        {
+            return false;
+        }
+        let mut data = content.data;
+        let mut member = false;
+        loop {
+            let receiver = match data {
+                ExprData::UnaryExpression(unary) if !member => {
+                    let operand = self.expression_content(unary.argument(self.ast));
+                    if !self.assignment_unary_head_is_inspectable(
+                        unary.span(self.ast).start,
+                        operand.expression,
+                    ) {
+                        return false;
+                    }
+                    data = operand.data;
+                    continue;
+                }
+                ExprData::AwaitExpression(awaited) if !member => awaited.argument(self.ast),
+                ExprData::YieldExpression(yielded) if !member => {
+                    let Some(argument) = yielded.argument(self.ast) else {
+                        return false;
+                    };
+                    argument
+                }
+                ExprData::MemberExpression(access) => {
+                    member = true;
+                    access.object(self.ast)
+                }
+                ExprData::ChainExpression(chain) => chain.expression(self.ast),
+                ExprData::TsNonNullExpression(assertion) => assertion.expression(self.ast),
+                _ => {
+                    return member
+                        && matches!(
+                            data,
+                            ExprData::IdentifierReference(_) | ExprData::ThisExpression(_)
+                        );
+                }
+            };
+            data = self.expression_content(receiver).data;
+        }
+    }
+
+    fn assignment_unary_head_is_inspectable(&self, start: u32, operand: Expr) -> bool {
+        if !self.has_suppression
+            && !self.has_target_annotations
+            && !self.has_file_directives
+            && self.diagnostic_lines.is_empty()
+        {
+            return true;
+        }
+        // Unary prints a pair around its boundary comments and operand. A bound
+        // head must remain opaque before that pair exists on the next pass.
+        let span = operand.span(self.ast);
+        let comments = self.ast.comments();
+        let first = comments.partition_point(|comment| comment.span.start < start);
+        let last = comments.partition_point(|comment| comment.span.end <= span.start);
+        self.expression_head_binding(&comments[first..last], operand)
+            .allows_relocation(Some(span))
     }
 }

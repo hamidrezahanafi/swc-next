@@ -3,12 +3,12 @@ formatter * prettier 3.9.9 * js
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 794
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 781/1070 (72.99%)
-Snapshot matched: 781/1070
+Passed: 785/1070 (73.36%)
+Snapshot matched: 785/1070
 AST parity: 1069/1069
 AST mismatched: 0/1069
 AST format errors: 0/1070
-Mismatched: 288/1070
+Mismatched: 284/1070
 Format errors: 0/1070
 Panicked: 0/1070
 Not idempotent: 0/1070
@@ -65,16 +65,13 @@ Unsupported option sets: 19
 - js/assignment/chain.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/assignment/destructuring-heuristic.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/assignment/discussion-15196.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/assignment/issue-10218.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/assignment/issue-15534.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/assignment/issue-1966.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/assignment/issue-4094.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/assignment/issue-7091.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/assignment/issue-7961.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/assignment/issue-8218.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/assignment/lone-arg.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/assignment/sequence.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/assignment/unary.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/async/inline-await.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/async/nested.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/binary-expressions/inline-jsx.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -173,7 +170,6 @@ Unsupported option sets: 19
 - js/line-suffix-boundary/boundary.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/logical-assignment/inside-call/18171.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/logical-expressions/in-unary-expression.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/member/expand.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/method-chain/assignment-lhs.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/method-chain/break-last-member.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/method-chain/comment.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
