@@ -166,7 +166,6 @@ struct SourceClassField<'ast> {
     accessor: Option<ClassFieldAccessor>,
     key_context: PropertyKeyContext,
     suffix: Option<FieldSuffix<'ast>>,
-    left_end: u32,
     initializer: Option<FieldInitializer<'ast>>,
     terminal: FieldTerminal,
 }
@@ -1409,7 +1408,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let operator = self
                 .find_token(gap, comments, "=")
                 .ok_or_else(|| self.unsupported("class field initializer boundary", node))?;
-            let mut source_gap = false;
+            let mut bound_gap = None;
             if self.has_suppression {
                 let split = comments.partition_point(|comment| comment.span.end <= operator);
                 for position in self.suppression_positions(&comments[..split], operator) {
@@ -1418,17 +1417,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         _ if annotation.is_some() => annotation_mode = ContentMode::Verbatim,
                         _ => key_mode = ContentMode::Verbatim,
                     }
-                    source_gap = true;
+                    bound_gap = Some(gap);
                 }
                 for position in self.suppression_positions(&comments[split..], right_start) {
                     match position {
-                        SuppressionPosition::EndOfLine => key_mode = ContentMode::Verbatim,
+                        SuppressionPosition::EndOfLine => {
+                            key_mode = ContentMode::Verbatim;
+                            bound_gap = Some(gap);
+                        }
                         _ => right_mode = ContentMode::Verbatim,
                     }
-                    source_gap = true;
                 }
             }
-            let layout = if source_gap {
+            let layout = if let Some(gap) = bound_gap {
                 InitializerLayout::Bound { gap, right_mode }
             } else {
                 let content = self.expression_content(right);
@@ -1480,7 +1481,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             accessor,
             key_context,
             suffix,
-            left_end,
             initializer,
             terminal,
         }))
@@ -1574,7 +1574,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             accessor,
             key_context,
             suffix,
-            left_end,
             initializer,
             terminal,
         } = field;
@@ -1608,6 +1607,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         let tail = if let Some(FieldInitializer { right, layout }) = initializer {
             self.format_expression_tail(tail, writer)?;
+            let left_end = match &layout {
+                InitializerLayout::Bound { gap, .. } => gap.start,
+                InitializerLayout::Formatted { boundary, .. } => boundary.left_end,
+            };
             self.format_initializer_right(
                 left_end,
                 right,
