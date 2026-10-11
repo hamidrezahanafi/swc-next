@@ -611,6 +611,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 punctuation,
                 writer,
             )?;
+            let inherited_line_tail = printed.pending.as_ref().is_some_and(|tail| {
+                tail.comments
+                    .iter()
+                    .any(|comment| comment.kind == CommentKind::Line)
+            });
             if let Some(tail) = annotation_tail
                 && let Some(last) = tail.tail.comments.last()
                 && last.span.end > printed.boundary.end()
@@ -627,7 +632,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
             }
             if end.has_following() {
-                printed = self.flush_statement_tail(printed, writer)?.into();
+                if inherited_line_tail {
+                    // The keyword owns the packet after this body's indent,
+                    // while its pending line suffix still breaks the body group.
+                    writer.break_parent();
+                } else {
+                    printed = self.flush_statement_tail(printed, writer)?.into();
+                }
             }
             if printed.pending.is_some() {
                 return Ok(printed);
@@ -636,6 +647,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Span::new(printed.boundary.end(), trailing_limit),
                 span.end,
                 end.has_following(),
+                None,
                 writer,
             )?;
             printed.boundary = printed.boundary.with_end(end);

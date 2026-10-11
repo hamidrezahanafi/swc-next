@@ -1027,14 +1027,46 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         span: Span,
         statement_end: u32,
         has_following: bool,
+        pending: Option<ExpressionTail<'ast>>,
         writer: &mut Writer<'ast>,
     ) -> Result<u32, FormatError> {
-        let comments = self.comments.between(span)?;
-        let comments = self.trailing_comment_prefix(comments, span, statement_end, has_following);
+        let source_end = pending.as_ref().map_or(span.start, |tail| tail.source_end);
+        let comments = self.comments.between(Span::new(source_end, span.end))?;
+        let (comments, source_end) = if let Some(tail) = pending {
+            // Keep the leased child tail and the parent's suffix in one packet:
+            // a later block must not overtake a pending line suffix.
+            let (inherited, following) = comments.split_at(tail.comments.len());
+            let start = inherited
+                .last()
+                .map_or(span.start, |comment| span.start.max(comment.span.end));
+            let following = self.trailing_comment_prefix(
+                following,
+                Span::new(start, span.end),
+                statement_end,
+                has_following,
+            );
+            (
+                &comments[..inherited.len() + following.len()],
+                Some(tail.source_end),
+            )
+        } else {
+            (
+                self.trailing_comment_prefix(comments, span, statement_end, has_following),
+                None,
+            )
+        };
         self.comments.claim(comments)?;
         if let Some(last) = comments.last() {
-            self.format_inline_trailing_comments(comments, writer)?;
-            Ok(last.span.end)
+            if let Some(source_end) = source_end {
+                self.format_comment_run(
+                    comments,
+                    CommentRunLayout::SourceAfter(source_end),
+                    writer,
+                )?;
+            } else {
+                self.format_inline_trailing_comments(comments, writer)?;
+            }
+            Ok(span.start.max(last.span.end))
         } else {
             Ok(span.start)
         }

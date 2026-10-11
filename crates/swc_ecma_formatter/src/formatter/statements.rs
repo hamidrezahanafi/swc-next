@@ -488,7 +488,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     }
                 }
             };
-            let mut boundary = self.flush_statement_tail(printed, writer)?;
+            let (mut boundary, pending_tail) =
+                if source_packet.is_some() || annotation_tail.is_some() {
+                    (self.flush_statement_tail(printed, writer)?, None)
+                } else {
+                    (printed.boundary, printed.pending)
+                };
             first_statement = false;
             let trailing_start = if let Some(packet) = source_packet {
                 let start = packet.span.start.max(boundary.end());
@@ -519,6 +524,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 Span::new(trailing_start, following.unwrap_or(span.end)),
                 statement_span.end,
                 following.is_some(),
+                pending_tail,
                 writer,
             )?;
             previous_span_end = statement_span.end;
