@@ -205,9 +205,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             ArgumentGroup::Local
         };
+        if !call.optional(ast)
+            && arguments.callee_mode == ContentMode::Formatted
+            && let ExprData::IdentifierReference(identifier) = self.call_callee_content_data(callee)
+            && ast.get_utf8(identifier.name(ast)) == "require"
+        {
+            arguments.frame = self.require_argument_frame(&arguments);
+        }
         arguments.curried_callee =
             self.curried_call_callee(callee, call_arguments, arguments.callee_mode);
         Ok(arguments)
+    }
+
+    pub(in crate::formatter) fn call_callee_content_data(&self, callee: Expr) -> ExprData {
+        match self.ast.expr_data(callee) {
+            ExprData::ParenthesizedExpression(_) => self.expression_content(callee).data,
+            data => data,
+        }
     }
 
     #[inline]

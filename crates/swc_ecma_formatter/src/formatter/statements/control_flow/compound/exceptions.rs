@@ -1,7 +1,7 @@
 //! Try blocks, catch bindings, and finally boundaries retain distinct owners.
 
 use super::{CompoundBlock, CompoundGap, Formatter};
-use crate::formatter::bindings::PreparedAnnotatedBinding;
+use crate::formatter::bindings::{BindingGroup, PreparedAnnotatedBinding};
 use crate::formatter::comments::CommentRunLayout;
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::statements::{EmptyBlock, StatementBoundary};
@@ -402,7 +402,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.comments.claim(comments)?;
                 self.format_comment_run(comments, CommentRunLayout::Leading(end), writer)?;
             }
-            let tail = self.format_annotated_binding(binding.binding, writer)?;
+            let tail =
+                self.format_annotated_binding(binding.binding, BindingGroup::Auto, writer)?;
             self.format_expression_tail(tail, writer)?;
             if let CatchParameterTail::Parameter {
                 comments, start, ..
@@ -495,8 +496,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     )?;
                 }
                 let span = binding.pattern.span(self.ast);
-                let tail =
-                    self.format_declaration_binding(binding.pattern, binding.mode, writer)?;
+                let tail = self.format_catch_binding(binding.pattern, binding.mode, writer)?;
                 if binding.tail.has_suppression() {
                     self.format_expression_tail(tail, writer)?;
                     self.format_compound_gap(

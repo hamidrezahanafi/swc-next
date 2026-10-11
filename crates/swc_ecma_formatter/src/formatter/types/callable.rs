@@ -1492,7 +1492,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     self.format_object_binding_contents(object, writer)?;
                 } else {
                     let tail =
-                        self.format_declaration_binding(pattern, ContentMode::Formatted, writer)?;
+                        self.format_parameter_pattern(pattern, ContentMode::Formatted, writer)?;
                     self.format_expression_tail(tail, writer)?;
                 }
                 pattern.span(self.ast).end
@@ -1502,7 +1502,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     writer.text("...");
                     self.format_type_gap(gap, FlatSeparator::Empty, writer)?;
                 }
-                let tail = self.format_declaration_binding(node, mode, writer)?;
+                let tail = self.format_parameter_pattern(node, mode, writer)?;
                 self.format_expression_tail(tail, writer)?;
                 node.span(self.ast).end
             }

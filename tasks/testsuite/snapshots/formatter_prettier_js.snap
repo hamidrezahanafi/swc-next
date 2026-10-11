@@ -3,12 +3,12 @@ formatter * prettier 3.9.9 * js
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 794
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 796/1070 (74.39%)
-Snapshot matched: 796/1070
+Passed: 801/1070 (74.86%)
+Snapshot matched: 801/1070
 AST parity: 1069/1069
 AST mismatched: 0/1069
 AST format errors: 0/1070
-Mismatched: 273/1070
+Mismatched: 268/1070
 Format errors: 0/1070
 Panicked: 0/1070
 Not idempotent: 0/1070
@@ -46,7 +46,6 @@ Unsupported option sets: 19
 # Failed
 
 - js/arrays/numbers-with-holes.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/arrays/numbers-with-tricky-comments.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/arrows/arrow-chain-with-trailing-comments.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/arrow_function_expression.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/arrows/assignment-chain-with-arrow-chain.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
@@ -63,7 +62,6 @@ Unsupported option sets: 19
 - js/assignment-expression/property-value.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/assignment/call-with-template.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/assignment/chain.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/assignment/destructuring-heuristic.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/assignment/issue-15534.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/assignment/issue-4094.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/assignment/lone-arg.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -126,8 +124,6 @@ Unsupported option sets: 19
 - js/decorators/class-expression/member-expression.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/decorators/class-expression/super-class.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/decorators/classes.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/destructuring/destructuring.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/destructuring/issue-5988.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/dynamic-import/import-phase.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/dynamic-import/template-literal.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/embeded/indention/19518.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -166,7 +162,6 @@ Unsupported option sets: 19
 - js/logical-assignment/inside-call/18171.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/logical-expressions/in-unary-expression.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/method-chain/assignment-lhs.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/method-chain/break-last-member.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/method-chain/comment.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/method-chain/issue-17457.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/method-chain/issue-4125.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent

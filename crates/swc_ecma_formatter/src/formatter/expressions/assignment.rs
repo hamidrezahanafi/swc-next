@@ -9,6 +9,7 @@ use super::binary::BinaryLike;
 use super::chains::RhsCallChainOwnership;
 use super::parentheses::ExpressionContent;
 use super::{ExpressionContext, ExpressionPosition, Formatter};
+use crate::formatter::bindings::BindingInitializerOwner;
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::literals::StringContext;
@@ -130,7 +131,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        let target = self.assignment_source_target(assignment)?;
+        let mut target = self.assignment_source_target(assignment)?;
         let right = assignment.right(self.ast);
         let suppression = if self.has_suppression {
             self.prepare_assignment_suppression(
@@ -142,6 +143,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             None
         };
         if let Some(source) = suppression {
+            if source.left == ContentMode::Formatted
+                && let Some(pattern) = target.binding()
+            {
+                target.set_binding_group(self.bound_initializer_binding_group(pattern));
+            }
             return writer.group(false, |writer| {
                 let leading = self.comments.between(Span::new(
                     assignment.span(self.ast).start,
@@ -187,7 +193,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             head.as_ref().unwrap_or(&content),
             target.operator_span,
         )?;
-        let layout = self.assignment_layout(data, context.position, &boundary);
+        let mut layout = self.assignment_layout(data, context.position, &boundary);
+        let binding = target.binding();
+        if let Some(pattern) = binding {
+            let group = match layout {
+                AssignmentLayout::Ordinary(rhs_layout) => {
+                    let (group, rhs_layout) = self.binding_initializer_layout(
+                        pattern,
+                        BindingInitializerOwner::Assignment,
+                        data,
+                        &boundary,
+                        rhs_layout,
+                    );
+                    layout = AssignmentLayout::Ordinary(rhs_layout);
+                    group
+                }
+                _ => self.declaration_binding_group(pattern),
+            };
+            target.set_binding_group(group);
+        }
         let write = |writer: &mut Writer<'ast>| {
             let leading = self.comments.between(Span::new(
                 assignment.span(self.ast).start,
@@ -286,6 +310,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     });
             };
             match layout {
+                AssignmentLayout::Ordinary(rhs_layout)
+                    if binding.is_some()
+                        && matches!(rhs_layout, RhsLayout::NeverBreakAfterOperator) =>
+                {
+                    writer.group(false, |writer| {
+                        rhs_layout.write(writer, separator, write_right)
+                    })
+                }
                 AssignmentLayout::Ordinary(rhs_layout) => {
                     rhs_layout.write(writer, separator, write_right)
                 }

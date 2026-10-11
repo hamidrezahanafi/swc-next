@@ -366,7 +366,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         comments,
                         before_count,
                         source_end,
-                        boundary.source_range.end,
+                        Some(boundary.source_range.end),
                     )
                 } else {
                     comments.split_at(before_count)
@@ -404,7 +404,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     comments,
                     before_count,
                     source_end,
-                    boundary.source_range.end,
+                    Some(boundary.source_range.end),
                 );
                 (
                     trailing,

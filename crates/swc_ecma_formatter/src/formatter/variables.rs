@@ -8,7 +8,9 @@ use swc_next_ecma_ast::{
 };
 
 use super::Formatter;
-use super::bindings::{InitializerLayout, InitializerLeft, PreparedInitializer};
+use super::bindings::{
+    BindingGroup, BindingInitializerOwner, InitializerLayout, InitializerLeft, PreparedInitializer,
+};
 use super::comments::ExpressionTail;
 use super::diagnostics::FlatSeparator;
 use super::expressions::ExpressionContext;
@@ -245,9 +247,23 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             rhs_layout = RhsLayout::NeverBreakAfterOperator;
         }
+        let (group, rhs_layout) = if left_mode == ContentMode::Formatted {
+            self.binding_initializer_layout(
+                left,
+                BindingInitializerOwner::Variable,
+                content.data,
+                &boundary,
+                rhs_layout,
+            )
+        } else {
+            (BindingGroup::Auto, rhs_layout)
+        };
         self.format_initializer(
             PreparedInitializer {
-                left: InitializerLeft::Binding(left),
+                left: InitializerLeft::Binding {
+                    pattern: left,
+                    group,
+                },
                 right,
                 layout: InitializerLayout::Formatted {
                     boundary,

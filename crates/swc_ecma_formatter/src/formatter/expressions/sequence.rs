@@ -313,7 +313,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         (boundary.trailing, boundary.leading) = if sensitive {
             comments.split_at(before_count)
         } else {
-            self.split_separator_comments(comments, before_count, start, end)
+            self.split_separator_comments(comments, before_count, start, Some(end))
         };
         if sensitive {
             let last = boundary

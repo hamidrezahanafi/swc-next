@@ -24,7 +24,7 @@ use swc_next_ecma_ast::{
 pub(super) use self::context::TypeContext;
 pub(in crate::formatter) use self::members::PreparedIndexSignature;
 use super::Formatter;
-use super::bindings::{DefiniteMarker, InitializerLayout};
+use super::bindings::{BindingGroup, BindingInitializerOwner, DefiniteMarker, InitializerLayout};
 use super::comments::{CommentBinding, CommentBoundary, CommentRunLayout, ExpressionTail};
 use super::diagnostics::{FlatSeparator, LineConstraint};
 use super::expressions::ExpressionContext;
@@ -1746,7 +1746,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 annotation,
                 ContentMode::Formatted,
             )?;
-            return self.format_annotated_binding(binding, writer);
+            let group = self.declaration_binding_group(pattern);
+            return self.format_annotated_binding(binding, group, writer);
         };
         let gap = Span::new(left_end, right.span(ast).start);
         let comments = self.comments.in_range(gap);
@@ -1788,40 +1789,59 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
             }
         }
-        let layout = if left_mode == ContentMode::Verbatim || right_mode == ContentMode::Verbatim {
-            InitializerLayout::Bound { gap, right_mode }
+        let (group, layout) = if left_mode == ContentMode::Verbatim
+            || right_mode == ContentMode::Verbatim
+        {
+            let group = if left_mode == ContentMode::Formatted {
+                self.bound_initializer_binding_group(pattern)
+            } else {
+                BindingGroup::Auto
+            };
+            (group, InitializerLayout::Bound { gap, right_mode })
         } else {
             let content = self.expression_content(right);
             let boundary =
                 self.assignment_boundary(left_end, &content, Span::new(operator, operator + 1))?;
             let rhs_layout = self.ordinary_rhs_layout(content.data, &boundary);
-            InitializerLayout::Formatted {
-                boundary,
-                rhs_layout,
-            }
-        };
-        if left_mode == ContentMode::Verbatim {
-            self.format_verbatim(owner, writer)?;
-        } else {
-            if is_definite && definite.is_none() {
-                definite = Some(self.variable_definite_marker(declarator, annotation));
-            }
-            let binding = self.prepare_annotated_binding(
+            let (group, rhs_layout) = self.binding_initializer_layout(
                 pattern,
-                owner,
-                definite,
-                annotation,
-                ContentMode::Formatted,
-            )?;
-            let tail = self.format_annotated_binding(binding, writer)?;
-            self.format_expression_tail(tail, writer)?;
-        }
-        let context = if context == VariableContext::ForInitializer {
-            self.for_initializer_context(right)
-        } else {
-            ExpressionContext::variable_initializer()
+                BindingInitializerOwner::Variable,
+                content.data,
+                &boundary,
+                rhs_layout,
+            );
+            (
+                group,
+                InitializerLayout::Formatted {
+                    boundary,
+                    rhs_layout,
+                },
+            )
         };
-        self.format_initializer_right(left_end, right, layout, context, writer)
+        group.with_initializer_group(writer, |writer| {
+            if left_mode == ContentMode::Verbatim {
+                self.format_verbatim(owner, writer)?;
+            } else {
+                if is_definite && definite.is_none() {
+                    definite = Some(self.variable_definite_marker(declarator, annotation));
+                }
+                let binding = self.prepare_annotated_binding(
+                    pattern,
+                    owner,
+                    definite,
+                    annotation,
+                    ContentMode::Formatted,
+                )?;
+                let tail = self.format_annotated_binding(binding, group, writer)?;
+                self.format_expression_tail(tail, writer)?;
+            }
+            let context = if context == VariableContext::ForInitializer {
+                self.for_initializer_context(right)
+            } else {
+                ExpressionContext::variable_initializer()
+            };
+            self.format_initializer_right(left_end, right, layout, context, writer)
+        })
     }
 
     fn variable_definite_marker(

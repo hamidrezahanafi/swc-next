@@ -11,6 +11,7 @@ use super::{
     ExpressionContext, ExpressionPosition, ExpressionStart, Formatter, MemberChainLayout,
     MemberLayout, TailOwner,
 };
+use crate::formatter::bindings::BindingGroup;
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::source::is_source_whitespace;
 use crate::formatter::suppression::{ContentMode, SuppressionPosition};
@@ -42,14 +43,17 @@ impl TargetOperator {
 #[derive(Clone, Copy)]
 enum TargetNode {
     Simple(SimpleTarget),
-    Pattern(BindingPattern),
+    Pattern {
+        pattern: BindingPattern,
+        group: Option<BindingGroup>,
+    },
 }
 
 impl TargetNode {
     fn span(self, ast: &Ast<'_>) -> Span {
         match self {
             Self::Simple(node) => node.span(ast),
-            Self::Pattern(node) => node.span(ast),
+            Self::Pattern { pattern, .. } => pattern.span(ast),
         }
     }
 }
@@ -167,7 +171,20 @@ impl SourceTarget {
     pub(in crate::formatter) fn simple(&self) -> Option<SimpleTarget> {
         match self.envelope.target {
             TargetNode::Simple(target) => Some(target),
-            TargetNode::Pattern(_) => None,
+            TargetNode::Pattern { .. } => None,
+        }
+    }
+
+    pub(super) fn binding(&self) -> Option<BindingPattern> {
+        match self.envelope.target {
+            TargetNode::Pattern { pattern, .. } => Some(pattern),
+            TargetNode::Simple(_) => None,
+        }
+    }
+
+    pub(super) fn set_binding_group(&mut self, prepared: BindingGroup) {
+        if let TargetNode::Pattern { group, .. } = &mut self.envelope.target {
+            *group = Some(prepared);
         }
     }
 
@@ -232,14 +249,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             AssignmentTargetData::SimpleAssignmentTarget(node) => {
                 TargetNode::Simple(SimpleTarget::new(self.ast, node))
             }
-            AssignmentTargetData::ArrayAssignmentTarget(node) => {
-                TargetNode::Pattern(BindingPattern::ArrayPattern(node))
-            }
-            AssignmentTargetData::ObjectAssignmentTarget(node) => {
-                TargetNode::Pattern(BindingPattern::ObjectPattern(node))
-            }
+            AssignmentTargetData::ArrayAssignmentTarget(node) => TargetNode::Pattern {
+                pattern: BindingPattern::ArrayPattern(node),
+                group: None,
+            },
+            AssignmentTargetData::ObjectAssignmentTarget(node) => TargetNode::Pattern {
+                pattern: BindingPattern::ObjectPattern(node),
+                group: None,
+            },
         };
-        if matches!(target, TargetNode::Pattern(_))
+        if matches!(target, TargetNode::Pattern { .. })
             && assignment.operator(self.ast) != AssignmentOperator::Assign
         {
             return Err(self.unsupported("destructuring compound assignment", assignment));
@@ -394,7 +413,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let mut inner = target.span(self.ast);
         let mut inner_target = match target {
-            TargetNode::Pattern(_) => ParenthesisInner::Unresolved,
+            TargetNode::Pattern { .. } => ParenthesisInner::Unresolved,
             TargetNode::Simple(target) => ParenthesisInner::Expression(target.expression),
         };
         for layer in layers.iter_mut().rev() {
@@ -480,7 +499,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let use_context = target.use_context;
         let mut context = use_context.context(context);
         let verbatim = context.content_mode == ContentMode::Verbatim && !target.layers.is_empty();
-        if (matches!(target.target, TargetNode::Pattern(_)) || !target.layers.is_empty())
+        if (matches!(target.target, TargetNode::Pattern { .. }) || !target.layers.is_empty())
             && context.expression_start.needs_asi_guard()
             && self.options.semicolons == Semicolons::AsNeeded
         {
@@ -534,9 +553,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         TargetNode::Simple(node) => {
                             self.format_simple_target(node, context, writer)?
                         }
-                        TargetNode::Pattern(node) => {
-                            self.format_declaration_binding(node, context.content_mode, writer)?
-                        }
+                        TargetNode::Pattern { pattern, group } => self.format_binding_with_group(
+                            pattern,
+                            group.unwrap_or(BindingGroup::Auto),
+                            context.content_mode,
+                            writer,
+                        )?,
                     },
                 );
             };

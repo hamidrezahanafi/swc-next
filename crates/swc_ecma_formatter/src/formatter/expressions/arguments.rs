@@ -324,10 +324,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             FollowingItem::End | FollowingItem::ResolvedTerminal(_)
         );
         let content_end = tail.as_ref().map_or(item_span.end, |tail| tail.source_end);
-        let gap = Span::new(
-            content_end,
-            following_span.map_or(span.end, |span| span.start),
-        );
+        let following_start = following_span.map(|span| span.start);
+        let gap = Span::new(content_end, following_start.unwrap_or(span.end));
         let following_mode = suppression
             .as_ref()
             .map_or(ContentMode::Formatted, |source| source.following);
@@ -364,34 +362,57 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             gap.end
         };
-        let mut inline_end = content_end;
-        let mut trailing_count = 0;
-        let mut physical_break = false;
-        let mut inline_line = false;
-        for (index, comment) in comments.iter().enumerate() {
-            if comment.span.start >= trailing_limit {
-                break;
-            }
-            if self.line_breaks(inline_end, comment.span.start) != 0 {
-                physical_break = true;
-                break;
-            }
-            inline_end = comment.span.end;
-            if comment.kind == CommentKind::Line {
-                trailing_count = index + 1;
-                inline_line = true;
-                break;
-            }
-            if following_span.is_none()
-                || comma.is_none_or(|position| comment.span.start < position)
-            {
-                trailing_count = index + 1;
-            }
-        }
-        let prepare_run = (physical_break || inline_line)
-            && mode == ContentMode::Formatted
+        let ordinary_attachment = mode == ContentMode::Formatted
             && !constrained
             && !matches!(following, FollowingItem::Elision { .. });
+        let (trailing_count, physical_break, inline_line) = if ordinary_attachment {
+            let before_separator = comma.map_or(comments.len(), |comma| {
+                comments.partition_point(|comment| comment.span.end <= comma)
+            });
+            let (trailing, leading) = self.split_separator_comments(
+                comments,
+                before_separator,
+                content_end,
+                following_start,
+            );
+            let end = trailing
+                .last()
+                .map_or(content_end, |comment| comment.span.end);
+            let physical_break = leading
+                .first()
+                .is_some_and(|comment| self.line_breaks(end, comment.span.start) != 0);
+            let inline_line = trailing
+                .last()
+                .is_some_and(|comment| comment.kind == CommentKind::Line);
+            (trailing.len(), physical_break, inline_line)
+        } else {
+            let mut inline_end = content_end;
+            let mut trailing_count = 0;
+            let mut physical_break = false;
+            let mut inline_line = false;
+            for (index, comment) in comments.iter().enumerate() {
+                if comment.span.start >= trailing_limit {
+                    break;
+                }
+                if self.line_breaks(inline_end, comment.span.start) != 0 {
+                    physical_break = true;
+                    break;
+                }
+                inline_end = comment.span.end;
+                if comment.kind == CommentKind::Line {
+                    trailing_count = index + 1;
+                    inline_line = true;
+                    break;
+                }
+                if following_span.is_none()
+                    || comma.is_none_or(|position| comment.span.start < position)
+                {
+                    trailing_count = index + 1;
+                }
+            }
+            (trailing_count, physical_break, inline_line)
+        };
+        let prepare_run = (physical_break || inline_line) && ordinary_attachment;
         let prepared_run = if prepare_run {
             self.prepare_delimited_trailing_run(
                 comments,
@@ -550,6 +571,7 @@ pub(super) struct SourceArguments<'ast> {
     pub(super) callee_mode: ContentMode,
     pub(super) test_callback: Option<SelectedCallback>,
     pub(super) group: ArgumentGroup,
+    pub(super) frame: CallArgumentFrame,
     pub(super) curried_callee: Option<CallExpression>,
     pub(super) jsx_call: Option<CallExpression>,
 }
@@ -569,6 +591,11 @@ struct SourceFirstArgument {
     mode: ContentMode,
 }
 
+struct CallArgumentSlot {
+    node: Argument,
+    following: Option<Argument>,
+}
+
 pub(super) struct ArgumentHead {
     pub(super) first_mode: ContentMode,
     pub(super) source_opening: Option<SourceArgumentOpening>,
@@ -580,6 +607,27 @@ pub(super) struct ArgumentHead {
 pub(super) struct SourceArgumentOpening {
     pub(super) span: Span,
     pub(super) following: LineConstraint,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum CallArgumentFrame {
+    Ordinary,
+    Require { closing: LineConstraint },
+}
+
+impl CallArgumentFrame {
+    fn separator(self, separator: Separator, constraint: LineConstraint, writer: &mut Writer<'_>) {
+        match self {
+            Self::Ordinary => ArgumentLayout::Lines.separator(separator, constraint, writer),
+            Self::Require { .. } => match separator {
+                Separator::Source(source) => {
+                    source.write(writer, FlatSeparator::Space, Writer::line);
+                }
+                Separator::OwnLineComment | Separator::TrailingLine => writer.hard_line(),
+                _ => constraint.write(writer, FlatSeparator::Space, Writer::space),
+            },
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -905,6 +953,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             callee_mode,
             test_callback: None,
             group: ArgumentGroup::Local,
+            frame: CallArgumentFrame::Ordinary,
             curried_callee: None,
             jsx_call: None,
         })
@@ -1047,6 +1096,78 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(())
     }
 
+    /// A require module frame owns its delimiters, while each argument keeps
+    /// its independent document and source/comment boundaries.
+    pub(super) fn require_argument_frame(&self, list: &SourceArguments<'ast>) -> CallArgumentFrame {
+        let Some(first) = list.first else {
+            return CallArgumentFrame::Ordinary;
+        };
+        if list.source_opening.is_some()
+            || list.callee_mode == ContentMode::Verbatim
+            || first.mode == ContentMode::Verbatim
+        {
+            return CallArgumentFrame::Ordinary;
+        }
+        if matches!(&list.prefix, SourceArgumentPrefix::Direct(prefix)
+            if prefix.belongs_to_arguments() && !prefix.comments().is_empty())
+        {
+            return CallArgumentFrame::Ordinary;
+        }
+        let ast = self.ast;
+        if list.arguments.len() == 1
+            && !matches!(ast.argument_data(first.node), ArgumentData::Expr(expression)
+                if matches!(self.expression_content(expression).data, ExprData::StringLiteral(_)))
+        {
+            return CallArgumentFrame::Ordinary;
+        }
+        let span = first.node.span(ast);
+        if !self
+            .comments
+            .in_range(Span::new(list.delimiters.start + 1, span.start))
+            .is_empty()
+        {
+            return CallArgumentFrame::Ordinary;
+        }
+        let mut remaining = list.arguments;
+        let following = remaining
+            .split_off(1)
+            .first()
+            .map(|id| ast.get_node_in_sub_range(id));
+        let following_start = following.map(|argument: Argument| argument.span(ast).start);
+        let gap = Span::new(span.end, following_start.unwrap_or(list.delimiters.end - 1));
+        let trailing = self.comments.in_range(gap);
+        if !trailing.is_empty() {
+            let comma = self.find_comma(gap, trailing);
+            let before_separator = comma.map_or(trailing.len(), |comma| {
+                trailing.partition_point(|comment| comment.span.end <= comma)
+            });
+            let (owned, _) = self.split_separator_comments(
+                trailing,
+                before_separator,
+                span.end,
+                following_start,
+            );
+            if following.is_none() || !owned.is_empty() {
+                return CallArgumentFrame::Ordinary;
+            }
+        }
+        let mut closing = LineConstraint::Unconstrained;
+        if !self.ast.comments().is_empty()
+            && let Some(last) = list.arguments.last()
+        {
+            let last: Argument = ast.get_node_in_sub_range(last);
+            let trailing = self
+                .comments
+                .in_range(Span::new(last.span(ast).end, list.delimiters.end - 1));
+            if let Some(comment) = trailing.last()
+                && comment.kind == CommentKind::Line
+            {
+                closing = self.source_line_constraint(comment.span.end, list.delimiters.end - 1);
+            }
+        }
+        CallArgumentFrame::Require { closing }
+    }
+
     pub(super) fn format_source_arguments(
         &mut self,
         list: SourceArguments<'ast>,
@@ -1074,6 +1195,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             prefix,
             test_callback,
             group,
+            frame,
             jsx_call,
             ..
         } = list;
@@ -1178,26 +1300,30 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 return Ok(None);
             }
         }
-        let hugged = source_opening.is_none()
-            && arguments.len() == 1
-            && self.comments.in_range(content).is_empty()
-            && !self.diagnostic_range_is_sensitive(content)
-            && first.is_some_and(|argument| match ast.argument_data(argument.node) {
-                ArgumentData::Expr(expression) => self.call_argument_is_collection(expression),
-                ArgumentData::SpreadElement(_) => false,
-            });
-        let expand = arguments
-            .iter()
-            .map(|id| ast.get_node_in_sub_range(id))
-            .scan(content.start, |previous, argument| {
-                let span = argument.span(ast);
-                let empty = self.next_line_is_empty(*previous, span.start);
-                *previous = span.end;
-                Some(empty)
-            })
-            .any(|empty| empty)
-            || self.arguments_are_function_composition(arguments);
-        if !expand
+        let module_frame = matches!(frame, CallArgumentFrame::Require { .. });
+        let hugged = module_frame
+            || source_opening.is_none()
+                && arguments.len() == 1
+                && self.comments.in_range(content).is_empty()
+                && !self.diagnostic_range_is_sensitive(content)
+                && first.is_some_and(|argument| match ast.argument_data(argument.node) {
+                    ArgumentData::Expr(expression) => self.call_argument_is_collection(expression),
+                    ArgumentData::SpreadElement(_) => false,
+                });
+        let expand = !module_frame
+            && (arguments
+                .iter()
+                .map(|id| ast.get_node_in_sub_range(id))
+                .scan(content.start, |previous, argument| {
+                    let span = argument.span(ast);
+                    let empty = self.next_line_is_empty(*previous, span.start);
+                    *previous = span.end;
+                    Some(empty)
+                })
+                .any(|empty| empty)
+                || self.arguments_are_function_composition(arguments));
+        if !module_frame
+            && !expand
             && let Some(selected) = test_callback
                 .map(SelectedArgument::Callback)
                 .or_else(|| self.select_argument_layout(arguments, !hugged))
@@ -1242,12 +1368,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     .peekable();
                 let mut previous = None;
                 while let Some(argument) = arguments.next() {
-                    let mut item = self.prepare_argument_slot(
-                        argument,
-                        arguments.peek().copied(),
+                    let slot = CallArgumentSlot {
+                        node: argument,
+                        following: arguments.peek().copied(),
+                    };
+                    let mut item = self.prepare_argument_slot_with_frame(
+                        slot,
                         previous,
                         content,
                         !hugged && self.options.trailing_commas == TrailingCommas::All,
+                        frame,
                         writer,
                     )?;
                     if previous.is_none() && first_mode == ContentMode::Verbatim {
@@ -1277,6 +1407,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     Writer::soft_line,
                 );
             }
+            if let CallArgumentFrame::Require { closing } = frame {
+                closing.write(writer, FlatSeparator::Empty, |_| {});
+            }
             writer.text(")");
             Ok(None)
         })
@@ -1290,19 +1423,53 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         trailing_comma: bool,
         writer: &mut Writer<'ast>,
     ) -> Result<PreparedItem, FormatError> {
-        let span = argument.span(self.ast);
+        let slot = CallArgumentSlot {
+            node: argument,
+            following,
+        };
+        self.prepare_argument_slot_with_frame(
+            slot,
+            previous,
+            content,
+            trailing_comma,
+            CallArgumentFrame::Ordinary,
+            writer,
+        )
+    }
+
+    fn prepare_argument_slot_with_frame(
+        &mut self,
+        slot: CallArgumentSlot,
+        previous: Option<ItemBoundary>,
+        content: Span,
+        trailing_comma: bool,
+        frame: CallArgumentFrame,
+        writer: &mut Writer<'ast>,
+    ) -> Result<PreparedItem, FormatError> {
+        let CallArgumentSlot { node, following } = slot;
+        let span = node.span(self.ast);
         let end = previous.map_or(content.start, |boundary| boundary.end);
         if let Some(previous) = previous {
-            let next = self
-                .comments
-                .between(Span::new(end, span.start))?
+            let leading = self.comments.between(Span::new(end, span.start))?;
+            let next = leading
                 .first()
                 .map_or(span.start, |comment| comment.span.start);
-            ArgumentLayout::Lines.separator(
-                previous.separator,
-                self.line_constraint(end, next),
-                writer,
-            );
+            let separator = if matches!(frame, CallArgumentFrame::Require { .. })
+                && (matches!(previous.separator, Separator::EmptyLine)
+                    && leading
+                        .iter()
+                        .any(|comment| comment.kind == CommentKind::Line)
+                    || leading.first().is_some_and(|comment| {
+                        self.source_position_starts_line(comment.span.start)
+                    }) && leading
+                        .last()
+                        .is_some_and(|comment| self.line_breaks(comment.span.end, span.start) != 0))
+            {
+                Separator::OwnLineComment
+            } else {
+                previous.separator
+            };
+            frame.separator(separator, self.line_constraint(end, next), writer);
         }
         let following = following.map_or(FollowingItem::End, |argument| {
             FollowingItem::Node(argument.span(self.ast))

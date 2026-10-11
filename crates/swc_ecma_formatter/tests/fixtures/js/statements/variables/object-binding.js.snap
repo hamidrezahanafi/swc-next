@@ -12,8 +12,7 @@ const {
     1 +
     2,
   ...rest
-} =
-  source;
+} = source;
 
 ---------- Options ----------
 {"printWidth":20,"semi":false}

@@ -608,14 +608,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         comments: &'ast [Comment],
         before_separator: usize,
         source_end: u32,
-        content_start: u32,
+        following_start: Option<u32>,
     ) -> (&'ast [Comment], &'ast [Comment]) {
         let mut trailing_count = 0;
         let mut previous_end = source_end;
         for (index, comment) in comments.iter().enumerate() {
             if index >= before_separator
-                && self.has_type_casts
-                && self.comment_is_type_cast(*comment)
+                && self.has_target_annotations
+                && self.comment_has_target_annotation(*comment)
             {
                 break;
             }
@@ -625,12 +625,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             previous_end = comment.span.end;
             let next_start = comments
                 .get(index + 1)
-                .map_or(content_start, |next| next.span.start);
+                .map(|next| next.span.start)
+                .or(following_start);
             if index < before_separator {
                 trailing_count = index + 1;
             }
             if comment.kind == CommentKind::Line
-                || self.line_breaks(comment.span.end, next_start) != 0
+                || next_start.is_none_or(|start| self.line_breaks(comment.span.end, start) != 0)
             {
                 trailing_count = index + 1;
                 break;

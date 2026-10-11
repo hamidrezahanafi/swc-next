@@ -2,8 +2,8 @@
 
 use swc_next_ecma_ast::{
     ArrayPattern, Ast, BindingPattern, BindingPatternData, BindingProperty, Comment, CommentKind,
-    Expr, FormalParameterPattern, FormalParameterPatternData, GetSpan, ObjectPattern, Span,
-    TsEnumMemberName, TsTypeAnnotation,
+    Expr, ExprData, FormalParameterPattern, FormalParameterPatternData, GetSpan, ObjectPattern,
+    Span, TsEnumMemberName, TsTypeAnnotation,
 };
 
 use super::Formatter;
@@ -49,8 +49,37 @@ pub(super) enum DefaultOwner<'ast> {
 }
 
 #[derive(Clone, Copy)]
+pub(super) enum BindingInitializerOwner {
+    Variable,
+    Assignment,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum BindingGroup {
+    Auto,
+    Expanded,
+    Parent,
+}
+
+impl BindingGroup {
+    pub(super) fn with_initializer_group<'ast, T>(
+        self,
+        writer: &mut Writer<'ast>,
+        write: impl FnOnce(&mut Writer<'ast>) -> T,
+    ) -> T {
+        match self {
+            Self::Parent => writer.group(false, write),
+            Self::Auto | Self::Expanded => write(writer),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub(super) enum InitializerLeft {
-    Binding(BindingPattern),
+    Binding {
+        pattern: BindingPattern,
+        group: BindingGroup,
+    },
     Enum {
         name: TsEnumMemberName,
         computed: Option<Span>,
@@ -124,6 +153,21 @@ impl PreparedBindingDefault<'_> {
     }
 }
 
+struct ObjectBindingShape {
+    group: BindingGroup,
+    complex: bool,
+    nonempty: bool,
+}
+
+impl ObjectBindingShape {
+    fn left_group(&self) -> BindingGroup {
+        match self.group {
+            BindingGroup::Expanded => BindingGroup::Expanded,
+            BindingGroup::Auto | BindingGroup::Parent => BindingGroup::Parent,
+        }
+    }
+}
+
 struct BindingSlot {
     holes: usize,
     binding: Option<BindingPattern>,
@@ -179,6 +223,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_annotated_binding(
         &mut self,
         binding: PreparedAnnotatedBinding<'ast>,
+        group: BindingGroup,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let (pattern, definite, annotation) = match binding.layout {
@@ -192,7 +237,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 annotation,
             } => (pattern, definite, annotation),
         };
-        let tail = self.format_declaration_binding(pattern, ContentMode::Formatted, writer)?;
+        let tail =
+            self.format_binding_with_group(pattern, group, ContentMode::Formatted, writer)?;
         self.format_expression_tail(tail, writer)?;
         if let Some(marker) = definite {
             if annotation.is_none() {
@@ -215,7 +261,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let pattern = self.parameter_binding(pattern);
-        self.format_declaration_binding(pattern, mode, writer)
+        self.format_parameter_pattern(pattern, mode, writer)
+    }
+
+    pub(super) fn format_parameter_pattern(
+        &mut self,
+        pattern: BindingPattern,
+        mode: ContentMode,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_binding_with_group(pattern, BindingGroup::Auto, mode, writer)
+    }
+
+    pub(super) fn format_catch_binding(
+        &mut self,
+        pattern: BindingPattern,
+        mode: ContentMode,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_binding_with_group(pattern, BindingGroup::Auto, mode, writer)
     }
 
     pub(super) fn parameter_binding(&self, pattern: FormalParameterPattern) -> BindingPattern {
@@ -234,6 +298,141 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         mode: ContentMode,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let group = if mode == ContentMode::Formatted {
+            self.declaration_binding_group(pattern)
+        } else {
+            BindingGroup::Auto
+        };
+        self.format_binding_with_group(pattern, group, mode, writer)
+    }
+
+    pub(super) fn declaration_binding_group(&self, pattern: BindingPattern) -> BindingGroup {
+        let Some(object) = pattern.as_object_pattern(self.ast) else {
+            return BindingGroup::Auto;
+        };
+        let nested = object.properties(self.ast).iter().any(|id| {
+            let property = self.ast.get_node_in_sub_range(id);
+            matches!(
+                self.ast.binding_pattern_data(property.value(self.ast)),
+                BindingPatternData::ObjectPattern(_) | BindingPatternData::ArrayPattern(_)
+            )
+        });
+        if nested {
+            BindingGroup::Expanded
+        } else {
+            BindingGroup::Auto
+        }
+    }
+
+    /// The initializer owns an unnested object's group when destructuring or an
+    /// arrow initializer should break the left side before the operator gap.
+    pub(super) fn binding_initializer_layout(
+        &self,
+        pattern: BindingPattern,
+        owner: BindingInitializerOwner,
+        data: ExprData,
+        boundary: &AssignmentBoundary<'ast>,
+        rhs_layout: RhsLayout,
+    ) -> (BindingGroup, RhsLayout) {
+        let ast = self.ast;
+        let Some(object) = pattern.as_object_pattern(ast) else {
+            return (BindingGroup::Auto, rhs_layout);
+        };
+        let shape = self.object_binding_shape(object);
+        let group = shape.group;
+        if boundary.own_line
+            || !boundary.operator_line.is_empty()
+            || boundary
+                .before
+                .iter()
+                .any(|comment| comment.kind == CommentKind::Line)
+        {
+            return (group, rhs_layout);
+        }
+        if boundary.mode == ContentMode::Verbatim {
+            return if shape.complex {
+                (shape.left_group(), RhsLayout::NeverBreakAfterOperator)
+            } else {
+                (group, rhs_layout)
+            };
+        }
+        if let ExprData::AssignmentExpression(assignment) = data
+            && matches!(
+                self.expression_content(assignment.right(ast)).data,
+                ExprData::AssignmentExpression(_)
+            )
+        {
+            return (group, rhs_layout);
+        }
+        if let ExprData::CallExpression(call) = data
+            && let ExprData::IdentifierReference(identifier) =
+                self.call_callee_content_data(call.callee(ast))
+            && ast.get_utf8(identifier.name(ast)) == "require"
+        {
+            return (group, RhsLayout::NeverBreakAfterOperator);
+        }
+        let arrow_variable = matches!(owner, BindingInitializerOwner::Variable)
+            && shape.nonempty
+            && matches!(data, ExprData::ArrowFunctionExpression(_));
+        if shape.complex || arrow_variable {
+            return (shape.left_group(), RhsLayout::NeverBreakAfterOperator);
+        }
+        (group, rhs_layout)
+    }
+
+    pub(super) fn bound_initializer_binding_group(&self, pattern: BindingPattern) -> BindingGroup {
+        let Some(object) = pattern.as_object_pattern(self.ast) else {
+            return BindingGroup::Auto;
+        };
+        let shape = self.object_binding_shape(object);
+        if shape.complex {
+            shape.left_group()
+        } else {
+            shape.group
+        }
+    }
+
+    fn object_binding_shape(&self, object: ObjectPattern) -> ObjectBindingShape {
+        let ast = self.ast;
+        let properties = object.properties(ast);
+        let entries = properties.len() + usize::from(object.rest(ast).is_some());
+        let mut nested = false;
+        let mut complex = false;
+        for id in properties.iter() {
+            let property = ast.get_node_in_sub_range(id);
+            let value = ast.binding_pattern_data(property.value(ast));
+            nested |= matches!(
+                value,
+                BindingPatternData::ObjectPattern(_) | BindingPatternData::ArrayPattern(_)
+            );
+            // Prettier treats an object with more than two entries and a renamed
+            // or default property as complex; a rest entry counts in that total.
+            complex |= entries > 2
+                && (!property.shorthand(ast)
+                    || matches!(value, BindingPatternData::AssignmentPattern(_)));
+            if nested && complex {
+                break;
+            }
+        }
+        let group = if nested {
+            BindingGroup::Expanded
+        } else {
+            BindingGroup::Auto
+        };
+        ObjectBindingShape {
+            group,
+            complex,
+            nonempty: entries != 0,
+        }
+    }
+
+    pub(super) fn format_binding_with_group(
+        &mut self,
+        pattern: BindingPattern,
+        group: BindingGroup,
+        mode: ContentMode,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         if mode == ContentMode::Verbatim {
             self.format_verbatim(pattern.span(self.ast), writer)?;
             return Ok(None);
@@ -246,9 +445,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             BindingPatternData::ArrayPattern(array) => {
                 self.format_array_binding(array, writer).map(|()| None)
             }
-            BindingPatternData::ObjectPattern(object) => {
-                self.format_object_binding(object, writer).map(|()| None)
-            }
+            BindingPatternData::ObjectPattern(object) => self
+                .format_object_binding_with_group(object, group, writer)
+                .map(|()| None),
             BindingPatternData::AssignmentPattern(default) => {
                 let default = self.prepare_binding_default(
                     default.left(self.ast),
@@ -440,7 +639,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         match left {
             DefaultLeft::Binding(left) => self.format_initializer(
                 PreparedInitializer {
-                    left: InitializerLeft::Binding(left),
+                    left: InitializerLeft::Binding {
+                        pattern: left,
+                        group: BindingGroup::Auto,
+                    },
                     right,
                     layout,
                     left_mode,
@@ -484,18 +686,24 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             left_mode,
             context,
         } = initializer;
-        let left_end = match left {
-            InitializerLeft::Enum { name, computed } => {
-                self.format_enum_member_key(name, computed, left_mode, writer)?;
-                computed.map_or(name.span(self.ast).end, |span| span.end)
-            }
-            InitializerLeft::Binding(binding) => {
-                let tail = self.format_declaration_binding(binding, left_mode, writer)?;
-                self.format_expression_tail(tail, writer)?;
-                binding.span(self.ast).end
-            }
+        let group = match left {
+            InitializerLeft::Binding { group, .. } => group,
+            InitializerLeft::Enum { .. } => BindingGroup::Auto,
         };
-        self.format_initializer_right(left_end, right, layout, context, writer)
+        group.with_initializer_group(writer, |writer| {
+            let left_end = match left {
+                InitializerLeft::Enum { name, computed } => {
+                    self.format_enum_member_key(name, computed, left_mode, writer)?;
+                    computed.map_or(name.span(self.ast).end, |span| span.end)
+                }
+                InitializerLeft::Binding { pattern, group } => {
+                    let tail = self.format_binding_with_group(pattern, group, left_mode, writer)?;
+                    self.format_expression_tail(tail, writer)?;
+                    pattern.span(self.ast).end
+                }
+            };
+            self.format_initializer_right(left_end, right, layout, context, writer)
+        })
     }
 
     pub(super) fn format_initializer_right(
@@ -792,26 +1000,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    fn format_object_binding(
-        &mut self,
-        object: ObjectPattern,
-        writer: &mut Writer<'ast>,
-    ) -> Result<(), FormatError> {
-        self.format_object_binding_with_group(object, true, writer)
-    }
-
     pub(super) fn format_object_binding_contents(
         &mut self,
         object: ObjectPattern,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        self.format_object_binding_with_group(object, false, writer)
+        self.format_object_binding_with_group(object, BindingGroup::Parent, writer)
     }
 
     fn format_object_binding_with_group(
         &mut self,
         object: ObjectPattern,
-        own_group: bool,
+        group: BindingGroup,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let ast = self.ast;
@@ -928,10 +1128,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text("}");
             Ok(())
         };
-        if own_group {
-            writer.group(false, write)
-        } else {
-            write(writer)
+        match group {
+            BindingGroup::Auto => writer.group(false, write),
+            BindingGroup::Expanded => writer.group(true, write),
+            BindingGroup::Parent => write(writer),
         }
     }
 
