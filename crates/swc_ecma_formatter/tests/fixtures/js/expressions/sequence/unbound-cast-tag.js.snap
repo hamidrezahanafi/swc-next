@@ -6,28 +6,27 @@ first, /** @type {number} */ third = fourth;
 ---------- Options ----------
 {}
 ---------- Output ----------
-(first, (/** @type {number} */ third = fourth));
+(first, /** @type {number} */ (third = fourth));
 
 ---------- Options ----------
 {"semi":false}
 ---------- Output ----------
-;(first, (/** @type {number} */ third = fourth))
+;(first, /** @type {number} */ (third = fourth))
 
 ---------- Options ----------
 {"printWidth":20}
 ---------- Output ----------
 (first,
-  (
-    /** @type {number} */ third =
-      fourth
+  /** @type {number} */ (
+    third = fourth
   ));
 
 ---------- Options ----------
 {"printWidth":8}
 ---------- Output ----------
 (first,
-  (
-    /** @type {number} */ third =
+  /** @type {number} */ (
+    third =
       fourth
   ));
 
@@ -35,8 +34,8 @@ first, /** @type {number} */ third = fourth;
 {"printWidth":20,"tabWidth":4}
 ---------- Output ----------
 (first,
-    (
-        /** @type {number} */ third =
+    /** @type {number} */ (
+        third =
             fourth
     ));
 
@@ -44,8 +43,8 @@ first, /** @type {number} */ third = fourth;
 {"printWidth":20,"tabWidth":4,"useTabs":true}
 ---------- Output ----------
 (first,
-	(
-		/** @type {number} */ third =
+	/** @type {number} */ (
+		third =
 			fourth
 	));
 
@@ -53,12 +52,11 @@ first, /** @type {number} */ third = fourth;
 {"printWidth":20,"tabWidth":1}
 ---------- Output ----------
 (first,
- (
-  /** @type {number} */ third =
-   fourth
+ /** @type {number} */ (
+  third = fourth
  ));
 
 ---------- Options ----------
 {"endOfLine":"crlf"}
 ---------- Output ----------
-(first, (/** @type {number} */ third = fourth));
+(first, /** @type {number} */ (third = fourth));

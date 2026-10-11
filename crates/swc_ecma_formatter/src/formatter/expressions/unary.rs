@@ -36,7 +36,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .comments
             .in_range(Span::new(argument_span.end, span.end));
         let mode = self.content_mode(leading);
-        let leading_end = match content.parentheses {
+        let leading_end = match content.parentheses.map(|removed| removed.source) {
             Some(boundary)
                 if mode == ContentMode::Verbatim
                     && leading

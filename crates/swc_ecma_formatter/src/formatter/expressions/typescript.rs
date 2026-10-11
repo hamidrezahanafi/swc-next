@@ -6,10 +6,12 @@ use swc_next_ecma_ast::{
 };
 
 use super::binary::{BinaryOperatorKind, OperandSide};
-use super::parentheses::ExpressionContent;
+use super::parentheses::{ExpressionContent, ResolvedExpressionHead};
 use super::{AccessKind, ExpressionContext, ExpressionPosition, TailOwner};
 use crate::formatter::Formatter;
-use crate::formatter::comments::{CommentBoundary, CommentRunLayout, ExpressionTail};
+use crate::formatter::comments::{
+    CommentBinding, CommentBoundary, CommentRunLayout, ExpressionTail, NodeHead,
+};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::suppression::{ContentMode, SuppressionPosition};
 use crate::formatter::types::{PreparedDelimitedType, PreparedType, TypeContext, TypeLayout};
@@ -73,13 +75,30 @@ enum AssertionOperandLayout {
     Enclosable,
 }
 
+/// A protected token gap stays source-owned; a relocatable head is prepared
+/// through every removed source envelope before either layout candidate prints it.
+enum TypeAssertionOperandHead<'ast> {
+    Boundary {
+        before: TypeExpressionGap<'ast>,
+        content: Option<ExpressionContent>,
+    },
+    Prepared {
+        head: ResolvedExpressionHead<'ast>,
+        content: ExpressionContent,
+    },
+}
+
 struct TypeAssertionOperand<'ast> {
     expression: Expr,
-    span: Span,
-    content: Option<ExpressionContent>,
     context: ExpressionContext,
-    before: TypeExpressionGap<'ast>,
+    head: TypeAssertionOperandHead<'ast>,
     layout: AssertionOperandLayout,
+}
+
+impl TypeAssertionOperandHead<'_> {
+    fn has_leading_separator(&self) -> bool {
+        matches!(self, Self::Prepared { head, .. } if !head.head.comments.is_empty())
+    }
 }
 
 struct PreparedTypeAssertion<'ast> {
@@ -530,25 +549,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.group(false, |writer| {
                     self.format_type_assertion_head(head, writer)
                 })?;
+                if operand.head.has_leading_separator() {
+                    writer.space();
+                }
                 return self.format_type_assertion_operand(operand, writer);
             }
             let (head, ()) = writer
                 .record_group_with_value(|writer| self.format_type_assertion_head(head, writer))?;
-            let leading_separator = matches!(&operand.before,
-                TypeExpressionGap::Formatted(boundary) if !boundary.is_empty());
-            // A removed operand pair can contribute a head inside the same
-            // fragment even when the after-angle packet is empty.
-            let leading_separator = leading_separator
-                || operand
-                    .content
-                    .as_ref()
-                    .and_then(|content| content.parentheses)
-                    .is_some_and(|pair| {
-                        !self
-                            .comments
-                            .in_range(Span::new(pair.outer.start, pair.inner.start))
-                            .is_empty()
-                    });
+            let leading_separator = operand.head.has_leading_separator();
             let (operand, tail) = writer
                 .record_with_value(|writer| self.format_type_assertion_operand(operand, writer))?;
             let direct = writer.join_fragments(head.grouped(), leading_separator, operand);
@@ -621,17 +629,50 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     | ExprData::ParenthesizedExpression(_)
             )
         });
+        let head = match (after_angle, content) {
+            (TypeExpressionGap::Formatted(boundary), Some(content)) => {
+                let binding = self.expression_head_binding(operand_head, expression);
+                let binding = content
+                    .parentheses
+                    .map_or(binding, |removed| binding.combine(removed.head.binding));
+                if matches!(binding, CommentBinding::SourceBound)
+                    || self.diagnostic_range_is_sensitive(span)
+                {
+                    TypeAssertionOperandHead::Boundary {
+                        before: TypeExpressionGap::Formatted(boundary),
+                        content: Some(content),
+                    }
+                } else {
+                    let start = content.expression.span(self.ast).start;
+                    let comments = self.comments.in_range(Span::new(closing + 1, start));
+                    TypeAssertionOperandHead::Prepared {
+                        head: ResolvedExpressionHead {
+                            head: NodeHead {
+                                comments,
+                                content_start: start,
+                                layout: CommentRunLayout::FlatLeading(start),
+                                gap_end: None,
+                            },
+                            binding,
+                        },
+                        content,
+                    }
+                }
+            }
+            (before, content) => TypeAssertionOperandHead::Boundary { before, content },
+        };
         let layout = if mode == ContentMode::Verbatim
             || direct_body
             || self.diagnostic_range_is_sensitive(span)
+            || matches!(head, TypeAssertionOperandHead::Boundary { .. })
         {
             AssertionOperandLayout::Direct
         } else {
-            let movable = match &after_angle {
-                TypeExpressionGap::Source(_) => false,
-                TypeExpressionGap::Formatted(boundary) => self
-                    .comment_boundary_binding(boundary, expression_span)
-                    .allows_relocation(Some(expression_span)),
+            let movable = match &head {
+                TypeAssertionOperandHead::Prepared { head, content } => head
+                    .binding
+                    .allows_relocation(Some(content.expression.span(self.ast))),
+                TypeAssertionOperandHead::Boundary { .. } => false,
             };
             if movable {
                 AssertionOperandLayout::Enclosable
@@ -647,14 +688,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             },
             operand: TypeAssertionOperand {
                 expression,
-                span: expression_span,
-                content,
                 context: context.type_operand(
                     ExpressionPosition::TypeAssertionOperand,
                     mode,
                     context.tail_owner,
                 ),
-                before: after_angle,
+                head,
                 layout,
             },
         })
@@ -707,25 +746,28 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         operand: TypeAssertionOperand<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        match (operand.layout, operand.before) {
-            (AssertionOperandLayout::Enclosable, TypeExpressionGap::Formatted(boundary)) => {
-                // This packet belongs to the operand in every candidate. Its
-                // leading separator belongs to the direct head/operand join.
-                self.format_comment_boundary_with_layout(
-                    &boundary,
-                    CommentRunLayout::FlatLeading(operand.span.start),
+        match operand.head {
+            TypeAssertionOperandHead::Prepared { head, content } => {
+                self.comments.claim(head.head.comments)?;
+                self.format_prepared_expression_with_resolved_head(
+                    operand.expression,
+                    content,
+                    head,
+                    operand.context,
                     writer,
-                )?;
+                )
             }
-            (_, before) => self.format_type_expression_gap(before, FlatSeparator::Empty, writer)?,
+            TypeAssertionOperandHead::Boundary { before, content } => {
+                self.format_type_expression_gap(before, FlatSeparator::Empty, writer)?;
+                self.format_expression_prepared_with_array_comments(
+                    operand.expression,
+                    content,
+                    operand.context,
+                    None,
+                    writer,
+                )
+            }
         }
-        self.format_expression_prepared_with_array_comments(
-            operand.expression,
-            operand.content,
-            operand.context,
-            None,
-            writer,
-        )
     }
 
     fn prepare_type_expression_gap(

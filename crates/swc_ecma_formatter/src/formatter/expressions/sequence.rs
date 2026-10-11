@@ -1,9 +1,10 @@
 //! Typed comma-expression traversal and borrowed separator boundaries.
 
-use swc_next_ecma_ast::{Comment, Expr, GetSpan, SequenceExpression, Span};
+use swc_next_ecma_ast::{Comment, Expr, ExprData, GetSpan, SequenceExpression, Span};
 
+use super::parentheses::{ExpressionContent, ResolvedExpressionHead};
 use super::{ExpressionContext, ExpressionPosition, Formatter, ParenthesesOwner, TailOwner};
-use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
+use crate::formatter::comments::{CommentBinding, CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::suppression::{ContentMode, DelimitedFollowing, DelimitedSuppression};
 use crate::{FormatError, Semicolons, document::Writer};
@@ -43,7 +44,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let Some(first) = expressions.next() else {
             return Err(self.unsupported("empty sequence expression", sequence));
         };
-        let first_start = self.expression_content(first).expression.span(ast).start;
+        let first_content = self.expression_content(first);
+        let first_start = first_content.expression.span(ast).start;
         let leading = self
             .comments
             .between(Span::new(sequence.span(ast).start, first_start))?;
@@ -54,23 +56,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             layout: CommentRunLayout::Leading(first_start),
             gap_end: None,
         };
-        if context.parentheses_owner == ParenthesesOwner::Expression
-            && self.has_type_casts
-            && leading
-                .iter()
-                .any(|&comment| self.comment_is_type_cast(comment))
-        {
-            return self.format_parenthesized_expression(
-                Expr::SequenceExpression(sequence),
-                head,
-                context,
-                writer,
-            );
-        }
-        let start = self.format_node_head(head, context.expression_start, writer)?;
-        if self.options.semicolons == Semicolons::AsNeeded && start.needs_asi_guard() {
-            writer.text(";");
-        }
         let parenthesize = context.parentheses_owner == ParenthesesOwner::Expression
             && !matches!(
                 context.position,
@@ -79,6 +64,53 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     | ExpressionPosition::TemplateInterpolation
                     | ExpressionPosition::ForInitializer { parentheses: false }
             );
+        if parenthesize && !leading.is_empty() {
+            let binding = self.expression_head_binding(leading, first);
+            let binding = first_content
+                .parentheses
+                .map_or(binding, |removed| binding.combine(removed.head.binding));
+            if !matches!(binding, CommentBinding::Unbound) {
+                return self.format_prepared_expression_with_resolved_head(
+                    Expr::SequenceExpression(sequence),
+                    ExpressionContent {
+                        expression: Expr::SequenceExpression(sequence),
+                        data: ExprData::SequenceExpression(sequence),
+                        parentheses: None,
+                    },
+                    ResolvedExpressionHead { head, binding },
+                    context,
+                    writer,
+                );
+            }
+        }
+        let generated = if parenthesize && self.has_type_casts && !leading.is_empty() {
+            let content = ExpressionContent {
+                expression: Expr::SequenceExpression(sequence),
+                data: ExprData::SequenceExpression(sequence),
+                parentheses: None,
+            };
+            self.generated_enclosure_owner(
+                Expr::SequenceExpression(sequence),
+                &content,
+                &head,
+                CommentBinding::Unbound,
+                context,
+            )
+            .map(|owner| super::parentheses::PreparedGeneratedEnclosure { owner, content })
+        } else {
+            None
+        };
+        let start = self.format_node_head(head, context.expression_start, writer)?;
+        if let Some(enclosure) = generated {
+            return self.format_prepared_generated_enclosure(
+                enclosure,
+                context.with_expression_start(start),
+                writer,
+            );
+        }
+        if self.options.semicolons == Semicolons::AsNeeded && start.needs_asi_guard() {
+            writer.text(";");
+        }
         if parenthesize {
             writer.text("(");
         }

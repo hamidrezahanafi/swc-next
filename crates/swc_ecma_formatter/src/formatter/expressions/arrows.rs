@@ -581,7 +581,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             head,
             leading,
             start,
-            parentheses: content.parentheses,
+            parentheses: content.parentheses.map(|removed| removed.source),
         }))
     }
 

@@ -488,7 +488,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let (operator_line, leading) = after.split_at(line_count);
         boundary.operator_line = operator_line;
         boundary.leading = leading;
-        if let Some(parentheses) = content.parentheses
+        if let Some(parentheses) = content.parentheses.map(|removed| removed.source)
             && leading
                 .last()
                 .is_none_or(|comment| comment.span.end <= parentheses.outer.start)

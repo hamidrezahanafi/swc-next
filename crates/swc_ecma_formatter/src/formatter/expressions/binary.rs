@@ -5,11 +5,13 @@ use swc_next_ecma_ast::{
     Precedence, Span,
 };
 
-use super::parentheses::SourceParentheses;
+use super::parentheses::{
+    ExpressionContent, GeneratedEnclosureOwner, PreparedGeneratedEnclosure, SourceParentheses,
+};
 use super::{
     ExpressionContext, ExpressionPosition, ExpressionStart, Formatter, HeadComments, TailOwner,
 };
-use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
+use crate::formatter::comments::{CommentBinding, CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::suppression::{ContentMode, SuppressionPosition};
 use crate::{FormatError, document::Writer};
@@ -116,15 +118,53 @@ impl BinaryOperatorKind {
     }
 }
 
+/// The actual operand owns preparation across comment and operator handoffs.
+/// Its emitted scope remains available after the prepared content is consumed.
+struct OperandOwner {
+    expression: Expr,
+    prepared: Option<PreparedOperandContent>,
+    scope: OperandScope,
+}
+
+struct PreparedOperandContent {
+    content: ExpressionContent,
+    enclosure: Option<GeneratedEnclosureOwner>,
+}
+
+impl OperandOwner {
+    fn new(expression: Expr) -> Self {
+        Self {
+            expression,
+            prepared: None,
+            scope: OperandScope::Expression,
+        }
+    }
+
+    fn prepare(&mut self, formatter: &Formatter<'_, '_>) -> &mut PreparedOperandContent {
+        let expression = self.expression;
+        self.prepared.get_or_insert_with(|| PreparedOperandContent {
+            content: formatter.expression_content(expression),
+            enclosure: None,
+        })
+    }
+}
+
 struct BinaryChain {
     first: ChainParent,
     ancestors: Vec<ChainParent>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OperandScope {
+    Expression,
+    Enclosure,
 }
 
 #[derive(Clone, Copy)]
 struct ChainParent {
     binary: BinaryLike,
     left_content_end: u32,
+    left_scope: OperandScope,
     suppression: Option<BinarySuppression>,
 }
 
@@ -193,14 +233,21 @@ impl OperandBoundary<'_> {
 impl<'ast, 'source> Formatter<'ast, 'source> {
     fn binary_content(&self, expression: Expr) -> Option<(BinaryLike, Option<SourceParentheses>)> {
         let content = self.expression_content(expression);
+        self.binary_content_from_prepared(&content)
+    }
+
+    fn binary_content_from_prepared(
+        &self,
+        content: &ExpressionContent,
+    ) -> Option<(BinaryLike, Option<SourceParentheses>)> {
         if content
             .parentheses
-            .is_some_and(|boundary| !self.parentheses_are_removable(boundary))
+            .is_some_and(|removed| !matches!(removed.head.binding, CommentBinding::Unbound))
         {
             return None;
         }
         let binary = BinaryLike::from_data(content.data, self.ast)?;
-        Some((binary, content.parentheses))
+        Some((binary, content.parentheses.map(|removed| removed.source)))
     }
 
     fn prepare_binary_entry(
@@ -211,6 +258,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut entry = ChainParent {
             binary,
             left_content_end,
+            left_scope: OperandScope::Expression,
             suppression: None,
         };
         if !self.has_suppression {
@@ -278,40 +326,106 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         Ok(BinaryChain { first, ancestors })
     }
 
+    fn binary_head_start(&self, expression: Expr) -> u32 {
+        let content = self.expression_content(expression);
+        self.binary_head_start_from_content(expression, &content)
+    }
+
+    fn binary_head_start_from_content(
+        &self,
+        expression: Expr,
+        content: &super::parentheses::ExpressionContent,
+    ) -> u32 {
+        if matches!(content.data, ExprData::ParenthesizedExpression(_))
+            || content
+                .parentheses
+                .is_some_and(|removed| !matches!(removed.head.binding, CommentBinding::Unbound))
+        {
+            return expression.span(self.ast).start;
+        }
+        let Some(binary) = BinaryLike::from_data(content.data, self.ast) else {
+            return content.expression.span(self.ast).start;
+        };
+        let mut expression = binary.left;
+        loop {
+            let content = self.expression_content(expression);
+            if matches!(content.data, ExprData::ParenthesizedExpression(_))
+                || content
+                    .parentheses
+                    .is_some_and(|removed| !matches!(removed.head.binding, CommentBinding::Unbound))
+            {
+                return expression.span(self.ast).start;
+            }
+            match BinaryLike::from_data(content.data, self.ast) {
+                Some(binary) => expression = binary.left,
+                None => return content.expression.span(self.ast).start,
+            }
+        }
+    }
+
     fn format_binary_head_comments(
         &mut self,
-        mut expression: Expr,
+        expression: Expr,
+        entry: ChainParent,
+        owner: &mut OperandOwner,
         context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<ExpressionStart, FormatError> {
         let start = expression.span(self.ast).start;
         let operand = expression;
-        loop {
-            let content = self.expression_content(expression);
-            if matches!(content.data, ExprData::ParenthesizedExpression(_)) {
-                break;
-            }
-            if content
-                .parentheses
-                .is_some_and(|boundary| !self.parentheses_are_removable(boundary))
-            {
-                break;
-            }
-            expression = content.expression;
-            match BinaryLike::from_data(content.data, self.ast) {
-                Some(binary) => expression = binary.left,
-                None => break,
-            }
-        }
-        let end = expression.span(self.ast).start;
+        let end = if entry.left_mode() == ContentMode::Verbatim {
+            entry.binary.left.span(self.ast).start
+        } else if owner.expression == expression {
+            let prepared = owner.prepare(self);
+            self.binary_head_start_from_content(expression, &prepared.content)
+        } else {
+            self.binary_head_start(expression)
+        };
         let comments = self.comments.between(Span::new(start, end))?;
+        if self.has_type_casts
+            && !comments.is_empty()
+            && entry.left_mode() == ContentMode::Formatted
+            && context.parentheses_owner == super::ParenthesesOwner::Expression
+        {
+            let expression = owner.expression;
+            let prepared = owner.prepare(self);
+            let binding = self.expression_head_binding(comments, expression);
+            let binding = prepared
+                .content
+                .parentheses
+                .map_or(binding, |removed| binding.combine(removed.head.binding));
+            prepared.enclosure = self.generated_enclosure_owner(
+                expression,
+                &prepared.content,
+                &NodeHead {
+                    comments,
+                    content_start: end,
+                    layout: CommentRunLayout::Leading(end),
+                    gap_end: None,
+                },
+                binding,
+                ExpressionContext {
+                    position: ExpressionPosition::BinaryOperand {
+                        operator: entry.binary.operator,
+                        side: OperandSide::Left,
+                    },
+                    content_mode: entry.left_mode(),
+                    ..context
+                },
+            );
+            owner.scope = if prepared.enclosure.is_some() {
+                OperandScope::Enclosure
+            } else {
+                OperandScope::Expression
+            };
+        }
         let comments = self.comments.take(comments.len());
-        if self.has_target_annotations
+        let start = if self.has_target_annotations
             && context.expression_start.needs_asi_guard()
             && self.options.semicolons == crate::Semicolons::AsNeeded
             && !comments.is_empty()
         {
-            return self.format_expression_head(
+            self.format_expression_head(
                 operand,
                 NodeHead {
                     comments,
@@ -321,10 +435,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 },
                 context,
                 writer,
-            );
-        }
-        self.format_comment_run(comments, CommentRunLayout::Leading(end), writer)?;
-        Ok(context.expression_start)
+            )?
+        } else {
+            self.format_comment_run(comments, CommentRunLayout::Leading(end), writer)?;
+            context.expression_start
+        };
+        Ok(start)
     }
 
     pub(super) fn format_binary(
@@ -353,9 +469,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if parent_indents {
             return writer.group(false, |writer| self.format_binary_enclosed(binary, writer));
         }
+        let mut chain = self.binary_chain(binary)?;
+        let mut owner = OperandOwner::new(chain.first.binary.left);
         if context.head_comments == HeadComments::Pending {
             context.expression_start = self.format_binary_head_comments(
                 binary.left,
+                chain.first,
+                &mut owner,
                 ExpressionContext {
                     position: ExpressionPosition::BinaryOperand {
                         operator: binary.operator,
@@ -367,11 +487,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             )?;
             context.head_comments = HeadComments::Claimed;
         }
-        let chain = self.binary_chain(binary)?;
+        chain.first.left_scope = owner.scope;
         let inline = chain.ancestors.is_empty()
             && self.inline_logical_operand(binary.operator, binary.right);
         writer.group(false, |writer| {
-            let tail = self.format_binary_head(chain.first, context.expression_start, writer)?;
+            let tail =
+                self.format_binary_head(chain.first, context.expression_start, &mut owner, writer)?;
             if inline || matches!(context.position, ExpressionPosition::ArrowBody) {
                 self.format_binary_continuation(chain, context, tail, writer)
             } else {
@@ -399,9 +520,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: ExpressionContext,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        let chain = self.binary_chain(binary)?;
-        self.format_binary_head_comments(
+        let mut chain = self.binary_chain(binary)?;
+        let mut owner = OperandOwner::new(chain.first.binary.left);
+        let start = self.format_binary_head_comments(
             binary.left,
+            chain.first,
+            &mut owner,
             ExpressionContext {
                 position: ExpressionPosition::BinaryOperand {
                     operator: binary.operator,
@@ -411,7 +535,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             },
             writer,
         )?;
-        let tail = self.format_binary_head(chain.first, context.expression_start, writer)?;
+        chain.first.left_scope = owner.scope;
+        let tail = self.format_binary_head(chain.first, start, &mut owner, writer)?;
         self.format_binary_continuation(chain, context, tail, writer)
     }
 
@@ -419,33 +544,67 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         entry: ChainParent,
         expression_start: ExpressionStart,
+        owner: &mut OperandOwner,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let first = entry.binary;
         writer.group(false, |writer| {
-            self.format_expression(
-                first.left,
-                ExpressionContext {
-                    position: ExpressionPosition::BinaryOperand {
-                        operator: first.operator,
-                        side: OperandSide::Left,
-                    },
-                    expression_start,
-                    head_comments: HeadComments::Claimed,
-                    content_mode: entry.left_mode(),
-                    tail_owner: TailOwner::Expression,
-                    parentheses_owner: super::ParenthesesOwner::Expression,
-                    member_layout: super::MemberLayout::Normal,
-                    member_chain_layout: super::MemberChainLayout::Fluent,
-                    arrow_layout: super::arrows::ArrowLayout::Argument,
-                    jsx_callback: super::JsxCallbackContext::Ordinary,
-                    operand_indent: super::OperandIndent::Expression,
-                    conditional_envelope: super::ConditionalEnvelope::Local,
-                    conditional_closing: super::ConditionalClosing::Inline,
+            let context = ExpressionContext {
+                position: ExpressionPosition::BinaryOperand {
+                    operator: first.operator,
+                    side: OperandSide::Left,
                 },
-                writer,
-            )
+                expression_start,
+                head_comments: HeadComments::Claimed,
+                content_mode: entry.left_mode(),
+                tail_owner: TailOwner::Expression,
+                parentheses_owner: super::ParenthesesOwner::Expression,
+                member_layout: super::MemberLayout::Normal,
+                member_chain_layout: super::MemberChainLayout::Fluent,
+                arrow_layout: super::arrows::ArrowLayout::Argument,
+                jsx_callback: super::JsxCallbackContext::Ordinary,
+                operand_indent: super::OperandIndent::Expression,
+                conditional_envelope: super::ConditionalEnvelope::Local,
+                conditional_closing: super::ConditionalClosing::Inline,
+            };
+            self.format_binary_owned_operand(owner, context, writer)
         })
+    }
+
+    fn format_binary_owned_operand(
+        &mut self,
+        owner: &mut OperandOwner,
+        context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        if context.content_mode == ContentMode::Verbatim {
+            // Formatted source preparation does not replace the actual ignored owner.
+            return self.format_expression(owner.expression, context, writer);
+        }
+        match owner.prepared.take() {
+            Some(PreparedOperandContent {
+                content,
+                enclosure: Some(enclosure),
+            }) => self.format_prepared_generated_enclosure(
+                PreparedGeneratedEnclosure {
+                    owner: enclosure,
+                    content,
+                },
+                context,
+                writer,
+            ),
+            Some(PreparedOperandContent {
+                content,
+                enclosure: None,
+            }) => self.format_expression_prepared_with_array_comments(
+                owner.expression,
+                Some(content),
+                context,
+                None,
+                writer,
+            ),
+            None => self.format_expression(owner.expression, context, writer),
+        }
     }
 
     fn format_binary_continuation(
@@ -516,28 +675,37 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             if let Some(boundary) = boundary {
                 closing_end.get_or_insert(boundary.outer.end);
             }
+            let mut owner = OperandOwner::new(right.left);
             let boundary = self.format_binary_operator(
                 entry,
-                right.left,
+                &mut owner,
+                OperandSide::Left,
                 self.inline_logical_operand(entry.binary.operator, right.left),
                 tail,
                 writer,
             )?;
+            next.left_scope = owner.scope;
             let mode = self.format_binary_operand_boundary(boundary, writer)?;
-            if next.left_mode() != ContentMode::Verbatim
-                && let Some((left, boundary)) = self.binary_content(right.left)
+            if owner.scope == OperandScope::Expression
+                && next.left_mode() != ContentMode::Verbatim
+                && let Some((left, boundary)) =
+                    self.binary_content_from_prepared(&owner.prepare(self).content)
                 && left.operator == entry.binary.operator
             {
-                let chain = self.binary_chain(left)?;
-                self.format_binary_head_comments(
+                let mut chain = self.binary_chain(left)?;
+                let mut head_owner = OperandOwner::new(chain.first.binary.left);
+                let start = self.format_binary_head_comments(
                     left.left,
+                    chain.first,
+                    &mut head_owner,
                     ExpressionContext::at(ExpressionPosition::BinaryOperand {
                         operator: left.operator,
                         side: OperandSide::Left,
                     }),
                     writer,
                 )?;
-                let head = self.format_binary_head(chain.first, ExpressionStart::None, writer)?;
+                chain.first.left_scope = head_owner.scope;
+                let head = self.format_binary_head(chain.first, start, &mut head_owner, writer)?;
                 tail = self.format_binary_continuation(
                     chain,
                     ExpressionContext::at(match layout {
@@ -563,16 +731,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 } else {
                     mode
                 };
-                tail = self.format_expression(
-                    right.left,
-                    ExpressionContext::at(ExpressionPosition::BinaryOperand {
-                        operator: entry.binary.operator,
-                        side: OperandSide::Left,
-                    })
-                    .with_content_mode(mode)
-                    .with_tail_owner(TailOwner::ParentOperation),
-                    writer,
-                )?;
+                let context = ExpressionContext::at(ExpressionPosition::BinaryOperand {
+                    operator: entry.binary.operator,
+                    side: OperandSide::Left,
+                })
+                .with_content_mode(mode)
+                .with_tail_owner(TailOwner::ParentOperation);
+                tail = self.format_binary_owned_operand(&mut owner, context, writer)?;
             }
             parent = Some(entry.binary.operator);
             entry = next;
@@ -590,12 +755,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 BinaryOperatorKind::Logical(_)
             )
         ) && !parent.is_some_and(|parent| parent.same_kind(binary.operator))
-            && !same_kind(binary.left)
+            && (entry.left_scope == OperandScope::Enclosure || !same_kind(binary.left))
             && !same_kind(binary.right);
         let write = |writer: &mut Writer<'ast>| {
+            let mut owner = OperandOwner::new(binary.right);
             let boundary = self.format_binary_operator(
                 entry,
-                binary.right,
+                &mut owner,
+                OperandSide::Right,
                 self.inline_logical_operand(binary.operator, binary.right),
                 tail,
                 writer,
@@ -603,16 +770,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let indents = boundary.indents();
             let write_argument = |writer: &mut Writer<'ast>| {
                 let mode = self.format_binary_operand_boundary(boundary, writer)?;
-                self.format_expression(
-                    binary.right,
-                    ExpressionContext::at(ExpressionPosition::BinaryOperand {
-                        operator: binary.operator,
-                        side: OperandSide::Right,
-                    })
-                    .with_content_mode(mode)
-                    .with_tail_owner(tail_owner),
-                    writer,
-                )
+                let context = ExpressionContext::at(ExpressionPosition::BinaryOperand {
+                    operator: binary.operator,
+                    side: OperandSide::Right,
+                })
+                .with_content_mode(mode)
+                .with_tail_owner(tail_owner);
+                self.format_binary_owned_operand(&mut owner, context, writer)
             };
             if indents {
                 writer.indent(write_argument)
@@ -635,25 +799,53 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     fn format_binary_operator(
         &mut self,
         entry: ChainParent,
-        right: Expr,
+        owner: &mut OperandOwner,
+        side: OperandSide,
         inline: bool,
         tail: Option<ExpressionTail<'ast>>,
         writer: &mut Writer<'ast>,
     ) -> Result<OperandBoundary<'ast>, FormatError> {
+        let right = owner.expression;
         let left_end = tail
             .as_ref()
             .map_or(entry.left_content_end, |tail| tail.source_end);
         let right_start = if entry.suppression.is_some() {
             entry.binary.right.span(self.ast).start
         } else {
-            let content = self.expression_content(right);
-            if content
-                .parentheses
-                .is_none_or(|boundary| self.parentheses_are_removable(boundary))
-            {
-                content.expression.span(self.ast).start
+            let content = &owner.prepare(self).content;
+            let source_opening = content.parentheses.is_some_and(|removed| {
+                !matches!(removed.head.binding, CommentBinding::Unbound)
+                    || !removed.head.has_comments
+                        && self.expression_needs_parentheses(
+                            content.data,
+                            ExpressionPosition::BinaryOperand {
+                                operator: entry.binary.operator,
+                                side,
+                            },
+                            ContentMode::Formatted,
+                        ) == Some(true)
+            });
+            if source_opening {
+                let outer_start = right.span(self.ast).start;
+                let comments = self.ast.comments();
+                if comments.is_empty() {
+                    outer_start
+                } else {
+                    let head_end = self.binary_head_start_from_content(right, content);
+                    let first =
+                        comments.partition_point(|comment| comment.span.start < outer_start);
+                    let head = &comments[first..];
+                    if head
+                        .first()
+                        .is_some_and(|comment| comment.span.end <= head_end)
+                    {
+                        head_end
+                    } else {
+                        outer_start
+                    }
+                }
             } else {
-                right.span(self.ast).start
+                content.expression.span(self.ast).start
             }
         };
         let boundary = Span::new(left_end, right_start);
@@ -724,14 +916,46 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             ));
         };
         let before_count = comments.partition_point(|comment| comment.span.end <= operator_start);
-        // Keep an active source cast with the right operand's head.
-        let trailing_limit =
-            if before_count < comments.len() && self.source_cast_head(right).is_some() {
-                before_count
+        let after = &comments[before_count..];
+        let mode = self.content_mode(after);
+        if self.has_type_casts && !after.is_empty() && mode == ContentMode::Formatted {
+            let prepared = owner.prepare(self);
+            let binding = self.expression_head_binding(after, right);
+            let binding = prepared
+                .content
+                .parentheses
+                .map_or(binding, |removed| binding.combine(removed.head.binding));
+            prepared.enclosure = self.generated_enclosure_owner(
+                right,
+                &prepared.content,
+                &NodeHead {
+                    comments: after,
+                    content_start: right_start,
+                    layout: CommentRunLayout::Leading(right_start),
+                    gap_end: None,
+                },
+                binding,
+                ExpressionContext::at(ExpressionPosition::BinaryOperand {
+                    operator: entry.binary.operator,
+                    side,
+                })
+                .with_content_mode(mode),
+            );
+            owner.scope = if prepared.enclosure.is_some() {
+                OperandScope::Enclosure
             } else {
-                comments.len()
+                OperandScope::Expression
             };
-        let mode = self.content_mode(&comments[before_count..]);
+        }
+        // A real source target or resolved emitted owner keeps this exterior run
+        // next to the operand's opener instead of before the operator.
+        let trailing_limit = if before_count < comments.len()
+            && (owner.scope == OperandScope::Enclosure || self.source_cast_head(right).is_some())
+        {
+            before_count
+        } else {
+            comments.len()
+        };
         let comments = self.comments.take(comments.len());
         let mut trailing_count = 0;
         let mut previous_end = left_end;

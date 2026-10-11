@@ -664,24 +664,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             writer.text(";");
             context.expression_start = ExpressionStart::None;
         }
-        if parenthesize
-            && self.has_type_casts
-            && self
-                .source_cast_before(expression.span(self.ast).start)
-                .is_some()
-        {
-            return self.format_parenthesized_expression(
-                expression,
-                NodeHead {
-                    comments: &[],
-                    content_start: expression.span(self.ast).start,
-                    layout: CommentRunLayout::Source,
-                    gap_end: None,
-                },
-                context,
-                writer,
-            );
-        }
         if let Some(binary) = binary {
             if parenthesize
                 && matches!(

@@ -229,7 +229,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return None;
         };
         let content = self.expression_content(expression);
-        if let Some(boundary) = content.parentheses
+        if let Some(boundary) = content.parentheses.map(|removed| removed.source)
             && (!self
                 .comments
                 .in_range(Span::new(boundary.outer.start, boundary.inner.start))

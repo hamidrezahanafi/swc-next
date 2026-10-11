@@ -116,6 +116,14 @@ pub(super) enum CommentBinding {
 }
 
 impl CommentBinding {
+    pub(super) fn combine(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Unbound, binding) | (binding, Self::Unbound) => binding,
+            (Self::BoundTo(left), Self::BoundTo(right)) if left == right => Self::BoundTo(left),
+            _ => Self::SourceBound,
+        }
+    }
+
     pub(super) fn allows_relocation(&self, target: Option<Span>) -> bool {
         match self {
             Self::Unbound => true,
