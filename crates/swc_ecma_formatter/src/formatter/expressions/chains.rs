@@ -3,11 +3,13 @@
 use std::iter::{Peekable, Take};
 use std::vec::IntoIter;
 
-use swc_next_ecma_ast::{Expr, ExprData, GetSpan, IdentifierName, ParenthesizedExpression};
+use swc_next_ecma_ast::{
+    CallExpression, Expr, ExprData, GetSpan, IdentifierName, ParenthesizedExpression, Span,
+};
 
 use super::arguments::{ArgumentGroup, SourceArguments};
 use super::members::{
-    MemberBoundary, MemberLookupLayout, MemberLookupOwner, PreparedMember, SourceMember,
+    MemberBoundary, MemberHead, MemberLookupLayout, MemberLookupOwner, PreparedMember, SourceMember,
 };
 use super::typescript::SourceNonNull;
 use super::{
@@ -26,6 +28,76 @@ pub(super) enum FluentChainEligibility {
     Fluent,
     MemberOnly,
     Unqualified,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum RhsCallChainOwnership {
+    Compact,
+    Fluent,
+}
+
+/// Reverse summaries of the head printer's two incoming `leading` states.
+/// Only source-clear chains can use topology in place of recorded boundary facts.
+#[derive(Clone, Copy, Default)]
+struct ChainHeadPrefix {
+    parts: usize,
+    last_name: Option<IdentifierName>,
+    pending_computed: bool,
+}
+
+impl ChainHeadPrefix {
+    fn prepend(self, name: Option<IdentifierName>) -> Self {
+        Self {
+            parts: self.parts + 1,
+            last_name: if self.parts == 0 {
+                name
+            } else {
+                self.last_name
+            },
+            pending_computed: self.pending_computed,
+        }
+    }
+
+    fn pending(computed: bool) -> Self {
+        Self {
+            pending_computed: computed,
+            ..Self::default()
+        }
+    }
+}
+
+#[derive(Default)]
+struct RhsChainHead {
+    leading: ChainHeadPrefix,
+    following: ChainHeadPrefix,
+    next_is_member: bool,
+}
+
+impl RhsChainHead {
+    fn call(&mut self) {
+        self.leading = self.leading.prepend(None);
+        self.following = self.following.prepend(None);
+        self.next_is_member = false;
+    }
+
+    fn member(&mut self, member: &MemberHead, numeric: bool) {
+        let following = if self.next_is_member {
+            self.following.prepend(member.name())
+        } else {
+            ChainHeadPrefix::pending(member.is_computed())
+        };
+        self.leading = if numeric {
+            self.leading.prepend(member.name())
+        } else {
+            following
+        };
+        self.following = following;
+        self.next_is_member = true;
+    }
+
+    fn non_null(&mut self) {
+        self.next_is_member = false;
+    }
 }
 
 pub(super) fn atomic_chain_head(data: ExprData) -> bool {
@@ -343,6 +415,121 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
+    /// Verify the enclosing immutable source span once, then inspect short
+    /// arguments and the chain owner's actual barriers in the same reverse walk.
+    /// The covered span includes terminal members outside the outermost call.
+    pub(super) fn rhs_call_chain_ownership(
+        &self,
+        call: CallExpression,
+        covered_span: Span,
+    ) -> Option<RhsCallChainOwnership> {
+        if !self.call_span_is_source_clear(covered_span) {
+            return None;
+        }
+        let mut current = Expr::CallExpression(call);
+        let mut context = ExpressionContext::at(ExpressionPosition::Nested);
+        let mut grouping = ChainGrouping::new();
+        let mut prefix = RhsChainHead::default();
+        loop {
+            current = match self.ast.expr_data(current) {
+                ExprData::MemberExpression(member) => {
+                    let head = self.prepare_member_head(member).ok()?;
+                    let numeric = head.key().is_some_and(|key| {
+                        matches!(self.ast.expr_data(key), ExprData::NumericLiteral(_))
+                    });
+                    grouping.member(numeric);
+                    // Prepending never removes groups, and the head can merge
+                    // at most one. Once that budget fails, compact is impossible.
+                    if !short_chain(grouping.groups, true) {
+                        return None;
+                    }
+                    if self.source_clear_member_has_chain_barrier(&head).ok()? {
+                        return None;
+                    }
+                    prefix.member(&head, numeric);
+                    context = head.receiver_context(context);
+                    head.object
+                }
+                ExprData::CallExpression(call) => {
+                    if !self.assignment_call_is_short(call) {
+                        return None;
+                    }
+                    let callee = self.rhs_call_callee(call, context)?;
+                    grouping.call();
+                    prefix.call();
+                    context = callee.context(context);
+                    callee.expression
+                }
+                ExprData::TsNonNullExpression(node) => {
+                    let source = self.source_non_null(node).ok()?;
+                    if source.source_break() {
+                        return None;
+                    }
+                    prefix.non_null();
+                    context = source.operand_context(context);
+                    if self.expression_needs_parentheses(
+                        self.ast.expr_data(source.expression),
+                        context.position,
+                        context.content_mode,
+                    ) == Some(true)
+                    {
+                        return None;
+                    }
+                    source.expression
+                }
+                ExprData::ParenthesizedExpression(node) => {
+                    self.chain_parentheses_operand(node, context)?
+                }
+                ExprData::ChainExpression(chain)
+                    if matches!(
+                        context.position,
+                        ExpressionPosition::MemberObject(AccessKind::Optional)
+                            | ExpressionPosition::CallCallee {
+                                access: AccessKind::Optional,
+                                ..
+                            }
+                    ) =>
+                {
+                    chain.expression(self.ast)
+                }
+                data => {
+                    if !matches!(
+                        data,
+                        ExprData::IdentifierReference(_) | ExprData::ThisExpression(_)
+                    ) {
+                        return None;
+                    }
+                    let head = prefix.leading;
+                    let attach = self.chain_head_attaches(data, ExpressionPosition::Nested);
+                    let factory = head
+                        .last_name
+                        .is_some_and(|name| factory_name(self.ast.get_utf8(name.name(self.ast))));
+                    let merge =
+                        merge_chain_head(head.parts, factory, head.pending_computed, attach);
+                    return Some(if short_chain(grouping.groups, merge) {
+                        RhsCallChainOwnership::Compact
+                    } else {
+                        RhsCallChainOwnership::Fluent
+                    });
+                }
+            };
+        }
+    }
+
+    fn chain_head_attaches(&self, data: ExprData, position: ExpressionPosition) -> bool {
+        match data {
+            ExprData::ThisExpression(_) => true,
+            ExprData::IdentifierReference(identifier) => {
+                let name = self.ast.get_utf8(identifier.name(self.ast));
+                factory_name(name)
+                    || matches!(position, ExpressionPosition::Statement)
+                        && name.encode_utf16().count()
+                            <= usize::from(self.options.indent_width.value())
+            }
+            _ => false,
+        }
+    }
+
     fn prepare_fluent_chain(
         &self,
         expression: Expr,
@@ -508,16 +695,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             ChainHeadLayout::Grouped
         };
-        let head_attach = match head_data {
-            ExprData::ThisExpression(_) => true,
-            ExprData::IdentifierReference(identifier) => {
-                let name = self.ast.get_utf8(identifier.name(self.ast));
-                factory_name(name)
-                    || matches!(context.position, ExpressionPosition::Statement)
-                        && name.len() <= usize::from(self.options.indent_width.value())
-            }
-            _ => false,
-        };
+        let head_attach = self.chain_head_attaches(head_data, context.position);
         let mut parts = chain.parts.into_iter();
         let tail = {
             let mut source = ChainSource {
@@ -558,7 +736,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 && groups.tail.first().is_some_and(|group| {
                     !group.facts.has_boundary_comments && !group.facts.source_break
                 });
-            let short_chain = groups.tail.len() <= if merge_head { 2 } else { 1 };
+            let short_chain = short_chain(groups.tail.len() + 1, merge_head);
             // A short chain has one shared layout even when an argument's own
             // collection group breaks. Its new source shape must not change the
             // chain's strategy on the next pass.
@@ -752,15 +930,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
         };
         facts.preferred_breaks = preferred_breaks;
+        let factory =
+            last_name.is_some_and(|name| factory_name(self.ast.get_utf8(name.name(self.ast))));
+        let pending_computed = source
+            .pending
+            .as_ref()
+            .is_some_and(|member| member.member.source.is_computed());
         let merge_head = !head.has_comments
-            && if head_parts == 0 {
-                source
-                    .pending
-                    .as_ref()
-                    .is_some_and(|member| head.attach || member.member.source.is_computed())
-            } else {
-                last_name.is_some_and(|name| factory_name(self.ast.get_utf8(name.name(self.ast))))
-            };
+            && source.pending.is_some()
+            && merge_chain_head(head_parts, factory, pending_computed, head.attach);
         Ok((ChainGroup::new(doc, None, facts), merge_head))
     }
 
@@ -885,6 +1063,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         )?;
         Ok(())
     }
+}
+
+fn merge_chain_head(parts: usize, factory: bool, computed: bool, attach: bool) -> bool {
+    if parts == 0 {
+        attach || computed
+    } else {
+        factory
+    }
+}
+
+fn short_chain(groups: usize, merge: bool) -> bool {
+    groups <= if merge { 3 } else { 2 }
 }
 
 fn factory_name(name: &str) -> bool {

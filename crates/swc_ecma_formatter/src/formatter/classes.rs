@@ -822,6 +822,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         )
     }
 
+    pub(in crate::formatter) fn class_body_first_member(
+        &self,
+        body: ClassBody,
+    ) -> Option<ClassElement> {
+        body.body(self.ast)
+            .first()
+            .map(|id| self.ast.get_node_in_sub_range(id))
+    }
+
     fn format_class_body(
         &mut self,
         body: ClassBody,
@@ -838,9 +847,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut members = body
             .body(ast)
             .iter()
+            .skip(1)
             .map(|id| ast.get_node_in_sub_range(id))
             .peekable();
-        let Some(first) = members.next() else {
+        let Some(first) = self.class_body_first_member(body) else {
             if self.content_mode(self.comments.in_range(content)) == ContentMode::Verbatim {
                 return self.format_verbatim(span, writer);
             }

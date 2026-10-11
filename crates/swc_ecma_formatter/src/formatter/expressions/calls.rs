@@ -1,12 +1,13 @@
 //! Callees and source-owned argument delimiters.
 
 use swc_next_ecma_ast::{
-    Argument, CallExpression, Expr, ExprData, GetSpan, PropertyKeyData, SubRange,
+    Argument, CallExpression, Expr, ExprData, GetSpan, PropertyKeyData, Span, SubRange,
 };
 
 use super::arguments::{ArgumentGroup, SourceArguments};
 use super::{
-    AccessKind, ExpressionContext, ExpressionPosition, Formatter, JsxCallbackContext, TailOwner,
+    AccessKind, ExpressionContext, ExpressionPosition, Formatter, JsxCallbackContext,
+    MemberChainLayout, MemberLayout, TailOwner,
 };
 use crate::formatter::comments::ExpressionTail;
 use crate::formatter::suppression::ContentMode;
@@ -43,6 +44,42 @@ impl CallCallee {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    pub(super) fn call_span_is_source_clear(&self, span: Span) -> bool {
+        if self.diagnostic_range_is_sensitive(span) {
+            return false;
+        }
+        let comments = self.ast.comments();
+        let first = comments.partition_point(|comment| comment.span.end <= span.start);
+        comments
+            .get(first)
+            .is_none_or(|comment| comment.span.start >= span.end)
+    }
+
+    fn call_member_callee_is_compact(&self, mut expression: Expr) -> bool {
+        if !self.call_span_is_source_clear(expression.span(self.ast)) {
+            return false;
+        }
+        loop {
+            expression = match self.expression_content(expression).data {
+                ExprData::MemberExpression(member) => {
+                    let Ok(head) = self.prepare_member_head(member) else {
+                        return false;
+                    };
+                    if !matches!(self.source_clear_member_has_chain_barrier(&head), Ok(false)) {
+                        return false;
+                    }
+                    head.object
+                }
+                ExprData::TsNonNullExpression(node) => node.expression(self.ast),
+                ExprData::ChainExpression(node) => node.expression(self.ast),
+                data => {
+                    return super::chains::atomic_chain_head(data)
+                        || matches!(data, ExprData::Super(_));
+                }
+            };
+        }
+    }
+
     pub(super) fn source_call_callee(
         &self,
         call: CallExpression,
@@ -69,6 +106,31 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
+    /// The RHS chain owner has established one immutable clear span covering
+    /// this call. Types and suppression retain the complete argument owner.
+    pub(super) fn rhs_call_callee(
+        &self,
+        call: CallExpression,
+        context: ExpressionContext,
+    ) -> Option<CallCallee> {
+        let ast = self.ast;
+        if self.has_suppression || call.type_arguments(ast).is_some() {
+            let source = self.source_call(call, context).ok()?;
+            if source.callee_mode != ContentMode::Formatted || source.has_outside_prefix() {
+                return None;
+            }
+            return Some(source.callee_head());
+        }
+        let callee = self.source_call_callee(call, context).ok()?;
+        self.source_clear_argument_opening(
+            call.arguments(ast),
+            callee.expression,
+            call.span(ast).end,
+            callee.access,
+        )
+        .then_some(callee)
+    }
+
     pub(super) fn format_call(
         &mut self,
         call: CallExpression,
@@ -76,18 +138,37 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let arguments = self.source_call(call, context)?;
+        let mut callee_context = arguments.callee_context(context);
+        let member_callee = arguments.callee_mode == ContentMode::Formatted
+            && !arguments.has_fixed_argument_frame()
+            && matches!(
+                self.expression_content(arguments.callee).data,
+                ExprData::MemberExpression(_)
+            )
+            && self.expression_needs_parentheses(
+                self.ast.expr_data(arguments.callee),
+                callee_context.position,
+                arguments.callee_mode,
+            ) != Some(true)
+            && !arguments.has_outside_prefix()
+            && self.call_member_callee_is_compact(arguments.callee);
         let group = arguments.curried_callee.map(|_| arguments.group);
+        if member_callee {
+            callee_context = callee_context
+                .with_member_layout(MemberLayout::Tight)
+                .with_member_chain_layout(MemberChainLayout::Local);
+        }
         let write = |writer: &mut Writer<'ast>| {
-            let tail = self.format_expression(
-                arguments.callee,
-                arguments.callee_context(context),
-                writer,
-            )?;
+            let tail = self.format_expression(arguments.callee, callee_context, writer)?;
             self.format_source_arguments(arguments, tail, writer)
         };
-        match group {
-            Some(group) => group.write(false, writer, write),
-            None => write(writer),
+        if member_callee {
+            writer.group(false, write)
+        } else {
+            match group {
+                Some(group) => group.write(false, writer, write),
+                None => write(writer),
+            }
         }
     }
 

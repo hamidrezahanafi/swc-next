@@ -67,6 +67,23 @@ enum MappedTail<'ast> {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    /// The caller proves this mapped node has no comments or diagnostic source owner.
+    pub(super) fn mapped_type_requires_break(&self, node: TsMappedType) -> bool {
+        let ast = self.ast;
+        let start = node.span(ast).start + 1;
+        let prefix = Span::new(start, node.key(ast).span(ast).start);
+        // Select the same first token as the real prefix; absent modifiers do
+        // not become syntax merely because their text occurs in the source.
+        let token = match node.readonly(ast) {
+            TsMappedTypeModifier::None => "[",
+            TsMappedTypeModifier::True => "readonly",
+            TsMappedTypeModifier::Plus => "+",
+            TsMappedTypeModifier::Minus => "-",
+        };
+        self.find_token(prefix, &[], token)
+            .is_none_or(|first| self.type_body_expands(start, first))
+    }
+
     pub(super) fn format_mapped_type(
         &mut self,
         node: TsMappedType,
@@ -102,7 +119,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .as_ref()
                 .map_or(modifier.keyword.span.start, |sign| sign.span.start)
         });
-        let expand = self.line_breaks(content.start, first_token) != 0;
+        let expand = self.type_body_expands(content.start, first_token);
         let mut constraint = self.prepare_type(node.constraint(ast), ContentMode::Formatted);
         let in_boundary = self.prepare_mapped_boundary(
             Span::new(key_span.end, constraint.node.span(ast).start),

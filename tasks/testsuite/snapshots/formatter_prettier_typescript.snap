@@ -3,12 +3,12 @@ formatter * prettier 3.9.9 * typescript
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 657
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 644/804 (80.10%)
-Snapshot matched: 644/804
+Passed: 646/804 (80.35%)
+Snapshot matched: 646/804
 AST parity: 804/804
 AST mismatched: 0/804
 AST format errors: 0/804
-Mismatched: 160/804
+Mismatched: 158/804
 Format errors: 0/804
 Panicked: 0/804
 Not idempotent: 0/804
@@ -82,7 +82,6 @@ Unsupported option sets: 7
 - typescript/conformance/types/tuple/typeInferenceWithTupleType.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/tuple/wideningTuples3.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/conformance/types/tuple/wideningTuples4.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/custom/typeParameters/variables.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/decorators-ts/typeorm.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/decorators/ember.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/decorators/inline-decorators.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -104,7 +103,6 @@ Unsupported option sets: 7
 - typescript/last-argument-expansion/decorated-function.tsx: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/mapped-type/issue-11098.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/method-chain/issue-18136-2.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/new/with-member-expression.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/non-null/braces.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/object-type/comments/11308.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/object-type/empty/empty.ts: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent

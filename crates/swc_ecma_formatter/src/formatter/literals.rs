@@ -3,6 +3,8 @@
 mod number;
 mod string;
 
+use std::borrow::Cow;
+
 use swc_next_ecma_ast::{BigIntLiteral, NumericLiteral, RegExpLiteral, StringLiteral};
 
 pub(super) use string::StringContext;
@@ -17,12 +19,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         context: StringContext,
         writer: &mut Writer<'ast>,
     ) {
+        writer.literal_text(self.string_literal_text(literal, context));
+    }
+
+    pub(in crate::formatter) fn string_literal_text(
+        &self,
+        literal: StringLiteral,
+        context: StringContext,
+    ) -> Cow<'ast, str> {
         let raw = self.ast.get_utf8(literal.raw(self.ast));
-        writer.literal_text(string::format_string(
-            raw,
-            self.options.quote_style,
-            context,
-        ));
+        string::format_string(raw, self.options.quote_style, context)
     }
 
     pub(super) fn format_numeric_literal(

@@ -201,6 +201,18 @@ enum MemberClosing {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    pub(super) fn type_body_expands(&self, opening_end: u32, first_start: u32) -> bool {
+        self.line_breaks(opening_end, first_start) != 0
+    }
+
+    pub(super) fn type_literal_requires_break(&self, node: TsTypeLiteral) -> bool {
+        let ast = self.ast;
+        node.members(ast).first().is_some_and(|id| {
+            let member: TsTypeElement = ast.get_node_in_sub_range(id);
+            self.type_body_expands(node.span(ast).start + 1, member.span(ast).start)
+        })
+    }
+
     pub(super) fn format_type_literal(
         &mut self,
         node: TsTypeLiteral,
@@ -316,7 +328,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .map_or_else(|| self.content_mode(leading_comments), |member| member.mode);
         let leading = self.prepare_member_gap(leading_span);
         let expanded = matches!(kind, TypeMemberBodyKind::Interface)
-            || self.line_breaks(content.start, first_start) != 0;
+            || self.type_body_expands(content.start, first_start);
         let write = |writer: &mut Writer<'ast>| {
             writer.text("{");
             let closing = writer.indent(|writer| {

@@ -15,7 +15,7 @@ use self::tails::{StatementContent, StatementTailModes, StatementTailRelation};
 
 use swc_next_ecma_ast::{
     Ast, BlockStatement, Comment, CommentKind, DeclData, Directive, EmptyStatement, FunctionBody,
-    GetSpan, Span, StaticBlock, Stmt, StmtData, TsModuleBlock,
+    GetSpan, Span, StaticBlock, Stmt, StmtData, SubRange, TsModuleBlock,
 };
 
 use super::Formatter;
@@ -115,6 +115,17 @@ struct PreparedStatement<'ast> {
 enum StatementMode {
     Formatted,
     Verbatim(StatementContent),
+}
+
+fn statement_body_has_items(
+    ast: &Ast<'_>,
+    directives: Option<SubRange<Directive>>,
+    body: SubRange<Stmt>,
+) -> bool {
+    directives.is_some_and(|directives| !directives.is_empty())
+        || body
+            .iter()
+            .any(|id| StatementItem::Statement(ast.get_node_in_sub_range(id)).is_nonempty(ast))
 }
 
 impl StatementItem {
@@ -1108,6 +1119,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         )
     }
 
+    pub(in crate::formatter) fn function_body_requires_break(&self, body: FunctionBody) -> bool {
+        statement_body_has_items(
+            self.ast,
+            Some(body.directives(self.ast)),
+            body.body(self.ast),
+        )
+    }
+
     pub(super) fn format_function_body(
         &mut self,
         body: FunctionBody,
@@ -1195,10 +1214,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return self.format_verbatim(span, writer);
         }
         let content = Span::new(span.start + 1, span.end - 1);
-        let has_items = directives.is_some_and(|directives| !directives.is_empty())
-            || body
-                .iter()
-                .any(|id| StatementItem::Statement(ast.get_node_in_sub_range(id)).is_nonempty(ast));
+        let has_items = statement_body_has_items(ast, directives, body);
         let directives = directives
             .into_iter()
             .flat_map(|directives| directives.iter())

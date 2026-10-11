@@ -29,7 +29,6 @@ class C extends Base {
     return 7;
   }
   read() {
-    return this
-      .value();
+    return this.value();
   }
 }

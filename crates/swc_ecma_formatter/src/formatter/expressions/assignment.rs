@@ -1,15 +1,17 @@
 //! Assignment layouts and borrowed operator boundaries prepared before printing.
 
 use swc_next_ecma_ast::{
-    AssignmentExpression, Comment, CommentKind, Expr, ExprData, GetSpan, ParenthesizedExpression,
-    Span,
+    ArgumentData, AssignmentExpression, CallExpression, Comment, CommentKind, Expr, ExprData,
+    GetSpan, ParenthesizedExpression, Span, TemplateElement,
 };
 
 use super::binary::BinaryLike;
+use super::chains::RhsCallChainOwnership;
 use super::parentheses::ExpressionContent;
 use super::{ExpressionContext, ExpressionPosition, Formatter};
 use crate::formatter::comments::{CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
+use crate::formatter::literals::StringContext;
 use crate::formatter::suppression::{
     ContentMode, DelimitedFollowing, SuppressionPosition, is_suppression_comment,
 };
@@ -573,26 +575,43 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if boundary.own_line || !boundary.operator_line.is_empty() {
             return RhsLayout::BreakAfterOperator;
         }
-        let Some(operand) = self.assignment_right_fluid_content(data) else {
-            return RhsLayout::BreakAfterOperator;
-        };
         if matches!(
             data,
             ExprData::BooleanLiteral(_) | ExprData::NumericLiteral(_)
         ) {
             return RhsLayout::NeverBreakAfterOperator;
         }
-        if self.assignment_right_is_member_chain(operand, boundary.right_start) {
-            return RhsLayout::BreakAfterOperator;
-        }
-        RhsLayout::Fluid
+        let prefix_start = boundary
+            .leading
+            .first()
+            .map_or(boundary.right_start, |comment| comment.span.start);
+        self.property_rhs_layout(data, prefix_start, false)
     }
 
     pub(in crate::formatter) fn assignment_right_breaks_after_operator(
         &self,
         data: ExprData,
     ) -> bool {
-        self.assignment_right_fluid_content(data).is_none()
+        self.assignment_right_fluid_content(data)
+            .is_none_or(|content| matches!(content.data, ExprData::StringLiteral(_)))
+    }
+
+    pub(in crate::formatter) fn property_rhs_layout(
+        &self,
+        data: ExprData,
+        prefix_start: u32,
+        has_short_key: bool,
+    ) -> RhsLayout {
+        let Some(content) = self.assignment_right_fluid_content(data) else {
+            return RhsLayout::BreakAfterOperator;
+        };
+        if has_short_key {
+            return RhsLayout::NeverBreakAfterOperator;
+        }
+        if self.assignment_right_prefers_operator_break(content, prefix_start) {
+            return RhsLayout::BreakAfterOperator;
+        }
+        RhsLayout::Fluid
     }
 
     /// Return the inspected operand unless the existing RHS rule requires an outer break.
@@ -630,62 +649,156 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             data = operand.data;
         }
         content.data = data;
-        (!matches!(
-            data,
-            ExprData::StringLiteral(_) | ExprData::SequenceExpression(_)
-        ))
-        .then_some(content)
+        (!matches!(data, ExprData::SequenceExpression(_))).then_some(content)
     }
 
-    /// Bare lookups have no argument group to break before the outer operator.
-    /// Object properties select their layout separately, including the key width.
-    fn assignment_right_is_member_chain(&self, content: RhsContent, prefix_start: u32) -> bool {
+    /// Strings and compact member/call spines favor the enclosing operator break.
+    /// Fluent chains retain their own operation and argument groups.
+    fn assignment_right_prefers_operator_break(
+        &self,
+        content: RhsContent,
+        prefix_start: u32,
+    ) -> bool {
         if let Some(operand) = content.unary_operand
-            && !self.assignment_unary_head_is_inspectable(prefix_start, operand)
+            && !self.rhs_head_is_inspectable(prefix_start, operand)
         {
             return false;
         }
         let mut data = content.data;
-        let mut member = false;
+        let mut chain = false;
+        let mut outer_span = match data {
+            ExprData::MemberExpression(member) => Some(member.span(self.ast)),
+            ExprData::CallExpression(call) => Some(call.span(self.ast)),
+            _ => None,
+        };
         loop {
             let receiver = match data {
-                ExprData::UnaryExpression(unary) if !member => {
+                ExprData::UnaryExpression(unary) if !chain => {
                     let operand = self.expression_content(unary.argument(self.ast));
-                    if !self.assignment_unary_head_is_inspectable(
-                        unary.span(self.ast).start,
-                        operand.expression,
-                    ) {
+                    if !self.rhs_head_is_inspectable(unary.span(self.ast).start, operand.expression)
+                    {
                         return false;
                     }
                     data = operand.data;
                     continue;
                 }
-                ExprData::AwaitExpression(awaited) if !member => awaited.argument(self.ast),
-                ExprData::YieldExpression(yielded) if !member => {
+                ExprData::AwaitExpression(awaited) if !chain => awaited.argument(self.ast),
+                ExprData::YieldExpression(yielded) if !chain => {
                     let Some(argument) = yielded.argument(self.ast) else {
                         return false;
                     };
                     argument
                 }
                 ExprData::MemberExpression(access) => {
-                    member = true;
+                    outer_span.get_or_insert(access.span(self.ast));
+                    chain = true;
                     access.object(self.ast)
                 }
+                ExprData::CallExpression(call) => {
+                    let covered_span = *outer_span.get_or_insert(call.span(self.ast));
+                    if content.unary_operand.is_none()
+                        && !self.rhs_head_is_inspectable(prefix_start, Expr::CallExpression(call))
+                    {
+                        return false;
+                    }
+                    return self.rhs_call_chain_ownership(call, covered_span)
+                        == Some(RhsCallChainOwnership::Compact);
+                }
+                ExprData::StringLiteral(_) if !chain => return true,
                 ExprData::ChainExpression(chain) => chain.expression(self.ast),
                 ExprData::TsNonNullExpression(assertion) => assertion.expression(self.ast),
                 _ => {
-                    return member
-                        && matches!(
+                    if !chain
+                        || !matches!(
                             data,
                             ExprData::IdentifierReference(_) | ExprData::ThisExpression(_)
-                        );
+                        )
+                    {
+                        return false;
+                    }
+                    return true;
                 }
             };
             data = self.expression_content(receiver).data;
         }
     }
 
-    fn assignment_unary_head_is_inspectable(&self, start: u32, operand: Expr) -> bool {
+    /// The chain owner has verified the enclosing immutable comment and
+    /// diagnostic span before checking any descendant call's arguments.
+    pub(super) fn assignment_call_is_short(&self, call: CallExpression) -> bool {
+        let ast = self.ast;
+        let arguments = call.arguments(ast);
+        let short = match arguments.len() {
+            0 => true,
+            1 => {
+                let Some(first) = arguments.first() else {
+                    return false;
+                };
+                let argument = ast.get_node_in_sub_range(first);
+                let ArgumentData::Expr(expression) = ast.argument_data(argument) else {
+                    return false;
+                };
+                self.assignment_call_argument_is_short(expression)
+            }
+            _ => false,
+        };
+        short
+            && call
+                .type_arguments(ast)
+                .is_none_or(|types| self.call_type_arguments_are_compact(types))
+    }
+
+    fn assignment_call_argument_is_short(&self, mut expression: Expr) -> bool {
+        let ast = self.ast;
+        let threshold = usize::from(self.options.line_width) / 4;
+        loop {
+            let data = self.expression_content(expression).data;
+            return match data {
+                ExprData::IdentifierReference(identifier) => {
+                    rhs_text_is_short(ast.get_utf8(identifier.name(ast)), threshold)
+                }
+                ExprData::UnaryExpression(unary) => {
+                    expression = unary.argument(ast);
+                    continue;
+                }
+                ExprData::RegExpLiteral(literal) => {
+                    rhs_text_is_short(ast.get_utf8(literal.pattern(ast)), threshold)
+                }
+                ExprData::StringLiteral(literal) => {
+                    let text = self.string_literal_text(literal, StringContext::Expression);
+                    rhs_text_is_short(&text, threshold)
+                }
+                ExprData::TemplateLiteral(template) => {
+                    if !template.expressions(ast).is_empty() || template.quasis(ast).len() != 1 {
+                        return false;
+                    }
+                    let Some(first) = template.quasis(ast).first() else {
+                        return false;
+                    };
+                    let quasi: TemplateElement = ast.get_node_in_sub_range(first);
+                    let raw = ast.get_utf8(quasi.raw(ast));
+                    !raw.contains('\n') && rhs_text_is_short(raw, threshold)
+                }
+                ExprData::CallExpression(call) => {
+                    call.arguments(ast).is_empty()
+                        && threshold >= 2
+                        && matches!(
+                            ast.expr_data(call.callee(ast)),
+                            ExprData::IdentifierReference(identifier)
+                                if rhs_text_is_short(ast.get_utf8(identifier.name(ast)), threshold - 2)
+                        )
+                }
+                ExprData::ThisExpression(_)
+                | ExprData::NullLiteral(_)
+                | ExprData::BigIntLiteral(_)
+                | ExprData::BooleanLiteral(_)
+                | ExprData::NumericLiteral(_) => true,
+                _ => false,
+            };
+        }
+    }
+
+    fn rhs_head_is_inspectable(&self, start: u32, operand: Expr) -> bool {
         if !self.has_suppression
             && !self.has_target_annotations
             && !self.has_file_directives
@@ -693,8 +806,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         {
             return true;
         }
-        // Unary prints a pair around its boundary comments and operand. A bound
-        // head must remain opaque before that pair exists on the next pass.
+        // Keep the actual head's binding opaque before width-driven printing.
+        // Unary may generate a source pair around these comments on the next pass.
         let span = operand.span(self.ast);
         let comments = self.ast.comments();
         let first = comments.partition_point(|comment| comment.span.start < start);
@@ -702,4 +815,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.expression_head_binding(&comments[first..last], operand)
             .allows_relocation(Some(span))
     }
+}
+
+/// The lone-short policy counts JavaScript string length, not display columns.
+fn rhs_text_is_short(text: &str, threshold: usize) -> bool {
+    text.len() <= threshold || text.encode_utf16().take(threshold + 1).count() <= threshold
 }

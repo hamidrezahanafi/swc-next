@@ -44,11 +44,23 @@ pub(super) enum CallbackRole {
     Test,
 }
 
+impl CallbackRole {
+    fn has_fixed_argument_frame(self) -> bool {
+        self == Self::Test
+    }
+}
+
 pub(super) struct SelectedCallback {
     argument: Argument,
     callback: Callback,
     role: CallbackRole,
     prepared_body: Option<PreparedArrowBody>,
+}
+
+impl SelectedCallback {
+    pub(super) fn has_fixed_argument_frame(&self) -> bool {
+        self.role.has_fixed_argument_frame()
+    }
 }
 
 pub(super) struct SelectedObject {
@@ -927,7 +939,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 );
                 Ok::<_, FormatError>(())
             })?;
-            if matches!(outcome, SelectionOutcome::Callback(CallbackRole::Test)) {
+            if matches!(outcome, SelectionOutcome::Callback(role) if role.has_fixed_argument_frame())
+            {
                 writer.write_fragment(grouped);
             } else if matches!(
                 outcome,

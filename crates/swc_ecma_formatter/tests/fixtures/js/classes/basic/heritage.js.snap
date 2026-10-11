@@ -19,8 +19,7 @@ class C extends (ready
   ? First
   : Second) {
   m() {
-    return super
-      .m();
+    return super.m();
   }
 }
 
@@ -51,8 +50,7 @@ class C extends (ready
 	? First
 	: Second) {
 	m() {
-		return super
-			.m();
+		return super.m();
 	}
 }
 

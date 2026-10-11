@@ -554,6 +554,15 @@ pub(super) struct SourceArguments<'ast> {
     pub(super) jsx_call: Option<CallExpression>,
 }
 
+struct ArgumentPunctuation {
+    operator: Option<Span>,
+    opening: u32,
+}
+
+fn argument_opening_gap(prefix_start: u32, first: Option<Span>, end: u32) -> Span {
+    Span::new(prefix_start, first.map_or(end - 1, |span| span.start))
+}
+
 #[derive(Clone, Copy)]
 struct SourceFirstArgument {
     node: Argument,
@@ -613,6 +622,13 @@ impl SourceArguments<'_> {
                 }
             }
         }
+    }
+
+    /// The selected argument frame preserves the callee's independent break.
+    pub(super) fn has_fixed_argument_frame(&self) -> bool {
+        self.test_callback
+            .as_ref()
+            .is_some_and(SelectedCallback::has_fixed_argument_frame)
     }
 
     pub(super) fn has_outside_prefix(&self) -> bool {
@@ -711,6 +727,43 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.prepare_source_arguments(arguments, callee, end, AccessKind::Ordinary, Some(types))
     }
 
+    /// The enclosing chain has already proved that this argument boundary is
+    /// comment- and diagnostic-clear. Preserve the actual source token geometry.
+    pub(super) fn source_clear_argument_opening(
+        &self,
+        arguments: SubRange<Argument>,
+        callee: Expr,
+        end: u32,
+        access: AccessKind,
+    ) -> bool {
+        let ast = self.ast;
+        let first = arguments.first().map(|id| {
+            let argument: Argument = ast.get_node_in_sub_range(id);
+            argument.span(ast)
+        });
+        let gap = argument_opening_gap(callee.span(ast).end, first, end);
+        self.source_argument_punctuation(gap, access, &[]).is_some()
+    }
+
+    fn source_argument_punctuation(
+        &self,
+        gap: Span,
+        access: AccessKind,
+        comments: &[Comment],
+    ) -> Option<ArgumentPunctuation> {
+        let operator = match access {
+            AccessKind::Ordinary => None,
+            AccessKind::Optional => {
+                let start = self.find_token(gap, comments, "?.")?;
+                Some(Span::new(start, start + 2))
+            }
+        };
+        let opening_start = operator.map_or(gap.start, |operator| operator.end);
+        let opening_gap = Span::new(opening_start, gap.end);
+        let opening = self.find_token(opening_gap, comments, "(")?;
+        Some(ArgumentPunctuation { operator, opening })
+    }
+
     fn prepare_source_arguments(
         &self,
         arguments: SubRange<Argument>,
@@ -729,18 +782,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             mode: ContentMode::Formatted,
         });
         let first_span = first.map(|argument| argument.node.span(ast));
-        let gap = Span::new(prefix_start, first_span.map_or(end - 1, |span| span.start));
+        let gap = argument_opening_gap(prefix_start, first_span, end);
         let boundary_comments = self.comments.in_range(gap);
-        let operator = match access {
-            AccessKind::Ordinary => None,
-            AccessKind::Optional => {
-                let start = self.find_token(gap, boundary_comments, "?.")?;
-                Some(Span::new(start, start + 2))
-            }
-        };
-        let opening_start = operator.map_or(prefix_start, |operator| operator.end);
-        let opening_gap = Span::new(opening_start, gap.end);
-        let opening = self.find_token(opening_gap, boundary_comments, "(")?;
+        let ArgumentPunctuation { operator, opening } =
+            self.source_argument_punctuation(gap, access, boundary_comments)?;
         let prefix_count = boundary_comments.partition_point(|comment| comment.span.end <= opening);
         let prefix_comments = &boundary_comments[..prefix_count];
         let (prefix, mut callee_mode) = match operator {

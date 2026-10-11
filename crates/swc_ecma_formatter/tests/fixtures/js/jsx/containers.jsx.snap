@@ -320,10 +320,7 @@ const ignored_collections =
 const ordinary_calls =
   (
     <Box
-      data={String
-        .prototype
-        .concat
-        .call(
+      data={String.prototype.concat.call(
         "firstVeryLongValue",
         "secondVeryLongValue",
         "thirdVeryLongValue",
@@ -373,13 +370,11 @@ const ordinary_functions =
       }}
     </Box>
   );
-ordinary_functions
-  .props.data(
+ordinary_functions.props.data(
   "first",
   "second",
 );
-ordinary_functions
-  .children[0](
+ordinary_functions.children[0](
   "child",
 );
 const guarded_calls_functions =

@@ -140,8 +140,7 @@ for (;false;) {}
 do {} while (false);
 
 while (false) {
-  globalThis
-    .loopTrace.push(
+  globalThis.loopTrace.push(
     "never",
   );
 }
@@ -149,15 +148,13 @@ while (false) {
 for (;
   false;
 ) {
-  globalThis
-    .loopTrace.push(
+  globalThis.loopTrace.push(
     "never",
   );
 }
 
 do {
-  globalThis
-    .loopTrace.push(
+  globalThis.loopTrace.push(
     "once",
   );
 } while (false);
@@ -307,8 +304,7 @@ for (;false;) {}
 do {} while (false)
 
 while (false) {
-  globalThis
-    .loopTrace.push(
+  globalThis.loopTrace.push(
     "never",
   )
 }
@@ -316,15 +312,13 @@ while (false) {
 for (;
   false;
 ) {
-  globalThis
-    .loopTrace.push(
+  globalThis.loopTrace.push(
     "never",
   )
 }
 
 do {
-  globalThis
-    .loopTrace.push(
+  globalThis.loopTrace.push(
     "once",
   )
 } while (false)
@@ -396,8 +390,7 @@ for (;false;) {}
 do {} while (false);
 
 while (false) {
-	globalThis
-		.loopTrace.push(
+	globalThis.loopTrace.push(
 		"never",
 	);
 }
@@ -405,15 +398,13 @@ while (false) {
 for (;
 	false;
 ) {
-	globalThis
-		.loopTrace.push(
+	globalThis.loopTrace.push(
 		"never",
 	);
 }
 
 do {
-	globalThis
-		.loopTrace.push(
+	globalThis.loopTrace.push(
 		"once",
 	);
 } while (false);

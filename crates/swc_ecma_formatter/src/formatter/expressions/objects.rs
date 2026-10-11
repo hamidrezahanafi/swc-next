@@ -83,6 +83,14 @@ struct ObjectPropertyBoundary<'ast> {
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    pub(in crate::formatter) fn object_body_expands(&self, object: ObjectExpression) -> bool {
+        let ast = self.ast;
+        object.properties(ast).first().is_some_and(|id| {
+            let property: ObjectPropertyKind = ast.get_node_in_sub_range(id);
+            self.line_breaks(object.span(ast).start + 1, property.span(ast).start) != 0
+        })
+    }
+
     pub(super) fn format_object(
         &mut self,
         object: ObjectExpression,
@@ -123,7 +131,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }));
         };
         let remaining = remaining.split_off(1);
-        let expand = self.line_breaks(content.start, first.span(ast).start) != 0;
+        let expand = self.object_body_expands(object);
         Ok(SourceObject::Formatted(FormattedObject {
             expand,
             contents: ObjectContents::Properties {

@@ -70,6 +70,60 @@ pub(super) enum PreparedMember {
     Formatted(SourceMember),
 }
 
+/// The actual member's key and receiver facts, before punctuation or modes.
+pub(super) struct MemberHead {
+    node: MemberExpression,
+    pub(super) object: Expr,
+    property_span: Span,
+    gap: Span,
+    key: MemberKey,
+    access: AccessKind,
+}
+
+impl MemberHead {
+    pub(super) fn is_computed(&self) -> bool {
+        matches!(self.key, MemberKey::Computed(_))
+    }
+
+    pub(super) fn key(&self) -> Option<Expr> {
+        match self.key {
+            MemberKey::Computed(key) => Some(key),
+            MemberKey::Static(_) => None,
+        }
+    }
+
+    pub(super) fn name(&self) -> Option<IdentifierName> {
+        match self.key {
+            MemberKey::Static(StaticMemberKey::Public(name)) => Some(name),
+            MemberKey::Static(StaticMemberKey::Private(_)) | MemberKey::Computed(_) => None,
+        }
+    }
+
+    /// Used after the source-clear query has established formatted content.
+    pub(super) fn receiver_context(&self, context: ExpressionContext) -> ExpressionContext {
+        member_receiver_context(
+            context,
+            self.access,
+            ContentMode::Formatted,
+            self.is_computed(),
+        )
+    }
+}
+
+fn member_receiver_context(
+    context: ExpressionContext,
+    access: AccessKind,
+    mode: ContentMode,
+    computed: bool,
+) -> ExpressionContext {
+    let closing = if computed {
+        ConditionalClosing::Inline
+    } else {
+        ConditionalClosing::MemberLine
+    };
+    context.member_receiver(access, mode, closing)
+}
+
 pub(super) struct SourceMember {
     pub(super) object: Expr,
     property_span: Span,
@@ -153,6 +207,10 @@ impl MemberLookupLayout {
 }
 
 impl SourceMember {
+    pub(super) fn operator_span(&self) -> Span {
+        self.punctuation.operator()
+    }
+
     pub(super) fn is_computed(&self) -> bool {
         matches!(self.punctuation, MemberPunctuation::Computed { .. })
     }
@@ -179,11 +237,7 @@ impl SourceMember {
     }
 
     pub(super) fn receiver_context(&self, context: ExpressionContext) -> ExpressionContext {
-        let closing = match self.punctuation {
-            MemberPunctuation::Static { .. } => ConditionalClosing::MemberLine,
-            MemberPunctuation::Computed { .. } => ConditionalClosing::Inline,
-        };
-        context.member_receiver(self.access, self.receiver_mode, closing)
+        member_receiver_context(context, self.access, self.receiver_mode, self.is_computed())
     }
 }
 
@@ -211,12 +265,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             AccessKind::Ordinary
         };
         let receiver = member.object(self.ast);
-        let closing = if member.computed(self.ast) {
-            ConditionalClosing::Inline
-        } else {
-            ConditionalClosing::MemberLine
-        };
-        let context = context.member_receiver(access, ContentMode::Formatted, closing);
+        let context = member_receiver_context(
+            context,
+            access,
+            ContentMode::Formatted,
+            member.computed(self.ast),
+        );
         Ok((receiver, context))
     }
 
@@ -263,10 +317,10 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    pub(super) fn source_member(
+    pub(super) fn prepare_member_head(
         &self,
         member: MemberExpression,
-    ) -> Result<PreparedMember, FormatError> {
+    ) -> Result<MemberHead, FormatError> {
         let access = if member.optional(self.ast) {
             AccessKind::Optional
         } else {
@@ -293,6 +347,47 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let object_span = object.span(self.ast);
         let property_span = property.span(self.ast);
         let gap = Span::new(object_span.end, property_span.start);
+        Ok(MemberHead {
+            node: member,
+            object,
+            property_span,
+            gap,
+            key,
+            access,
+        })
+    }
+
+    /// Callers have proved the enclosing immutable comment and diagnostic span.
+    /// Actual source lines or suppression retain the complete punctuation owner.
+    pub(super) fn source_clear_member_has_chain_barrier(
+        &self,
+        head: &MemberHead,
+    ) -> Result<bool, FormatError> {
+        if !self.has_suppression && self.line_breaks(head.gap.start, head.gap.end) == 0 {
+            return Ok(false);
+        }
+        let PreparedMember::Formatted(source) = self.prepare_source_member(head)? else {
+            return Ok(true);
+        };
+        Ok(source.receiver_mode != ContentMode::Formatted
+            || self.next_line_is_empty(head.gap.start, source.operator_span().start))
+    }
+
+    pub(super) fn source_member(
+        &self,
+        member: MemberExpression,
+    ) -> Result<PreparedMember, FormatError> {
+        let head = self.prepare_member_head(member)?;
+        self.prepare_source_member(&head)
+    }
+
+    fn prepare_source_member(&self, head: &MemberHead) -> Result<PreparedMember, FormatError> {
+        let member = head.node;
+        let object = head.object;
+        let property_span = head.property_span;
+        let gap = head.gap;
+        let key = head.key;
+        let access = head.access;
         let comments = self.comments.in_range(gap);
         let mut punctuation = match key {
             MemberKey::Computed(expression) => {
@@ -394,7 +489,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         member: &SourceMember,
         tail: Option<ExpressionTail<'ast>>,
     ) -> Result<MemberBoundary<'ast>, FormatError> {
-        let operator = member.punctuation.operator();
+        let operator = member.operator_span();
         let computed = member.is_computed();
         let source_end = tail
             .as_ref()

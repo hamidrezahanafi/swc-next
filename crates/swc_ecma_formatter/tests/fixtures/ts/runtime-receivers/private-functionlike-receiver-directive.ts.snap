@@ -40,8 +40,9 @@ class Counter {
   read(): number {
     // @ts-expect-error
     this.#value("bad");
-    return this
-      .#value(3);
+    return this.#value(
+      3,
+    );
   }
 }
 
@@ -58,8 +59,9 @@ class Counter {
   read(): number {
     // @ts-expect-error
     this.#value("bad")
-    return this
-      .#value(3)
+    return this.#value(
+      3
+    )
   }
 }
 
@@ -76,7 +78,8 @@ class Counter {
   read(): number {
     // @ts-expect-error
     this.#value("bad");
-    return this
-      .#value(3);
+    return this.#value(
+      3,
+    );
   }
 }
