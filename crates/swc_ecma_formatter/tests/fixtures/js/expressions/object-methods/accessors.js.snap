@@ -31,14 +31,10 @@ source: crates/swc_ecma_formatter/tests/fixtures/mod.rs
 {"printWidth":1,"semi":false,"trailingComma":"none"}
 ---------- Output ----------
 ;({
-  get [
-    key
-  ]() {
+  get [key]() {
     return value
   },
-  set [
-    key
-  ](
+  set [key](
     value
   ) {
     target(

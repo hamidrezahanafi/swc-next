@@ -1,11 +1,12 @@
 //! Object literal properties and their source-ordered comment boundaries.
 
 use swc_next_ecma_ast::{
-    Argument, Comment, CommentKind, ExprData, GetSpan, ObjectExpression, ObjectProperty,
-    ObjectPropertyKind, ObjectPropertyKindData, PropertyKey, PropertyKeyData, PropertyKind, Span,
-    StringLiteral, SubRange,
+    Argument, Comment, CommentKind, Expr, ExprData, GetSpan, ObjectExpression, ObjectProperty,
+    ObjectPropertyKind, ObjectPropertyKindData, PropertyKey, PropertyKeyData, PropertyKind,
+    SimpleAssignmentTargetData, Span, StringLiteral, SubRange,
 };
 
+use super::assignment::RhsLayout;
 use super::{ExpressionContext, ExpressionPosition, Formatter};
 use crate::formatter::comments::{CommentBinding, CommentRunLayout, ExpressionTail, NodeHead};
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
@@ -66,6 +67,45 @@ pub(in crate::formatter) struct PropertySuppression {
     pub(in crate::formatter) key: ContentMode,
     pub(in crate::formatter) value: ContentMode,
     pub(in crate::formatter) enclosing: ContentMode,
+}
+
+#[derive(Clone, Copy)]
+enum ComputedKeyScope {
+    Text,
+    Expression,
+}
+
+struct PreparedComputedKey<'ast> {
+    inner: Fragment<'ast>,
+    scope: ComputedKeyScope,
+    opening: LineConstraint,
+    closing: LineConstraint,
+}
+
+impl<'ast> PreparedComputedKey<'ast> {
+    fn write(self, writer: &mut Writer<'ast>) {
+        let clean = matches!(self.scope, ComputedKeyScope::Text)
+            && self.opening == LineConstraint::Unconstrained
+            && self.closing == LineConstraint::Unconstrained
+            && self.inner.clean_text_width().is_some();
+        if clean {
+            writer.text("[");
+            writer.write_fragment(self.inner);
+            writer.text("]");
+        } else {
+            writer.group(false, |writer| {
+                writer.text("[");
+                writer.indent(|writer| {
+                    self.opening
+                        .write(writer, FlatSeparator::Empty, Writer::soft_line);
+                    writer.write_fragment(self.inner);
+                });
+                self.closing
+                    .write(writer, FlatSeparator::Empty, Writer::soft_line);
+                writer.text("]");
+            });
+        }
+    }
 }
 
 struct ObjectPropertyBoundary<'ast> {
@@ -466,27 +506,69 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             return Ok(None);
         }
         let value = property.value(ast);
-        let data = self.expression_content(value).data;
-        let break_after =
-            boundary.line_after_colon || self.assignment_right_breaks_after_operator(data);
+        let content = self.expression_content(value);
+        let before_colon = boundary
+            .before
+            .last()
+            .map_or(boundary.key_end, |comment| comment.span.end);
+        let before_colon_constraint = self.line_constraint(before_colon, boundary.colon.start);
+        let prefix_start = boundary
+            .leading
+            .first()
+            .map_or(boundary.value_start, |comment| comment.span.start);
         writer.group(false, |writer| {
-            self.format_object_key(property, boundary.key_end, boundary.suppression.key, writer)?;
-            self.comments.claim(boundary.before)?;
-            self.format_comment_run(
-                boundary.before,
-                CommentRunLayout::SourceAfter(boundary.key_end),
-                writer,
-            )?;
-            let before_colon = boundary
-                .before
-                .last()
-                .map_or(boundary.key_end, |comment| comment.span.end);
-            self.line_constraint(before_colon, boundary.colon.start)
-                .write(writer, FlatSeparator::Empty, |writer| {
-                    if boundary.line_before_colon {
-                        writer.hard_line();
-                    }
-                });
+            let clean_width = {
+                let mut write_left = |writer: &mut Writer<'ast>| {
+                    self.format_object_key(
+                        property,
+                        boundary.key_end,
+                        boundary.suppression.key,
+                        writer,
+                    )?;
+                    self.comments.claim(boundary.before)?;
+                    self.format_comment_run(
+                        boundary.before,
+                        CommentRunLayout::SourceAfter(boundary.key_end),
+                        writer,
+                    )?;
+                    before_colon_constraint.write(writer, FlatSeparator::Empty, |writer| {
+                        if boundary.line_before_colon {
+                            writer.hard_line();
+                        }
+                    });
+                    Ok::<_, FormatError>(())
+                };
+                if boundary.line_after_colon {
+                    write_left(writer)?;
+                    None
+                } else {
+                    writer.write_with_clean_text_width(write_left)?
+                }
+            };
+            // A break is useful only when the key overlaps its indented value by three columns.
+            let overlap = usize::from(self.options.indent_width.value()) + 3;
+            let has_short_key = clean_width.is_some_and(|width| width < overlap);
+            let layout = if boundary.line_after_colon {
+                RhsLayout::BreakAfterOperator
+            } else {
+                let data = self.property_rhs_content(&content, boundary.suppression.value);
+                let layout = self.property_rhs_layout(data, prefix_start, has_short_key);
+                if matches!(layout, RhsLayout::Fluid)
+                    && clean_width.is_some()
+                    && matches!(
+                        data,
+                        ExprData::BooleanLiteral(_)
+                            | ExprData::NumericLiteral(_)
+                            | ExprData::TemplateLiteral(_)
+                            | ExprData::TaggedTemplateExpression(_)
+                            | ExprData::Class(_)
+                    )
+                {
+                    RhsLayout::NeverBreakAfterOperator
+                } else {
+                    layout
+                }
+            };
             writer.text(":");
             self.comments.claim(boundary.operator_line)?;
             self.format_comment_run(
@@ -498,12 +580,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .operator_line
                 .last()
                 .map_or(boundary.colon.end, |comment| comment.span.end);
-            let value_start = boundary
-                .leading
-                .first()
-                .map_or(boundary.value_start, |comment| comment.span.start);
-            let constraint = self.line_constraint(after_colon, value_start);
-            let mut write_value = |writer: &mut Writer<'ast>| {
+            let constraint = self.line_constraint(after_colon, prefix_start);
+            let write_value = |writer: &mut Writer<'ast>| {
                 self.comments.claim(boundary.moved)?;
                 self.format_comment_run(boundary.moved, CommentRunLayout::Source, writer)?;
                 if let Some(last) = boundary.moved.last() {
@@ -524,46 +602,36 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     }
                 }
                 self.comments.claim(boundary.leading)?;
-                self.format_expression_with_leading_comments(
+                let mut context = ExpressionContext::at(ExpressionPosition::PropertyValue)
+                    .with_content_mode(boundary.suppression.value);
+                if context.is_formatted_conditional_rhs(content.data) {
+                    context = context.with_operand_indent(layout.operand_indent());
+                }
+                self.format_prepared_expression_with_leading_comments(
                     value,
+                    content,
                     NodeHead {
                         comments: boundary.leading,
                         content_start: boundary.value_start,
                         layout: CommentRunLayout::GroupedLeading(boundary.value_start),
                         gap_end: None,
                     },
-                    ExpressionContext::at(ExpressionPosition::PropertyValue)
-                        .with_content_mode(boundary.suppression.value),
+                    context,
                     writer,
                 )
             };
-            if break_after {
-                writer.group(false, |writer| {
-                    writer.indent(|writer| {
-                        constraint.write(writer, FlatSeparator::Space, |writer| {
-                            if boundary.line_after_colon {
-                                writer.hard_line();
-                            } else {
-                                writer.line();
-                            }
-                        });
-                        write_value(writer)
-                    })
-                })
-            } else if matches!(
-                data,
-                ExprData::BooleanLiteral(_) | ExprData::NumericLiteral(_)
-            ) {
-                constraint.write(writer, FlatSeparator::Space, Writer::space);
-                write_value(writer)
-            } else {
-                let group = writer.named_group(false, |writer| {
-                    writer.indent(|writer| {
-                        constraint.write(writer, FlatSeparator::Space, Writer::line)
-                    });
+            let separator = |writer: &mut Writer<'ast>| {
+                constraint.write(writer, FlatSeparator::Space, |writer| {
+                    if boundary.line_after_colon {
+                        writer.hard_line();
+                    } else if matches!(layout, RhsLayout::NeverBreakAfterOperator) {
+                        writer.space();
+                    } else {
+                        writer.line();
+                    }
                 });
-                writer.indent_if_break(group, write_value)
-            }
+            };
+            layout.write(writer, separator, write_value)
         })
     }
 
@@ -825,64 +893,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let PropertyKeyData::Expr(expression) = ast.property_key_data(key) else {
                 return Err(self.unsupported("computed object key", key));
             };
-            let closing = computed.end - 1;
-            let closing_constraint = if self.has_suppression {
-                let comments = self.comments.in_range(Span::new(key_span.end, closing));
-                if self.content_mode(comments) == ContentMode::Verbatim {
-                    comments
-                        .last()
-                        .map(|comment| self.source_line_constraint(comment.span.end, closing))
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-            writer.group(false, |writer| {
-                writer.text("[");
-                let end = writer.indent(|writer| {
-                    let content = Span::new(computed.start + 1, closing);
-                    self.opening_line_constraint(content).write(
-                        writer,
-                        FlatSeparator::Empty,
-                        Writer::soft_line,
-                    );
-                    let leading = self
-                        .comments
-                        .between(Span::new(computed.start + 1, key_span.start))?;
-                    let leading = self.comments.take(leading.len());
-                    let tail = self.format_expression_with_leading_comments(
-                        expression,
-                        NodeHead {
-                            comments: leading,
-                            content_start: key_span.start,
-                            layout: CommentRunLayout::GroupedLeading(key_span.start),
-                            gap_end: None,
-                        },
-                        ExpressionContext::at(ExpressionPosition::Nested).with_content_mode(
-                            if mode == ContentMode::Verbatim {
-                                mode
-                            } else {
-                                self.content_mode(leading)
-                            },
-                        ),
-                        writer,
-                    )?;
-                    let tail =
-                        self.capture_expression_tail(Span::new(key_span.end, closing), tail)?;
-                    let end = tail
-                        .as_ref()
-                        .and_then(|tail| tail.comments.last())
-                        .map_or(key_span.end, |comment| comment.span.end);
-                    self.format_expression_tail(tail, writer)?;
-                    Ok::<_, FormatError>(end)
-                })?;
-                closing_constraint
-                    .unwrap_or_else(|| self.line_constraint(end, closing))
-                    .write(writer, FlatSeparator::Empty, Writer::soft_line);
-                writer.text("]");
-                Ok(())
-            })?;
+            self.prepare_computed_property_key(expression, computed, mode, writer)?
+                .write(writer);
             return Ok(());
         }
         if mode == ContentMode::Verbatim {
@@ -911,6 +923,139 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         Ok(())
     }
+
+    fn prepare_computed_property_key(
+        &mut self,
+        expression: Expr,
+        computed: Span,
+        mode: ContentMode,
+        writer: &mut Writer<'ast>,
+    ) -> Result<PreparedComputedKey<'ast>, FormatError> {
+        let key_span = expression.span(self.ast);
+        let closing = computed.end - 1;
+        let content = Span::new(computed.start + 1, closing);
+        let opening_constraint = self.opening_line_constraint(content);
+        let closing_constraint = if self.has_suppression {
+            let comments = self.comments.in_range(Span::new(key_span.end, closing));
+            if self.content_mode(comments) == ContentMode::Verbatim {
+                comments
+                    .last()
+                    .map(|comment| self.source_line_constraint(comment.span.end, closing))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let scope = if mode != ContentMode::Formatted {
+            ComputedKeyScope::Expression
+        } else if self.has_suppression
+            || self.has_target_annotations
+            || self.has_file_directives
+            || !self.diagnostic_lines.is_empty()
+        {
+            let comments = self.ast.comments();
+            let first = comments.partition_point(|comment| comment.span.start < content.start);
+            let last = comments.partition_point(|comment| comment.span.end <= content.end);
+            if self
+                .comment_binding(&comments[first..last], content, None)
+                .allows_relocation(None)
+            {
+                self.computed_key_scope(expression)
+            } else {
+                ComputedKeyScope::Expression
+            }
+        } else {
+            self.computed_key_scope(expression)
+        };
+        let (inner, end) = writer.record_with_value(|writer| {
+            let leading = self
+                .comments
+                .between(Span::new(computed.start + 1, key_span.start))?;
+            let leading = self.comments.take(leading.len());
+            let tail = self.format_expression_with_leading_comments(
+                expression,
+                NodeHead {
+                    comments: leading,
+                    content_start: key_span.start,
+                    layout: CommentRunLayout::GroupedLeading(key_span.start),
+                    gap_end: None,
+                },
+                ExpressionContext::at(ExpressionPosition::Nested).with_content_mode(
+                    if mode == ContentMode::Verbatim {
+                        mode
+                    } else {
+                        self.content_mode(leading)
+                    },
+                ),
+                writer,
+            )?;
+            let tail = self.capture_expression_tail(Span::new(key_span.end, closing), tail)?;
+            let end = tail
+                .as_ref()
+                .and_then(|tail| tail.comments.last())
+                .map_or(key_span.end, |comment| comment.span.end);
+            self.format_expression_tail(tail, writer)?;
+            Ok::<_, FormatError>(end)
+        })?;
+        let closing_constraint =
+            closing_constraint.unwrap_or_else(|| self.line_constraint(end, closing));
+        Ok(PreparedComputedKey {
+            inner,
+            scope,
+            opening: opening_constraint,
+            closing: closing_constraint,
+        })
+    }
+
+    fn computed_key_scope(&self, expression: Expr) -> ComputedKeyScope {
+        let mut data = self.expression_content(expression).data;
+        loop {
+            data = match data {
+                ExprData::UnaryExpression(unary) => {
+                    self.expression_content(unary.argument(self.ast)).data
+                }
+                ExprData::AwaitExpression(awaited) => {
+                    self.expression_content(awaited.argument(self.ast)).data
+                }
+                ExprData::YieldExpression(yielded) => {
+                    let Some(argument) = yielded.argument(self.ast) else {
+                        return ComputedKeyScope::Text;
+                    };
+                    self.expression_content(argument).data
+                }
+                ExprData::TsNonNullExpression(assertion) => {
+                    self.expression_content(assertion.expression(self.ast)).data
+                }
+                ExprData::UpdateExpression(update) => {
+                    match self
+                        .ast
+                        .simple_assignment_target_data(update.argument(self.ast))
+                    {
+                        SimpleAssignmentTargetData::IdentifierReference(identifier) => {
+                            ExprData::IdentifierReference(identifier)
+                        }
+                        SimpleAssignmentTargetData::TsNonNullExpression(assertion) => {
+                            ExprData::TsNonNullExpression(assertion)
+                        }
+                        _ => return ComputedKeyScope::Expression,
+                    }
+                }
+                ExprData::IdentifierReference(_)
+                | ExprData::ThisExpression(_)
+                | ExprData::MetaProperty(_)
+                | ExprData::StringLiteral(_)
+                | ExprData::NumericLiteral(_)
+                | ExprData::BigIntLiteral(_)
+                | ExprData::BooleanLiteral(_)
+                | ExprData::NullLiteral(_)
+                | ExprData::RegExpLiteral(_) => return ComputedKeyScope::Text,
+                // Postfix, template, and compound expressions own their layout scope.
+                _ => return ComputedKeyScope::Expression,
+            };
+        }
+    }
+
     pub(in crate::formatter) fn format_string_property_name(
         &self,
         literal: StringLiteral,

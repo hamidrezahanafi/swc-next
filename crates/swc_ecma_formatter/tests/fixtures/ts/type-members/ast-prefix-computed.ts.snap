@@ -26,9 +26,7 @@ interface Methods {
 ---------- Output ----------
 interface Methods {
   /* key */
-  [
-    name
-  ](
+  [name](
     value: number,
   ): number
 }

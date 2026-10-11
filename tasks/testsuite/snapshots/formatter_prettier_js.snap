@@ -3,12 +3,12 @@ formatter * prettier 3.9.9 * js
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 794
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 792/1070 (74.02%)
-Snapshot matched: 792/1070
+Passed: 796/1070 (74.39%)
+Snapshot matched: 796/1070
 AST parity: 1069/1069
 AST mismatched: 0/1069
 AST format errors: 0/1070
-Mismatched: 277/1070
+Mismatched: 273/1070
 Format errors: 0/1070
 Panicked: 0/1070
 Not idempotent: 0/1070
@@ -122,7 +122,6 @@ Unsupported option sets: 19
 - js/conditional/new-ternary-examples.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/conditional/new-ternary-spec.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/conditional/no-confusing-arrow.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/conditional/postfix-ternary-regressions.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/decorators/class-expression/class-expression.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/decorators/class-expression/member-expression.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - js/decorators/class-expression/super-class.js: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
@@ -173,8 +172,6 @@ Unsupported option sets: 19
 - js/method-chain/issue-4125.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/method-chain/multiple-members.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/nullish-coalescing/nullish_coalesing_operator.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/object-prop-break-in/long-value.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- js/object-prop-break-in/short-keys.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/optional-chaining/comments.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/preserve-line/parameter-list.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/require-amd/require.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -202,7 +199,6 @@ Unsupported option sets: 19
 - js/template/inline.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/ternaries/binary.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - js/ternaries/indent-after-paren.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
-- js/ternaries/indent.js: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - js/ternaries/nested-in-condition.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - js/ternaries/nested.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent
 - js/ternaries/parenthesis.js: 4/4 mismatched, 0/4 format errors, 0/4 panicked, 0/4 not idempotent

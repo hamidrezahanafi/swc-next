@@ -8,8 +8,7 @@ expect(() => request({ url: "/test-endpoint-with-a-long-url" })).done();
 ---------- Output ----------
 expect(() =>
   request({
-    url:
-      "/test-endpoint-with-a-long-url",
+    url: "/test-endpoint-with-a-long-url",
   }),
 ).done();
 
@@ -23,7 +22,6 @@ expect(() => request({ url: "/test-endpoint-with-a-long-url" })).done();
 ---------- Output ----------
 expect(() =>
   request({
-    url:
-      "/test-endpoint-with-a-long-url",
+    url: "/test-endpoint-with-a-long-url",
   }),
 ).done()

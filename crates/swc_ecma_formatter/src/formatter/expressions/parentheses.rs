@@ -128,6 +128,18 @@ enum RetainedParentheses {
     Operand,
 }
 
+enum SourceParenthesesChoice {
+    Verbatim,
+    Retained {
+        kind: RetainedParentheses,
+        mode: ContentMode,
+    },
+    Content {
+        mode: ContentMode,
+        ignored_child: Option<Expr>,
+    },
+}
+
 struct RetainedSourceParentheses {
     boundary: SourceParentheses,
     kind: RetainedParentheses,
@@ -1121,8 +1133,26 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .in_range(Span::new(span.start, child_span.start));
         let trailing = Span::new(child_span.end, span.end - 1);
         let tail = self.comments.in_range(trailing);
-        head.iter()
-            .chain(tail)
+        self.ignored_parentheses_child_with_comments(
+            child,
+            mode,
+            SourceParenthesesComments { head, tail },
+        )
+    }
+
+    fn ignored_parentheses_child_with_comments(
+        &self,
+        child: Expr,
+        mode: ContentMode,
+        comments: SourceParenthesesComments<'ast>,
+    ) -> Option<Expr> {
+        if !self.has_suppression || mode != ContentMode::Verbatim {
+            return None;
+        }
+        comments
+            .head
+            .iter()
+            .chain(comments.tail)
             .all(|&comment| {
                 let semantics = self.comment_semantics(comment);
                 semantics.is_ordinary() || semantics.suppression
@@ -1146,6 +1176,169 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let trailing = Span::new(boundary.inner.end, boundary.outer.end - 1);
         self.trailing_content_mode(trailing, true)
+    }
+
+    /// Verbatim expression entry may cross only its actual removable source pair.
+    pub(super) fn verbatim_parentheses_are_removable(
+        &self,
+        parenthesized: ParenthesizedExpression,
+        position: ExpressionPosition,
+    ) -> bool {
+        if matches!(position, ExpressionPosition::Statement) {
+            return false;
+        }
+        let child = parenthesized.expression(self.ast);
+        let boundary = SourceParentheses {
+            outer: parenthesized.span(self.ast),
+            inner: child.span(self.ast),
+            inner_target: ParenthesisInner::Expression(child),
+        };
+        self.parentheses_are_removable(boundary)
+            && self.expression_needs_parentheses(
+                self.ast.expr_data(child),
+                position,
+                ContentMode::Verbatim,
+            ) == Some(false)
+    }
+
+    /// The printer and property layout share the original pair's emission decision.
+    fn source_parentheses_choice(
+        &self,
+        parenthesized: ParenthesizedExpression,
+        mut context: ExpressionContext,
+    ) -> SourceParenthesesChoice {
+        let span = parenthesized.span(self.ast);
+        let child = parenthesized.expression(self.ast);
+        let child_span = child.span(self.ast);
+        let boundary = SourceParentheses {
+            outer: span,
+            inner: child_span,
+            inner_target: ParenthesisInner::Expression(child),
+        };
+        let comments = if self.has_suppression {
+            self.source_parentheses_comments(boundary)
+        } else {
+            SourceParenthesesComments {
+                head: &[],
+                tail: &[],
+            }
+        };
+        let trailing = Span::new(child_span.end, span.end - 1);
+        let tail_end = comments
+            .tail
+            .partition_point(|comment| comment.span.end <= trailing.end);
+        let trailing_suppression =
+            self.trailing_suppression_from_comments(trailing, &comments.tail[..tail_end], true);
+        let trailing_binding = match trailing_suppression {
+            None => CommentBinding::Unbound,
+            Some(_) => CommentBinding::BoundTo(child_span),
+        };
+        // Inline trailing suppression can own the complete source pair.
+        let inline = matches!(trailing_suppression, Some(TrailingSuppression::Inline));
+        if inline
+            && (matches!(context.position, ExpressionPosition::Statement)
+                || context.tail_owner == TailOwner::ParentOperation
+                || self.expression_needs_parentheses(
+                    self.ast.expr_data(child),
+                    context.position,
+                    ContentMode::Verbatim,
+                ) == Some(true))
+        {
+            return SourceParenthesesChoice::Verbatim;
+        }
+        if context.content_mode == ContentMode::Formatted && self.has_suppression {
+            context.content_mode = if trailing_suppression.is_some() {
+                ContentMode::Verbatim
+            } else {
+                self.content_mode(comments.head)
+            };
+        }
+        if self.parenthesis_has_type_cast(span.start) {
+            return SourceParenthesesChoice::Retained {
+                kind: RetainedParentheses::Cast,
+                mode: context.content_mode,
+            };
+        }
+        if matches!(context.position, ExpressionPosition::ConditionalTest)
+            && matches!(
+                self.ast.expr_data(child),
+                ExprData::ConditionalExpression(_)
+            )
+        {
+            return SourceParenthesesChoice::Retained {
+                kind: RetainedParentheses::Operand,
+                mode: context.content_mode,
+            };
+        }
+        let ignored_child =
+            self.ignored_parentheses_child_with_comments(child, context.content_mode, comments);
+        if let Some(ignored) = ignored_child
+            && (!trailing_binding.allows_relocation(None)
+                && context.tail_owner == TailOwner::ParentOperation
+                || self.ignored_operand_owns_operation_head(ignored, context.position)
+                || matches!(
+                    context.position,
+                    ExpressionPosition::Statement
+                        | ExpressionPosition::UnaryArgument(_)
+                        | ExpressionPosition::MemberObject(_)
+                        | ExpressionPosition::MemberAssignmentObject
+                        | ExpressionPosition::CallCallee { .. }
+                        | ExpressionPosition::NewCallee
+                        | ExpressionPosition::ArrowBody
+                        | ExpressionPosition::RestrictedArgument
+                        | ExpressionPosition::YieldArgument
+                        | ExpressionPosition::AwaitArgument
+                )
+                || context.expression_start == ExpressionStart::ArrowBody
+                || self.parentheses_separate_diagnostic_lines(boundary)
+                || self
+                    .expression_needs_parentheses(
+                        self.ast.expr_data(child),
+                        context.position,
+                        ContentMode::Verbatim,
+                    )
+                    .is_none())
+        {
+            return SourceParenthesesChoice::Retained {
+                kind: RetainedParentheses::Operand,
+                mode: ContentMode::Verbatim,
+            };
+        }
+        SourceParenthesesChoice::Content {
+            mode: context.content_mode,
+            ignored_child,
+        }
+    }
+
+    /// Only the real property printer may expose a removable ignored child's layout.
+    pub(super) fn property_rhs_content(
+        &self,
+        content: &ExpressionContent,
+        mode: ContentMode,
+    ) -> ExprData {
+        if !self.has_suppression || !matches!(content.data, ExprData::ParenthesizedExpression(_)) {
+            return content.data;
+        }
+        let mut data = content.data;
+        let mut context =
+            ExpressionContext::at(ExpressionPosition::PropertyValue).with_content_mode(mode);
+        while let ExprData::ParenthesizedExpression(parenthesized) = data {
+            if context.content_mode == ContentMode::Verbatim
+                && !self.verbatim_parentheses_are_removable(parenthesized, context.position)
+            {
+                break;
+            }
+            let SourceParenthesesChoice::Content {
+                mode,
+                ignored_child: Some(child),
+            } = self.source_parentheses_choice(parenthesized, context)
+            else {
+                break;
+            };
+            context.content_mode = mode;
+            data = self.ast.expr_data(child);
+        }
+        data
     }
 
     pub(super) fn format_source_parentheses(
@@ -1182,121 +1375,39 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let span = parenthesized.span(self.ast);
-        let child = parenthesized.expression(self.ast);
-        let child_span = child.span(self.ast);
-        let trailing = Span::new(child_span.end, span.end - 1);
-        let trailing_suppression = self.trailing_suppression(trailing, true);
-        let trailing_binding = match trailing_suppression {
-            None => CommentBinding::Unbound,
-            Some(_) => CommentBinding::BoundTo(child_span),
-        };
-        // An inline trailing ignore keeps the existing whole-pair verbatim
-        // behavior. Own-line binding is carried to source-pair retention below.
-        let inline = matches!(trailing_suppression, Some(TrailingSuppression::Inline));
-        if inline
-            && (matches!(context.position, ExpressionPosition::Statement)
-                || context.tail_owner == TailOwner::ParentOperation
-                || self.expression_needs_parentheses(
-                    self.ast.expr_data(child),
-                    context.position,
-                    ContentMode::Verbatim,
-                ) == Some(true))
-        {
-            self.format_verbatim_expression(
-                Expr::ParenthesizedExpression(parenthesized),
-                context,
-                writer,
-            )?;
-            if let Some(owner) = array_comments {
-                owner.finish_source(self, span.end);
+        let choice = self.source_parentheses_choice(parenthesized, context);
+        let ignored_child = match choice {
+            SourceParenthesesChoice::Verbatim => {
+                self.format_verbatim_expression(
+                    Expr::ParenthesizedExpression(parenthesized),
+                    context,
+                    writer,
+                )?;
+                if let Some(owner) = array_comments {
+                    owner.finish_source(self, span.end);
+                }
+                return Ok(None);
             }
-            return Ok(None);
-        }
-        let boundary = SourceParentheses {
-            outer: span,
-            inner: child_span,
-            inner_target: ParenthesisInner::Expression(child),
+            SourceParenthesesChoice::Retained { kind, mode } => {
+                return self.format_retained_parentheses_with_array_comments(
+                    parenthesized,
+                    context.with_content_mode(mode),
+                    kind,
+                    array_comments,
+                    writer,
+                );
+            }
+            SourceParenthesesChoice::Content {
+                mode,
+                ignored_child,
+            } => {
+                context.content_mode = mode;
+                ignored_child
+            }
         };
-        if context.content_mode == ContentMode::Formatted && self.has_suppression {
-            context.content_mode = if trailing_suppression.is_some() {
-                ContentMode::Verbatim
-            } else {
-                let leading = self
-                    .comments
-                    .in_range(Span::new(boundary.outer.start, boundary.inner.start));
-                self.content_mode(leading)
-            };
-        }
-        if self.parenthesis_has_type_cast(span.start) {
-            return self.format_retained_parentheses_with_array_comments(
-                parenthesized,
-                context,
-                RetainedParentheses::Cast,
-                array_comments,
-                writer,
-            );
-        }
-        if matches!(context.position, ExpressionPosition::ConditionalTest)
-            && matches!(
-                self.ast.expr_data(child),
-                ExprData::ConditionalExpression(_)
-            )
-        {
-            return self.format_retained_parentheses_with_array_comments(
-                parenthesized,
-                context,
-                RetainedParentheses::Operand,
-                array_comments,
-                writer,
-            );
-        }
         let content = prepared.unwrap_or_else(|| {
             self.expression_content(Expr::ParenthesizedExpression(parenthesized))
         });
-        let ignored_child = if context.content_mode == ContentMode::Verbatim {
-            self.ignored_parentheses_child(parenthesized, context.content_mode)
-        } else {
-            None
-        };
-        if let Some(ignored) = ignored_child
-            && (!trailing_binding.allows_relocation(None)
-                && context.tail_owner == TailOwner::ParentOperation
-                || self.ignored_operand_owns_operation_head(ignored, context.position)
-                || matches!(
-                    context.position,
-                    ExpressionPosition::Statement
-                        | ExpressionPosition::UnaryArgument(_)
-                        | ExpressionPosition::MemberObject(_)
-                        | ExpressionPosition::MemberAssignmentObject
-                        | ExpressionPosition::CallCallee { .. }
-                        | ExpressionPosition::NewCallee
-                        | ExpressionPosition::ArrowBody
-                        | ExpressionPosition::RestrictedArgument
-                        | ExpressionPosition::YieldArgument
-                        | ExpressionPosition::AwaitArgument
-                )
-                || context.expression_start == ExpressionStart::ArrowBody
-                || self.parentheses_separate_diagnostic_lines(SourceParentheses {
-                    outer: span,
-                    inner: child_span,
-                    inner_target: ParenthesisInner::Expression(child),
-                })
-                || self
-                    .expression_needs_parentheses(
-                        self.ast.expr_data(child),
-                        context.position,
-                        ContentMode::Verbatim,
-                    )
-                    .is_none())
-        {
-            return self.format_retained_parentheses_with_array_comments(
-                parenthesized,
-                context.with_content_mode(ContentMode::Verbatim),
-                RetainedParentheses::Operand,
-                array_comments,
-                writer,
-            );
-        }
         if ignored_child.is_none()
             && content.expression == Expr::ParenthesizedExpression(parenthesized)
         {

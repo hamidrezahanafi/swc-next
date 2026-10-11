@@ -7,8 +7,7 @@ source: crates/swc_ecma_formatter/tests/fixtures/mod.rs
 {"printWidth":20}
 ---------- Output ----------
 ({
-  key:
-    /* prettier-ignore */ (eval)("probe"),
+  key: /* prettier-ignore */ (eval)("probe"),
 });
 
 ---------- Options ----------
@@ -20,6 +19,5 @@ source: crates/swc_ecma_formatter/tests/fixtures/mod.rs
 {"printWidth":20,"semi":false}
 ---------- Output ----------
 ;({
-  key:
-    /* prettier-ignore */ (eval)("probe"),
+  key: /* prettier-ignore */ (eval)("probe"),
 })

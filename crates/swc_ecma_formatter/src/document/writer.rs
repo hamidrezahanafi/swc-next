@@ -306,6 +306,16 @@ impl<'a> Writer<'a> {
         result
     }
 
+    /// Writes once and measures only appended instructions; the slice never escapes.
+    pub(crate) fn write_with_clean_text_width<E>(
+        &mut self,
+        write: impl FnOnce(&mut Self) -> Result<(), E>,
+    ) -> Result<Option<usize>, E> {
+        let start = self.elements.len();
+        write(self)?;
+        Ok(super::clean_text_width(&self.elements[start..]))
+    }
+
     /// Syntax is consumed once; only completed documents are retained.
     pub(crate) fn record_with_value<T, E>(
         &mut self,

@@ -267,9 +267,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if !self.has_suppression {
             return None;
         }
+        self.trailing_suppression_from_comments(span, self.comments.in_range(span), terminal)
+    }
+
+    pub(super) fn trailing_suppression_from_comments(
+        &self,
+        span: Span,
+        comments: &[Comment],
+        terminal: bool,
+    ) -> Option<TrailingSuppression> {
+        if !self.has_suppression {
+            return None;
+        }
         let mut previous = span.start;
         let mut position = TrailingSuppression::Inline;
-        for comment in self.comments.in_range(span) {
+        for comment in comments {
             let gap = self.source(Span::new(previous, comment.span.start));
             if !gap.chars().all(is_source_whitespace) {
                 break;

@@ -230,9 +230,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ExpressionContext::at(ExpressionPosition::AssignmentRight(parent))
                     .with_content_mode(boundary.mode)
                     .with_tail_owner(context.tail_owner);
-            if boundary.mode == ContentMode::Formatted
-                && matches!(data, ExprData::ConditionalExpression(_))
-            {
+            if right_context.is_formatted_conditional_rhs(data) {
                 let operand_indent = match layout {
                     AssignmentLayout::Ordinary(rhs_layout) => rhs_layout.operand_indent(),
                     AssignmentLayout::OperatorLine | AssignmentLayout::ChainTail => {
@@ -586,14 +584,6 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .first()
             .map_or(boundary.right_start, |comment| comment.span.start);
         self.property_rhs_layout(data, prefix_start, false)
-    }
-
-    pub(in crate::formatter) fn assignment_right_breaks_after_operator(
-        &self,
-        data: ExprData,
-    ) -> bool {
-        self.assignment_right_fluid_content(data)
-            .is_none_or(|content| matches!(content.data, ExprData::StringLiteral(_)))
     }
 
     pub(in crate::formatter) fn property_rhs_layout(

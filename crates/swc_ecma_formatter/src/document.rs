@@ -149,9 +149,64 @@ impl<'a> RecordedGroup<'a> {
     }
 }
 
+fn clean_text_width(elements: &[FormatElement<'_>]) -> Option<usize> {
+    let mut width = 0;
+    let mut ascii_width = Some(0usize);
+    let mut pending_space = false;
+    add_clean_text_width(elements, &mut width, &mut ascii_width, &mut pending_space)?;
+    // The ASCII path applies to the complete joined text, including DEL.
+    Some(
+        ascii_width
+            .unwrap_or(width)
+            .saturating_add(usize::from(pending_space)),
+    )
+}
+
+fn add_clean_text_width(
+    elements: &[FormatElement<'_>],
+    width: &mut usize,
+    ascii_width: &mut Option<usize>,
+    pending_space: &mut bool,
+) -> Option<()> {
+    for element in elements {
+        match *element {
+            FormatElement::Text(text) => {
+                let text_width = text.clean_width()?;
+                let gap = usize::from(*pending_space);
+                *width = width.saturating_add(gap).saturating_add(text_width);
+                *ascii_width = match (*ascii_width, text.clean_ascii_width()) {
+                    (Some(width), Some(text_width)) => {
+                        Some(width.saturating_add(gap).saturating_add(text_width))
+                    }
+                    _ => None,
+                };
+                *pending_space = false;
+            }
+            FormatElement::Space(_) => *pending_space = true,
+            FormatElement::Fragment(fragment)
+            | FormatElement::FlatFragment(FlatFragment(fragment)) => {
+                if fragment.effect.preferred_breaks() || fragment.conditional_lines {
+                    return None;
+                }
+                add_clean_text_width(fragment.elements, width, ascii_width, pending_space)?;
+            }
+            _ => return None,
+        }
+    }
+    Some(())
+}
+
 impl<'a> Fragment<'a> {
     pub(crate) fn preferred_breaks(self) -> bool {
         self.effect.preferred_breaks()
+    }
+
+    /// Width of a document that reduces to text without observing layout scopes.
+    pub(crate) fn clean_text_width(self) -> Option<usize> {
+        if self.effect.preferred_breaks() || self.conditional_lines {
+            return None;
+        }
+        clean_text_width(self.elements)
     }
 
     /// Measures this complete scope without changing its retained render view.

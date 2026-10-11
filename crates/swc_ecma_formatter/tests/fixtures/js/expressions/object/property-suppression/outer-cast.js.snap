@@ -7,10 +7,9 @@ source: crates/swc_ecma_formatter/tests/fixtures/mod.rs
 {"printWidth":20}
 ---------- Output ----------
 ({
-  key:
-    /** @type {number} */ (
-      /* prettier-ignore */ value  +  other
-    ),
+  key: /** @type {number} */ (
+    /* prettier-ignore */ value  +  other
+  ),
 });
 
 ---------- Options ----------
@@ -22,8 +21,7 @@ source: crates/swc_ecma_formatter/tests/fixtures/mod.rs
 {"printWidth":20,"semi":false}
 ---------- Output ----------
 ;({
-  key:
-    /** @type {number} */ (
-      /* prettier-ignore */ value  +  other
-    ),
+  key: /** @type {number} */ (
+    /* prettier-ignore */ value  +  other
+  ),
 })

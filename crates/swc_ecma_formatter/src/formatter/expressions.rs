@@ -279,6 +279,11 @@ impl ExpressionContext {
         }
     }
 
+    pub(super) fn is_formatted_conditional_rhs(&self, data: ExprData) -> bool {
+        self.content_mode == ContentMode::Formatted
+            && matches!(data, ExprData::ConditionalExpression(_))
+    }
+
     pub(super) fn with_operand_indent(mut self, owner: OperandIndent) -> Self {
         self.operand_indent = owner;
         self
@@ -439,31 +444,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 return Ok(None);
             }
             if let ExprData::ParenthesizedExpression(parenthesized) = self.ast.expr_data(expression)
-                && !matches!(context.position, ExpressionPosition::Statement)
+                && self.verbatim_parentheses_are_removable(parenthesized, context.position)
             {
-                let child = parenthesized.expression(self.ast);
-                let child_span = child.span(self.ast);
-                let boundary = parentheses::SourceParentheses {
-                    outer: span,
-                    inner: child_span,
-                    inner_target: parentheses::ParenthesisInner::Expression(child),
-                };
-                if self.parentheses_are_removable(boundary)
-                    && self.expression_needs_parentheses(
-                        self.ast.expr_data(child),
-                        context.position,
-                        ContentMode::Verbatim,
-                    ) == Some(false)
-                {
-                    let context = context.with_content_mode(ContentMode::Verbatim);
-                    return self.format_source_parentheses_prepared(
-                        parenthesized,
-                        prepared,
-                        context,
-                        array_comments,
-                        writer,
-                    );
-                }
+                return self.format_source_parentheses_prepared(
+                    parenthesized,
+                    prepared,
+                    context,
+                    array_comments,
+                    writer,
+                );
             }
             self.format_verbatim_expression(expression, context, writer)?;
             if let Some(owner) = array_comments {

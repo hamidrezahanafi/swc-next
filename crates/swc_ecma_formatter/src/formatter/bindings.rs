@@ -2,8 +2,8 @@
 
 use swc_next_ecma_ast::{
     ArrayPattern, Ast, BindingPattern, BindingPatternData, BindingProperty, Comment, CommentKind,
-    Expr, ExprData, FormalParameterPattern, FormalParameterPatternData, GetSpan, ObjectPattern,
-    Span, TsEnumMemberName, TsTypeAnnotation,
+    Expr, FormalParameterPattern, FormalParameterPatternData, GetSpan, ObjectPattern, Span,
+    TsEnumMemberName, TsTypeAnnotation,
 };
 
 use super::Formatter;
@@ -556,7 +556,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         let mut context = context.with_content_mode(boundary.mode);
         if let Some(content) = &content
-            && matches!(content.data, ExprData::ConditionalExpression(_))
+            && context.is_formatted_conditional_rhs(content.data)
         {
             context = context.with_operand_indent(rhs_layout.operand_indent());
         }

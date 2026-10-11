@@ -20,9 +20,7 @@ number | string {
 {"printWidth":20}
 ---------- Output ----------
 class Result {
-  static [
-    "value"
-  ]():
+  static ["value"]():
 /* prettier-ignore */
 number | string {
     return 1;
@@ -33,9 +31,7 @@ number | string {
 {"arrowParens":"avoid","printWidth":20,"semi":false,"trailingComma":"none"}
 ---------- Output ----------
 class Result {
-  static [
-    "value"
-  ]():
+  static ["value"]():
 /* prettier-ignore */
 number | string {
     return 1
@@ -46,9 +42,7 @@ number | string {
 {"endOfLine":"crlf","printWidth":20}
 ---------- Output ----------
 class Result {
-  static [
-    "value"
-  ]():
+  static ["value"]():
 /* prettier-ignore */
 number | string {
     return 1;

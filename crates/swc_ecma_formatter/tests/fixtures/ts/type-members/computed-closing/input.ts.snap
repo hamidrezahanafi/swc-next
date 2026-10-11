@@ -20,9 +20,7 @@ type T = {
 {"printWidth":1,"semi":false}
 ---------- Output ----------
 type T = {
-  [
-    get
-  ]
+  [get]
   foo(): X
 }
 
