@@ -361,8 +361,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             body_start,
         ));
         // Whole binding Source includes its annotation and does not prepare a type.
-        let binding =
-            self.prepare_annotated_binding(pattern, span, None, Some(annotation), mode)?;
+        let binding = self.prepare_annotated_binding(
+            pattern,
+            span,
+            None,
+            Some(annotation),
+            crate::formatter::types::generics::TypeArgumentOwner::Ordinary,
+            mode,
+        )?;
         Ok(AnnotatedCatchBinding {
             binding,
             head,

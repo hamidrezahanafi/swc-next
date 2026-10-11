@@ -11,17 +11,15 @@ result = new (make()<number>).Box(value);
 {"printWidth":20}
 ---------- Output ----------
 result =
-  new (make()<
-    number
-  >).Box(value);
+  new (make()<number>).Box(
+    value,
+  );
 
 ---------- Options ----------
 {"printWidth":1,"semi":false}
 ---------- Output ----------
 result =
-  new (make()<
-    number
-  >).Box(
+  new (make()<number>).Box(
     value,
   )
 
@@ -29,6 +27,6 @@ result =
 {"endOfLine":"crlf","printWidth":20,"useTabs":true}
 ---------- Output ----------
 result =
-	new (make()<
-		number
-	>).Box(value);
+	new (make()<number>).Box(
+		value,
+	);

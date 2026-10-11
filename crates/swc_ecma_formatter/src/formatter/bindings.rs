@@ -15,6 +15,7 @@ use super::expressions::targets::{PreparedTarget, SimpleTarget};
 use super::expressions::{ExpressionContext, ExpressionPosition};
 use super::suppression::{ContentMode, SuppressionPosition};
 use super::types::PreparedBindingAnnotation;
+use super::types::generics::TypeArgumentOwner;
 use crate::{FormatError, TrailingCommas, document::Writer};
 
 pub(super) struct PreparedAnnotatedBinding<'ast> {
@@ -197,6 +198,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         span: Span,
         definite: Option<DefiniteMarker>,
         annotation: Option<TsTypeAnnotation>,
+        type_argument_owner: TypeArgumentOwner,
         mode: ContentMode,
     ) -> Result<PreparedAnnotatedBinding<'ast>, FormatError> {
         if mode == ContentMode::Verbatim {
@@ -207,7 +209,11 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
         let annotation = annotation
             .map(|annotation| {
-                self.prepare_binding_annotation_content(pattern.span(self.ast).end, annotation)
+                self.prepare_binding_annotation_content(
+                    pattern.span(self.ast).end,
+                    annotation,
+                    type_argument_owner,
+                )
             })
             .transpose()?;
         Ok(PreparedAnnotatedBinding {

@@ -17,9 +17,7 @@ const joinedTyped = <ns.Box<number> value={tag<number>`raw ${value + 1}`} />;
 {"printWidth":20}
 ---------- Output ----------
 const a1 = (
-  <ns.Box<
-    string
-  > value="ok" />
+  <ns.Box<string> value="ok" />
 );
 const b1 = (
   <ns.Box<number>
@@ -29,9 +27,7 @@ const b1 = (
   </ns.Box>
 );
 const a2 = (
-  <ns.Box /* name */<
-    /* arg */ string /* close */
-  >
+  <ns.Box /* name */</* arg */ string /* close */>
     value={x}
   />
 );
@@ -39,9 +35,7 @@ const joinedTyped =
   (
     <ns.Box<number>
       value={
-        tag<
-          number
-        >`raw ${
+        tag<number>`raw ${
           value + 1
         }`
       }

@@ -1316,12 +1316,21 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         content: &ExpressionContent,
         mode: ContentMode,
     ) -> ExprData {
+        let context =
+            ExpressionContext::at(ExpressionPosition::PropertyValue).with_content_mode(mode);
+        self.source_parentheses_rhs_content(content, context)
+    }
+
+    /// An RHS owner shares the source pair's actual emission decision with its printer.
+    pub(in crate::formatter) fn source_parentheses_rhs_content(
+        &self,
+        content: &ExpressionContent,
+        mut context: ExpressionContext,
+    ) -> ExprData {
         if !self.has_suppression || !matches!(content.data, ExprData::ParenthesizedExpression(_)) {
             return content.data;
         }
         let mut data = content.data;
-        let mut context =
-            ExpressionContext::at(ExpressionPosition::PropertyValue).with_content_mode(mode);
         while let ExprData::ParenthesizedExpression(parenthesized) = data {
             if context.content_mode == ContentMode::Verbatim
                 && !self.verbatim_parentheses_are_removable(parenthesized, context.position)

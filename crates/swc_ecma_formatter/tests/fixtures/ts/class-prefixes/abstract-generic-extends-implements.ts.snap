@@ -32,6 +32,4 @@ abstract class A<
 >
   extends Base<T>
   implements I {}
-class B extends A<
-  number
-> {}
+class B extends A<number> {}

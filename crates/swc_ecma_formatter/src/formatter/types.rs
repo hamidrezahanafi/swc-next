@@ -15,13 +15,14 @@ mod templates;
 mod tuple;
 
 use swc_next_ecma_ast::{
-    BindingIdentifier, Comment, CommentKind, ExprData, GetSpan, Span, TsLiteralData,
-    TsParenthesizedType, TsQualifiedName, TsQualifiedNameLeft, TsQualifiedNameLeftData, TsType,
-    TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeData, TsTypeName, TsTypeNameData,
-    UnaryOperator, VariableDeclarator,
+    BindingIdentifier, BindingPatternData, Comment, CommentKind, ExprData, GetSpan, Span,
+    TsLiteralData, TsParenthesizedType, TsQualifiedName, TsQualifiedNameLeft,
+    TsQualifiedNameLeftData, TsType, TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeData,
+    TsTypeName, TsTypeNameData, UnaryOperator, VariableDeclarator,
 };
 
 pub(super) use self::context::TypeContext;
+use self::generics::TypeArgumentOwner;
 pub(in crate::formatter) use self::members::PreparedIndexSignature;
 use super::Formatter;
 use super::bindings::{BindingGroup, BindingInitializerOwner, DefiniteMarker, InitializerLayout};
@@ -132,6 +133,7 @@ pub(super) struct PreparedBindingAnnotation<'ast> {
     colon: u32,
     prefix: BindingAnnotationPrefix<'ast>,
     content: AnnotationContent,
+    type_argument_owner: TypeArgumentOwner,
 }
 
 enum BindingAnnotationPrefix<'ast> {
@@ -1498,6 +1500,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &self,
         preceding_end: u32,
         annotation: TsTypeAnnotation,
+        type_argument_owner: TypeArgumentOwner,
     ) -> Result<PreparedBindingAnnotation<'ast>, FormatError> {
         let node = annotation.type_annotation(self.ast);
         let gap = Span::new(preceding_end, node.span(self.ast).start);
@@ -1563,6 +1566,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             colon,
             prefix,
             content,
+            type_argument_owner,
         })
     }
 
@@ -1634,6 +1638,24 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                             self.type_movable_head(node, TypeContext::Root)
                         };
                         before.write(writer, FlatSeparator::Space, Writer::space);
+                        if annotation.type_argument_owner
+                            == TypeArgumentOwner::ArrowVariableAnnotation
+                        {
+                            let recorded = self.record_type_head(
+                                compound::PreparedTypeContent::Type(node),
+                                boundary.comments(),
+                                node.node.span(self.ast).start,
+                                leading_head,
+                                TypeContext::Root,
+                                writer,
+                            )?;
+                            return self.format_recorded_binding_annotation_head(
+                                recorded,
+                                annotation.type_argument_owner,
+                                TypeLayout::Root,
+                                writer,
+                            );
+                        }
                         return self.format_prepared_type_with_caller_head(
                             node,
                             leading_head,
@@ -1650,7 +1672,82 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 TypeLayout::Root
             }
         };
-        self.format_annotation_type_content_with_layout(annotation.content, layout, writer)
+        self.format_binding_annotation_type_content(
+            annotation.content,
+            annotation.type_argument_owner,
+            layout,
+            writer,
+        )
+    }
+
+    fn format_binding_annotation_type_content(
+        &mut self,
+        content: AnnotationContent,
+        owner: TypeArgumentOwner,
+        layout: TypeLayout,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        if owner == TypeArgumentOwner::ArrowVariableAnnotation
+            && let AnnotationContent::Formatted(node) = content
+            && node.source_owner.is_none()
+            && match node.data {
+                TsTypeData::TsTypeReference(_) | TsTypeData::TsParenthesizedType(_) => true,
+                TsTypeData::TsUnionType(union) => union.types(self.ast).len() == 1,
+                TsTypeData::TsIntersectionType(intersection) => {
+                    intersection.types(self.ast).len() == 1
+                }
+                _ => false,
+            }
+        {
+            let content = if matches!(node.data, TsTypeData::TsTypeReference(_)) {
+                compound::PreparedTypeContent::Type(node)
+            } else {
+                self.format_movable_type_head(
+                    node,
+                    &[],
+                    node.node.span(self.ast).start,
+                    None,
+                    TypeContext::Root,
+                    writer,
+                )?
+            };
+            return self.format_binding_annotation_root(content, owner, layout, writer);
+        }
+        self.format_annotation_type_content_with_layout(content, layout, writer)
+    }
+
+    fn format_recorded_binding_annotation_head(
+        &mut self,
+        recorded: RecordedTypeHead<'ast>,
+        owner: TypeArgumentOwner,
+        layout: TypeLayout,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        if matches!(&recorded.content, compound::PreparedTypeContent::Type(node)
+            if node.source_owner.is_none() && matches!(node.data, TsTypeData::TsTypeReference(_)))
+        {
+            return writer.group(false, |writer| {
+                writer.write_fragment(recorded.head);
+                self.format_binding_annotation_root(recorded.content, owner, layout, writer)
+            });
+        }
+        self.format_recorded_type_head(recorded, TypeContext::Root, layout, writer)
+    }
+
+    fn format_binding_annotation_root(
+        &mut self,
+        content: compound::PreparedTypeContent<'ast>,
+        owner: TypeArgumentOwner,
+        layout: TypeLayout,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        if let compound::PreparedTypeContent::Type(node) = &content
+            && node.source_owner.is_none()
+            && let TsTypeData::TsTypeReference(reference) = node.data
+        {
+            return self.format_type_reference_with_owner(reference, owner, writer);
+        }
+        self.format_prepared_type_content(content, TypeContext::Root, layout, writer)
     }
 
     pub(super) fn format_annotation_content(
@@ -1744,6 +1841,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 owner,
                 definite,
                 annotation,
+                TypeArgumentOwner::Ordinary,
                 ContentMode::Formatted,
             )?;
             let group = self.declaration_binding_group(pattern);
@@ -1789,7 +1887,24 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
             }
         }
-        let (group, layout) = if left_mode == ContentMode::Verbatim
+        let context = if context == VariableContext::ForInitializer {
+            self.for_initializer_context(right)
+        } else {
+            ExpressionContext::variable_initializer()
+        };
+        let is_identifier_annotation = annotation.is_some()
+            && matches!(
+                ast.binding_pattern_data(pattern),
+                BindingPatternData::BindingIdentifier(_)
+            );
+        let annotation_owner = |data| {
+            if is_identifier_annotation && matches!(data, ExprData::ArrowFunctionExpression(_)) {
+                TypeArgumentOwner::ArrowVariableAnnotation
+            } else {
+                TypeArgumentOwner::Ordinary
+            }
+        };
+        let (group, layout, type_argument_owner) = if left_mode == ContentMode::Verbatim
             || right_mode == ContentMode::Verbatim
         {
             let group = if left_mode == ContentMode::Formatted {
@@ -1797,11 +1912,35 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             } else {
                 BindingGroup::Auto
             };
-            (group, InitializerLayout::Bound { gap, right_mode })
+            let type_argument_owner =
+                if left_mode == ContentMode::Formatted && is_identifier_annotation {
+                    let content = self.expression_content(right);
+                    let data = self.source_parentheses_rhs_content(
+                        &content,
+                        context.with_content_mode(right_mode),
+                    );
+                    annotation_owner(data)
+                } else {
+                    TypeArgumentOwner::Ordinary
+                };
+            (
+                group,
+                InitializerLayout::Bound { gap, right_mode },
+                type_argument_owner,
+            )
         } else {
             let content = self.expression_content(right);
             let boundary =
                 self.assignment_boundary(left_end, &content, Span::new(operator, operator + 1))?;
+            let data = if is_identifier_annotation {
+                self.source_parentheses_rhs_content(
+                    &content,
+                    context.with_content_mode(boundary.mode),
+                )
+            } else {
+                content.data
+            };
+            let type_argument_owner = annotation_owner(data);
             let rhs_layout = self.ordinary_rhs_layout(content.data, &boundary);
             let (group, rhs_layout) = self.binding_initializer_layout(
                 pattern,
@@ -1816,6 +1955,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     boundary,
                     rhs_layout,
                 },
+                type_argument_owner,
             )
         };
         group.with_initializer_group(writer, |writer| {
@@ -1830,16 +1970,12 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     owner,
                     definite,
                     annotation,
+                    type_argument_owner,
                     ContentMode::Formatted,
                 )?;
                 let tail = self.format_annotated_binding(binding, group, writer)?;
                 self.format_expression_tail(tail, writer)?;
             }
-            let context = if context == VariableContext::ForInitializer {
-                self.for_initializer_context(right)
-            } else {
-                ExpressionContext::variable_initializer()
-            };
             self.format_initializer_right(left_end, right, layout, context, writer)
         })
     }

@@ -18,6 +18,4 @@ class Derived extends /* prettier-ignore */ ns . Base<number> {}
 class Base<T> {}
 const ns = { Base };
 class Derived
-  extends /* prettier-ignore */ ns . Base<
-    number
-  > {}
+  extends /* prettier-ignore */ ns . Base<number> {}

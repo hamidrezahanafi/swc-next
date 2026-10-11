@@ -31,9 +31,7 @@ type Signatures = {
     T,
   >(
     value: T,
-  ): Box<
-    T
-  >
+  ): Box<T>
 }
 
 ---------- Options ----------

@@ -2,8 +2,9 @@
 
 use swc_next_ecma_ast::{
     Ast, BindingIdentifier, ClassBody, CommentKind, FunctionBody, GetSpan, ObjectExpression, Span,
-    TemplateElement, TsMappedType, TsType, TsTypeData, TsTypeLiteral, TsTypeParameter,
-    TsTypeParameterDeclaration, TsTypeParameterInstantiation, TsTypeReference, Visit, VisitWith,
+    TemplateElement, TsLiteralData, TsMappedType, TsType, TsTypeData, TsTypeLiteral,
+    TsTypeParameter, TsTypeParameterDeclaration, TsTypeParameterInstantiation, TsTypeReference,
+    UnaryOperator, Visit, VisitWith,
 };
 
 use super::{Formatter, PreparedType, TypeBoundary, TypeBoundaryTarget, TypeContext, TypeLayout};
@@ -23,6 +24,12 @@ pub(in crate::formatter) enum TypeListKind {
     Parameters { has_left_owner: bool },
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(in crate::formatter) enum TypeArgumentOwner {
+    Ordinary,
+    ArrowVariableAnnotation,
+}
+
 #[derive(Clone, Copy)]
 pub(in crate::formatter) enum TypeParameterContext {
     TypeDeclaration,
@@ -33,14 +40,14 @@ pub(in crate::formatter) enum TypeParameterContext {
 
 #[derive(Clone, Copy)]
 enum TypeList {
-    Arguments(TsTypeParameterInstantiation),
+    Arguments(TsTypeParameterInstantiation, TypeArgumentOwner),
     Parameters(TsTypeParameterDeclaration),
 }
 
 impl TypeList {
     fn span(self, ast: &swc_next_ecma_ast::Ast<'_>) -> Span {
         match self {
-            Self::Arguments(node) => node.span(ast),
+            Self::Arguments(node, _) => node.span(ast),
             Self::Parameters(node) => node.span(ast),
         }
     }
@@ -259,6 +266,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         node: TsTypeReference,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_type_reference_with_owner(node, TypeArgumentOwner::Ordinary, writer)
+    }
+
+    pub(super) fn format_type_reference_with_owner(
+        &mut self,
+        node: TsTypeReference,
+        owner: TypeArgumentOwner,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
         let ast = self.ast;
         let name = node.type_name(ast);
         let arguments = node.type_arguments(ast).map(|node| {
@@ -275,7 +291,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if let Some((arguments, prefix)) = arguments {
             let mode = prefix.right_mode;
             self.format_type_list_prefix(prefix, writer)?;
-            self.format_type_arguments(arguments, mode, writer)?;
+            self.format_type_arguments_with_owner(arguments, mode, owner, writer)?;
         }
         Ok(None)
     }
@@ -284,6 +300,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         &mut self,
         node: TsTypeParameterInstantiation,
         mode: ContentMode,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        self.format_type_arguments_with_owner(node, mode, TypeArgumentOwner::Ordinary, writer)
+    }
+
+    fn format_type_arguments_with_owner(
+        &mut self,
+        node: TsTypeParameterInstantiation,
+        mode: ContentMode,
+        owner: TypeArgumentOwner,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         if mode == ContentMode::Verbatim {
@@ -295,7 +321,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .iter()
             .map(|id| GenericMember::Type(ast.get_node_in_sub_range(id)));
         self.format_generic_list(
-            TypeList::Arguments(node),
+            TypeList::Arguments(node, owner),
             members,
             TrailingCommaPolicy::Forbidden,
             writer,
@@ -336,6 +362,47 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         self.format_generic_list(TypeList::Parameters(node), members, tail, writer)
     }
 
+    fn simple_type_argument(&self, data: TsTypeData) -> bool {
+        match data {
+            TsTypeData::TsAnyKeyword(_)
+            | TsTypeData::TsUnknownKeyword(_)
+            | TsTypeData::TsNeverKeyword(_)
+            | TsTypeData::TsVoidKeyword(_)
+            | TsTypeData::TsNullKeyword(_)
+            | TsTypeData::TsUndefinedKeyword(_)
+            | TsTypeData::TsStringKeyword(_)
+            | TsTypeData::TsNumberKeyword(_)
+            | TsTypeData::TsBigIntKeyword(_)
+            | TsTypeData::TsBooleanKeyword(_)
+            | TsTypeData::TsSymbolKeyword(_)
+            | TsTypeData::TsObjectKeyword(_)
+            | TsTypeData::TsIntrinsicKeyword(_)
+            | TsTypeData::TsThisType(_)
+            | TsTypeData::TsTemplateLiteralType(_) => true,
+            TsTypeData::TsTypeReference(reference) => reference.type_arguments(self.ast).is_none(),
+            TsTypeData::TsLiteralType(literal) => {
+                match self.ast.ts_literal_data(literal.literal(self.ast)) {
+                    TsLiteralData::StringLiteral(_)
+                    | TsLiteralData::NumericLiteral(_)
+                    | TsLiteralData::BigIntLiteral(_)
+                    | TsLiteralData::BooleanLiteral(_) => true,
+                    TsLiteralData::TemplateLiteral(template) => {
+                        template.expressions(self.ast).is_empty()
+                    }
+                    TsLiteralData::UnaryExpression(unary) => {
+                        unary.operator(self.ast) == UnaryOperator::Negate
+                            && matches!(
+                                self.ast.expr_data(unary.argument(self.ast)),
+                                swc_next_ecma_ast::ExprData::NumericLiteral(_)
+                                    | swc_next_ecma_ast::ExprData::BigIntLiteral(_)
+                            )
+                    }
+                }
+            }
+            _ => false,
+        }
+    }
+
     fn format_generic_list(
         &mut self,
         node: TypeList,
@@ -371,11 +438,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         let mut first_body = None;
         let mut first_packet = None;
-        let hug = if matches!(node, TypeList::Arguments(arguments) if arguments.params(ast).len() == 1)
+        let hug = if matches!(node, TypeList::Arguments(arguments, _) if arguments.params(ast).len() == 1)
             && let Some(GenericMember::Type(first)) = members.peek().copied()
         {
             let prepared =
                 first_type.get_or_insert_with(|| self.prepare_type(first, ContentMode::Formatted));
+            let simple_owner = matches!(node, TypeList::Arguments(_, TypeArgumentOwner::Ordinary));
+            let simple = prepared.source_owner.is_none()
+                && simple_owner
+                && self.simple_type_argument(prepared.data);
             let candidate = prepared.source_owner.is_none()
                 && match prepared.data {
                     TsTypeData::TsTypeLiteral(_)
@@ -385,7 +456,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     TsTypeData::TsIntersectionType(intersection) => {
                         intersection.types(ast).len() == 1
                     }
-                    _ => false,
+                    _ => simple,
                 };
             let first_span = first.span(ast);
             let before = Span::new(content.start, first_span.start);
@@ -457,7 +528,14 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     body.content = normalized;
                     first_packet = Some((item, head));
                 }
-                let hug = body.is_object_type() && head_inline;
+                let simple = matches!(&body.content, super::compound::PreparedTypeContent::Type(node)
+                if node.source_owner.is_none()
+                    && if node.node == prepared.node {
+                        simple
+                    } else {
+                        simple_owner && self.simple_type_argument(node.data)
+                    });
+                let hug = (body.is_object_type() || simple) && head_inline;
                 first_body = Some(body);
                 hug
             } else {

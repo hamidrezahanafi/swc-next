@@ -23,6 +23,4 @@ function choose<
 >() {
   return Base;
 }
-const Derived = class extends choose<
-  string
->()<number> {};
+const Derived = class extends choose<string>()<number> {};

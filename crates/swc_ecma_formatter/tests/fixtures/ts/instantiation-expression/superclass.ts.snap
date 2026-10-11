@@ -10,20 +10,14 @@ class Derived extends (Base<number>) {}
 ---------- Options ----------
 {"printWidth":20}
 ---------- Output ----------
-class Derived extends (Base<
-  number
->) {}
+class Derived extends (Base<number>) {}
 
 ---------- Options ----------
 {"printWidth":1,"semi":false}
 ---------- Output ----------
-class Derived extends (Base<
-  number
->) {}
+class Derived extends (Base<number>) {}
 
 ---------- Options ----------
 {"endOfLine":"crlf","printWidth":20,"useTabs":true}
 ---------- Output ----------
-class Derived extends (Base<
-	number
->) {}
+class Derived extends (Base<number>) {}

@@ -32,9 +32,7 @@ consume()
     "callee",
   )
   return factory
-})()<
-  number
->
+})()<number>
 
 ---------- Options ----------
 {"endOfLine":"crlf","printWidth":20,"useTabs":true}

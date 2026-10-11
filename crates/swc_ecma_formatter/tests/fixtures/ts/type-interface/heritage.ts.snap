@@ -16,12 +16,8 @@ interface LongInterfaceName
 ---------- Output ----------
 interface LongInterfaceName
   extends
-    LongNamespace.FirstBase<
-      string
-    >,
-    OtherNamespace.SecondBase<
-      number
-    > {
+    LongNamespace.FirstBase<string>,
+    OtherNamespace.SecondBase<number> {
   a: 12.0;
 }
 
@@ -30,12 +26,8 @@ interface LongInterfaceName
 ---------- Output ----------
 interface LongInterfaceName
   extends
-    LongNamespace.FirstBase<
-      string
-    >,
-    OtherNamespace.SecondBase<
-      number
-    > {
+    LongNamespace.FirstBase<string>,
+    OtherNamespace.SecondBase<number> {
   a: 12.0
 }
 
@@ -44,11 +36,7 @@ interface LongInterfaceName
 ---------- Output ----------
 interface LongInterfaceName
 	extends
-		LongNamespace.FirstBase<
-			string
-		>,
-		OtherNamespace.SecondBase<
-			number
-		> {
+		LongNamespace.FirstBase<string>,
+		OtherNamespace.SecondBase<number> {
 	a: 12.0;
 }

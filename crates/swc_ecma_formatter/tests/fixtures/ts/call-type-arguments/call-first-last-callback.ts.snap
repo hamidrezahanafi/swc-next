@@ -39,9 +39,7 @@ result = Factory
 ---------- Output ----------
 result =
   Factory
-    .first<
-      number
-    >
+    .first<number>
     // prettier-ignore
     (
       { one :1, two:2 },
@@ -54,9 +52,7 @@ result =
         return next
       },
     )
-    .second<
-      string
-    >(
+    .second<string>(
       other,
     )
 

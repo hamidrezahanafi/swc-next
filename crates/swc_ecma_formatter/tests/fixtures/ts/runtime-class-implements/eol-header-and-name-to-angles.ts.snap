@@ -36,9 +36,7 @@ namespace N {
   }
 }
 class Header<T> // prettier-ignore
-  implements N.I<
-    number
-  >
+  implements N.I<number>
 {
   x = 7;
 }

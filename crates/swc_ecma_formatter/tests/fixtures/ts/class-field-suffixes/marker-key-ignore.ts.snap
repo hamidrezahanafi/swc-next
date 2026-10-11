@@ -16,9 +16,7 @@ class Key {
 class Key {
   [
     first  +  second
-  ] /* prettier-ignore */?: Box<
-    number
-  >
+  ] /* prettier-ignore */?: Box<number>
 }
 
 ---------- Options ----------
@@ -27,7 +25,5 @@ class Key {
 class Key {
 	[
 		first  +  second
-	] /* prettier-ignore */?: Box<
-		number
-	>;
+	] /* prettier-ignore */?: Box<number>;
 }

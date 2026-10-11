@@ -33,9 +33,7 @@ namespace N {
 }
 class C
   // prettier-ignore
-  implements N.I<
-    number
-  >
+  implements N.I<number>
 {
   x = 7;
 }

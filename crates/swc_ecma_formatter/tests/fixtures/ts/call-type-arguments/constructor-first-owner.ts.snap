@@ -14,19 +14,16 @@ result = new Box<number>
 ---------- Options ----------
 {"printWidth":20}
 ---------- Output ----------
-result = new Box<
-  number
->
-// prettier-ignore
-(invoke( 1 ));
+result =
+  new Box<number>
+  // prettier-ignore
+  (invoke( 1 ));
 
 ---------- Options ----------
 {"printWidth":1,"semi":false}
 ---------- Output ----------
 result =
-  new Box<
-    number
-  >
+  new Box<number>
   // prettier-ignore
   (
     invoke( 1 ),
@@ -35,8 +32,7 @@ result =
 ---------- Options ----------
 {"endOfLine":"crlf","printWidth":20,"useTabs":true}
 ---------- Output ----------
-result = new Box<
-	number
->
-// prettier-ignore
-(invoke( 1 ));
+result =
+	new Box<number>
+	// prettier-ignore
+	(invoke( 1 ));

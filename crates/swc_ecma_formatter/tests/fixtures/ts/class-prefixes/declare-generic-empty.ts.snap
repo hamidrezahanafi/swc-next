@@ -16,6 +16,4 @@ type Result = A<number>;
 declare class A<
   T = number,
 > {}
-type Result = A<
-  number
->;
+type Result = A<number>;

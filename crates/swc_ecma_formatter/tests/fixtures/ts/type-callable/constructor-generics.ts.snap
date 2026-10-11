@@ -28,9 +28,7 @@ type C = abstract new <
     string,
 >(
   value: T,
-) => Box<
-  T
->
+) => Box<T>
 
 ---------- Options ----------
 {"endOfLine":"crlf","printWidth":20,"trailingComma":"none","useTabs":true}
