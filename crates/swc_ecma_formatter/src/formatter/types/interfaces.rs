@@ -187,17 +187,19 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .find_token(gap, comments, "extends")
                 .ok_or_else(|| FormatError::unsupported("interface extends boundary", None, gap))?;
             let keyword = Span::new(keyword, keyword + "extends".len() as u32);
-            let preceding = parameters
-                .as_ref()
-                .map_or(name_span, |parameters| parameters.node.span(ast));
             let prepared = self.prepare_heritage_prefix(
                 gap,
                 keyword,
                 comments,
-                HeritageOwners {
-                    inline_before: preceding,
-                    line_preceding: preceding,
-                    line_decorator: None,
+                || {
+                    let preceding = parameters
+                        .as_ref()
+                        .map_or(name_span, |parameters| parameters.node.span(ast));
+                    HeritageOwners {
+                        inline_before: preceding,
+                        line_preceding: preceding,
+                        line_decorator: None,
+                    }
                 },
                 first.span(ast),
             );

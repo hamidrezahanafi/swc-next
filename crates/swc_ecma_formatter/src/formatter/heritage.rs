@@ -78,7 +78,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         gap: Span,
         keyword: Span,
         comments: &'ast [Comment],
-        owners: HeritageOwners,
+        owners: impl FnOnce() -> HeritageOwners,
         first: Span,
     ) -> PreparedHeritagePrefix<'ast> {
         let split = comments.partition_point(|comment| comment.span.end <= keyword.start);
@@ -88,6 +88,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let mut before_suppression = CommentBinding::Unbound;
         let mut after_suppression = CommentBinding::Unbound;
         if self.has_suppression && !comments.is_empty() {
+            let owners = owners();
             let line_owner = owners.line_decorator.map(|node| node.span(self.ast));
             for (_, position) in self.suppressed_comment_runs(before, keyword.start) {
                 let target = if matches!(position, SuppressionPosition::Inline) {

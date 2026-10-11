@@ -500,18 +500,20 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let extends = self
                 .find_token(gap, comments, "extends")
                 .ok_or_else(|| self.unsupported("class extends boundary", class))?;
-            let preceding = parameters
-                .as_ref()
-                .map(|parameters| parameters.node.span(ast))
-                .or_else(|| name.map(|name| name.span(ast)));
             let prepared = self.prepare_heritage_prefix(
                 gap,
                 Span::new(extends, extends + 7),
                 comments,
-                HeritageOwners {
-                    inline_before: preceding.unwrap_or_else(|| expression.span(ast)),
-                    line_preceding: preceding.unwrap_or_else(|| expression.span(ast)),
-                    line_decorator,
+                || {
+                    let preceding = parameters
+                        .as_ref()
+                        .map(|parameters| parameters.node.span(ast))
+                        .or_else(|| name.map(|name| name.span(ast)));
+                    HeritageOwners {
+                        inline_before: preceding.unwrap_or_else(|| expression.span(ast)),
+                        line_preceding: preceding.unwrap_or_else(|| expression.span(ast)),
+                        line_decorator,
+                    }
                 },
                 expression.span(ast),
             );
@@ -570,44 +572,46 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             let keyword = self
                 .find_token(gap, comments, "implements")
                 .ok_or_else(|| self.unsupported("class implements boundary", class))?;
-            let preceding_before = heritage
-                .as_ref()
-                .map(|heritage| {
-                    heritage
-                        .arguments
-                        .as_ref()
-                        .map_or(heritage.expression.span(ast), |arguments| {
-                            arguments.node().span(ast)
-                        })
-                })
-                .or_else(|| {
-                    parameters
-                        .as_ref()
-                        .map(|parameters| parameters.node.span(ast))
-                })
-                .or_else(|| name.map(|name| name.span(ast)));
-            let preceding_after = heritage.as_ref().map_or_else(
-                || {
-                    parameters
-                        .as_ref()
-                        .map(|parameters| parameters.node.span(ast))
-                        .or_else(|| name.map(|name| name.span(ast)))
-                },
-                |heritage| {
-                    heritage
-                        .arguments
-                        .is_none()
-                        .then(|| heritage.expression.span(ast))
-                },
-            );
             let prepared = self.prepare_heritage_prefix(
                 gap,
                 Span::new(keyword, keyword + 10),
                 comments,
-                HeritageOwners {
-                    inline_before: preceding_before.unwrap_or(span),
-                    line_preceding: preceding_after.unwrap_or(span),
-                    line_decorator,
+                || {
+                    let preceding_before = heritage
+                        .as_ref()
+                        .map(|heritage| {
+                            heritage
+                                .arguments
+                                .as_ref()
+                                .map_or(heritage.expression.span(ast), |arguments| {
+                                    arguments.node().span(ast)
+                                })
+                        })
+                        .or_else(|| {
+                            parameters
+                                .as_ref()
+                                .map(|parameters| parameters.node.span(ast))
+                        })
+                        .or_else(|| name.map(|name| name.span(ast)));
+                    let preceding_after = heritage.as_ref().map_or_else(
+                        || {
+                            parameters
+                                .as_ref()
+                                .map(|parameters| parameters.node.span(ast))
+                                .or_else(|| name.map(|name| name.span(ast)))
+                        },
+                        |heritage| {
+                            heritage
+                                .arguments
+                                .is_none()
+                                .then(|| heritage.expression.span(ast))
+                        },
+                    );
+                    HeritageOwners {
+                        inline_before: preceding_before.unwrap_or(span),
+                        line_preceding: preceding_after.unwrap_or(span),
+                        line_decorator,
+                    }
                 },
                 first.span(ast),
             );
