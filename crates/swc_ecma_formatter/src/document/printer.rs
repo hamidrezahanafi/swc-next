@@ -31,9 +31,7 @@ struct GroupState {
 /// Fill entry distances remain valid when a retained scope starts within its backing slice.
 #[derive(Clone, Copy)]
 struct Frame<'a> {
-    elements: &'a [FormatElement<'a>],
-    index: usize,
-    end: usize,
+    remaining: &'a [FormatElement<'a>],
     flat: bool,
     restore_mode: Option<Mode>,
     measurement: Measurement,
@@ -42,26 +40,22 @@ struct Frame<'a> {
 impl<'a> Frame<'a> {
     fn new(elements: &'a [FormatElement<'a>]) -> Self {
         Self {
-            elements,
-            index: 0,
-            end: elements.len(),
+            remaining: elements,
             flat: false,
             restore_mode: None,
             measurement: Measurement::Display,
         }
     }
 
-    fn next(&mut self) -> Option<(usize, FormatElement<'a>)> {
-        while self.index < self.end {
-            let index = self.index;
-            self.index += 1;
-            let element = self.elements[index];
+    fn next(&mut self) -> Option<FormatElement<'a>> {
+        while let Some((&element, remaining)) = self.remaining.split_first() {
+            self.remaining = remaining;
             if self.flat {
                 if let Some(element) = element.flattened() {
-                    return Some((index, element));
+                    return Some(element);
                 }
             } else {
-                return Some((index, element));
+                return Some(element);
             }
         }
         None
@@ -83,7 +77,7 @@ impl<'a> Cursor<'a> {
         };
     }
 
-    fn next(&mut self, mode: &mut Mode) -> Option<(usize, FormatElement<'a>)> {
+    fn next(&mut self, mode: &mut Mode) -> Option<FormatElement<'a>> {
         loop {
             if let Some(element) = self.current.next() {
                 return Some(element);
@@ -119,7 +113,7 @@ impl<'a> ProbeCursor<'a, '_> {
 
     fn next(&mut self, mode: &mut Mode) -> Option<FormatElement<'a>> {
         loop {
-            if let Some((_, element)) = self.current.next() {
+            if let Some(element) = self.current.next() {
                 return Some(element);
             }
             if let Some(restore) = self.current.restore_mode {
@@ -228,7 +222,7 @@ pub(super) fn print(
     };
     let mut fills = Vec::new();
     let mut entries = Vec::new();
-    while let Some((index, element)) = cursor.next(&mut mode) {
+    while let Some(element) = cursor.next(&mut mode) {
         match element {
             FormatElement::Fragment(fragment) => cursor.enter(fragment.elements, false, None),
             FormatElement::FlatFragment(fragment) => cursor.enter(fragment.0.elements, true, None),
@@ -384,7 +378,7 @@ pub(super) fn print(
                 fills.pop().expect("fill scopes must close after opening");
             }
             FormatElement::StartEntry { end_offset } => {
-                let end = index + end_offset;
+                let end = end_offset - 1;
                 let fill = fills.last_mut().expect("entries belong to an active fill");
                 let entry_mode = if fill.separator {
                     fill.separator = false;
@@ -395,11 +389,11 @@ pub(super) fn print(
                         Mode::Flat
                     } else {
                         let separator_start = end + 1;
-                        let next_end = match cursor.current.elements.get(separator_start) {
+                        let next_end = match cursor.current.remaining.get(separator_start) {
                             Some(FormatElement::StartEntry { end_offset }) => {
                                 let separator_end = separator_start + end_offset;
                                 let content_start = separator_end + 1;
-                                match cursor.current.elements.get(content_start) {
+                                match cursor.current.remaining.get(content_start) {
                                     Some(FormatElement::StartEntry { end_offset }) => {
                                         content_start + end_offset
                                     }
@@ -411,8 +405,7 @@ pub(super) fn print(
                         let pair_fits = probe.fits(
                             ProbeRequest {
                                 current: Frame {
-                                    index: index + 1,
-                                    end: next_end,
+                                    remaining: &cursor.current.remaining[..next_end],
                                     restore_mode: None,
                                     ..cursor.current
                                 },
@@ -435,8 +428,7 @@ pub(super) fn print(
                                 && probe.fits(
                                     ProbeRequest {
                                         current: Frame {
-                                            index: index + 1,
-                                            end,
+                                            remaining: &cursor.current.remaining[..end],
                                             restore_mode: None,
                                             ..cursor.current
                                         },
