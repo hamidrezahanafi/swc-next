@@ -1,12 +1,14 @@
 //! Real generic list owners share the item/comma protocol and retain child bindings.
 
 use swc_next_ecma_ast::{
-    BindingIdentifier, CommentKind, GetSpan, Span, TsType, TsTypeParameter,
+    BindingIdentifier, CommentKind, GetSpan, Span, TsType, TsTypeData, TsTypeParameter,
     TsTypeParameterDeclaration, TsTypeParameterInstantiation, TsTypeReference,
 };
 
-use super::{Formatter, PreparedType, TypeBoundary, TypeBoundaryTarget, TypeContext};
-use crate::formatter::comments::{CommentBoundary, CommentRunLayout, ExpressionTail};
+use super::{Formatter, PreparedType, TypeBoundary, TypeBoundaryTarget, TypeContext, TypeLayout};
+use crate::formatter::comments::{
+    CommentBinding, CommentBoundary, CommentRunLayout, ExpressionTail,
+};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::expressions::arguments::{
     ArgumentLayout, FollowingItem, Separator, TrailingCommaPolicy,
@@ -280,14 +282,120 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         } else {
             None
         };
-        writer.group(false, |writer| {
+        let mut first_body = None;
+        let mut first_packet = None;
+        let hug = if matches!(node, TypeList::Arguments(arguments) if arguments.params(ast).len() == 1)
+            && let Some(GenericMember::Type(first)) = members.peek().copied()
+        {
+            let prepared =
+                first_type.get_or_insert_with(|| self.prepare_type(first, ContentMode::Formatted));
+            let candidate = prepared.source_owner.is_none()
+                && match prepared.data {
+                    TsTypeData::TsTypeLiteral(_)
+                    | TsTypeData::TsMappedType(_)
+                    | TsTypeData::TsParenthesizedType(_) => true,
+                    TsTypeData::TsUnionType(union) => union.types(ast).len() == 1,
+                    TsTypeData::TsIntersectionType(intersection) => {
+                        intersection.types(ast).len() == 1
+                    }
+                    _ => false,
+                };
+            let first_span = first.span(ast);
+            let before = Span::new(content.start, first_span.start);
+            let after = Span::new(first_span.end, content.end);
+            if candidate
+                && [before, after].into_iter().all(|gap| {
+                    let comments = self.comments.in_range(gap);
+                    matches!(
+                        self.comment_binding(comments, gap, Some(first_span)),
+                        CommentBinding::Unbound
+                    ) && !comments
+                        .iter()
+                        .any(|comment| comment.kind == CommentKind::Line)
+                        && comments
+                            .last()
+                            .is_none_or(|comment| !self.comment_run_ends_line(*comment, gap.end))
+                })
+            {
+                let mut body = self.prepare_delimited_type(*prepared)?;
+                let movable = match &body.content {
+                    super::compound::PreparedTypeContent::Parentheses(parentheses) => {
+                        parentheses.movable
+                    }
+                    super::compound::PreparedTypeContent::Compound(single) => single.movable(),
+                    _ => false,
+                };
+                let mut head_inline = true;
+                if movable {
+                    // Claim the complete exterior and moved head in source order.
+                    // The original member span still owns its delimiter protocol.
+                    let comments = self
+                        .comments
+                        .in_range(Span::new(content.start, first_span.end));
+                    let (head, (item, normalized)) = writer.record_with_value(|writer| {
+                        let item = self.prepare_delimited_item(
+                            first_span,
+                            FollowingItem::End,
+                            content,
+                            false,
+                            writer,
+                        )?;
+                        let normalized = match body.content {
+                            super::compound::PreparedTypeContent::Compound(single) => {
+                                self.format_single_compound_head(single, TypeContext::Root, writer)?
+                            }
+                            content => self.format_prepared_type_content_head(
+                                content,
+                                &[],
+                                first_span.start,
+                                None,
+                                TypeContext::Root,
+                                writer,
+                            )?,
+                        };
+                        Ok::<_, FormatError>((item, normalized))
+                    })?;
+                    if let super::compound::PreparedTypeContent::Type(node) = &normalized {
+                        let next_start = node.node.span(ast).start;
+                        let count =
+                            comments.partition_point(|comment| comment.span.end <= next_start);
+                        let leading = &comments[..count];
+                        head_inline = !leading
+                            .iter()
+                            .any(|comment| comment.kind == CommentKind::Line)
+                            && leading.last().is_none_or(|comment| {
+                                !self.comment_run_ends_line(*comment, next_start)
+                            });
+                    }
+                    body.content = normalized;
+                    first_packet = Some((item, head));
+                }
+                let hug = body.is_object_type() && head_inline;
+                first_body = Some(body);
+                hug
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        let layout = if hug {
+            TypeLayout::Root
+        } else {
+            TypeLayout::CallerIndented
+        };
+        let mut format = |writer: &mut Writer<'ast>| {
             writer.text("<");
-            let end = writer.indent(|writer| {
+            let mut format_members = |writer: &mut Writer<'ast>| {
                 if leading_source.is_none() {
                     self.opening_line_constraint(content).write(
                         writer,
                         FlatSeparator::Empty,
-                        Writer::soft_line,
+                        |writer| {
+                            if !hug {
+                                writer.soft_line();
+                            }
+                        },
                     );
                 }
                 let mut end = content.start;
@@ -302,15 +410,24 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     let mode = following_mode.unwrap_or_else(|| self.content_mode(leading));
                     let mut prepared = match member {
                         GenericMember::Type(node) => PreparedGenericMember::Type(
-                            first_type.take().unwrap_or_else(|| self.prepare_type(node, ContentMode::Formatted)),
+                            first_type
+                                .take()
+                                .unwrap_or_else(|| self.prepare_type(node, ContentMode::Formatted)),
                         ),
-                        GenericMember::Parameter(node, context) => PreparedGenericMember::Parameter(node, context),
+                        GenericMember::Parameter(node, context) => {
+                            PreparedGenericMember::Parameter(node, context)
+                        }
                     };
                     if mode == ContentMode::Verbatim
                         && let PreparedGenericMember::Type(node) = &mut prepared
                         && node.source_owner.is_none()
                     {
-                        self.select_delimited_type_head(node, leading, member_span.start, following_mode.is_none());
+                        self.select_delimited_type_head(
+                            node,
+                            leading,
+                            member_span.start,
+                            following_mode.is_none(),
+                        );
                     }
                     if following_mode.is_some() {
                         let next_start = self
@@ -338,24 +455,50 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                     } else {
                         end
                     };
-                    let mut item = self.prepare_delimited_item(
-                        member_span,
-                        following,
-                        Span::new(item_start, content.end),
-                        false,
-                        writer,
-                    )?;
+                    let mut item = match first_packet.take() {
+                        Some((item, head)) => {
+                            writer.write_fragment(head);
+                            item
+                        }
+                        None => self.prepare_delimited_item(
+                            member_span,
+                            following,
+                            Span::new(item_start, content.end),
+                            false,
+                            writer,
+                        )?,
+                    };
                     item.set_trailing_comma(tail);
                     let selected_child = matches!(&prepared, PreparedGenericMember::Type(node) if node.source_owner.is_some_and(|owner| owner != node.node));
-                    item.set_leading_mode(if selected_child { ContentMode::Formatted } else { mode });
+                    item.set_leading_mode(if selected_child {
+                        ContentMode::Formatted
+                    } else {
+                        mode
+                    });
                     let tail = match prepared {
                         PreparedGenericMember::Type(mut node) => {
                             if item.mode == ContentMode::Verbatim {
                                 node.source_owner = Some(node.node);
                             }
-                            self.format_prepared_type_with_layout(node, TypeContext::Root, super::TypeLayout::CallerIndented, writer)?
+                            if let Some(body) = first_body.take() {
+                                self.format_prepared_delimited_type(
+                                    body,
+                                    TypeContext::Root,
+                                    layout,
+                                    writer,
+                                )?
+                            } else {
+                                self.format_prepared_type_with_layout(
+                                    node,
+                                    TypeContext::Root,
+                                    layout,
+                                    writer,
+                                )?
+                            }
                         }
-                        PreparedGenericMember::Parameter(node, context) => self.format_type_parameter(node, context, item.mode, writer)?,
+                        PreparedGenericMember::Parameter(node, context) => {
+                            self.format_type_parameter(node, context, item.mode, writer)?
+                        }
                     };
                     let boundary = self.finish_delimited_item(item, tail, writer)?;
                     end = boundary.end;
@@ -378,15 +521,26 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 }
                 self.format_comment_run(dangling, CommentRunLayout::Lines, writer)?;
                 Ok::<_, FormatError>(dangling.last().map_or(end, |comment| comment.span.end))
-            })?;
-            self.line_constraint(end, content.end).write(
-                writer,
-                FlatSeparator::Empty,
-                Writer::soft_line,
-            );
+            };
+            let end = if hug {
+                format_members(writer)?
+            } else {
+                writer.indent(format_members)?
+            };
+            self.line_constraint(end, content.end)
+                .write(writer, FlatSeparator::Empty, |writer| {
+                    if !hug {
+                        writer.soft_line();
+                    }
+                });
             writer.text(">");
             Ok(())
-        })
+        };
+        if hug {
+            format(writer)
+        } else {
+            writer.group(false, format)
+        }
     }
 
     pub(super) fn prepare_type_parameter(

@@ -216,6 +216,14 @@ impl SingleCompoundHead<'_> {
     pub(super) fn movable(&self) -> bool {
         self.movable
     }
+
+    pub(super) fn into_headless_type(self) -> Result<PreparedType, Self> {
+        if self.movable && self.comments.is_empty() {
+            Ok(self.current)
+        } else {
+            Err(self)
+        }
+    }
 }
 
 /// A resolved first transferable packet on the actual leading spine.

@@ -118,7 +118,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    fn comment_run_ends_line(&self, last: Comment, following: u32) -> bool {
+    pub(super) fn comment_run_ends_line(&self, last: Comment, following: u32) -> bool {
         last.kind == CommentKind::Line
             || self
                 .source(Span::new(last.span.end, following))

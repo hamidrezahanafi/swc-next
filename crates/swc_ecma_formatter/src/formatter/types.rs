@@ -74,6 +74,14 @@ pub(super) struct PreparedDelimitedType<'ast> {
     content: compound::PreparedTypeContent<'ast>,
 }
 
+impl PreparedDelimitedType<'_> {
+    pub(super) fn is_object_type(&self) -> bool {
+        matches!(&self.content, compound::PreparedTypeContent::Type(node)
+            if node.source_owner.is_none()
+                && matches!(node.data, TsTypeData::TsTypeLiteral(_) | TsTypeData::TsMappedType(_)))
+    }
+}
+
 struct RecordedTypeHead<'ast> {
     head: Fragment<'ast>,
     content: compound::PreparedTypeContent<'ast>,
@@ -823,7 +831,18 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                             self.prepare_union(node, types)?,
                         );
                     }
-                    break compound::PreparedTypeContent::Type(node);
+                    match self.prepare_single_compound(node)?.into_headless_type() {
+                        Ok(child) => node = child,
+                        Err(single) => break compound::PreparedTypeContent::Compound(single),
+                    }
+                }
+                TsTypeData::TsIntersectionType(intersection)
+                    if intersection.types(self.ast).len() == 1 =>
+                {
+                    match self.prepare_single_compound(node)?.into_headless_type() {
+                        Ok(child) => node = child,
+                        Err(single) => break compound::PreparedTypeContent::Compound(single),
+                    }
                 }
                 _ => break compound::PreparedTypeContent::Type(node),
             }
@@ -838,7 +857,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         layout: TypeLayout,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
-        self.format_prepared_type_content(body.content, context, layout, writer)
+        let content = match body.content {
+            compound::PreparedTypeContent::Compound(single) if single.movable() => {
+                self.format_single_compound_head(single, context, writer)?
+            }
+            content => content,
+        };
+        self.format_prepared_type_content(content, context, layout, writer)
     }
 
     fn record_type_head(
@@ -905,7 +930,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         after
             .gap()
             .write(writer, FlatSeparator::Empty, Writer::soft_line);
-        self.format_prepared_type_content(body.content, context, layout, writer)
+        self.format_prepared_delimited_type(body, context, layout, writer)
     }
 
     fn format_prepared_parentheses_after_comments(
