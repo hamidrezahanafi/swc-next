@@ -29,9 +29,9 @@ interface I {
 }
 abstract class A<
   T = number,
-> extends Base<
-  T
-> implements I {}
+>
+  extends Base<T>
+  implements I {}
 class B extends A<
   number
 > {}

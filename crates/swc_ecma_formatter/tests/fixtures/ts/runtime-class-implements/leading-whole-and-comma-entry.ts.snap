@@ -21,9 +21,12 @@ namespace N {
 }
 // prettier-ignore
 class Whole implements N . I<  number  > { x  =  7; }
-class Entries implements N.I<number>,
-  // prettier-ignore
-  N . J<  number  > {
+class Entries
+  implements
+    N.I<number>,
+    // prettier-ignore
+    N . J<  number  >
+{
   x = 7;
 }
 
@@ -44,10 +47,11 @@ namespace N {
 }
 // prettier-ignore
 class Whole implements N . I<  number  > { x  =  7; }
-class Entries implements N.I<
-    number
-  >,
-  // prettier-ignore
-  N . J<  number  > {
+class Entries
+  implements
+    N.I<number>,
+    // prettier-ignore
+    N . J<  number  >
+{
   x = 7;
 }

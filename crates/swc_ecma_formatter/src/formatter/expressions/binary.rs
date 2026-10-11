@@ -455,7 +455,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let parent_indents = context.operand_indent == super::OperandIndent::Parent
             || match context.position {
                 ExpressionPosition::ParenthesizedUnaryArgument(_) => true,
-                ExpressionPosition::AssignmentRight(_) | ExpressionPosition::PropertyValue => {
+                ExpressionPosition::AssignmentRight(_)
+                | ExpressionPosition::Initializer(_)
+                | ExpressionPosition::PropertyValue => {
                     let inline = self.inline_logical_operand(binary.operator, binary.right);
                     !inline
                         || !BinaryLike::from_data(

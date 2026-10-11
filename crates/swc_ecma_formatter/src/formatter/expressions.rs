@@ -98,6 +98,7 @@ pub(super) enum ExpressionPosition {
     ConditionalConsequent,
     ConditionalAlternate,
     AssignmentRight(AssignmentParent),
+    Initializer(AssignmentParent),
     EnumInitializer,
 }
 
@@ -227,20 +228,15 @@ pub(super) struct ExpressionContext {
 
 impl ExpressionContext {
     pub(super) fn variable_initializer() -> Self {
-        Self::at(ExpressionPosition::AssignmentRight(
-            AssignmentParent::Statement,
-        ))
-        .with_arrow_layout(arrows::ArrowLayout::Assignment(
-            arrows::ArrowHeadGap::Expression,
-        ))
+        Self::at(ExpressionPosition::Initializer(AssignmentParent::Statement)).with_arrow_layout(
+            arrows::ArrowLayout::Assignment(arrows::ArrowHeadGap::Expression),
+        )
     }
 
     pub(super) fn binding_initializer() -> Self {
-        Self::at(ExpressionPosition::AssignmentRight(
-            AssignmentParent::Nested,
-        ))
-        .with_arrow_layout(arrows::ArrowLayout::Ordinary)
-        .with_conditional_envelope(ConditionalEnvelope::Local)
+        Self::at(ExpressionPosition::Initializer(AssignmentParent::Nested))
+            .with_arrow_layout(arrows::ArrowLayout::Ordinary)
+            .with_conditional_envelope(ConditionalEnvelope::Local)
     }
 
     pub(super) fn at(position: ExpressionPosition) -> Self {
@@ -261,6 +257,7 @@ impl ExpressionContext {
             operand_indent: OperandIndent::Expression,
             conditional_envelope: match position {
                 ExpressionPosition::AssignmentRight(_)
+                | ExpressionPosition::Initializer(_)
                 | ExpressionPosition::RestrictedArgument
                 | ExpressionPosition::UnaryArgument(_)
                 | ExpressionPosition::YieldArgument
@@ -272,7 +269,7 @@ impl ExpressionContext {
                 ExpressionPosition::CallCallee { .. } | ExpressionPosition::NewCallee => {
                     arrows::ArrowLayout::Callee
                 }
-                ExpressionPosition::AssignmentRight(_) => {
+                ExpressionPosition::AssignmentRight(_) | ExpressionPosition::Initializer(_) => {
                     arrows::ArrowLayout::Assignment(arrows::ArrowHeadGap::Expression)
                 }
                 ExpressionPosition::BinaryOperand { .. } => arrows::ArrowLayout::Argument,
@@ -839,7 +836,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             }
             ExprData::NewExpression(constructor) => self.format_new(constructor, context, writer),
             ExprData::Function(function) => self.format_function(function, writer).map(|()| None),
-            ExprData::Class(class) => self.format_class(class, writer).map(|()| None),
+            ExprData::Class(class) => self
+                .format_class(class, context.position, writer)
+                .map(|()| None),
             ExprData::ArrowFunctionExpression(arrow) => self.format_arrow(arrow, context, writer),
             ExprData::AwaitExpression(await_expression) => {
                 self.format_await(await_expression, writer)
@@ -1432,6 +1431,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 ExpressionPosition::Statement
                     | ExpressionPosition::ExportDefault
                     | ExpressionPosition::AssignmentRight(_)
+                    | ExpressionPosition::Initializer(_)
                     | ExpressionPosition::EnumInitializer
                     | ExpressionPosition::TemplateInterpolation
                     | ExpressionPosition::JsxExpression

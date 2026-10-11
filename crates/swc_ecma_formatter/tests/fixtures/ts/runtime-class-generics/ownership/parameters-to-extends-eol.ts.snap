@@ -10,4 +10,4 @@ extends Base {}
 ---------- Output ----------
 class Base {}
 class Box<T extends string|number> // prettier-ignore
-extends Base {}
+  extends Base {}

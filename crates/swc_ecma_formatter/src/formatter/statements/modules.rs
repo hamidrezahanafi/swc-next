@@ -222,7 +222,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .into())
             }
             DeclData::Class(class) => {
-                self.format_class(class, writer)?;
+                self.format_class(class, ExpressionPosition::ExportDefault, writer)?;
                 Ok(StatementBoundary::SourceEnd {
                     end: class.span(self.ast).end,
                     has_terminator: false,
@@ -470,6 +470,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let ast = self.ast;
         let prepared = self.prepare_class(node, Some(prefix))?;
         if prepared.is_verbatim() {
+            if prefix.physical.start < native.start {
+                // The prepared statement envelope includes the export between
+                // the protected decorator and its class; print it once.
+                self.format_verbatim(prefix.envelope, writer)?;
+                return Ok(StatementBoundary::SourceEnd {
+                    end: native.end,
+                    has_terminator: false,
+                }
+                .into());
+            }
             let class_native = node.span(ast);
             let source = Span::new(
                 class_native.start.min(prefix.physical.start),

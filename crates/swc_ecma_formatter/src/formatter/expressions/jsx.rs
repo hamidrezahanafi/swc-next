@@ -49,6 +49,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             || !matches!(
                 context.position,
                 ExpressionPosition::AssignmentRight(_)
+                    | ExpressionPosition::Initializer(_)
                     | ExpressionPosition::ArrowBody
                     | ExpressionPosition::RestrictedArgument
                     | ExpressionPosition::YieldArgument

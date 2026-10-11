@@ -8,10 +8,9 @@ use swc_next_ecma_ast::{
 use super::generics::TypeParameterContext;
 use super::members::{IncomingTypeMember, TypeMemberBodyKind};
 use super::{Formatter, TypeGap};
-use crate::formatter::comments::CommentBoundary;
+use crate::formatter::comments::CommentBinding;
 use crate::formatter::diagnostics::FlatSeparator;
-use crate::formatter::expressions::arguments::{ArgumentLayout, FollowingItem, ItemBoundary};
-use crate::formatter::expressions::{ExpressionContext, ExpressionPosition};
+use crate::formatter::heritage::{HeritageItem, HeritageLayout, HeritageOwners, HeritagePrefix};
 use crate::formatter::statements::DeclarationKeyword;
 use crate::formatter::suppression::{ContentMode, SuppressionPosition};
 use crate::{FormatError, document::Writer};
@@ -40,20 +39,13 @@ struct InterfaceHeritageList<'ast> {
     first_mode: ContentMode,
     end: u32,
     prefix: HeritagePrefix<'ast>,
+    layout: HeritageLayout,
 }
 
 #[derive(Clone, Copy)]
 enum InterfaceBodyOwner {
     Member(TsTypeElement),
     Body,
-}
-
-enum HeritagePrefix<'ast> {
-    Source(Span),
-    Formatted {
-        before: CommentBoundary<'ast>,
-        after: CommentBoundary<'ast>,
-    },
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -64,40 +56,65 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
         let head = self.prepare_interface(node, keyword)?;
-        writer.group(false, |writer| {
-            writer.text("interface");
-            self.format_type_gap(head.prefix, FlatSeparator::Space, writer)?;
-            if head.name_mode == ContentMode::Verbatim {
-                self.format_verbatim(head.name.span(self.ast), writer)?;
+        let InterfaceHead {
+            name,
+            name_mode,
+            prefix,
+            parameters,
+            heritage,
+            body,
+            body_mode,
+            incoming,
+            body_prefix,
+        } = head;
+        let grouped = heritage
+            .as_ref()
+            .is_some_and(|heritage| heritage.layout.grouped());
+        writer.text("interface");
+        let write_head = |formatter: &mut Self, writer: &mut Writer<'ast>| {
+            formatter.format_type_gap(prefix, FlatSeparator::Space, writer)?;
+            if name_mode == ContentMode::Verbatim {
+                formatter.format_verbatim(name.span(formatter.ast), writer)?;
             } else {
-                writer.text(self.ast.get_utf8(head.name.name(self.ast)));
+                writer.text(formatter.ast.get_utf8(name.name(formatter.ast)));
             }
-            if let Some(parameters) = head.parameters {
-                self.format_type_gap(parameters.prefix, FlatSeparator::Empty, writer)?;
-                self.format_type_parameters(
+            if let Some(parameters) = parameters {
+                formatter.format_type_gap(parameters.prefix, FlatSeparator::Empty, writer)?;
+                formatter.format_type_parameters(
                     parameters.node,
                     TypeParameterContext::TypeDeclaration,
                     parameters.mode,
                     writer,
                 )?;
             }
-            if let Some(heritage) = head.heritage {
-                self.format_interface_heritage(heritage, writer)?;
+            if let Some(heritage) = heritage {
+                if grouped {
+                    writer
+                        .indent(|writer| formatter.format_interface_heritage(heritage, writer))?;
+                } else {
+                    formatter.format_interface_heritage(heritage, writer)?;
+                }
             }
-            self.format_type_gap(head.body_prefix, FlatSeparator::Space, writer)?;
-            let body_span = head.body.span(self.ast);
-            if head.body_mode == ContentMode::Verbatim {
-                self.format_verbatim(body_span, writer)
-            } else {
-                self.format_type_member_body(
-                    body_span,
-                    head.body.body(self.ast),
-                    TypeMemberBodyKind::Interface,
-                    head.incoming,
-                    writer,
-                )
-            }
-        })
+            Ok(())
+        };
+        if grouped {
+            writer.group(false, |writer| write_head(self, writer))?;
+        } else {
+            write_head(self, writer)?;
+        }
+        self.format_type_gap(body_prefix, FlatSeparator::Space, writer)?;
+        let body_span = body.span(self.ast);
+        if body_mode == ContentMode::Verbatim {
+            self.format_verbatim(body_span, writer)
+        } else {
+            self.format_type_member_body(
+                body_span,
+                body.body(self.ast),
+                TypeMemberBodyKind::Interface,
+                incoming,
+                writer,
+            )
+        }
     }
 
     fn prepare_interface(
@@ -170,44 +187,44 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 .find_token(gap, comments, "extends")
                 .ok_or_else(|| FormatError::unsupported("interface extends boundary", None, gap))?;
             let keyword = Span::new(keyword, keyword + "extends".len() as u32);
-            let split = comments.partition_point(|comment| comment.span.end <= keyword.start);
-            let (before, after) = comments.split_at(split);
-            let source =
-                self.has_suppression && self.content_mode(comments) == ContentMode::Verbatim;
-            let mut first_mode = ContentMode::Formatted;
-            let mut preceding_mode = ContentMode::Formatted;
-            if source {
-                if self.content_mode(before) == ContentMode::Verbatim {
-                    preceding_mode = ContentMode::Verbatim;
-                }
-                for (_, position) in self.suppressed_comment_runs(after, gap.end) {
-                    if matches!(position, SuppressionPosition::Inline) {
-                        first_mode = ContentMode::Verbatim;
-                    } else {
-                        preceding_mode = ContentMode::Verbatim;
-                    }
-                }
-            }
-            if preceding_mode == ContentMode::Verbatim {
+            let preceding = parameters
+                .as_ref()
+                .map_or(name_span, |parameters| parameters.node.span(ast));
+            let prepared = self.prepare_heritage_prefix(
+                gap,
+                keyword,
+                comments,
+                HeritageOwners {
+                    inline_before: preceding,
+                    line_preceding: preceding,
+                    line_decorator: None,
+                },
+                first.span(ast),
+            );
+            if !matches!(prepared.preceding, CommentBinding::Unbound) {
                 if let Some(parameters) = &mut parameters {
                     parameters.mode = ContentMode::Verbatim;
                 } else {
                     name_mode = ContentMode::Verbatim;
                 }
             }
+            let layout = if !remaining.is_empty() {
+                HeritageLayout::Multiple
+            } else if prepared.prefix.has_comments
+                || first.type_arguments(ast).is_none()
+                    && self.heritage_expression_is_member(first.expression(ast))
+            {
+                HeritageLayout::Single
+            } else {
+                HeritageLayout::Inline
+            };
             Some(InterfaceHeritageList {
                 first,
                 remaining,
-                first_mode,
+                first_mode: prepared.first_mode,
                 end,
-                prefix: if source {
-                    HeritagePrefix::Source(gap)
-                } else {
-                    HeritagePrefix::Formatted {
-                        before: self.prepare_comment_boundary(before, gap.start, keyword.start),
-                        after: self.prepare_comment_boundary(after, keyword.end, gap.end),
-                    }
-                },
+                prefix: prepared.prefix,
+                layout,
             })
         } else {
             None
@@ -268,102 +285,26 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         list: InterfaceHeritageList<'ast>,
         writer: &mut Writer<'ast>,
     ) -> Result<(), FormatError> {
-        match list.prefix {
-            HeritagePrefix::Source(span) => self.format_verbatim(span, writer)?,
-            HeritagePrefix::Formatted { before, after } => {
-                self.format_type_comment_gap(&before, FlatSeparator::Space, writer)?;
-                writer.text("extends");
-                self.format_type_comment_gap(&after, FlatSeparator::Space, writer)?;
-            }
-        }
         let ast = self.ast;
-        let mut nodes = std::iter::once(list.first)
+        let items = std::iter::once(list.first)
             .chain(
                 list.remaining
                     .iter()
                     .map(|id| ast.get_node_in_sub_range(id)),
             )
-            .peekable();
-        writer.group(false, |writer| {
-            writer.indent(|writer| {
-                let mut previous: Option<ItemBoundary> = None;
-                while let Some(node) = nodes.next() {
-                    let span = node.span(ast);
-                    let end = previous.map_or(span.start, |previous| previous.end);
-                    if let Some(previous) = previous {
-                        let next = self
-                            .comments
-                            .between(Span::new(end, span.start))?
-                            .first()
-                            .map_or(span.start, |comment| comment.span.start);
-                        ArgumentLayout::Lines.separator(
-                            previous.separator,
-                            self.line_constraint(end, next),
-                            writer,
-                        );
-                    }
-                    let following = nodes.peek().map_or(FollowingItem::End, |next| {
-                        FollowingItem::Node(next.span(ast))
-                    });
-                    let mut item = self.prepare_delimited_item(
-                        span,
-                        following,
-                        Span::new(end, list.end),
-                        false,
-                        writer,
-                    )?;
-                    item.set_leading_mode(
-                        previous.map_or(list.first_mode, |previous| previous.following_mode),
-                    );
-                    let tail = if item.mode == ContentMode::Verbatim {
-                        self.format_verbatim(span, writer)?;
-                        None
-                    } else {
-                        let expression = node.expression(ast);
-                        if let Some(arguments) = node.type_arguments(ast) {
-                            let gap =
-                                Span::new(expression.span(ast).end, arguments.span(ast).start);
-                            let comments = self.comments.in_range(gap);
-                            let source = self.has_suppression
-                                && self.content_mode(comments) == ContentMode::Verbatim;
-                            let mut expression_mode = ContentMode::Formatted;
-                            let mut arguments_mode = ContentMode::Formatted;
-                            if source {
-                                for (_, position) in self.suppressed_comment_runs(comments, gap.end)
-                                {
-                                    if matches!(position, SuppressionPosition::EndOfLine) {
-                                        expression_mode = ContentMode::Verbatim;
-                                    } else {
-                                        arguments_mode = ContentMode::Verbatim;
-                                    }
-                                }
-                            }
-                            let prefix = if source {
-                                TypeGap::Source(gap)
-                            } else {
-                                TypeGap::Formatted(
-                                    self.prepare_comment_boundary(comments, gap.start, gap.end),
-                                )
-                            };
-                            let context = ExpressionContext::at(ExpressionPosition::Nested)
-                                .with_content_mode(expression_mode);
-                            let tail = self.format_expression(expression, context, writer)?;
-                            self.format_expression_tail(tail, writer)?;
-                            self.format_type_gap(prefix, FlatSeparator::Empty, writer)?;
-                            self.format_type_arguments(arguments, arguments_mode, writer)?;
-                            None
-                        } else {
-                            self.format_expression(
-                                expression,
-                                ExpressionContext::at(ExpressionPosition::Nested),
-                                writer,
-                            )?
-                        }
-                    };
-                    previous = Some(self.finish_delimited_item(item, tail, writer)?);
-                }
-                Ok(())
-            })
-        })
+            .map(|node| HeritageItem {
+                span: node.span(ast),
+                expression: node.expression(ast),
+                arguments: node.type_arguments(ast),
+            });
+        self.format_heritage_clause(
+            list.prefix,
+            "extends",
+            list.layout,
+            writer,
+            |formatter, writer| {
+                formatter.format_heritage_items(items, list.first_mode, list.end, writer)
+            },
+        )
     }
 }

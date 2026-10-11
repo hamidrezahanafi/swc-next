@@ -47,7 +47,10 @@ class Zero {
 class One implements I {
   x = 7;
 }
-class Many implements I,
-  N.J<number> {
+class Many
+  implements
+    I,
+    N.J<number>
+{
   x = 7;
 }

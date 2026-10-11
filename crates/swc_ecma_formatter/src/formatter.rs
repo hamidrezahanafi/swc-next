@@ -7,6 +7,7 @@ mod decorators;
 mod diagnostics;
 mod expressions;
 mod functions;
+mod heritage;
 mod literals;
 mod parameters;
 mod restricted;

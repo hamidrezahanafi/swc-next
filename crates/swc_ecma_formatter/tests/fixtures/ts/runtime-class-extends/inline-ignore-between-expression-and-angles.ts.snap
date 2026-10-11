@@ -17,4 +17,5 @@ class Derived extends ns.Base /* prettier-ignore */ <  number  > {}
 ---------- Output ----------
 class Base<T> {}
 const ns = { Base };
-class Derived extends ns.Base /* prettier-ignore */ <  number  > {}
+class Derived
+  extends ns.Base /* prettier-ignore */ <  number  > {}

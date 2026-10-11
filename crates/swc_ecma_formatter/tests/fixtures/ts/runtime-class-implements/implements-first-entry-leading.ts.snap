@@ -14,9 +14,10 @@ namespace N {
     x: T;
   }
 }
-class C implements
+class C
   // prettier-ignore
-  N.I<number> {
+  implements N.I<number>
+{
   x = 7;
 }
 
@@ -30,8 +31,11 @@ namespace N {
     x: T;
   }
 }
-class C implements
+class C
   // prettier-ignore
-  N.I<number> {
+  implements N.I<
+    number
+  >
+{
   x = 7;
 }

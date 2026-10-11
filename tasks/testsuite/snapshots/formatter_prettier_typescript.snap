@@ -3,12 +3,12 @@ formatter * prettier 3.9.9 * typescript
 Fixture revision: cdd17f2288b28b170a76416c72dac56e3ea5daff
 Fixture files: 657
 Scope: supported physical fixtures (inline snapshot snippets excluded)
-Passed: 626/804 (77.86%)
-Snapshot matched: 626/804
+Passed: 640/804 (79.60%)
+Snapshot matched: 640/804
 AST parity: 804/804
 AST mismatched: 0/804
 AST format errors: 0/804
-Mismatched: 178/804
+Mismatched: 164/804
 Format errors: 0/804
 Panicked: 0/804
 Not idempotent: 0/804
@@ -60,15 +60,9 @@ Unsupported option sets: 7
 - typescript/chain-expression/test2.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/class-and-interface/empty/empty.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/class-and-interface/heritage-break/member-expression-like.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/class-and-interface/heritage-break/type-arguments.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/class-and-interface/long-type-parameters/long-type-parameters.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/class-comment/class-implements.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/class-comment/declare.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/class-comment/generic.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/class/extends_implements.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/class/issue-16723.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/classes/break-heritage.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/classes/break.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/comments/16065-2.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/comments/16889.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/comments/first-argument/first-argument.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
@@ -102,14 +96,8 @@ Unsupported option sets: 7
 - typescript/import-type/long-module-name/long-module-name5.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/instantiation-expression/inferface-asi.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/interface/comments-generic.ts: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
-- typescript/interface/long-extends.ts: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
-- typescript/interface/long-type-parameters/long-type-parameters.ts: 2/2 mismatched, 0/2 format errors, 0/2 panicked, 0/2 not idempotent
 - typescript/interface2/break/break.ts: 3/3 mismatched, 0/3 format errors, 0/3 panicked, 0/3 not idempotent
 - typescript/interface2/comments-declare.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/interface2/comments-ts-and-flow/18216-mutiple-clauses.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/interface2/comments-ts-and-flow/18216-type-parameters-mutiple-clauses.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/interface2/comments-ts-and-flow/18216-type-parameters.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
-- typescript/interface2/comments-ts-and-flow/18216.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/interface2/comments-ts-only/18278.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/interface2/comments.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent
 - typescript/intersection/consistent-with-flow/intersection-parens.ts: 1/1 mismatched, 0/1 format errors, 0/1 panicked, 0/1 not idempotent

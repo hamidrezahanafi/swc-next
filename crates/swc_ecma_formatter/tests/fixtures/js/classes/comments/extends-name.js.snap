@@ -7,8 +7,7 @@ class \u0043 extends /* prettier-ignore */
 ---------- Options ----------
 {}
 ---------- Output ----------
-class \u0043 extends /* prettier-ignore */
-(Base + Other) {
+class \u0043 /* prettier-ignore */ extends (Base + Other) {
   m() {
     return 1 + 2;
   }
@@ -17,8 +16,11 @@ class \u0043 extends /* prettier-ignore */
 ---------- Options ----------
 {"printWidth":20}
 ---------- Output ----------
-class \u0043 extends /* prettier-ignore */
-(Base + Other) {
+class \u0043
+  /* prettier-ignore */
+  extends (Base +
+    Other)
+{
   m() {
     return 1 + 2;
   }
@@ -27,8 +29,7 @@ class \u0043 extends /* prettier-ignore */
 ---------- Options ----------
 {"semi":false}
 ---------- Output ----------
-class \u0043 extends /* prettier-ignore */
-(Base + Other) {
+class \u0043 /* prettier-ignore */ extends (Base + Other) {
   m() {
     return 1 + 2
   }
@@ -37,8 +38,11 @@ class \u0043 extends /* prettier-ignore */
 ---------- Options ----------
 {"printWidth":20,"semi":false}
 ---------- Output ----------
-class \u0043 extends /* prettier-ignore */
-(Base + Other) {
+class \u0043
+  /* prettier-ignore */
+  extends (Base +
+    Other)
+{
   m() {
     return 1 + 2
   }
@@ -47,8 +51,11 @@ class \u0043 extends /* prettier-ignore */
 ---------- Options ----------
 {"printWidth":20,"tabWidth":2,"useTabs":true}
 ---------- Output ----------
-class \u0043 extends /* prettier-ignore */
-(Base + Other) {
+class \u0043
+	/* prettier-ignore */
+	extends (Base +
+		Other)
+{
 	m() {
 		return 1 + 2;
 	}
@@ -57,8 +64,7 @@ class \u0043 extends /* prettier-ignore */
 ---------- Options ----------
 {"quoteProps":"preserve","semi":false}
 ---------- Output ----------
-class \u0043 extends /* prettier-ignore */
-(Base + Other) {
+class \u0043 /* prettier-ignore */ extends (Base + Other) {
   m() {
     return 1 + 2
   }

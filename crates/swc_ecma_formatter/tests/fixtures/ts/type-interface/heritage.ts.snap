@@ -6,43 +6,49 @@ interface LongInterfaceName extends LongNamespace.FirstBase<string>,OtherNamespa
 ---------- Options ----------
 {"printWidth":80}
 ---------- Output ----------
-interface LongInterfaceName extends LongNamespace.FirstBase<string>,
-  OtherNamespace.SecondBase<number> {
+interface LongInterfaceName
+  extends LongNamespace.FirstBase<string>, OtherNamespace.SecondBase<number> {
   a: 12.0;
 }
 
 ---------- Options ----------
 {"printWidth":20}
 ---------- Output ----------
-interface LongInterfaceName extends LongNamespace.FirstBase<
-    string
-  >,
-  OtherNamespace.SecondBase<
-    number
-  > {
+interface LongInterfaceName
+  extends
+    LongNamespace.FirstBase<
+      string
+    >,
+    OtherNamespace.SecondBase<
+      number
+    > {
   a: 12.0;
 }
 
 ---------- Options ----------
 {"printWidth":1,"semi":false}
 ---------- Output ----------
-interface LongInterfaceName extends LongNamespace.FirstBase<
-    string
-  >,
-  OtherNamespace.SecondBase<
-    number
-  > {
+interface LongInterfaceName
+  extends
+    LongNamespace.FirstBase<
+      string
+    >,
+    OtherNamespace.SecondBase<
+      number
+    > {
   a: 12.0
 }
 
 ---------- Options ----------
 {"endOfLine":"crlf","printWidth":20,"useTabs":true}
 ---------- Output ----------
-interface LongInterfaceName extends LongNamespace.FirstBase<
-		string
-	>,
-	OtherNamespace.SecondBase<
-		number
-	> {
+interface LongInterfaceName
+	extends
+		LongNamespace.FirstBase<
+			string
+		>,
+		OtherNamespace.SecondBase<
+			number
+		> {
 	a: 12.0;
 }

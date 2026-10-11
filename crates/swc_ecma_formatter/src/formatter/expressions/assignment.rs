@@ -539,7 +539,8 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         boundary: &AssignmentBoundary<'ast>,
     ) -> AssignmentLayout {
         let tail = !matches!(data, ExprData::AssignmentExpression(_));
-        if let ExpressionPosition::AssignmentRight(parent) = position
+        if let ExpressionPosition::AssignmentRight(parent) | ExpressionPosition::Initializer(parent) =
+            position
             && (!tail || matches!(parent, AssignmentParent::Nested))
         {
             return if tail {

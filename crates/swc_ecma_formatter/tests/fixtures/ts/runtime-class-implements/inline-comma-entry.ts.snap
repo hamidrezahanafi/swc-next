@@ -32,7 +32,10 @@ namespace N {
     x: T;
   }
 }
-class C implements N.I,
-  /* prettier-ignore */ N . J<  number  > {
+class C
+  implements
+    N.I,
+    /* prettier-ignore */ N . J<  number  >
+{
   x = 7;
 }

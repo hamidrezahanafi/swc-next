@@ -11,7 +11,8 @@ class Derived extends ns . Base // prettier-ignore
 ---------- Output ----------
 class Base<T> {}
 const ns = { Base };
-class Derived extends ns . Base // prettier-ignore
+class Derived
+  extends ns . Base // prettier-ignore
 <number> {}
 
 ---------- Options ----------
@@ -19,5 +20,6 @@ class Derived extends ns . Base // prettier-ignore
 ---------- Output ----------
 class Base<T> {}
 const ns = { Base };
-class Derived extends ns . Base // prettier-ignore
+class Derived
+  extends ns . Base // prettier-ignore
 <number> {}
