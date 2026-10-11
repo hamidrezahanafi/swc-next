@@ -44,6 +44,84 @@ pub(in crate::formatter) struct PreparedUnion<'ast> {
     hug: bool,
 }
 
+pub(super) struct PreparedIntersection<'ast> {
+    data: TsTypeData,
+    leading: IntersectionPrefix<'ast>,
+    links: Vec<IntersectionLink<'ast>>,
+    last: IntersectionMember<'ast>,
+}
+
+impl<'ast> PreparedIntersection<'ast> {
+    pub(super) fn movable_head_start(&self) -> Option<u32> {
+        match &self.leading {
+            IntersectionPrefix::Leading { boundary, .. } => boundary.first_comment_start(),
+            _ => None,
+        }
+    }
+
+    fn first_member(&self) -> &IntersectionMember<'ast> {
+        self.links.first().map_or(&self.last, |link| &link.left)
+    }
+
+    fn first_member_mut(&mut self) -> &mut IntersectionMember<'ast> {
+        match self.links.first_mut() {
+            Some(link) => &mut link.left,
+            None => &mut self.last,
+        }
+    }
+}
+
+enum IntersectionMember<'ast> {
+    Type(PreparedType),
+    Prepared(Box<PreparedTypeContent<'ast>>),
+}
+
+struct IntersectionLink<'ast> {
+    left: IntersectionMember<'ast>,
+    boundary: IntersectionBoundary<'ast>,
+    continuation: IntersectionContinuation,
+}
+
+#[derive(Clone, Copy)]
+enum IntersectionContinuation {
+    Inline { indent: bool },
+    Line,
+}
+
+enum IntersectionBoundary<'ast> {
+    Source(Span),
+    Bound {
+        before: CommentBoundary<'ast>,
+        after: CommentBoundary<'ast>,
+        leading_own_line: bool,
+    },
+    Formatted {
+        before: CommentBoundary<'ast>,
+        after: CommentBoundary<'ast>,
+        member_start: u32,
+        leading_own_line: bool,
+    },
+}
+
+enum IntersectionPrefix<'ast> {
+    Empty,
+    Source(Span),
+    Leading {
+        boundary: CommentBoundary<'ast>,
+        member_start: u32,
+    },
+    BoundMember {
+        boundary: CommentBoundary<'ast>,
+        continuation: IntersectionContinuation,
+    },
+    Member {
+        boundary: CommentBoundary<'ast>,
+        member_start: u32,
+        leading_own_line: bool,
+        continuation: IntersectionContinuation,
+    },
+}
+
 struct UnionLink<'ast> {
     left: PreparedType,
     boundary: TypeBoundaryLayout<'ast>,
@@ -140,14 +218,23 @@ impl SingleCompoundHead<'_> {
     }
 }
 
-pub(super) enum SingleTypeContent<'ast> {
+/// A resolved first transferable packet on the actual leading spine.
+#[derive(Clone, Copy)]
+pub(super) struct MovableTypeHead {
+    owner: TsTypeData,
+}
+
+pub(super) enum PreparedTypeContent<'ast> {
     Type(PreparedType),
     Union(PreparedUnion<'ast>),
-    Parentheses(PreparedTypeParentheses),
+    Intersection(PreparedIntersection<'ast>),
+    Postfix(super::postfix::PreparedPostfixType<'ast>),
+    Conditional(super::conditional::PreparedConditionalType<'ast>),
+    Parentheses(PreparedTypeParentheses<'ast>),
     Compound(SingleCompoundHead<'ast>),
 }
 
-impl SingleTypeContent<'_> {
+impl PreparedTypeContent<'_> {
     pub(super) fn alias_layout(&self) -> TypeLayout {
         match self {
             Self::Union(union) => union.alias_layout(),
@@ -160,12 +247,153 @@ impl SingleTypeContent<'_> {
             Self::Compound(single) if matches!(single.kind, CompoundTypeKind::Union) => {
                 TypeLayout::AliasRhs
             }
-            Self::Type(_) | Self::Parentheses(_) | Self::Compound(_) => TypeLayout::Root,
+            Self::Type(_)
+            | Self::Intersection(_)
+            | Self::Postfix(_)
+            | Self::Conditional(_)
+            | Self::Parentheses(_)
+            | Self::Compound(_) => TypeLayout::Root,
         }
     }
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
+    /// Check only the transferable leading spine before preparing optional head state.
+    pub(super) fn type_movable_head(
+        &self,
+        node: PreparedType,
+        mut context: TypeContext,
+    ) -> Option<MovableTypeHead> {
+        if node.source_owner.is_some() {
+            return None;
+        }
+        let ast = self.ast;
+        let mut current = node.node;
+        loop {
+            let data = ast.ts_type_data(current);
+            let types = match data {
+                TsTypeData::TsParenthesizedType(parentheses) => {
+                    let child = parentheses.type_annotation(ast);
+                    let span = parentheses.span(ast);
+                    let child_span = child.span(ast);
+                    let leading = Span::new(span.start + 1, child_span.start);
+                    let before = self.comments.in_range(leading);
+                    if !self
+                        .comments
+                        .in_range(Span::new(child_span.end, span.end - 1))
+                        .is_empty()
+                        || self.diagnostic_range_is_sensitive(span)
+                        || !matches!(
+                            self.comment_binding(before, span, Some(child_span)),
+                            CommentBinding::Unbound
+                        )
+                    {
+                        return None;
+                    }
+                    if !before.is_empty() {
+                        if context.preserves_union_head(child, ast) {
+                            return None;
+                        }
+                        return Some(MovableTypeHead { owner: data });
+                    }
+                    current = child;
+                    continue;
+                }
+                TsTypeData::TsConditionalType(conditional) => {
+                    current = conditional.check_type(ast);
+                    context = TypeContext::ConditionalCheck;
+                    continue;
+                }
+                TsTypeData::TsArrayType(array) => {
+                    current = array.element_type(ast);
+                    context = TypeContext::PostfixOperand;
+                    continue;
+                }
+                TsTypeData::TsIndexedAccessType(index) => {
+                    current = index.object_type(ast);
+                    context = TypeContext::PostfixOperand;
+                    continue;
+                }
+                TsTypeData::TsUnionType(union) if union.types(ast).len() == 1 => union.types(ast),
+                TsTypeData::TsIntersectionType(intersection) => intersection.types(ast),
+                _ => return None,
+            };
+            let first = types.iter().next()?;
+            let first = ast.get_node_in_sub_range(first);
+            let first_span = first.span(ast);
+            let leading = Span::new(current.span(ast).start, first_span.start);
+            let comments = self.comments.in_range(leading);
+            if !matches!(
+                self.comment_binding(comments, leading, Some(first_span)),
+                CommentBinding::Unbound
+            ) {
+                return None;
+            }
+            if !comments.is_empty() {
+                return Some(MovableTypeHead { owner: data });
+            }
+            if types.len() > 1 {
+                context = TypeContext::CompoundMember;
+            }
+            current = first;
+        }
+    }
+
+    /// Keep a resolved unprepared frontier alongside already prepared head packets.
+    pub(super) fn prepared_content_head(
+        &self,
+        content: &PreparedTypeContent<'ast>,
+        context: TypeContext,
+    ) -> (bool, Option<MovableTypeHead>) {
+        let frontier = match content {
+            PreparedTypeContent::Type(node) => self.type_movable_head(*node, context),
+            PreparedTypeContent::Intersection(intersection) => {
+                self.intersection_movable_head(intersection)
+            }
+            PreparedTypeContent::Compound(single)
+                if single.movable && single.comments.is_empty() =>
+            {
+                self.type_movable_head(single.current, context)
+            }
+            _ => None,
+        };
+        let prepared_packet = match content {
+            PreparedTypeContent::Parentheses(parentheses) => {
+                parentheses.movable
+                    && !context.preserves_union_head(parentheses.child.node, self.ast)
+            }
+            PreparedTypeContent::Compound(single) => single.movable && !single.comments.is_empty(),
+            _ => false,
+        };
+        (prepared_packet || frontier.is_some(), frontier)
+    }
+
+    pub(super) fn prepared_content_accepts_caller_head(
+        &self,
+        content: &PreparedTypeContent<'ast>,
+    ) -> bool {
+        match content {
+            PreparedTypeContent::Type(node) => {
+                node.source_owner.is_none()
+                    && matches!(
+                        node.data,
+                        TsTypeData::TsParenthesizedType(_)
+                            | TsTypeData::TsUnionType(_)
+                            | TsTypeData::TsIntersectionType(_)
+                            | TsTypeData::TsArrayType(_)
+                            | TsTypeData::TsIndexedAccessType(_)
+                            | TsTypeData::TsConditionalType(_)
+                    )
+            }
+            PreparedTypeContent::Union(_)
+            | PreparedTypeContent::Intersection(_)
+            | PreparedTypeContent::Postfix(_)
+            | PreparedTypeContent::Conditional(_) => true,
+            PreparedTypeContent::Parentheses(parentheses) => parentheses.movable,
+            PreparedTypeContent::Compound(single) => single.movable,
+        }
+    }
+
     pub(super) fn format_compound_type(
         &mut self,
         node: PreparedType,
@@ -187,31 +415,515 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if types.len() == 1 {
             let single =
                 self.prepare_single_compound_head(node, current, leading, first_span, kind)?;
-            let content = self.format_single_compound_head(single, writer)?;
-            return self.format_single_type_content(content, context, layout, writer);
+            let content = self.format_single_compound_head(single, context, writer)?;
+            return self.format_prepared_type_content(content, context, layout, writer);
         }
         if matches!(kind, CompoundTypeKind::Union) {
             let union =
                 self.prepare_union_members(node, current, leading, first_span.start, members)?;
             return self.format_prepared_union(union, context, layout, None, writer);
         }
-        let leading_comments = None;
+        let intersection =
+            self.prepare_intersection_members(node, current, leading, first_span.start, members)?;
+        self.format_prepared_intersection(intersection, context, layout, writer)
+    }
+
+    pub(super) fn prepare_intersection(
+        &self,
+        node: PreparedType,
+        types: SubRange<TsType>,
+    ) -> Result<PreparedIntersection<'ast>, FormatError> {
+        let ast = self.ast;
+        let mut members = types.iter().map(|id| ast.get_node_in_sub_range(id));
+        let Some(first) = members.next() else {
+            return Err(self.unsupported("empty intersection type", node.node));
+        };
+        let first_start = first.span(ast).start;
+        let mut first = self.prepare_type(first, ContentMode::Formatted);
+        first.source_owner = node.source_owner;
+        self.prepare_intersection_members(
+            node,
+            first,
+            Span::new(node.node.span(ast).start, first_start),
+            first_start,
+            members,
+        )
+    }
+
+    pub(super) fn intersection_movable_head(
+        &self,
+        intersection: &PreparedIntersection<'ast>,
+    ) -> Option<MovableTypeHead> {
+        if matches!(intersection.leading, IntersectionPrefix::Source(_)) {
+            return None;
+        }
+        if intersection.movable_head_start().is_some() {
+            return Some(MovableTypeHead {
+                owner: intersection.data,
+            });
+        }
+        let IntersectionMember::Type(first) = intersection.first_member() else {
+            return None;
+        };
+        self.type_movable_head(*first, TypeContext::CompoundMember)
+    }
+
+    pub(super) fn format_intersection_head(
+        &mut self,
+        intersection: PreparedIntersection<'ast>,
+        head: Option<MovableTypeHead>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<PreparedIntersection<'ast>, FormatError> {
+        let Some(head) = head else {
+            return Ok(intersection);
+        };
+        let first_start = match intersection.first_member() {
+            IntersectionMember::Type(first) => first.node.span(self.ast).start,
+            IntersectionMember::Prepared(_) => return Ok(intersection),
+        };
+        self.format_intersection_head_with_pending(
+            intersection,
+            &[],
+            first_start,
+            Some(head),
+            writer,
+        )
+    }
+
+    fn format_intersection_head_with_pending(
+        &mut self,
+        mut intersection: PreparedIntersection<'ast>,
+        mut pending: &'ast [Comment],
+        mut pending_next_start: u32,
+        head: Option<MovableTypeHead>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<PreparedIntersection<'ast>, FormatError> {
+        if matches!(intersection.leading, IntersectionPrefix::Source(_)) {
+            self.comments.claim(pending)?;
+            self.format_comment_run(
+                pending,
+                CommentRunLayout::GroupedLeading(pending_next_start),
+                writer,
+            )?;
+            return Ok(intersection);
+        }
+        if let IntersectionPrefix::Leading {
+            boundary,
+            member_start,
+        } = std::mem::replace(&mut intersection.leading, IntersectionPrefix::Empty)
+            && let Some(first_start) = boundary.first_comment_start()
+        {
+            self.comments.claim(pending)?;
+            self.format_comment_run(
+                pending,
+                CommentRunLayout::GroupedLeading(first_start),
+                writer,
+            )?;
+            pending = boundary.comments();
+            pending_next_start = member_start;
+        }
+        let consumed_head = head.is_some_and(|head| head.owner == intersection.data);
+        let member = intersection.first_member_mut();
+        let IntersectionMember::Type(first) = member else {
+            self.comments.claim(pending)?;
+            self.format_comment_run(
+                pending,
+                CommentRunLayout::GroupedLeading(pending_next_start),
+                writer,
+            )?;
+            return Ok(intersection);
+        };
+        let content = self.format_movable_type_head(
+            *first,
+            pending,
+            pending_next_start,
+            if consumed_head {
+                self.type_movable_head(*first, TypeContext::CompoundMember)
+            } else {
+                head
+            },
+            TypeContext::CompoundMember,
+            writer,
+        )?;
+        *member = match content {
+            PreparedTypeContent::Type(node) => IntersectionMember::Type(node),
+            content => IntersectionMember::Prepared(Box::new(content)),
+        };
+        Ok(intersection)
+    }
+
+    pub(super) fn format_prepared_intersection(
+        &mut self,
+        intersection: PreparedIntersection<'ast>,
+        context: TypeContext,
+        layout: TypeLayout,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<crate::formatter::comments::ExpressionTail<'ast>>, FormatError> {
+        let head = self.intersection_movable_head(&intersection);
+        self.format_prepared_intersection_with_head(intersection, head, context, layout, writer)
+    }
+
+    pub(super) fn format_prepared_intersection_with_head(
+        &mut self,
+        intersection: PreparedIntersection<'ast>,
+        head: Option<MovableTypeHead>,
+        context: TypeContext,
+        layout: TypeLayout,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<crate::formatter::comments::ExpressionTail<'ast>>, FormatError> {
+        let intersection = self.format_intersection_head(intersection, head, writer)?;
         self.format_type_in_context(
-            node.data,
+            intersection.data,
             context,
             layout,
             writer,
-            |formatter, layout, writer| {
-                let head = CompoundHead {
-                    current,
-                    leading,
-                    first_start: first_span.start,
-                    leading_comments,
-                    single: types.len() == 1,
-                };
-                formatter.group_compound_members(head, members, kind, layout, writer)
-            },
+            |formatter, _, writer| formatter.format_intersection_members(intersection, writer),
         )
+    }
+
+    fn prepare_intersection_members(
+        &self,
+        node: PreparedType,
+        mut current: PreparedType,
+        leading: Span,
+        first_start: u32,
+        members: impl Iterator<Item = TsType>,
+    ) -> Result<PreparedIntersection<'ast>, FormatError> {
+        let leading = if leading.start == leading.end {
+            IntersectionPrefix::Empty
+        } else {
+            let comments = self.comments.in_range(leading);
+            if matches!(
+                self.comment_binding(comments, leading, Some(current.node.span(self.ast))),
+                CommentBinding::Unbound
+            ) {
+                if self.find_token(leading, comments, "&").is_none() {
+                    return Err(FormatError::unsupported(
+                        "intersection leading operator",
+                        None,
+                        leading,
+                    ));
+                }
+                IntersectionPrefix::Leading {
+                    boundary: self.prepare_comment_boundary(comments, leading.start, first_start),
+                    member_start: first_start,
+                }
+            } else {
+                self.select_type_head_comments(&mut current, comments, first_start);
+                IntersectionPrefix::Source(leading)
+            }
+        };
+        let mut current_object = self.intersection_member_is_object(current);
+        let mut inline_indented = false;
+        let mut links = Vec::with_capacity(members.size_hint().0);
+        for (index, next) in members.enumerate() {
+            let mut next = self.prepare_type(next, ContentMode::Formatted);
+            let next_object = self.intersection_member_is_object(next);
+            let gap = Span::new(
+                current.node.span(self.ast).end,
+                next.node.span(self.ast).start,
+            );
+            let boundary = self.prepare_intersection_boundary(gap, &mut current, &mut next)?;
+            let own_line = matches!(
+                &boundary,
+                IntersectionBoundary::Bound {
+                    leading_own_line: true,
+                    ..
+                } | IntersectionBoundary::Formatted {
+                    leading_own_line: true,
+                    ..
+                }
+            );
+            let continuation = if current_object && next_object {
+                IntersectionContinuation::Inline {
+                    indent: inline_indented,
+                }
+            } else if !current_object && !next_object || own_line {
+                IntersectionContinuation::Line
+            } else {
+                inline_indented = index > 0;
+                IntersectionContinuation::Inline {
+                    indent: inline_indented,
+                }
+            };
+            links.push(IntersectionLink {
+                left: IntersectionMember::Type(current),
+                boundary,
+                continuation,
+            });
+            current = next;
+            current_object = next_object;
+        }
+        Ok(PreparedIntersection {
+            data: node.data,
+            leading,
+            links,
+            last: IntersectionMember::Type(current),
+        })
+    }
+
+    fn prepare_intersection_boundary(
+        &self,
+        gap: Span,
+        left: &mut PreparedType,
+        right: &mut PreparedType,
+    ) -> Result<IntersectionBoundary<'ast>, FormatError> {
+        let comments = self.comments.in_range(gap);
+        let Some(operator) = self.find_token(gap, comments, "&") else {
+            return Err(FormatError::unsupported(
+                "intersection type operator",
+                None,
+                gap,
+            ));
+        };
+        let split = comments.partition_point(|comment| comment.span.end <= operator);
+        let (before, after) = comments.split_at(split);
+        if self.select_compound_boundary_suppression(operator, before, after, left, right) {
+            return Ok(IntersectionBoundary::Source(gap));
+        }
+        if !matches!(
+            self.comment_binding(comments, gap, Some(right.node.span(self.ast))),
+            CommentBinding::Unbound
+        ) {
+            let leading_own_line = after
+                .last()
+                .is_some_and(|comment| self.line_breaks(comment.span.end, gap.end) != 0);
+            return Ok(IntersectionBoundary::Bound {
+                before: self.prepare_comment_boundary(before, gap.start, operator),
+                after: self.prepare_comment_boundary(after, operator + 1, gap.end),
+                leading_own_line,
+            });
+        }
+        let Some((trailing_count, leading_own_line)) =
+            self.intersection_comment_attachments(comments, operator, gap.end)
+        else {
+            // Relocating interleaved owners would change comment identity order.
+            return Ok(IntersectionBoundary::Source(gap));
+        };
+        let (trailing, leading) = comments.split_at(trailing_count);
+        Ok(IntersectionBoundary::Formatted {
+            before: self.prepare_comment_boundary(trailing, gap.start, gap.end),
+            after: self.prepare_comment_boundary(leading, operator + 1, gap.end),
+            member_start: gap.end,
+            leading_own_line,
+        })
+    }
+
+    /// Classify bounded physical runs once, then carry the two real owners forward.
+    fn intersection_comment_attachments(
+        &self,
+        comments: &[Comment],
+        operator: u32,
+        member_start: u32,
+    ) -> Option<(usize, bool)> {
+        let mut trailing_count = 0;
+        let mut leading = false;
+        let mut leading_own_line = false;
+        let mut start = 0;
+        while let Some(first) = comments.get(start) {
+            let before_operator = first.span.end <= operator;
+            let mut end = start + 1;
+            let mut last = first;
+            while let Some(next) = comments.get(end) {
+                if (next.span.end <= operator) != before_operator
+                    || !self.source_comment_gap_is_run(*last, *next)
+                {
+                    break;
+                }
+                last = next;
+                end += 1;
+            }
+            let following = comments
+                .get(end)
+                .map_or(member_start, |next| next.span.start);
+            let following = if before_operator && following > operator {
+                operator
+            } else {
+                following
+            };
+            let ends_line = self.line_breaks(last.span.end, following) != 0;
+            let run_leading =
+                self.source_line_starts_line(first.span.start) || !before_operator && !ends_line;
+            if run_leading {
+                leading = true;
+                leading_own_line |= ends_line;
+            } else if leading {
+                return None;
+            } else {
+                trailing_count = end;
+            }
+            start = end;
+        }
+        Some((trailing_count, leading_own_line))
+    }
+
+    fn intersection_member_is_object(&self, node: PreparedType) -> bool {
+        let mut data = node.data;
+        loop {
+            let child = match data {
+                TsTypeData::TsTypeLiteral(_) | TsTypeData::TsMappedType(_) => return true,
+                TsTypeData::TsParenthesizedType(parentheses) => {
+                    parentheses.type_annotation(self.ast)
+                }
+                TsTypeData::TsUnionType(union) if union.types(self.ast).len() == 1 => {
+                    let Some(first) = union.types(self.ast).first() else {
+                        return false;
+                    };
+                    self.ast.get_node_in_sub_range(first)
+                }
+                TsTypeData::TsIntersectionType(intersection)
+                    if intersection.types(self.ast).len() == 1 =>
+                {
+                    let Some(first) = intersection.types(self.ast).first() else {
+                        return false;
+                    };
+                    self.ast.get_node_in_sub_range(first)
+                }
+                _ => return false,
+            };
+            data = self.ast.ts_type_data(child);
+        }
+    }
+
+    fn format_intersection_members(
+        &mut self,
+        intersection: PreparedIntersection<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<crate::formatter::comments::ExpressionTail<'ast>>, FormatError> {
+        writer.group(false, |writer| {
+            let mut prefix = intersection.leading;
+            for link in intersection.links {
+                self.format_intersection_member(link.left, prefix, writer)?;
+                prefix =
+                    self.format_intersection_separator(link.boundary, link.continuation, writer)?;
+            }
+            self.format_intersection_member(intersection.last, prefix, writer)?;
+            Ok(None)
+        })
+    }
+
+    fn format_intersection_member(
+        &mut self,
+        node: IntersectionMember<'ast>,
+        prefix: IntersectionPrefix<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        let indent = matches!(
+            &prefix,
+            IntersectionPrefix::Member {
+                continuation: IntersectionContinuation::Line
+                    | IntersectionContinuation::Inline { indent: true },
+                ..
+            } | IntersectionPrefix::BoundMember {
+                continuation: IntersectionContinuation::Line
+                    | IntersectionContinuation::Inline { indent: true },
+                ..
+            }
+        );
+        let content =
+            |writer: &mut Writer<'ast>| {
+                match prefix {
+                    IntersectionPrefix::Empty => {}
+                    IntersectionPrefix::Source(span) => self.format_verbatim(span, writer)?,
+                    IntersectionPrefix::Leading {
+                        boundary,
+                        member_start,
+                    } => {
+                        self.format_comment_boundary_with_layout(
+                            &boundary,
+                            CommentRunLayout::GroupedLeading(member_start),
+                            writer,
+                        )?;
+                    }
+                    IntersectionPrefix::BoundMember {
+                        boundary,
+                        continuation,
+                    } => {
+                        self.format_comment_boundary(&boundary, writer)?;
+                        boundary
+                            .gap()
+                            .write(writer, FlatSeparator::Space, |writer| match continuation {
+                                IntersectionContinuation::Line => writer.line(),
+                                IntersectionContinuation::Inline { .. } => writer.space(),
+                            });
+                    }
+                    IntersectionPrefix::Member {
+                        boundary,
+                        member_start,
+                        leading_own_line,
+                        continuation,
+                    } => {
+                        if leading_own_line {
+                            writer.line();
+                        } else {
+                            match continuation {
+                                IntersectionContinuation::Line => writer.line(),
+                                IntersectionContinuation::Inline { .. } => writer.space(),
+                            }
+                        }
+                        self.format_comment_boundary_with_layout(
+                            &boundary,
+                            CommentRunLayout::GroupedLeading(member_start),
+                            writer,
+                        )?;
+                    }
+                }
+                let tail = match node {
+                    IntersectionMember::Type(node) => {
+                        self.format_prepared_type(node, TypeContext::CompoundMember, writer)?
+                    }
+                    IntersectionMember::Prepared(content) => self.format_prepared_type_content(
+                        *content,
+                        TypeContext::CompoundMember,
+                        TypeLayout::Root,
+                        writer,
+                    )?,
+                };
+                self.format_expression_tail(tail, writer)
+            };
+        if indent {
+            writer.indent(content)
+        } else {
+            content(writer)
+        }
+    }
+
+    fn format_intersection_separator(
+        &mut self,
+        boundary: IntersectionBoundary<'ast>,
+        continuation: IntersectionContinuation,
+        writer: &mut Writer<'ast>,
+    ) -> Result<IntersectionPrefix<'ast>, FormatError> {
+        let (before, after, member_start, leading_own_line) = match boundary {
+            IntersectionBoundary::Source(span) => return Ok(IntersectionPrefix::Source(span)),
+            IntersectionBoundary::Bound { before, after, .. } => {
+                self.format_comment_boundary(&before, writer)?;
+                before
+                    .gap()
+                    .write(writer, FlatSeparator::Space, Writer::space);
+                writer.text("&");
+                return Ok(IntersectionPrefix::BoundMember {
+                    boundary: after,
+                    continuation,
+                });
+            }
+            IntersectionBoundary::Formatted {
+                before,
+                after,
+                member_start,
+                leading_own_line,
+            } => (before, after, member_start, leading_own_line),
+        };
+        self.format_comment_boundary(&before, writer)?;
+        // A trailing Line remains a suffix of the left member until its next break.
+        writer.space();
+        writer.text("&");
+        Ok(IntersectionPrefix::Member {
+            boundary: after,
+            member_start,
+            leading_own_line,
+            continuation,
+        })
     }
 
     pub(super) fn prepare_union(
@@ -577,87 +1289,247 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     pub(super) fn format_single_compound_head(
         &mut self,
         single: SingleCompoundHead<'ast>,
+        context: TypeContext,
         writer: &mut Writer<'ast>,
-    ) -> Result<SingleTypeContent<'ast>, FormatError> {
+    ) -> Result<PreparedTypeContent<'ast>, FormatError> {
         if !single.movable {
-            return Ok(SingleTypeContent::Compound(single));
+            return Ok(PreparedTypeContent::Compound(single));
         }
-        self.comments.claim(single.comments)?;
-        self.format_comment_run(
+        self.format_movable_type_head(
+            single.current,
             single.comments,
-            CommentRunLayout::GroupedLeading(single.first_start),
+            single.first_start,
+            self.type_movable_head(single.current, context),
+            context,
             writer,
-        )?;
-        let mut current = single.current;
-        loop {
-            if current.source_owner == Some(current.node) {
-                return Ok(SingleTypeContent::Type(current));
+        )
+    }
+
+    pub(super) fn format_prepared_type_content_head(
+        &mut self,
+        content: PreparedTypeContent<'ast>,
+        pending: &'ast [Comment],
+        next_start: u32,
+        head: Option<MovableTypeHead>,
+        context: TypeContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<PreparedTypeContent<'ast>, FormatError> {
+        match content {
+            PreparedTypeContent::Type(node) => {
+                self.format_movable_type_head(node, pending, next_start, head, context, writer)
             }
-            match current.data {
+            PreparedTypeContent::Intersection(intersection) => self
+                .format_intersection_head_with_pending(
+                    intersection,
+                    pending,
+                    next_start,
+                    head,
+                    writer,
+                )
+                .map(PreparedTypeContent::Intersection),
+            PreparedTypeContent::Parentheses(parentheses)
+                if parentheses.movable
+                    && !context.preserves_union_head(parentheses.child.node, self.ast) =>
+            {
+                let comments = parentheses.leading_comments;
+                if let Some(first) = comments.first() {
+                    self.comments.claim(pending)?;
+                    self.format_comment_run(
+                        pending,
+                        CommentRunLayout::GroupedLeading(first.span.start),
+                        writer,
+                    )?;
+                    self.format_movable_type_head(
+                        parentheses.child,
+                        comments,
+                        parentheses.child_span.start,
+                        self.type_movable_head(parentheses.child, context),
+                        context,
+                        writer,
+                    )
+                } else {
+                    self.format_movable_type_head(
+                        parentheses.child,
+                        pending,
+                        next_start,
+                        self.type_movable_head(parentheses.child, context),
+                        context,
+                        writer,
+                    )
+                }
+            }
+            content => {
+                self.comments.claim(pending)?;
+                self.format_comment_run(
+                    pending,
+                    CommentRunLayout::GroupedLeading(next_start),
+                    writer,
+                )?;
+                Ok(content)
+            }
+        }
+    }
+
+    /// Delay each head packet until its actual next comment or content owner is known.
+    pub(super) fn format_movable_type_head(
+        &mut self,
+        mut current: PreparedType,
+        mut pending: &'ast [Comment],
+        mut pending_next_start: u32,
+        mut head: Option<MovableTypeHead>,
+        context: TypeContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<PreparedTypeContent<'ast>, FormatError> {
+        let content = loop {
+            if current.source_owner == Some(current.node) {
+                break PreparedTypeContent::Type(current);
+            }
+            let (next, comments, next_start) = match current.data {
                 TsTypeData::TsParenthesizedType(parentheses) => {
-                    let (parentheses, before, after) = self
-                        .prepare_type_parentheses_with_comments(parentheses, current.source_owner);
-                    if parentheses.retained {
-                        let movable = current.source_owner.is_none()
-                            && after.is_empty()
-                            && matches!(
-                                self.comment_binding(
-                                    before,
-                                    parentheses.span,
-                                    Some(parentheses.child_span)
-                                ),
-                                CommentBinding::Unbound
-                            );
-                        if !movable {
-                            return Ok(SingleTypeContent::Parentheses(parentheses));
-                        }
-                        self.comments.claim(before)?;
-                        self.format_comment_run(
-                            before,
-                            CommentRunLayout::GroupedLeading(parentheses.child_span.start),
-                            writer,
-                        )?;
+                    let parentheses =
+                        self.prepare_type_parentheses(parentheses, current.source_owner);
+                    if parentheses.retained
+                        && (!parentheses.movable
+                            || (head.is_none_or(|head| head.owner != current.data)
+                                && context.preserves_union_head(parentheses.child.node, self.ast)))
+                    {
+                        break PreparedTypeContent::Parentheses(parentheses);
                     }
-                    current = parentheses.child;
+                    (
+                        parentheses.child,
+                        parentheses.leading_comments,
+                        parentheses.child_span.start,
+                    )
                 }
                 TsTypeData::TsUnionType(union) if union.types(self.ast).len() == 1 => {
                     let single = self.prepare_single_compound(current)?;
-                    return self.format_single_compound_head(single, writer);
+                    if !single.movable {
+                        break PreparedTypeContent::Compound(single);
+                    }
+                    (single.current, single.comments, single.first_start)
                 }
                 TsTypeData::TsIntersectionType(intersection)
                     if intersection.types(self.ast).len() == 1 =>
                 {
                     let single = self.prepare_single_compound(current)?;
-                    return self.format_single_compound_head(single, writer);
+                    if !single.movable {
+                        break PreparedTypeContent::Compound(single);
+                    }
+                    (single.current, single.comments, single.first_start)
+                }
+                TsTypeData::TsArrayType(node) => {
+                    if head.is_none() {
+                        break PreparedTypeContent::Type(current);
+                    }
+                    let postfix = self.format_postfix_head(
+                        super::postfix::PostfixTypeOwner::Array(node),
+                        pending,
+                        pending_next_start,
+                        head,
+                        writer,
+                    )?;
+                    pending = &[];
+                    break PreparedTypeContent::Postfix(postfix);
+                }
+                TsTypeData::TsIndexedAccessType(node) => {
+                    if head.is_none() {
+                        break PreparedTypeContent::Type(current);
+                    }
+                    let postfix = self.format_postfix_head(
+                        super::postfix::PostfixTypeOwner::Indexed(node),
+                        pending,
+                        pending_next_start,
+                        head,
+                        writer,
+                    )?;
+                    pending = &[];
+                    break PreparedTypeContent::Postfix(postfix);
+                }
+                TsTypeData::TsConditionalType(node) => {
+                    if head.is_none() && pending.is_empty() {
+                        break PreparedTypeContent::Type(current);
+                    }
+                    let conditional = self.format_conditional_head(
+                        node,
+                        pending,
+                        pending_next_start,
+                        head,
+                        writer,
+                    )?;
+                    pending = &[];
+                    break PreparedTypeContent::Conditional(conditional);
                 }
                 TsTypeData::TsUnionType(union) => {
-                    return self
-                        .prepare_union(current, union.types(self.ast))
-                        .map(SingleTypeContent::Union);
+                    break PreparedTypeContent::Union(
+                        self.prepare_union(current, union.types(self.ast))?,
+                    );
                 }
-                _ => return Ok(SingleTypeContent::Type(current)),
+                TsTypeData::TsIntersectionType(intersection) => {
+                    let intersection =
+                        self.prepare_intersection(current, intersection.types(self.ast))?;
+                    let intersection = self.format_intersection_head_with_pending(
+                        intersection,
+                        pending,
+                        pending_next_start,
+                        head,
+                        writer,
+                    )?;
+                    pending = &[];
+                    break PreparedTypeContent::Intersection(intersection);
+                }
+                _ => break PreparedTypeContent::Type(current),
+            };
+            if let Some(first) = comments.first() {
+                self.comments.claim(pending)?;
+                self.format_comment_run(
+                    pending,
+                    CommentRunLayout::GroupedLeading(first.span.start),
+                    writer,
+                )?;
+                pending = comments;
+                pending_next_start = next_start;
             }
-        }
+            if head.is_some_and(|head| head.owner == current.data) {
+                head = self.type_movable_head(next, context);
+            }
+            current = next;
+        };
+        self.comments.claim(pending)?;
+        self.format_comment_run(
+            pending,
+            CommentRunLayout::GroupedLeading(pending_next_start),
+            writer,
+        )?;
+        Ok(content)
     }
 
-    pub(super) fn format_single_type_content(
+    pub(super) fn format_prepared_type_content(
         &mut self,
-        content: SingleTypeContent<'ast>,
+        content: PreparedTypeContent<'ast>,
         context: TypeContext,
         layout: TypeLayout,
         writer: &mut Writer<'ast>,
     ) -> Result<Option<crate::formatter::comments::ExpressionTail<'ast>>, FormatError> {
         match content {
-            SingleTypeContent::Union(union) => {
+            PreparedTypeContent::Union(union) => {
                 self.format_prepared_union(union, context, layout, None, writer)
             }
-            SingleTypeContent::Type(node) => {
+            PreparedTypeContent::Intersection(intersection) => {
+                self.format_prepared_intersection(intersection, context, layout, writer)
+            }
+            PreparedTypeContent::Postfix(postfix) => {
+                self.format_prepared_postfix_type(postfix, context, layout, writer)
+            }
+            PreparedTypeContent::Conditional(conditional) => {
+                self.format_prepared_conditional_type(conditional, context, layout, writer)
+            }
+            PreparedTypeContent::Type(node) => {
                 self.format_prepared_type_with_layout(node, context, layout, writer)
             }
-            SingleTypeContent::Parentheses(parentheses) => {
+            PreparedTypeContent::Parentheses(parentheses) => {
                 self.format_prepared_type_parentheses(parentheses, context, layout, writer)
             }
-            SingleTypeContent::Compound(single) => self.format_type_in_context(
+            PreparedTypeContent::Compound(single) => self.format_type_in_context(
                 single.data,
                 context,
                 layout,
@@ -785,26 +1657,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         };
         let split = comments.partition_point(|comment| comment.span.end <= operator);
         let (before, after) = comments.split_at(split);
-        let mut source = false;
-        if self.has_suppression && self.content_mode(comments) == ContentMode::Verbatim {
-            for (_, position) in self.suppressed_comment_runs(before, operator) {
-                source = true;
-                if matches!(position, SuppressionPosition::OwnLine) {
-                    self.select_type_head(right, position);
-                } else {
-                    left.source_owner = Some(left.node);
-                }
-            }
-            for (_, position) in self.suppressed_comment_runs(after, gap.end) {
-                source = true;
-                if matches!(position, SuppressionPosition::EndOfLine) {
-                    left.source_owner = Some(left.node);
-                } else {
-                    self.select_type_head(right, position);
-                }
-            }
-        }
-        if source {
+        if self.select_compound_boundary_suppression(operator, before, after, left, right) {
             Ok(TypeBoundaryLayout::Source(gap))
         } else {
             Ok(TypeBoundaryLayout::Formatted {
@@ -812,6 +1665,37 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 after: self.prepare_comment_boundary(after, operator + 1, gap.end),
             })
         }
+    }
+
+    fn select_compound_boundary_suppression(
+        &self,
+        operator: u32,
+        before: &[Comment],
+        after: &[Comment],
+        left: &mut PreparedType,
+        right: &mut PreparedType,
+    ) -> bool {
+        if !self.has_suppression {
+            return false;
+        }
+        let mut source = false;
+        for (_, position) in self.suppressed_comment_runs(before, operator) {
+            source = true;
+            if matches!(position, SuppressionPosition::OwnLine) {
+                self.select_type_head(right, position);
+            } else {
+                left.source_owner = Some(left.node);
+            }
+        }
+        for (_, position) in self.suppressed_comment_runs(after, right.node.span(self.ast).start) {
+            source = true;
+            if matches!(position, SuppressionPosition::EndOfLine) {
+                left.source_owner = Some(left.node);
+            } else {
+                self.select_type_head(right, position);
+            }
+        }
+        source
     }
 
     fn format_compound_boundary(

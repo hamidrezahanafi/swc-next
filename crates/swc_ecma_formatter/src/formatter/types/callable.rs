@@ -100,13 +100,13 @@ pub(in crate::formatter) struct SignatureReturn<'ast> {
     delimiter: SignatureReturnDelimiter,
 }
 
-enum FunctionReturnContent {
+enum FunctionReturnContent<'ast> {
     Annotation(AnnotationContent),
-    Parenthesized(PreparedTypeParentheses),
+    Parenthesized(PreparedTypeParentheses<'ast>),
 }
 
 pub(in crate::formatter) struct FunctionReturn<'ast> {
-    content: FunctionReturnContent,
+    content: FunctionReturnContent<'ast>,
     prefix: TypeBoundaryLayout<'ast>,
     delimiter: SignatureReturnDelimiter,
 }
@@ -779,7 +779,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         }
     }
 
-    fn prepare_function_return_type(&self, mut node: PreparedType) -> FunctionReturnContent {
+    fn prepare_function_return_type(&self, mut node: PreparedType) -> FunctionReturnContent<'ast> {
         while node.source_owner != Some(node.node) {
             let swc_next_ecma_ast::TsTypeData::TsParenthesizedType(parentheses) = node.data else {
                 break;
@@ -979,6 +979,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                         *node,
                         context,
                         &after,
+                        TypeLayout::Root,
+                        writer,
+                    );
+                }
+                if let FunctionReturnContent::Parenthesized(parentheses) = result.content {
+                    return self.format_prepared_parentheses_after_comments(
+                        parentheses,
+                        &after,
+                        context,
                         TypeLayout::Root,
                         writer,
                     );

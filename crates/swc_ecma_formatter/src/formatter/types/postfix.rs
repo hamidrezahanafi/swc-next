@@ -1,12 +1,13 @@
 //! Type postfix delimiters and prefix operands retain their actual owners.
 
 use swc_next_ecma_ast::{
-    GetSpan, Span, TsArrayType, TsIndexedAccessType, TsTypeOperator, TsTypeOperatorKind,
-    TsTypeQuery, TsTypeQueryExprNameData,
+    GetSpan, Span, TsArrayType, TsIndexedAccessType, TsTypeData, TsTypeOperator,
+    TsTypeOperatorKind, TsTypeQuery, TsTypeQueryExprNameData,
 };
 
+use super::compound::{MovableTypeHead, PreparedTypeContent};
 use super::context::TypeContext;
-use super::{Formatter, TypeBoundaryLayout};
+use super::{Formatter, PreparedType, TypeBoundaryLayout, TypeLayout};
 use crate::formatter::comments::{CommentBoundary, ExpressionTail};
 use crate::formatter::diagnostics::FlatSeparator;
 use crate::formatter::suppression::{ContentMode, SuppressionPosition};
@@ -36,9 +37,40 @@ enum ArraySuffix<'ast> {
 }
 
 struct PreparedIndex<'ast> {
-    object_mode: ContentMode,
+    object: PreparedType,
+    index: PreparedType,
     prefix: TypeBoundaryLayout<'ast>,
     suffix: TypePrefix<'ast>,
+}
+
+struct PreparedArray<'ast> {
+    element: PreparedType,
+    suffix: ArraySuffix<'ast>,
+}
+
+pub(super) enum PostfixTypeOwner {
+    Array(TsArrayType),
+    Indexed(TsIndexedAccessType),
+}
+
+pub(super) struct PreparedPostfixType<'ast> {
+    data: TsTypeData,
+    operand: PostfixOperand<'ast>,
+    suffix: PostfixSuffix<'ast>,
+}
+
+enum PostfixOperand<'ast> {
+    Type(PreparedType),
+    Prepared(Box<PreparedTypeContent<'ast>>),
+}
+
+enum PostfixSuffix<'ast> {
+    Array(ArraySuffix<'ast>),
+    Indexed {
+        index: PreparedType,
+        prefix: TypeBoundaryLayout<'ast>,
+        suffix: TypePrefix<'ast>,
+    },
 }
 
 impl<'ast, 'source> Formatter<'ast, 'source> {
@@ -54,11 +86,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         })
     }
 
-    pub(super) fn format_array_type(
-        &mut self,
-        node: TsArrayType,
-        writer: &mut Writer<'ast>,
-    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+    fn prepare_array_type(&self, node: TsArrayType) -> Result<PreparedArray<'ast>, FormatError> {
         let ast = self.ast;
         let element = node.element_type(ast);
         let element_span = element.span(ast);
@@ -86,9 +114,29 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             };
             (ContentMode::Formatted, suffix)
         };
-        let tail =
-            self.format_type_with_context(element, mode, TypeContext::PostfixOperand, writer)?;
+        Ok(PreparedArray {
+            element: self.prepare_type(element, mode),
+            suffix,
+        })
+    }
+
+    pub(super) fn format_array_type(
+        &mut self,
+        node: TsArrayType,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let array = self.prepare_array_type(node)?;
+        let tail = self.format_prepared_type(array.element, TypeContext::PostfixOperand, writer)?;
         self.format_expression_tail(tail, writer)?;
+        self.format_array_suffix(array.suffix, writer)?;
+        Ok(None)
+    }
+
+    fn format_array_suffix(
+        &mut self,
+        suffix: ArraySuffix<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
         match suffix {
             ArraySuffix::Source(gap) => self.format_verbatim(gap, writer)?,
             ArraySuffix::Formatted { before, inside } => {
@@ -98,14 +146,13 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 writer.text("]");
             }
         }
-        Ok(None)
+        Ok(())
     }
 
-    pub(super) fn format_indexed_type(
-        &mut self,
+    fn prepare_indexed_type(
+        &self,
         node: TsIndexedAccessType,
-        writer: &mut Writer<'ast>,
-    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+    ) -> Result<PreparedIndex<'ast>, FormatError> {
         let ast = self.ast;
         let object = node.object_type(ast);
         let index = node.index_type(ast);
@@ -143,19 +190,34 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         if suffix.mode == ContentMode::Verbatim {
             index_type.source_owner = Some(index);
         }
-        let prepared = PreparedIndex {
-            object_mode,
+        Ok(PreparedIndex {
+            object: self.prepare_type(object, object_mode),
+            index: index_type,
             prefix,
             suffix,
-        };
-        let tail = self.format_type_with_context(
-            object,
-            prepared.object_mode,
-            TypeContext::PostfixOperand,
-            writer,
-        )?;
+        })
+    }
+
+    pub(super) fn format_indexed_type(
+        &mut self,
+        node: TsIndexedAccessType,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let index = self.prepare_indexed_type(node)?;
+        let tail = self.format_prepared_type(index.object, TypeContext::PostfixOperand, writer)?;
         self.format_expression_tail(tail, writer)?;
-        match prepared.prefix {
+        self.format_indexed_suffix(index.index, index.prefix, index.suffix, writer)?;
+        Ok(None)
+    }
+
+    fn format_indexed_suffix(
+        &mut self,
+        index: PreparedType,
+        prefix: TypeBoundaryLayout<'ast>,
+        suffix: TypePrefix<'ast>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<(), FormatError> {
+        match prefix {
             TypeBoundaryLayout::Source(gap) => self.format_verbatim(gap, writer)?,
             TypeBoundaryLayout::Formatted { before, after } => {
                 self.format_type_comment_gap(&before, FlatSeparator::Empty, writer)?;
@@ -163,11 +225,102 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
                 self.format_type_comment_gap(&after, FlatSeparator::Empty, writer)?;
             }
         }
-        let tail = self.format_prepared_type(index_type, TypeContext::Root, writer)?;
+        let tail = self.format_prepared_type(index, TypeContext::Root, writer)?;
         self.format_expression_tail(tail, writer)?;
-        self.format_type_prefix(prepared.suffix, FlatSeparator::Empty, writer)?;
+        self.format_type_prefix(suffix, FlatSeparator::Empty, writer)?;
         writer.text("]");
-        Ok(None)
+        Ok(())
+    }
+
+    pub(super) fn format_postfix_head(
+        &mut self,
+        owner: PostfixTypeOwner,
+        pending: &'ast [swc_next_ecma_ast::Comment],
+        next_start: u32,
+        head: Option<MovableTypeHead>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<PreparedPostfixType<'ast>, FormatError> {
+        let (data, operand, suffix) = match owner {
+            PostfixTypeOwner::Array(node) => {
+                let array = self.prepare_array_type(node)?;
+                (
+                    TsTypeData::TsArrayType(node),
+                    array.element,
+                    PostfixSuffix::Array(array.suffix),
+                )
+            }
+            PostfixTypeOwner::Indexed(node) => {
+                let index = self.prepare_indexed_type(node)?;
+                (
+                    TsTypeData::TsIndexedAccessType(node),
+                    index.object,
+                    PostfixSuffix::Indexed {
+                        index: index.index,
+                        prefix: index.prefix,
+                        suffix: index.suffix,
+                    },
+                )
+            }
+        };
+        let operand = self.format_movable_type_head(
+            operand,
+            pending,
+            next_start,
+            head,
+            TypeContext::PostfixOperand,
+            writer,
+        )?;
+        let operand = match operand {
+            PreparedTypeContent::Type(node) => PostfixOperand::Type(node),
+            content => PostfixOperand::Prepared(Box::new(content)),
+        };
+        Ok(PreparedPostfixType {
+            data,
+            operand,
+            suffix,
+        })
+    }
+
+    pub(super) fn format_prepared_postfix_type(
+        &mut self,
+        postfix: PreparedPostfixType<'ast>,
+        context: TypeContext,
+        layout: TypeLayout,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_type_in_context(
+            postfix.data,
+            context,
+            layout,
+            writer,
+            |formatter, _, writer| {
+                let tail = match postfix.operand {
+                    PostfixOperand::Type(node) => {
+                        formatter.format_prepared_type(node, TypeContext::PostfixOperand, writer)?
+                    }
+                    PostfixOperand::Prepared(content) => formatter.format_prepared_type_content(
+                        *content,
+                        TypeContext::PostfixOperand,
+                        TypeLayout::Root,
+                        writer,
+                    )?,
+                };
+                formatter.format_expression_tail(tail, writer)?;
+                match postfix.suffix {
+                    PostfixSuffix::Array(suffix) => {
+                        formatter.format_array_suffix(suffix, writer)?
+                    }
+                    PostfixSuffix::Indexed {
+                        index,
+                        prefix,
+                        suffix,
+                    } => {
+                        formatter.format_indexed_suffix(index, prefix, suffix, writer)?;
+                    }
+                }
+                Ok(None)
+            },
+        )
     }
 
     pub(super) fn format_type_operator(

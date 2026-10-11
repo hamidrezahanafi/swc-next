@@ -55,10 +55,10 @@ type Ignored = [/* prettier-ignore */ /* first pinned */
 
   /* second pinned */];
 type Protected = [
-    // @ts-expect-error
+  // @ts-expect-error
 
-    // directive covers the closing line
-  ] & MissingEmptyTupleType;
+  // directive covers the closing line
+] & MissingEmptyTupleType;
 type InlineFirst = [/* prettier-ignore */ 12.00|13.00, number];
 type InlineLater = [number, /* prettier-ignore */ 12.00|13.00, string];
 type Adjacent = [
@@ -92,10 +92,10 @@ type Ignored = [/* prettier-ignore */ /* first pinned */
 
   /* second pinned */];
 type Protected = [
-    // @ts-expect-error
+  // @ts-expect-error
 
-    // directive covers the closing line
-  ] & MissingEmptyTupleType;
+  // directive covers the closing line
+] & MissingEmptyTupleType;
 type InlineFirst = [/* prettier-ignore */ 12.00|13.00,
   number,
 ];
@@ -134,10 +134,10 @@ type Ignored = [/* prettier-ignore */ /* first pinned */
 
   /* second pinned */]
 type Protected = [
-    // @ts-expect-error
+  // @ts-expect-error
 
-    // directive covers the closing line
-  ] & MissingEmptyTupleType
+  // directive covers the closing line
+] & MissingEmptyTupleType
 type InlineFirst = [/* prettier-ignore */ 12.00|13.00,
   number,
 ]
@@ -176,10 +176,10 @@ type Ignored = [/* prettier-ignore */ /* first pinned */
 
   /* second pinned */];
 type Protected = [
-		// @ts-expect-error
+	// @ts-expect-error
 
-		// directive covers the closing line
-	] & MissingEmptyTupleType;
+	// directive covers the closing line
+] & MissingEmptyTupleType;
 type InlineFirst = [/* prettier-ignore */ 12.00|13.00,
 	number
 ];

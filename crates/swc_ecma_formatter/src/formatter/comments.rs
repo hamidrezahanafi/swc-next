@@ -41,7 +41,15 @@ pub(super) struct CommentBoundary<'ast> {
     gap: CommentGap,
 }
 
-impl CommentBoundary<'_> {
+impl<'ast> CommentBoundary<'ast> {
+    pub(super) fn comments(&self) -> &'ast [Comment] {
+        self.comments
+    }
+
+    pub(super) fn first_comment_start(&self) -> Option<u32> {
+        self.comments.first().map(|comment| comment.span.start)
+    }
+
     pub(super) fn is_empty(&self) -> bool {
         self.comments.is_empty()
     }
@@ -477,7 +485,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
 
     /// Reference input normalizes CR/CRLF before attachment. Its backwards
     /// newline check skips SPACE/TAB only; run gaps use ECMA whitespace instead.
-    fn source_line_starts_line(&self, position: u32) -> bool {
+    pub(super) fn source_line_starts_line(&self, position: u32) -> bool {
         self.ast.source()[..position as usize]
             .trim_end_matches([' ', '\t'])
             .chars()
@@ -485,7 +493,7 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             .is_some_and(|character| matches!(character, '\n' | '\r' | '\u{2028}' | '\u{2029}'))
     }
 
-    fn source_comment_gap_is_run(&self, previous: Comment, next: Comment) -> bool {
+    pub(super) fn source_comment_gap_is_run(&self, previous: Comment, next: Comment) -> bool {
         self.source(Span::new(previous.span.end, next.span.start))
             .chars()
             .all(|character| {

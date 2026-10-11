@@ -707,21 +707,25 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
     ) -> Result<(), FormatError> {
         writer.text("<");
         let closing = writer.indent(|writer| {
-            match head.before {
-                TypeExpressionGap::Source(span) => self.format_verbatim(span, writer)?,
-                TypeExpressionGap::Formatted(boundary) => {
-                    self.format_comment_boundary(&boundary, writer)?;
-                    boundary
-                        .gap()
-                        .write(writer, FlatSeparator::Empty, Writer::soft_line);
+            let tail = match head.before {
+                TypeExpressionGap::Source(span) => {
+                    self.format_verbatim(span, writer)?;
+                    self.format_prepared_delimited_type(
+                        head.body,
+                        TypeContext::Root,
+                        TypeLayout::CallerIndented,
+                        writer,
+                    )?
                 }
-            }
-            let tail = self.format_prepared_delimited_type(
-                head.body,
-                TypeContext::Root,
-                TypeLayout::CallerIndented,
-                writer,
-            )?;
+                TypeExpressionGap::Formatted(boundary) => self
+                    .format_prepared_delimited_type_after_comments(
+                        head.body,
+                        &boundary,
+                        TypeContext::Root,
+                        TypeLayout::CallerIndented,
+                        writer,
+                    )?,
+            };
             self.format_expression_tail(tail, writer)?;
             match head.closing {
                 TypeExpressionGap::Source(span) => {

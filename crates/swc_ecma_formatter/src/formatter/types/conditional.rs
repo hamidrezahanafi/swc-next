@@ -1,7 +1,8 @@
 //! Conditional type children retain their grammar roles and prepared token gaps.
 
-use swc_next_ecma_ast::{GetSpan, Span, TsConditionalType};
+use swc_next_ecma_ast::{Comment, GetSpan, Span, TsConditionalType, TsTypeData};
 
+use super::compound::{MovableTypeHead, PreparedTypeContent};
 use super::context::TypeContext;
 use super::{Formatter, PreparedType, TypeBoundaryLayout, TypeLayout};
 use crate::formatter::comments::ExpressionTail;
@@ -31,13 +32,31 @@ struct ConditionalTypeBoundary<'ast> {
     layout: TypeBoundaryLayout<'ast>,
 }
 
+pub(super) struct PreparedConditionalType<'ast> {
+    check: ConditionalCheck<'ast>,
+    body: ConditionalBody<'ast>,
+}
+
+struct ConditionalBody<'ast> {
+    node: TsConditionalType,
+    extends: PreparedType,
+    consequent: PreparedType,
+    alternate: PreparedType,
+    head: ConditionalTypeBoundary<'ast>,
+    question: ConditionalTypeBoundary<'ast>,
+    colon: ConditionalTypeBoundary<'ast>,
+}
+
+enum ConditionalCheck<'ast> {
+    Type(PreparedType),
+    Prepared(Box<PreparedTypeContent<'ast>>),
+}
+
 impl<'ast, 'source> Formatter<'ast, 'source> {
-    pub(super) fn format_conditional_type(
-        &mut self,
+    fn prepare_conditional_type(
+        &self,
         node: TsConditionalType,
-        layout: TypeLayout,
-        writer: &mut Writer<'ast>,
-    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+    ) -> Result<(PreparedType, ConditionalBody<'ast>), FormatError> {
         let ast = self.ast;
         let mut check = self.prepare_type(node.check_type(ast), ContentMode::Formatted);
         let mut extends = self.prepare_type(node.extends_type(ast), ContentMode::Formatted);
@@ -58,11 +77,108 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             &mut alternate,
             ConditionalTypeSeparator::Colon,
         )?;
+        Ok((
+            check,
+            ConditionalBody {
+                node,
+                extends,
+                consequent,
+                alternate,
+                head,
+                question,
+                colon,
+            },
+        ))
+    }
+
+    pub(super) fn format_conditional_head(
+        &mut self,
+        node: TsConditionalType,
+        pending: &'ast [Comment],
+        next_start: u32,
+        leading: Option<MovableTypeHead>,
+        writer: &mut Writer<'ast>,
+    ) -> Result<PreparedConditionalType<'ast>, FormatError> {
+        let (check, body) = self.prepare_conditional_type(node)?;
+        let content = self.format_movable_type_head(
+            check,
+            pending,
+            next_start,
+            leading,
+            TypeContext::ConditionalCheck,
+            writer,
+        )?;
+        let check = match content {
+            PreparedTypeContent::Type(node) => ConditionalCheck::Type(node),
+            content => ConditionalCheck::Prepared(Box::new(content)),
+        };
+        Ok(PreparedConditionalType { check, body })
+    }
+
+    pub(super) fn format_conditional_type(
+        &mut self,
+        node: TsConditionalType,
+        layout: TypeLayout,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let (check, body) = self.prepare_conditional_type(node)?;
+        self.format_conditional_members(ConditionalCheck::Type(check), body, layout, writer)
+    }
+
+    pub(super) fn format_prepared_conditional_type(
+        &mut self,
+        conditional: PreparedConditionalType<'ast>,
+        context: TypeContext,
+        layout: TypeLayout,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        self.format_type_in_context(
+            TsTypeData::TsConditionalType(conditional.body.node),
+            context,
+            layout,
+            writer,
+            |formatter, layout, writer| {
+                formatter.format_conditional_members(
+                    conditional.check,
+                    conditional.body,
+                    layout,
+                    writer,
+                )
+            },
+        )
+    }
+
+    fn format_conditional_members(
+        &mut self,
+        check: ConditionalCheck<'ast>,
+        body: ConditionalBody<'ast>,
+        layout: TypeLayout,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let ConditionalBody {
+            extends,
+            consequent,
+            alternate,
+            head,
+            question,
+            colon,
+            ..
+        } = body;
         let content = |writer: &mut Writer<'ast>| {
             if layout == TypeLayout::ConditionalConsequent {
                 writer.if_flat("(");
             }
-            let tail = self.format_prepared_type(check, TypeContext::ConditionalCheck, writer)?;
+            let tail = match check {
+                ConditionalCheck::Type(check) => {
+                    self.format_prepared_type(check, TypeContext::ConditionalCheck, writer)?
+                }
+                ConditionalCheck::Prepared(check) => self.format_prepared_type_content(
+                    *check,
+                    TypeContext::ConditionalCheck,
+                    TypeLayout::OpeningProvided,
+                    writer,
+                )?,
+            };
             self.format_expression_tail(tail, writer)?;
             self.format_conditional_type_boundary(head, writer)?;
             let tail =
