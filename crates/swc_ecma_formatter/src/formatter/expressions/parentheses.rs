@@ -12,7 +12,7 @@ use crate::formatter::comments::{
 };
 use crate::formatter::diagnostics::{FlatSeparator, LineConstraint};
 use crate::formatter::source::is_source_whitespace;
-use crate::formatter::suppression::{ContentMode, is_suppression_comment};
+use crate::formatter::suppression::{ContentMode, TrailingSuppression, is_suppression_comment};
 use crate::{FormatError, Semicolons, document::Writer};
 
 #[derive(Clone, Copy)]
@@ -66,6 +66,12 @@ pub(super) struct GeneratedEnclosureOwner {
 pub(super) struct PreparedGeneratedEnclosure {
     pub(super) owner: GeneratedEnclosureOwner,
     pub(super) content: ExpressionContent,
+}
+
+/// The complete emitted head has no syntax token between its trivia and the
+/// following operand. Its nearest JSDoc can own that operand's required pair.
+pub(super) struct EmittedHeadAnnotation {
+    comment: Comment,
 }
 
 /// Numeric selection retains the source decision and a separate pure reference view.
@@ -268,6 +274,76 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             expression,
             annotation,
         })
+    }
+
+    pub(super) fn emitted_head_annotation(
+        &self,
+        comments: &[Comment],
+    ) -> Option<EmittedHeadAnnotation> {
+        if !self.has_type_casts {
+            return None;
+        }
+        let comment = comments
+            .iter()
+            .rev()
+            .find(|comment| self.source(comment.span).starts_with("/**"))?;
+        // Ordinary trivia is transparent; a newer JSDoc replaces the older one.
+        self.comment_is_type_cast(*comment)
+            .then_some(EmittedHeadAnnotation { comment: *comment })
+    }
+
+    pub(super) fn emitted_head_enclosure_owner(
+        &self,
+        expression: Expr,
+        content: &ExpressionContent,
+        annotation: EmittedHeadAnnotation,
+        binding: CommentBinding,
+        context: ExpressionContext,
+    ) -> Option<GeneratedEnclosureOwner> {
+        if !matches!(binding, CommentBinding::Unbound)
+            || context.content_mode != ContentMode::Formatted
+            || context.parentheses_owner != ParenthesesOwner::Expression
+            || self.expression_needs_parentheses(
+                content.data,
+                context.position,
+                context.content_mode,
+            ) != Some(true)
+            || self.diagnostic_range_is_sensitive(Span::new(
+                annotation.comment.span.start,
+                expression.span(self.ast).end,
+            ))
+        {
+            return None;
+        }
+        Some(GeneratedEnclosureOwner {
+            expression,
+            annotation: annotation.comment,
+        })
+    }
+
+    pub(super) fn format_prepared_generated_enclosure_with_head(
+        &mut self,
+        enclosure: PreparedGeneratedEnclosure,
+        head: NodeHead<'ast>,
+        mut context: ExpressionContext,
+        writer: &mut Writer<'ast>,
+    ) -> Result<Option<ExpressionTail<'ast>>, FormatError> {
+        let mut content = Some(enclosure.content);
+        context.expression_start = self.format_expression_head_with_array_comments(
+            enclosure.owner.expression,
+            head,
+            context,
+            &mut content,
+            None,
+            writer,
+        )?;
+        self.format_generated_enclosure_with_array_comments(
+            enclosure.owner,
+            content,
+            context,
+            None,
+            writer,
+        )
     }
 
     pub(super) fn format_prepared_generated_enclosure(
@@ -1109,8 +1185,15 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
         let child = parenthesized.expression(self.ast);
         let child_span = child.span(self.ast);
         let trailing = Span::new(child_span.end, span.end - 1);
-        let inline_mode = self.trailing_content_mode(trailing, false);
-        if inline_mode == ContentMode::Verbatim
+        let trailing_suppression = self.trailing_suppression(trailing, true);
+        let trailing_binding = match trailing_suppression {
+            None => CommentBinding::Unbound,
+            Some(_) => CommentBinding::BoundTo(child_span),
+        };
+        // An inline trailing ignore keeps the existing whole-pair verbatim
+        // behavior. Own-line binding is carried to source-pair retention below.
+        let inline = matches!(trailing_suppression, Some(TrailingSuppression::Inline));
+        if inline
             && (matches!(context.position, ExpressionPosition::Statement)
                 || context.tail_owner == TailOwner::ParentOperation
                 || self.expression_needs_parentheses(
@@ -1134,7 +1217,16 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             inner: child_span,
             inner_target: ParenthesisInner::Expression(child),
         };
-        context.content_mode = self.parentheses_content_mode(boundary, context.content_mode);
+        if context.content_mode == ContentMode::Formatted && self.has_suppression {
+            context.content_mode = if trailing_suppression.is_some() {
+                ContentMode::Verbatim
+            } else {
+                let leading = self
+                    .comments
+                    .in_range(Span::new(boundary.outer.start, boundary.inner.start));
+                self.content_mode(leading)
+            };
+        }
         if self.parenthesis_has_type_cast(span.start) {
             return self.format_retained_parentheses_with_array_comments(
                 parenthesized,
@@ -1167,7 +1259,9 @@ impl<'ast, 'source> Formatter<'ast, 'source> {
             None
         };
         if let Some(ignored) = ignored_child
-            && (self.ignored_operand_owns_operation_head(ignored, context.position)
+            && (!trailing_binding.allows_relocation(None)
+                && context.tail_owner == TailOwner::ParentOperation
+                || self.ignored_operand_owns_operation_head(ignored, context.position)
                 || matches!(
                     context.position,
                     ExpressionPosition::Statement
