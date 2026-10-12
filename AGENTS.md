@@ -48,6 +48,7 @@ See `tasks/benchmark/js/README.md` for setup and artifact interpretation.
 | Test Node.js API         | `pnpm test` (all Node.js tests live in `npm/core/test`)                                                   |
 | Check JS API types       | `pnpm --filter @swc-next/core test:types` (also included in `pnpm test`)                                  |
 | Benchmark JS walker | `node npm/core/benches/walk.bench.mjs /absolute/path/to/baseline/ast.js` (add `--handwritten-edits` for three-way editing; see `npm/core/benches/walk.md`) |
+| Benchmark application walkers | `node npm/core/benches/visitor.bench.mjs /path/to/visitor-benchmark /path/to/baseline/ast.js /path/to/results.json` (see `npm/core/benches/visitor.md`; no native binding required) |
 | Test Node.js WASM        | `pnpm test:wasm` (after `pnpm build:wasm`)                                                                |
 | Smoke test browser       | `pnpm test:browser` (after building the browser package)                                                  |
 | Develop playground       | `pnpm dev:playground` (requires `wasm32-unknown-unknown`)                                                  |
