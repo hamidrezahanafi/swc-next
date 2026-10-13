@@ -4,14 +4,10 @@
 
 import { expect, test } from "@rstest/core";
 
-import init, {
-  parseSync,
-  printSync,
-  transformSync,
-} from "@swc-next/core-browser";
+import init, { parseSync, printSync } from "@swc-next/core-browser";
 import * as core from "@swc-next/core-browser";
 
-test("browser exposes parsing, printing, and AST transforms", async () => {
+test("browser exposes parseSync and printSync", async () => {
   await init();
   expect("Lang" in core).toBe(false);
   expect("SourceType" in core).toBe(false);
@@ -40,17 +36,4 @@ test("browser exposes parsing, printing, and AST transforms", async () => {
   expect(checked.diagnostics).toHaveLength(2);
   expect(checked.diagnostics[0]).toEqual(unchecked.diagnostics[0]);
   expect(checked.program).toEqual(unchecked.program);
-  expect(
-    transformSync("debugger; run();", {
-      plugins: [
-        {
-          visitor: {
-            DebuggerStatement(node, ctx) {
-              ctx.remove();
-            },
-          },
-        },
-      ],
-    }).code,
-  ).toBe("run();\n");
 });

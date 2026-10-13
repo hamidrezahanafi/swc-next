@@ -64,33 +64,3 @@ export declare function printSync(
 
 export declare function langFromPath(path: string): Lang;
 export declare function sourceTypeFromPath(path: string): SourceType;
-
-export { walk, visitorKeys } from "./ast.js";
-export type {
-  AstNode,
-  NodeType,
-  WalkContext,
-  WalkHandler,
-  WalkHook,
-  WalkHooks,
-  TransformPlugin,
-} from "./ast.js";
-
-export interface TransformOptions {
-  parser?: ParserOptions;
-  codegen?: CodegenOptions;
-  /** Each plugin completes a full walk before the next plugin starts. */
-  plugins?: readonly import("./ast.js").TransformPlugin[];
-}
-
-export interface TransformResult extends CodegenOutput {
-  program: import("./ast.js").AstNode & { type: "Program" };
-  diagnostics: Diagnostic[];
-  meta: AstMeta;
-}
-
-/** Throws SyntaxError (with diagnostics) before running plugins on parser errors. */
-export declare function transformSync(
-  source: string,
-  options?: TransformOptions,
-): TransformResult;
