@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createWalker, visit } from "../index.js";
+import { createWalker, visit, walk } from "../index.js";
 
 const id = (name) => ({ type: "Identifier", name });
 const program = () => ({
@@ -144,4 +144,51 @@ test("read-only traversal collects supported fields and rejects invalid callback
   );
   await new Promise((resolve) => setImmediate(resolve));
   assert.throws(() => visit({ type: "Unknown" }, {}), /Unsupported AST/);
+});
+
+test("unobserved parents select leave hooks after a child changes their type", () => {
+  const ast = {
+    type: "BinaryExpression",
+    left: id("left"),
+    right: id("right"),
+  };
+  const seen = [];
+  walk(ast, {
+    Identifier(node, ctx) {
+      seen.push(node.name);
+      ctx.parent.type = "LogicalExpression";
+    },
+    LogicalExpression: {
+      leave(node, ctx) {
+        assert.equal(ctx.node, ast);
+        assert.deepEqual(ctx.ancestors(), []);
+        seen.push("leave");
+      },
+    },
+  });
+  assert.deepEqual(seen, ["left", "right", "leave"]);
+});
+
+test("compiled hooks snapshot alias and concrete pairs without freezing caller objects", () => {
+  const seen = [];
+  const pair = {
+    enter() {
+      seen.push("typed");
+    },
+  };
+  const hooks = {
+    Function() {
+      seen.push("alias");
+    },
+    FunctionDeclaration: pair,
+  };
+  const walker = createWalker(hooks);
+  pair.enter = () => assert.fail("pair was read again");
+  hooks.Function = () => assert.fail("alias was read again");
+  walker.walk({
+    type: "FunctionDeclaration",
+    params: [],
+    body: { type: "BlockStatement", body: [] },
+  });
+  assert.deepEqual(seen, ["alias", "typed"]);
 });

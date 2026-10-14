@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseSync, printSync } from "@swc-next/core";
-import { walk } from "@swc-next/walker";
+import { walk, visit } from "@swc-next/walker";
 
 const ast = (source) => parseSync(source).program;
 
@@ -55,6 +55,24 @@ function assertProjectionCoverage(source, options) {
     },
   });
   assert.deepEqual(actual, expected);
+  const readonly = new Map();
+  visit(parsed.program, {
+    enter(node) {
+      readonly.set(node, (readonly.get(node) ?? 0) + 1);
+    },
+  });
+  assert.deepEqual(readonly, expected);
+  // Sparse hooks exercise the generated route through unobserved parents.
+  const identifiers = [];
+  walk(parsed.program, {
+    Identifier(node) {
+      identifiers.push(node);
+    },
+  });
+  assert.deepEqual(
+    new Set(identifiers),
+    new Set([...expected.keys()].filter((node) => node.type === "Identifier")),
+  );
 }
 
 test("visitor keys cover projected JS, JSX, and TypeScript children", () => {

@@ -91,7 +91,7 @@ for (const program of programs) walker.walk(program);
 
 `createWalker(hooks)` validates and snapshots the hook functions once. Later
 changes to the hooks object do not affect it. Each `walker.walk(root, state)`
-creates a fresh context, supports nested calls, and releases AST/context references
+creates a fresh context, supports nested calls, and clears traversal positions
 on return or failure. Captured callback closures remain alive with the compiled
 walker. Ordinary `walk(root, hooks, state)` continues to compile on every call;
 there is no implicit cache of mutable hook objects.
