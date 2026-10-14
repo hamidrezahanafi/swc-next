@@ -76,6 +76,47 @@ text, and arbitrary plugin properties are not traversed. The frozen key table is
 also exported. Trees must be acyclic; shared node objects are visited once per
 position, not deduplicated.
 
+### Reuse hooks across files
+
+```js
+import { createWalker } from "@swc-next/walker";
+
+const walker = createWalker({
+  DebuggerStatement(node, ctx) {
+    if (ctx.index !== null) ctx.remove();
+  },
+});
+for (const program of programs) walker.walk(program);
+```
+
+`createWalker(hooks)` validates and snapshots the hook functions once. Later
+changes to the hooks object do not affect it. Each `walker.walk(root, state)`
+creates a fresh context, supports nested calls, and releases AST/context references
+on return or failure. Captured callback closures remain alive with the compiled
+walker. Ordinary `walk(root, hooks, state)` continues to compile on every call;
+there is no implicit cache of mutable hook objects.
+
+### Read-only visits
+
+```js
+import { visit } from "@swc-next/walker";
+
+const strings = [];
+visit(program, {
+  Literal(node, output) {
+    if (typeof node.value === "string") output.push(node.value);
+  },
+}, strings);
+```
+
+`visit(root, hooks, state)` uses the same type names, aliases, enter/leave order,
+and synchronous callback requirements. Callbacks receive **`(node, state)`**,
+without an editing context. There is no position, ancestry, skip, stop, replacement,
+insertion, or removal API, and no editing/ancestor state is allocated. Do not
+mutate the AST during a visit: nodes are not deep-frozen and mutations are not
+comprehensively detected. Use `walk` when you need traversal control or edits.
+Both functions return the input root.
+
 ### Context and edits
 
 | API | Semantics |
@@ -100,13 +141,12 @@ and ancestor snapshot references may be retained; they are ordinary objects.
 Call methods through `ctx` (for example `ctx.remove()`); they are not bound
 functions and must not be detached from their receiver.
 
-The walker uses generated child accessors (for example `node.left`) and a shared
-per-type dispatch table. It only populates context storage for phases with hooks;
-recursive positions stay in local variables. One mutable position record is
-reused for the entire walk. An ancestor stack scales with depth; `ancestors()`
-allocates a snapshot only when requested. The traversal engine and context
-methods live on the prototype, avoiding per-walk traversal closures and per-hook
-allocations. No runtime code generation or `eval` is used.
+The walker generates direct child accessors and separate scalar/list traversal.
+Node types without hooks use generated traversal functions; unobserved leaf nodes
+return immediately. Hooked nodes retain the editing checks below. Context storage
+is populated only for phases with hooks and reused within each walk. An ancestor
+stack scales with depth; `ancestors()` allocates a snapshot only when requested.
+No runtime code generation or `eval` is used.
 
 Replace followed by skip traverses no replacement children. Remove or stop
 prevents further hooks for that node; removal makes subsequent structural edits

@@ -49,3 +49,22 @@ const invalid: WalkHooks<{ count: number }> = {
   },
 };
 void invalid;
+
+import { createWalker, visit } from "../index.js";
+const compiled = createWalker<{ count: number }, Nodes>(hooks);
+compiled.walk(root, { count: 0 });
+// @ts-expect-error Wrong state type
+compiled.walk(root, { count: "wrong" });
+visit<AstNode, string[], Nodes>(
+  root,
+  {
+    Identifier(node, names) {
+      names.push(node.name);
+      // @ts-expect-error Read-only node
+      node.name = "changed";
+      // @ts-expect-error State is not an editing context
+      names.remove();
+    },
+  },
+  [],
+);

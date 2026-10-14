@@ -2,818 +2,818 @@
 export const childVisitors = {
   AccessorProperty(node, walker) {
     const child0 = node.decorators;
-    if (child0 != null && walker.visitField(child0, node, "decorators")) return true;
+    if (child0 != null && walker.visitList(child0, node, "decorators")) return true;
     const child1 = node.key;
-    if (child1 != null && walker.visitField(child1, node, "key")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "key")) return true;
     const child2 = node.typeAnnotation;
-    if (child2 != null && walker.visitField(child2, node, "typeAnnotation")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return true;
     const child3 = node.value;
-    if (child3 != null && walker.visitField(child3, node, "value")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "value")) return true;
     return false;
   },
   ArrayExpression(node, walker) {
     const child0 = node.elements;
-    if (child0 != null && walker.visitField(child0, node, "elements")) return true;
+    if (child0 != null && walker.visitList(child0, node, "elements")) return true;
     return false;
   },
   ArrayPattern(node, walker) {
     const child0 = node.decorators;
-    if (child0 != null && walker.visitField(child0, node, "decorators")) return true;
+    if (child0 != null && walker.visitList(child0, node, "decorators")) return true;
     const child1 = node.elements;
-    if (child1 != null && walker.visitField(child1, node, "elements")) return true;
+    if (child1 != null && walker.visitList(child1, node, "elements")) return true;
     const child2 = node.typeAnnotation;
-    if (child2 != null && walker.visitField(child2, node, "typeAnnotation")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return true;
     return false;
   },
   ArrowFunctionExpression(node, walker) {
     const child0 = node.typeParameters;
-    if (child0 != null && walker.visitField(child0, node, "typeParameters")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "typeParameters")) return true;
     const child1 = node.params;
-    if (child1 != null && walker.visitField(child1, node, "params")) return true;
+    if (child1 != null && walker.visitList(child1, node, "params")) return true;
     const child2 = node.returnType;
-    if (child2 != null && walker.visitField(child2, node, "returnType")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "returnType")) return true;
     const child3 = node.body;
-    if (child3 != null && walker.visitField(child3, node, "body")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "body")) return true;
     return false;
   },
   AssignmentExpression(node, walker) {
     const child0 = node.left;
-    if (child0 != null && walker.visitField(child0, node, "left")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "left")) return true;
     const child1 = node.right;
-    if (child1 != null && walker.visitField(child1, node, "right")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "right")) return true;
     return false;
   },
   AssignmentPattern(node, walker) {
     const child0 = node.decorators;
-    if (child0 != null && walker.visitField(child0, node, "decorators")) return true;
+    if (child0 != null && walker.visitList(child0, node, "decorators")) return true;
     const child1 = node.left;
-    if (child1 != null && walker.visitField(child1, node, "left")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "left")) return true;
     const child2 = node.typeAnnotation;
-    if (child2 != null && walker.visitField(child2, node, "typeAnnotation")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return true;
     const child3 = node.right;
-    if (child3 != null && walker.visitField(child3, node, "right")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "right")) return true;
     return false;
   },
   AwaitExpression(node, walker) {
     const child0 = node.argument;
-    if (child0 != null && walker.visitField(child0, node, "argument")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "argument")) return true;
     return false;
   },
   BinaryExpression(node, walker) {
     const child0 = node.left;
-    if (child0 != null && walker.visitField(child0, node, "left")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "left")) return true;
     const child1 = node.right;
-    if (child1 != null && walker.visitField(child1, node, "right")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "right")) return true;
     return false;
   },
   BlockStatement(node, walker) {
     const child0 = node.body;
-    if (child0 != null && walker.visitField(child0, node, "body")) return true;
+    if (child0 != null && walker.visitList(child0, node, "body")) return true;
     return false;
   },
   BreakStatement(node, walker) {
     const child0 = node.label;
-    if (child0 != null && walker.visitField(child0, node, "label")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "label")) return true;
     return false;
   },
   CallExpression(node, walker) {
     const child0 = node.callee;
-    if (child0 != null && walker.visitField(child0, node, "callee")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "callee")) return true;
     const child1 = node.typeArguments;
-    if (child1 != null && walker.visitField(child1, node, "typeArguments")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return true;
     const child2 = node.arguments;
-    if (child2 != null && walker.visitField(child2, node, "arguments")) return true;
+    if (child2 != null && walker.visitList(child2, node, "arguments")) return true;
     return false;
   },
   CatchClause(node, walker) {
     const child0 = node.param;
-    if (child0 != null && walker.visitField(child0, node, "param")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "param")) return true;
     const child1 = node.body;
-    if (child1 != null && walker.visitField(child1, node, "body")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "body")) return true;
     return false;
   },
   ChainExpression(node, walker) {
     const child0 = node.expression;
-    if (child0 != null && walker.visitField(child0, node, "expression")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "expression")) return true;
     return false;
   },
   ClassBody(node, walker) {
     const child0 = node.body;
-    if (child0 != null && walker.visitField(child0, node, "body")) return true;
+    if (child0 != null && walker.visitList(child0, node, "body")) return true;
     return false;
   },
   ClassDeclaration(node, walker) {
     const child0 = node.decorators;
-    if (child0 != null && walker.visitField(child0, node, "decorators")) return true;
+    if (child0 != null && walker.visitList(child0, node, "decorators")) return true;
     const child1 = node.id;
-    if (child1 != null && walker.visitField(child1, node, "id")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "id")) return true;
     const child2 = node.typeParameters;
-    if (child2 != null && walker.visitField(child2, node, "typeParameters")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "typeParameters")) return true;
     const child3 = node.superClass;
-    if (child3 != null && walker.visitField(child3, node, "superClass")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "superClass")) return true;
     const child4 = node.superTypeArguments;
-    if (child4 != null && walker.visitField(child4, node, "superTypeArguments")) return true;
+    if (child4 != null && walker.visitScalar(child4, node, "superTypeArguments")) return true;
     const child5 = node.implements;
-    if (child5 != null && walker.visitField(child5, node, "implements")) return true;
+    if (child5 != null && walker.visitList(child5, node, "implements")) return true;
     const child6 = node.body;
-    if (child6 != null && walker.visitField(child6, node, "body")) return true;
+    if (child6 != null && walker.visitScalar(child6, node, "body")) return true;
     return false;
   },
   ClassExpression(node, walker) {
     const child0 = node.decorators;
-    if (child0 != null && walker.visitField(child0, node, "decorators")) return true;
+    if (child0 != null && walker.visitList(child0, node, "decorators")) return true;
     const child1 = node.id;
-    if (child1 != null && walker.visitField(child1, node, "id")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "id")) return true;
     const child2 = node.typeParameters;
-    if (child2 != null && walker.visitField(child2, node, "typeParameters")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "typeParameters")) return true;
     const child3 = node.superClass;
-    if (child3 != null && walker.visitField(child3, node, "superClass")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "superClass")) return true;
     const child4 = node.superTypeArguments;
-    if (child4 != null && walker.visitField(child4, node, "superTypeArguments")) return true;
+    if (child4 != null && walker.visitScalar(child4, node, "superTypeArguments")) return true;
     const child5 = node.implements;
-    if (child5 != null && walker.visitField(child5, node, "implements")) return true;
+    if (child5 != null && walker.visitList(child5, node, "implements")) return true;
     const child6 = node.body;
-    if (child6 != null && walker.visitField(child6, node, "body")) return true;
+    if (child6 != null && walker.visitScalar(child6, node, "body")) return true;
     return false;
   },
   ConditionalExpression(node, walker) {
     const child0 = node.test;
-    if (child0 != null && walker.visitField(child0, node, "test")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "test")) return true;
     const child1 = node.consequent;
-    if (child1 != null && walker.visitField(child1, node, "consequent")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "consequent")) return true;
     const child2 = node.alternate;
-    if (child2 != null && walker.visitField(child2, node, "alternate")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "alternate")) return true;
     return false;
   },
   ContinueStatement(node, walker) {
     const child0 = node.label;
-    if (child0 != null && walker.visitField(child0, node, "label")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "label")) return true;
     return false;
   },
   DebuggerStatement: null,
   Decorator(node, walker) {
     const child0 = node.expression;
-    if (child0 != null && walker.visitField(child0, node, "expression")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "expression")) return true;
     return false;
   },
   DoWhileStatement(node, walker) {
     const child0 = node.body;
-    if (child0 != null && walker.visitField(child0, node, "body")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "body")) return true;
     const child1 = node.test;
-    if (child1 != null && walker.visitField(child1, node, "test")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "test")) return true;
     return false;
   },
   EmptyStatement: null,
   ExportAllDeclaration(node, walker) {
     const child0 = node.exported;
-    if (child0 != null && walker.visitField(child0, node, "exported")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "exported")) return true;
     const child1 = node.source;
-    if (child1 != null && walker.visitField(child1, node, "source")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "source")) return true;
     const child2 = node.attributes;
-    if (child2 != null && walker.visitField(child2, node, "attributes")) return true;
+    if (child2 != null && walker.visitList(child2, node, "attributes")) return true;
     return false;
   },
   ExportDefaultDeclaration(node, walker) {
     const child0 = node.declaration;
-    if (child0 != null && walker.visitField(child0, node, "declaration")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "declaration")) return true;
     return false;
   },
   ExportNamedDeclaration(node, walker) {
     const child0 = node.declaration;
-    if (child0 != null && walker.visitField(child0, node, "declaration")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "declaration")) return true;
     const child1 = node.specifiers;
-    if (child1 != null && walker.visitField(child1, node, "specifiers")) return true;
+    if (child1 != null && walker.visitList(child1, node, "specifiers")) return true;
     const child2 = node.source;
-    if (child2 != null && walker.visitField(child2, node, "source")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "source")) return true;
     const child3 = node.attributes;
-    if (child3 != null && walker.visitField(child3, node, "attributes")) return true;
+    if (child3 != null && walker.visitList(child3, node, "attributes")) return true;
     return false;
   },
   ExportSpecifier(node, walker) {
     const child0 = node.local;
-    if (child0 != null && walker.visitField(child0, node, "local")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "local")) return true;
     const child1 = node.exported;
-    if (child1 != null && walker.visitField(child1, node, "exported")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "exported")) return true;
     return false;
   },
   ExpressionStatement(node, walker) {
     const child0 = node.expression;
-    if (child0 != null && walker.visitField(child0, node, "expression")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "expression")) return true;
     return false;
   },
   ForInStatement(node, walker) {
     const child0 = node.left;
-    if (child0 != null && walker.visitField(child0, node, "left")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "left")) return true;
     const child1 = node.right;
-    if (child1 != null && walker.visitField(child1, node, "right")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "right")) return true;
     const child2 = node.body;
-    if (child2 != null && walker.visitField(child2, node, "body")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "body")) return true;
     return false;
   },
   ForOfStatement(node, walker) {
     const child0 = node.left;
-    if (child0 != null && walker.visitField(child0, node, "left")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "left")) return true;
     const child1 = node.right;
-    if (child1 != null && walker.visitField(child1, node, "right")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "right")) return true;
     const child2 = node.body;
-    if (child2 != null && walker.visitField(child2, node, "body")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "body")) return true;
     return false;
   },
   ForStatement(node, walker) {
     const child0 = node.init;
-    if (child0 != null && walker.visitField(child0, node, "init")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "init")) return true;
     const child1 = node.test;
-    if (child1 != null && walker.visitField(child1, node, "test")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "test")) return true;
     const child2 = node.update;
-    if (child2 != null && walker.visitField(child2, node, "update")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "update")) return true;
     const child3 = node.body;
-    if (child3 != null && walker.visitField(child3, node, "body")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "body")) return true;
     return false;
   },
   FunctionDeclaration(node, walker) {
     const child0 = node.id;
-    if (child0 != null && walker.visitField(child0, node, "id")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "id")) return true;
     const child1 = node.typeParameters;
-    if (child1 != null && walker.visitField(child1, node, "typeParameters")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeParameters")) return true;
     const child2 = node.params;
-    if (child2 != null && walker.visitField(child2, node, "params")) return true;
+    if (child2 != null && walker.visitList(child2, node, "params")) return true;
     const child3 = node.returnType;
-    if (child3 != null && walker.visitField(child3, node, "returnType")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "returnType")) return true;
     const child4 = node.body;
-    if (child4 != null && walker.visitField(child4, node, "body")) return true;
+    if (child4 != null && walker.visitScalar(child4, node, "body")) return true;
     return false;
   },
   FunctionExpression(node, walker) {
     const child0 = node.id;
-    if (child0 != null && walker.visitField(child0, node, "id")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "id")) return true;
     const child1 = node.typeParameters;
-    if (child1 != null && walker.visitField(child1, node, "typeParameters")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeParameters")) return true;
     const child2 = node.params;
-    if (child2 != null && walker.visitField(child2, node, "params")) return true;
+    if (child2 != null && walker.visitList(child2, node, "params")) return true;
     const child3 = node.returnType;
-    if (child3 != null && walker.visitField(child3, node, "returnType")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "returnType")) return true;
     const child4 = node.body;
-    if (child4 != null && walker.visitField(child4, node, "body")) return true;
+    if (child4 != null && walker.visitScalar(child4, node, "body")) return true;
     return false;
   },
   Hashbang: null,
   Identifier(node, walker) {
     const child0 = node.decorators;
-    if (child0 != null && walker.visitField(child0, node, "decorators")) return true;
+    if (child0 != null && walker.visitList(child0, node, "decorators")) return true;
     const child1 = node.typeAnnotation;
-    if (child1 != null && walker.visitField(child1, node, "typeAnnotation")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeAnnotation")) return true;
     return false;
   },
   IfStatement(node, walker) {
     const child0 = node.test;
-    if (child0 != null && walker.visitField(child0, node, "test")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "test")) return true;
     const child1 = node.consequent;
-    if (child1 != null && walker.visitField(child1, node, "consequent")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "consequent")) return true;
     const child2 = node.alternate;
-    if (child2 != null && walker.visitField(child2, node, "alternate")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "alternate")) return true;
     return false;
   },
   ImportAttribute(node, walker) {
     const child0 = node.key;
-    if (child0 != null && walker.visitField(child0, node, "key")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "key")) return true;
     const child1 = node.value;
-    if (child1 != null && walker.visitField(child1, node, "value")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "value")) return true;
     return false;
   },
   ImportDeclaration(node, walker) {
     const child0 = node.specifiers;
-    if (child0 != null && walker.visitField(child0, node, "specifiers")) return true;
+    if (child0 != null && walker.visitList(child0, node, "specifiers")) return true;
     const child1 = node.source;
-    if (child1 != null && walker.visitField(child1, node, "source")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "source")) return true;
     const child2 = node.attributes;
-    if (child2 != null && walker.visitField(child2, node, "attributes")) return true;
+    if (child2 != null && walker.visitList(child2, node, "attributes")) return true;
     return false;
   },
   ImportDefaultSpecifier(node, walker) {
     const child0 = node.local;
-    if (child0 != null && walker.visitField(child0, node, "local")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "local")) return true;
     return false;
   },
   ImportExpression(node, walker) {
     const child0 = node.source;
-    if (child0 != null && walker.visitField(child0, node, "source")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "source")) return true;
     const child1 = node.options;
-    if (child1 != null && walker.visitField(child1, node, "options")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "options")) return true;
     return false;
   },
   ImportNamespaceSpecifier(node, walker) {
     const child0 = node.local;
-    if (child0 != null && walker.visitField(child0, node, "local")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "local")) return true;
     return false;
   },
   ImportSpecifier(node, walker) {
     const child0 = node.imported;
-    if (child0 != null && walker.visitField(child0, node, "imported")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "imported")) return true;
     const child1 = node.local;
-    if (child1 != null && walker.visitField(child1, node, "local")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "local")) return true;
     return false;
   },
   JSXAttribute(node, walker) {
     const child0 = node.name;
-    if (child0 != null && walker.visitField(child0, node, "name")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "name")) return true;
     const child1 = node.value;
-    if (child1 != null && walker.visitField(child1, node, "value")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "value")) return true;
     return false;
   },
   JSXClosingElement(node, walker) {
     const child0 = node.name;
-    if (child0 != null && walker.visitField(child0, node, "name")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "name")) return true;
     return false;
   },
   JSXClosingFragment: null,
   JSXElement(node, walker) {
     const child0 = node.openingElement;
-    if (child0 != null && walker.visitField(child0, node, "openingElement")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "openingElement")) return true;
     const child1 = node.children;
-    if (child1 != null && walker.visitField(child1, node, "children")) return true;
+    if (child1 != null && walker.visitList(child1, node, "children")) return true;
     const child2 = node.closingElement;
-    if (child2 != null && walker.visitField(child2, node, "closingElement")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "closingElement")) return true;
     return false;
   },
   JSXEmptyExpression: null,
   JSXExpressionContainer(node, walker) {
     const child0 = node.expression;
-    if (child0 != null && walker.visitField(child0, node, "expression")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "expression")) return true;
     return false;
   },
   JSXFragment(node, walker) {
     const child0 = node.openingFragment;
-    if (child0 != null && walker.visitField(child0, node, "openingFragment")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "openingFragment")) return true;
     const child1 = node.children;
-    if (child1 != null && walker.visitField(child1, node, "children")) return true;
+    if (child1 != null && walker.visitList(child1, node, "children")) return true;
     const child2 = node.closingFragment;
-    if (child2 != null && walker.visitField(child2, node, "closingFragment")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "closingFragment")) return true;
     return false;
   },
   JSXIdentifier: null,
   JSXMemberExpression(node, walker) {
     const child0 = node.object;
-    if (child0 != null && walker.visitField(child0, node, "object")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "object")) return true;
     const child1 = node.property;
-    if (child1 != null && walker.visitField(child1, node, "property")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "property")) return true;
     return false;
   },
   JSXNamespacedName(node, walker) {
     const child0 = node.namespace;
-    if (child0 != null && walker.visitField(child0, node, "namespace")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "namespace")) return true;
     const child1 = node.name;
-    if (child1 != null && walker.visitField(child1, node, "name")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "name")) return true;
     return false;
   },
   JSXOpeningElement(node, walker) {
     const child0 = node.name;
-    if (child0 != null && walker.visitField(child0, node, "name")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "name")) return true;
     const child1 = node.typeArguments;
-    if (child1 != null && walker.visitField(child1, node, "typeArguments")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return true;
     const child2 = node.attributes;
-    if (child2 != null && walker.visitField(child2, node, "attributes")) return true;
+    if (child2 != null && walker.visitList(child2, node, "attributes")) return true;
     return false;
   },
   JSXOpeningFragment: null,
   JSXSpreadAttribute(node, walker) {
     const child0 = node.argument;
-    if (child0 != null && walker.visitField(child0, node, "argument")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "argument")) return true;
     return false;
   },
   JSXSpreadChild(node, walker) {
     const child0 = node.expression;
-    if (child0 != null && walker.visitField(child0, node, "expression")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "expression")) return true;
     return false;
   },
   JSXText: null,
   LabeledStatement(node, walker) {
     const child0 = node.label;
-    if (child0 != null && walker.visitField(child0, node, "label")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "label")) return true;
     const child1 = node.body;
-    if (child1 != null && walker.visitField(child1, node, "body")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "body")) return true;
     return false;
   },
   Literal: null,
   LogicalExpression(node, walker) {
     const child0 = node.left;
-    if (child0 != null && walker.visitField(child0, node, "left")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "left")) return true;
     const child1 = node.right;
-    if (child1 != null && walker.visitField(child1, node, "right")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "right")) return true;
     return false;
   },
   MemberExpression(node, walker) {
     const child0 = node.object;
-    if (child0 != null && walker.visitField(child0, node, "object")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "object")) return true;
     const child1 = node.property;
-    if (child1 != null && walker.visitField(child1, node, "property")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "property")) return true;
     return false;
   },
   MetaProperty(node, walker) {
     const child0 = node.meta;
-    if (child0 != null && walker.visitField(child0, node, "meta")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "meta")) return true;
     const child1 = node.property;
-    if (child1 != null && walker.visitField(child1, node, "property")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "property")) return true;
     return false;
   },
   MethodDefinition(node, walker) {
     const child0 = node.decorators;
-    if (child0 != null && walker.visitField(child0, node, "decorators")) return true;
+    if (child0 != null && walker.visitList(child0, node, "decorators")) return true;
     const child1 = node.key;
-    if (child1 != null && walker.visitField(child1, node, "key")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "key")) return true;
     const child2 = node.value;
-    if (child2 != null && walker.visitField(child2, node, "value")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "value")) return true;
     return false;
   },
   NewExpression(node, walker) {
     const child0 = node.callee;
-    if (child0 != null && walker.visitField(child0, node, "callee")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "callee")) return true;
     const child1 = node.typeArguments;
-    if (child1 != null && walker.visitField(child1, node, "typeArguments")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return true;
     const child2 = node.arguments;
-    if (child2 != null && walker.visitField(child2, node, "arguments")) return true;
+    if (child2 != null && walker.visitList(child2, node, "arguments")) return true;
     return false;
   },
   ObjectExpression(node, walker) {
     const child0 = node.properties;
-    if (child0 != null && walker.visitField(child0, node, "properties")) return true;
+    if (child0 != null && walker.visitList(child0, node, "properties")) return true;
     return false;
   },
   ObjectPattern(node, walker) {
     const child0 = node.decorators;
-    if (child0 != null && walker.visitField(child0, node, "decorators")) return true;
+    if (child0 != null && walker.visitList(child0, node, "decorators")) return true;
     const child1 = node.properties;
-    if (child1 != null && walker.visitField(child1, node, "properties")) return true;
+    if (child1 != null && walker.visitList(child1, node, "properties")) return true;
     const child2 = node.typeAnnotation;
-    if (child2 != null && walker.visitField(child2, node, "typeAnnotation")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return true;
     return false;
   },
   ParenthesizedExpression(node, walker) {
     const child0 = node.expression;
-    if (child0 != null && walker.visitField(child0, node, "expression")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "expression")) return true;
     return false;
   },
   PrivateIdentifier: null,
   Program(node, walker) {
     const child0 = node.body;
-    if (child0 != null && walker.visitField(child0, node, "body")) return true;
+    if (child0 != null && walker.visitList(child0, node, "body")) return true;
     return false;
   },
   Property(node, walker) {
     const child0 = node.key;
-    if (child0 != null && walker.visitField(child0, node, "key")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "key")) return true;
     const child1 = node.value;
-    if (child1 != null && walker.visitField(child1, node, "value")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "value")) return true;
     return false;
   },
   PropertyDefinition(node, walker) {
     const child0 = node.decorators;
-    if (child0 != null && walker.visitField(child0, node, "decorators")) return true;
+    if (child0 != null && walker.visitList(child0, node, "decorators")) return true;
     const child1 = node.key;
-    if (child1 != null && walker.visitField(child1, node, "key")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "key")) return true;
     const child2 = node.typeAnnotation;
-    if (child2 != null && walker.visitField(child2, node, "typeAnnotation")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return true;
     const child3 = node.value;
-    if (child3 != null && walker.visitField(child3, node, "value")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "value")) return true;
     return false;
   },
   RestElement(node, walker) {
     const child0 = node.decorators;
-    if (child0 != null && walker.visitField(child0, node, "decorators")) return true;
+    if (child0 != null && walker.visitList(child0, node, "decorators")) return true;
     const child1 = node.argument;
-    if (child1 != null && walker.visitField(child1, node, "argument")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "argument")) return true;
     const child2 = node.typeAnnotation;
-    if (child2 != null && walker.visitField(child2, node, "typeAnnotation")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return true;
     return false;
   },
   ReturnStatement(node, walker) {
     const child0 = node.argument;
-    if (child0 != null && walker.visitField(child0, node, "argument")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "argument")) return true;
     return false;
   },
   SequenceExpression(node, walker) {
     const child0 = node.expressions;
-    if (child0 != null && walker.visitField(child0, node, "expressions")) return true;
+    if (child0 != null && walker.visitList(child0, node, "expressions")) return true;
     return false;
   },
   SpreadElement(node, walker) {
     const child0 = node.argument;
-    if (child0 != null && walker.visitField(child0, node, "argument")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "argument")) return true;
     return false;
   },
   StaticBlock(node, walker) {
     const child0 = node.body;
-    if (child0 != null && walker.visitField(child0, node, "body")) return true;
+    if (child0 != null && walker.visitList(child0, node, "body")) return true;
     return false;
   },
   Super: null,
   SwitchCase(node, walker) {
     const child0 = node.test;
-    if (child0 != null && walker.visitField(child0, node, "test")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "test")) return true;
     const child1 = node.consequent;
-    if (child1 != null && walker.visitField(child1, node, "consequent")) return true;
+    if (child1 != null && walker.visitList(child1, node, "consequent")) return true;
     return false;
   },
   SwitchStatement(node, walker) {
     const child0 = node.discriminant;
-    if (child0 != null && walker.visitField(child0, node, "discriminant")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "discriminant")) return true;
     const child1 = node.cases;
-    if (child1 != null && walker.visitField(child1, node, "cases")) return true;
+    if (child1 != null && walker.visitList(child1, node, "cases")) return true;
     return false;
   },
   TSAbstractAccessorProperty(node, walker) {
     const child0 = node.decorators;
-    if (child0 != null && walker.visitField(child0, node, "decorators")) return true;
+    if (child0 != null && walker.visitList(child0, node, "decorators")) return true;
     const child1 = node.key;
-    if (child1 != null && walker.visitField(child1, node, "key")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "key")) return true;
     const child2 = node.typeAnnotation;
-    if (child2 != null && walker.visitField(child2, node, "typeAnnotation")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return true;
     const child3 = node.value;
-    if (child3 != null && walker.visitField(child3, node, "value")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "value")) return true;
     return false;
   },
   TSAbstractMethodDefinition(node, walker) {
     const child0 = node.decorators;
-    if (child0 != null && walker.visitField(child0, node, "decorators")) return true;
+    if (child0 != null && walker.visitList(child0, node, "decorators")) return true;
     const child1 = node.key;
-    if (child1 != null && walker.visitField(child1, node, "key")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "key")) return true;
     const child2 = node.value;
-    if (child2 != null && walker.visitField(child2, node, "value")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "value")) return true;
     return false;
   },
   TSAbstractPropertyDefinition(node, walker) {
     const child0 = node.decorators;
-    if (child0 != null && walker.visitField(child0, node, "decorators")) return true;
+    if (child0 != null && walker.visitList(child0, node, "decorators")) return true;
     const child1 = node.key;
-    if (child1 != null && walker.visitField(child1, node, "key")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "key")) return true;
     const child2 = node.typeAnnotation;
-    if (child2 != null && walker.visitField(child2, node, "typeAnnotation")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return true;
     const child3 = node.value;
-    if (child3 != null && walker.visitField(child3, node, "value")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "value")) return true;
     return false;
   },
   TSAnyKeyword: null,
   TSArrayType(node, walker) {
     const child0 = node.elementType;
-    if (child0 != null && walker.visitField(child0, node, "elementType")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "elementType")) return true;
     return false;
   },
   TSAsExpression(node, walker) {
     const child0 = node.expression;
-    if (child0 != null && walker.visitField(child0, node, "expression")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "expression")) return true;
     const child1 = node.typeAnnotation;
-    if (child1 != null && walker.visitField(child1, node, "typeAnnotation")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeAnnotation")) return true;
     return false;
   },
   TSBigIntKeyword: null,
   TSBooleanKeyword: null,
   TSCallSignatureDeclaration(node, walker) {
     const child0 = node.typeParameters;
-    if (child0 != null && walker.visitField(child0, node, "typeParameters")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "typeParameters")) return true;
     const child1 = node.params;
-    if (child1 != null && walker.visitField(child1, node, "params")) return true;
+    if (child1 != null && walker.visitList(child1, node, "params")) return true;
     const child2 = node.returnType;
-    if (child2 != null && walker.visitField(child2, node, "returnType")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "returnType")) return true;
     return false;
   },
   TSClassImplements(node, walker) {
     const child0 = node.expression;
-    if (child0 != null && walker.visitField(child0, node, "expression")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "expression")) return true;
     const child1 = node.typeArguments;
-    if (child1 != null && walker.visitField(child1, node, "typeArguments")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return true;
     return false;
   },
   TSConditionalType(node, walker) {
     const child0 = node.checkType;
-    if (child0 != null && walker.visitField(child0, node, "checkType")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "checkType")) return true;
     const child1 = node.extendsType;
-    if (child1 != null && walker.visitField(child1, node, "extendsType")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "extendsType")) return true;
     const child2 = node.trueType;
-    if (child2 != null && walker.visitField(child2, node, "trueType")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "trueType")) return true;
     const child3 = node.falseType;
-    if (child3 != null && walker.visitField(child3, node, "falseType")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "falseType")) return true;
     return false;
   },
   TSConstructSignatureDeclaration(node, walker) {
     const child0 = node.typeParameters;
-    if (child0 != null && walker.visitField(child0, node, "typeParameters")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "typeParameters")) return true;
     const child1 = node.params;
-    if (child1 != null && walker.visitField(child1, node, "params")) return true;
+    if (child1 != null && walker.visitList(child1, node, "params")) return true;
     const child2 = node.returnType;
-    if (child2 != null && walker.visitField(child2, node, "returnType")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "returnType")) return true;
     return false;
   },
   TSConstructorType(node, walker) {
     const child0 = node.typeParameters;
-    if (child0 != null && walker.visitField(child0, node, "typeParameters")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "typeParameters")) return true;
     const child1 = node.params;
-    if (child1 != null && walker.visitField(child1, node, "params")) return true;
+    if (child1 != null && walker.visitList(child1, node, "params")) return true;
     const child2 = node.returnType;
-    if (child2 != null && walker.visitField(child2, node, "returnType")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "returnType")) return true;
     return false;
   },
   TSDeclareFunction(node, walker) {
     const child0 = node.id;
-    if (child0 != null && walker.visitField(child0, node, "id")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "id")) return true;
     const child1 = node.typeParameters;
-    if (child1 != null && walker.visitField(child1, node, "typeParameters")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeParameters")) return true;
     const child2 = node.params;
-    if (child2 != null && walker.visitField(child2, node, "params")) return true;
+    if (child2 != null && walker.visitList(child2, node, "params")) return true;
     const child3 = node.returnType;
-    if (child3 != null && walker.visitField(child3, node, "returnType")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "returnType")) return true;
     const child4 = node.body;
-    if (child4 != null && walker.visitField(child4, node, "body")) return true;
+    if (child4 != null && walker.visitScalar(child4, node, "body")) return true;
     return false;
   },
   TSEmptyBodyFunctionExpression(node, walker) {
     const child0 = node.id;
-    if (child0 != null && walker.visitField(child0, node, "id")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "id")) return true;
     const child1 = node.typeParameters;
-    if (child1 != null && walker.visitField(child1, node, "typeParameters")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeParameters")) return true;
     const child2 = node.params;
-    if (child2 != null && walker.visitField(child2, node, "params")) return true;
+    if (child2 != null && walker.visitList(child2, node, "params")) return true;
     const child3 = node.returnType;
-    if (child3 != null && walker.visitField(child3, node, "returnType")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "returnType")) return true;
     const child4 = node.body;
-    if (child4 != null && walker.visitField(child4, node, "body")) return true;
+    if (child4 != null && walker.visitScalar(child4, node, "body")) return true;
     return false;
   },
   TSEnumBody(node, walker) {
     const child0 = node.members;
-    if (child0 != null && walker.visitField(child0, node, "members")) return true;
+    if (child0 != null && walker.visitList(child0, node, "members")) return true;
     return false;
   },
   TSEnumDeclaration(node, walker) {
     const child0 = node.id;
-    if (child0 != null && walker.visitField(child0, node, "id")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "id")) return true;
     const child1 = node.body;
-    if (child1 != null && walker.visitField(child1, node, "body")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "body")) return true;
     return false;
   },
   TSEnumMember(node, walker) {
     const child0 = node.id;
-    if (child0 != null && walker.visitField(child0, node, "id")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "id")) return true;
     const child1 = node.initializer;
-    if (child1 != null && walker.visitField(child1, node, "initializer")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "initializer")) return true;
     return false;
   },
   TSExportAssignment(node, walker) {
     const child0 = node.expression;
-    if (child0 != null && walker.visitField(child0, node, "expression")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "expression")) return true;
     return false;
   },
   TSExternalModuleReference(node, walker) {
     const child0 = node.expression;
-    if (child0 != null && walker.visitField(child0, node, "expression")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "expression")) return true;
     return false;
   },
   TSFunctionType(node, walker) {
     const child0 = node.typeParameters;
-    if (child0 != null && walker.visitField(child0, node, "typeParameters")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "typeParameters")) return true;
     const child1 = node.params;
-    if (child1 != null && walker.visitField(child1, node, "params")) return true;
+    if (child1 != null && walker.visitList(child1, node, "params")) return true;
     const child2 = node.returnType;
-    if (child2 != null && walker.visitField(child2, node, "returnType")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "returnType")) return true;
     return false;
   },
   TSImportEqualsDeclaration(node, walker) {
     const child0 = node.id;
-    if (child0 != null && walker.visitField(child0, node, "id")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "id")) return true;
     const child1 = node.moduleReference;
-    if (child1 != null && walker.visitField(child1, node, "moduleReference")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "moduleReference")) return true;
     return false;
   },
   TSImportType(node, walker) {
     const child0 = node.source;
-    if (child0 != null && walker.visitField(child0, node, "source")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "source")) return true;
     const child1 = node.options;
-    if (child1 != null && walker.visitField(child1, node, "options")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "options")) return true;
     const child2 = node.qualifier;
-    if (child2 != null && walker.visitField(child2, node, "qualifier")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "qualifier")) return true;
     const child3 = node.typeArguments;
-    if (child3 != null && walker.visitField(child3, node, "typeArguments")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "typeArguments")) return true;
     return false;
   },
   TSIndexSignature(node, walker) {
     const child0 = node.parameters;
-    if (child0 != null && walker.visitField(child0, node, "parameters")) return true;
+    if (child0 != null && walker.visitList(child0, node, "parameters")) return true;
     const child1 = node.typeAnnotation;
-    if (child1 != null && walker.visitField(child1, node, "typeAnnotation")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeAnnotation")) return true;
     return false;
   },
   TSIndexedAccessType(node, walker) {
     const child0 = node.objectType;
-    if (child0 != null && walker.visitField(child0, node, "objectType")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "objectType")) return true;
     const child1 = node.indexType;
-    if (child1 != null && walker.visitField(child1, node, "indexType")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "indexType")) return true;
     return false;
   },
   TSInferType(node, walker) {
     const child0 = node.typeParameter;
-    if (child0 != null && walker.visitField(child0, node, "typeParameter")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "typeParameter")) return true;
     return false;
   },
   TSInstantiationExpression(node, walker) {
     const child0 = node.expression;
-    if (child0 != null && walker.visitField(child0, node, "expression")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "expression")) return true;
     const child1 = node.typeArguments;
-    if (child1 != null && walker.visitField(child1, node, "typeArguments")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return true;
     return false;
   },
   TSInterfaceBody(node, walker) {
     const child0 = node.body;
-    if (child0 != null && walker.visitField(child0, node, "body")) return true;
+    if (child0 != null && walker.visitList(child0, node, "body")) return true;
     return false;
   },
   TSInterfaceDeclaration(node, walker) {
     const child0 = node.id;
-    if (child0 != null && walker.visitField(child0, node, "id")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "id")) return true;
     const child1 = node.typeParameters;
-    if (child1 != null && walker.visitField(child1, node, "typeParameters")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeParameters")) return true;
     const child2 = node.extends;
-    if (child2 != null && walker.visitField(child2, node, "extends")) return true;
+    if (child2 != null && walker.visitList(child2, node, "extends")) return true;
     const child3 = node.body;
-    if (child3 != null && walker.visitField(child3, node, "body")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "body")) return true;
     return false;
   },
   TSInterfaceHeritage(node, walker) {
     const child0 = node.expression;
-    if (child0 != null && walker.visitField(child0, node, "expression")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "expression")) return true;
     const child1 = node.typeArguments;
-    if (child1 != null && walker.visitField(child1, node, "typeArguments")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return true;
     return false;
   },
   TSIntersectionType(node, walker) {
     const child0 = node.types;
-    if (child0 != null && walker.visitField(child0, node, "types")) return true;
+    if (child0 != null && walker.visitList(child0, node, "types")) return true;
     return false;
   },
   TSIntrinsicKeyword: null,
   TSJSDocNonNullableType(node, walker) {
     const child0 = node.typeAnnotation;
-    if (child0 != null && walker.visitField(child0, node, "typeAnnotation")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "typeAnnotation")) return true;
     return false;
   },
   TSJSDocNullableType(node, walker) {
     const child0 = node.typeAnnotation;
-    if (child0 != null && walker.visitField(child0, node, "typeAnnotation")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "typeAnnotation")) return true;
     return false;
   },
   TSJSDocUnknownType: null,
   TSLiteralType(node, walker) {
     const child0 = node.literal;
-    if (child0 != null && walker.visitField(child0, node, "literal")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "literal")) return true;
     return false;
   },
   TSMappedType(node, walker) {
     const child0 = node.key;
-    if (child0 != null && walker.visitField(child0, node, "key")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "key")) return true;
     const child1 = node.constraint;
-    if (child1 != null && walker.visitField(child1, node, "constraint")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "constraint")) return true;
     const child2 = node.nameType;
-    if (child2 != null && walker.visitField(child2, node, "nameType")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "nameType")) return true;
     const child3 = node.typeAnnotation;
-    if (child3 != null && walker.visitField(child3, node, "typeAnnotation")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "typeAnnotation")) return true;
     return false;
   },
   TSMethodSignature(node, walker) {
     const child0 = node.key;
-    if (child0 != null && walker.visitField(child0, node, "key")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "key")) return true;
     const child1 = node.typeParameters;
-    if (child1 != null && walker.visitField(child1, node, "typeParameters")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeParameters")) return true;
     const child2 = node.params;
-    if (child2 != null && walker.visitField(child2, node, "params")) return true;
+    if (child2 != null && walker.visitList(child2, node, "params")) return true;
     const child3 = node.returnType;
-    if (child3 != null && walker.visitField(child3, node, "returnType")) return true;
+    if (child3 != null && walker.visitScalar(child3, node, "returnType")) return true;
     return false;
   },
   TSModuleBlock(node, walker) {
     const child0 = node.body;
-    if (child0 != null && walker.visitField(child0, node, "body")) return true;
+    if (child0 != null && walker.visitList(child0, node, "body")) return true;
     return false;
   },
   TSModuleDeclaration(node, walker) {
     const child0 = node.id;
-    if (child0 != null && walker.visitField(child0, node, "id")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "id")) return true;
     const child1 = node.body;
-    if (child1 != null && walker.visitField(child1, node, "body")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "body")) return true;
     return false;
   },
   TSNamedTupleMember(node, walker) {
     const child0 = node.label;
-    if (child0 != null && walker.visitField(child0, node, "label")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "label")) return true;
     const child1 = node.elementType;
-    if (child1 != null && walker.visitField(child1, node, "elementType")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "elementType")) return true;
     return false;
   },
   TSNamespaceExportDeclaration(node, walker) {
     const child0 = node.id;
-    if (child0 != null && walker.visitField(child0, node, "id")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "id")) return true;
     return false;
   },
   TSNeverKeyword: null,
   TSNonNullExpression(node, walker) {
     const child0 = node.expression;
-    if (child0 != null && walker.visitField(child0, node, "expression")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "expression")) return true;
     return false;
   },
   TSNullKeyword: null,
@@ -821,212 +821,1655 @@ export const childVisitors = {
   TSObjectKeyword: null,
   TSOptionalType(node, walker) {
     const child0 = node.typeAnnotation;
-    if (child0 != null && walker.visitField(child0, node, "typeAnnotation")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "typeAnnotation")) return true;
     return false;
   },
   TSParameterProperty(node, walker) {
     const child0 = node.decorators;
-    if (child0 != null && walker.visitField(child0, node, "decorators")) return true;
+    if (child0 != null && walker.visitList(child0, node, "decorators")) return true;
     const child1 = node.parameter;
-    if (child1 != null && walker.visitField(child1, node, "parameter")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "parameter")) return true;
     return false;
   },
   TSParenthesizedType(node, walker) {
     const child0 = node.typeAnnotation;
-    if (child0 != null && walker.visitField(child0, node, "typeAnnotation")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "typeAnnotation")) return true;
     return false;
   },
   TSPropertySignature(node, walker) {
     const child0 = node.key;
-    if (child0 != null && walker.visitField(child0, node, "key")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "key")) return true;
     const child1 = node.typeAnnotation;
-    if (child1 != null && walker.visitField(child1, node, "typeAnnotation")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeAnnotation")) return true;
     return false;
   },
   TSQualifiedName(node, walker) {
     const child0 = node.left;
-    if (child0 != null && walker.visitField(child0, node, "left")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "left")) return true;
     const child1 = node.right;
-    if (child1 != null && walker.visitField(child1, node, "right")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "right")) return true;
     return false;
   },
   TSRestType(node, walker) {
     const child0 = node.typeAnnotation;
-    if (child0 != null && walker.visitField(child0, node, "typeAnnotation")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "typeAnnotation")) return true;
     return false;
   },
   TSSatisfiesExpression(node, walker) {
     const child0 = node.expression;
-    if (child0 != null && walker.visitField(child0, node, "expression")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "expression")) return true;
     const child1 = node.typeAnnotation;
-    if (child1 != null && walker.visitField(child1, node, "typeAnnotation")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeAnnotation")) return true;
     return false;
   },
   TSStringKeyword: null,
   TSSymbolKeyword: null,
   TSTemplateLiteralType(node, walker) {
     const child0 = node.quasis;
-    if (child0 != null && walker.visitField(child0, node, "quasis")) return true;
+    if (child0 != null && walker.visitList(child0, node, "quasis")) return true;
     const child1 = node.types;
-    if (child1 != null && walker.visitField(child1, node, "types")) return true;
+    if (child1 != null && walker.visitList(child1, node, "types")) return true;
     return false;
   },
   TSThisType: null,
   TSTupleType(node, walker) {
     const child0 = node.elementTypes;
-    if (child0 != null && walker.visitField(child0, node, "elementTypes")) return true;
+    if (child0 != null && walker.visitList(child0, node, "elementTypes")) return true;
     return false;
   },
   TSTypeAliasDeclaration(node, walker) {
     const child0 = node.id;
-    if (child0 != null && walker.visitField(child0, node, "id")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "id")) return true;
     const child1 = node.typeParameters;
-    if (child1 != null && walker.visitField(child1, node, "typeParameters")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeParameters")) return true;
     const child2 = node.typeAnnotation;
-    if (child2 != null && walker.visitField(child2, node, "typeAnnotation")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return true;
     return false;
   },
   TSTypeAnnotation(node, walker) {
     const child0 = node.typeAnnotation;
-    if (child0 != null && walker.visitField(child0, node, "typeAnnotation")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "typeAnnotation")) return true;
     return false;
   },
   TSTypeAssertion(node, walker) {
     const child0 = node.typeAnnotation;
-    if (child0 != null && walker.visitField(child0, node, "typeAnnotation")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "typeAnnotation")) return true;
     const child1 = node.expression;
-    if (child1 != null && walker.visitField(child1, node, "expression")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "expression")) return true;
     return false;
   },
   TSTypeLiteral(node, walker) {
     const child0 = node.members;
-    if (child0 != null && walker.visitField(child0, node, "members")) return true;
+    if (child0 != null && walker.visitList(child0, node, "members")) return true;
     return false;
   },
   TSTypeOperator(node, walker) {
     const child0 = node.typeAnnotation;
-    if (child0 != null && walker.visitField(child0, node, "typeAnnotation")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "typeAnnotation")) return true;
     return false;
   },
   TSTypeParameter(node, walker) {
     const child0 = node.name;
-    if (child0 != null && walker.visitField(child0, node, "name")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "name")) return true;
     const child1 = node.constraint;
-    if (child1 != null && walker.visitField(child1, node, "constraint")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "constraint")) return true;
     const child2 = node.default;
-    if (child2 != null && walker.visitField(child2, node, "default")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "default")) return true;
     return false;
   },
   TSTypeParameterDeclaration(node, walker) {
     const child0 = node.params;
-    if (child0 != null && walker.visitField(child0, node, "params")) return true;
+    if (child0 != null && walker.visitList(child0, node, "params")) return true;
     return false;
   },
   TSTypeParameterInstantiation(node, walker) {
     const child0 = node.params;
-    if (child0 != null && walker.visitField(child0, node, "params")) return true;
+    if (child0 != null && walker.visitList(child0, node, "params")) return true;
     return false;
   },
   TSTypePredicate(node, walker) {
     const child0 = node.parameterName;
-    if (child0 != null && walker.visitField(child0, node, "parameterName")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "parameterName")) return true;
     const child1 = node.typeAnnotation;
-    if (child1 != null && walker.visitField(child1, node, "typeAnnotation")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeAnnotation")) return true;
     return false;
   },
   TSTypeQuery(node, walker) {
     const child0 = node.exprName;
-    if (child0 != null && walker.visitField(child0, node, "exprName")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "exprName")) return true;
     const child1 = node.typeArguments;
-    if (child1 != null && walker.visitField(child1, node, "typeArguments")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return true;
     return false;
   },
   TSTypeReference(node, walker) {
     const child0 = node.typeName;
-    if (child0 != null && walker.visitField(child0, node, "typeName")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "typeName")) return true;
     const child1 = node.typeArguments;
-    if (child1 != null && walker.visitField(child1, node, "typeArguments")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return true;
     return false;
   },
   TSUndefinedKeyword: null,
   TSUnionType(node, walker) {
     const child0 = node.types;
-    if (child0 != null && walker.visitField(child0, node, "types")) return true;
+    if (child0 != null && walker.visitList(child0, node, "types")) return true;
     return false;
   },
   TSUnknownKeyword: null,
   TSVoidKeyword: null,
   TaggedTemplateExpression(node, walker) {
     const child0 = node.tag;
-    if (child0 != null && walker.visitField(child0, node, "tag")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "tag")) return true;
     const child1 = node.typeArguments;
-    if (child1 != null && walker.visitField(child1, node, "typeArguments")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return true;
     const child2 = node.quasi;
-    if (child2 != null && walker.visitField(child2, node, "quasi")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "quasi")) return true;
     return false;
   },
   TemplateElement: null,
   TemplateLiteral(node, walker) {
     const child0 = node.quasis;
-    if (child0 != null && walker.visitField(child0, node, "quasis")) return true;
+    if (child0 != null && walker.visitList(child0, node, "quasis")) return true;
     const child1 = node.expressions;
-    if (child1 != null && walker.visitField(child1, node, "expressions")) return true;
+    if (child1 != null && walker.visitList(child1, node, "expressions")) return true;
     return false;
   },
   ThisExpression: null,
   ThrowStatement(node, walker) {
     const child0 = node.argument;
-    if (child0 != null && walker.visitField(child0, node, "argument")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "argument")) return true;
     return false;
   },
   TryStatement(node, walker) {
     const child0 = node.block;
-    if (child0 != null && walker.visitField(child0, node, "block")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "block")) return true;
     const child1 = node.handler;
-    if (child1 != null && walker.visitField(child1, node, "handler")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "handler")) return true;
     const child2 = node.finalizer;
-    if (child2 != null && walker.visitField(child2, node, "finalizer")) return true;
+    if (child2 != null && walker.visitScalar(child2, node, "finalizer")) return true;
     return false;
   },
   UnaryExpression(node, walker) {
     const child0 = node.argument;
-    if (child0 != null && walker.visitField(child0, node, "argument")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "argument")) return true;
     return false;
   },
   UpdateExpression(node, walker) {
     const child0 = node.argument;
-    if (child0 != null && walker.visitField(child0, node, "argument")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "argument")) return true;
     return false;
   },
   VariableDeclaration(node, walker) {
     const child0 = node.declarations;
-    if (child0 != null && walker.visitField(child0, node, "declarations")) return true;
+    if (child0 != null && walker.visitList(child0, node, "declarations")) return true;
     return false;
   },
   VariableDeclarator(node, walker) {
     const child0 = node.id;
-    if (child0 != null && walker.visitField(child0, node, "id")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "id")) return true;
     const child1 = node.init;
-    if (child1 != null && walker.visitField(child1, node, "init")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "init")) return true;
     return false;
   },
   WhileStatement(node, walker) {
     const child0 = node.test;
-    if (child0 != null && walker.visitField(child0, node, "test")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "test")) return true;
     const child1 = node.body;
-    if (child1 != null && walker.visitField(child1, node, "body")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "body")) return true;
     return false;
   },
   WithStatement(node, walker) {
     const child0 = node.object;
-    if (child0 != null && walker.visitField(child0, node, "object")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "object")) return true;
     const child1 = node.body;
-    if (child1 != null && walker.visitField(child1, node, "body")) return true;
+    if (child1 != null && walker.visitScalar(child1, node, "body")) return true;
     return false;
   },
   YieldExpression(node, walker) {
     const child0 = node.argument;
-    if (child0 != null && walker.visitField(child0, node, "argument")) return true;
+    if (child0 != null && walker.visitScalar(child0, node, "argument")) return true;
     return false;
   },
 };
+
+export const nodeWalkers = Object.assign(Object.create(null), {
+  AccessorProperty: walkAccessorProperty,
+  ArrayExpression: walkArrayExpression,
+  ArrayPattern: walkArrayPattern,
+  ArrowFunctionExpression: walkArrowFunctionExpression,
+  AssignmentExpression: walkAssignmentExpression,
+  AssignmentPattern: walkAssignmentPattern,
+  AwaitExpression: walkAwaitExpression,
+  BinaryExpression: walkBinaryExpression,
+  BlockStatement: walkBlockStatement,
+  BreakStatement: walkBreakStatement,
+  CallExpression: walkCallExpression,
+  CatchClause: walkCatchClause,
+  ChainExpression: walkChainExpression,
+  ClassBody: walkClassBody,
+  ClassDeclaration: walkClassDeclaration,
+  ClassExpression: walkClassExpression,
+  ConditionalExpression: walkConditionalExpression,
+  ContinueStatement: walkContinueStatement,
+  DebuggerStatement: null,
+  Decorator: walkDecorator,
+  DoWhileStatement: walkDoWhileStatement,
+  EmptyStatement: null,
+  ExportAllDeclaration: walkExportAllDeclaration,
+  ExportDefaultDeclaration: walkExportDefaultDeclaration,
+  ExportNamedDeclaration: walkExportNamedDeclaration,
+  ExportSpecifier: walkExportSpecifier,
+  ExpressionStatement: walkExpressionStatement,
+  ForInStatement: walkForInStatement,
+  ForOfStatement: walkForOfStatement,
+  ForStatement: walkForStatement,
+  FunctionDeclaration: walkFunctionDeclaration,
+  FunctionExpression: walkFunctionExpression,
+  Hashbang: null,
+  Identifier: walkIdentifier,
+  IfStatement: walkIfStatement,
+  ImportAttribute: walkImportAttribute,
+  ImportDeclaration: walkImportDeclaration,
+  ImportDefaultSpecifier: walkImportDefaultSpecifier,
+  ImportExpression: walkImportExpression,
+  ImportNamespaceSpecifier: walkImportNamespaceSpecifier,
+  ImportSpecifier: walkImportSpecifier,
+  JSXAttribute: walkJSXAttribute,
+  JSXClosingElement: walkJSXClosingElement,
+  JSXClosingFragment: null,
+  JSXElement: walkJSXElement,
+  JSXEmptyExpression: null,
+  JSXExpressionContainer: walkJSXExpressionContainer,
+  JSXFragment: walkJSXFragment,
+  JSXIdentifier: null,
+  JSXMemberExpression: walkJSXMemberExpression,
+  JSXNamespacedName: walkJSXNamespacedName,
+  JSXOpeningElement: walkJSXOpeningElement,
+  JSXOpeningFragment: null,
+  JSXSpreadAttribute: walkJSXSpreadAttribute,
+  JSXSpreadChild: walkJSXSpreadChild,
+  JSXText: null,
+  LabeledStatement: walkLabeledStatement,
+  Literal: null,
+  LogicalExpression: walkLogicalExpression,
+  MemberExpression: walkMemberExpression,
+  MetaProperty: walkMetaProperty,
+  MethodDefinition: walkMethodDefinition,
+  NewExpression: walkNewExpression,
+  ObjectExpression: walkObjectExpression,
+  ObjectPattern: walkObjectPattern,
+  ParenthesizedExpression: walkParenthesizedExpression,
+  PrivateIdentifier: null,
+  Program: walkProgram,
+  Property: walkProperty,
+  PropertyDefinition: walkPropertyDefinition,
+  RestElement: walkRestElement,
+  ReturnStatement: walkReturnStatement,
+  SequenceExpression: walkSequenceExpression,
+  SpreadElement: walkSpreadElement,
+  StaticBlock: walkStaticBlock,
+  Super: null,
+  SwitchCase: walkSwitchCase,
+  SwitchStatement: walkSwitchStatement,
+  TSAbstractAccessorProperty: walkTSAbstractAccessorProperty,
+  TSAbstractMethodDefinition: walkTSAbstractMethodDefinition,
+  TSAbstractPropertyDefinition: walkTSAbstractPropertyDefinition,
+  TSAnyKeyword: null,
+  TSArrayType: walkTSArrayType,
+  TSAsExpression: walkTSAsExpression,
+  TSBigIntKeyword: null,
+  TSBooleanKeyword: null,
+  TSCallSignatureDeclaration: walkTSCallSignatureDeclaration,
+  TSClassImplements: walkTSClassImplements,
+  TSConditionalType: walkTSConditionalType,
+  TSConstructSignatureDeclaration: walkTSConstructSignatureDeclaration,
+  TSConstructorType: walkTSConstructorType,
+  TSDeclareFunction: walkTSDeclareFunction,
+  TSEmptyBodyFunctionExpression: walkTSEmptyBodyFunctionExpression,
+  TSEnumBody: walkTSEnumBody,
+  TSEnumDeclaration: walkTSEnumDeclaration,
+  TSEnumMember: walkTSEnumMember,
+  TSExportAssignment: walkTSExportAssignment,
+  TSExternalModuleReference: walkTSExternalModuleReference,
+  TSFunctionType: walkTSFunctionType,
+  TSImportEqualsDeclaration: walkTSImportEqualsDeclaration,
+  TSImportType: walkTSImportType,
+  TSIndexSignature: walkTSIndexSignature,
+  TSIndexedAccessType: walkTSIndexedAccessType,
+  TSInferType: walkTSInferType,
+  TSInstantiationExpression: walkTSInstantiationExpression,
+  TSInterfaceBody: walkTSInterfaceBody,
+  TSInterfaceDeclaration: walkTSInterfaceDeclaration,
+  TSInterfaceHeritage: walkTSInterfaceHeritage,
+  TSIntersectionType: walkTSIntersectionType,
+  TSIntrinsicKeyword: null,
+  TSJSDocNonNullableType: walkTSJSDocNonNullableType,
+  TSJSDocNullableType: walkTSJSDocNullableType,
+  TSJSDocUnknownType: null,
+  TSLiteralType: walkTSLiteralType,
+  TSMappedType: walkTSMappedType,
+  TSMethodSignature: walkTSMethodSignature,
+  TSModuleBlock: walkTSModuleBlock,
+  TSModuleDeclaration: walkTSModuleDeclaration,
+  TSNamedTupleMember: walkTSNamedTupleMember,
+  TSNamespaceExportDeclaration: walkTSNamespaceExportDeclaration,
+  TSNeverKeyword: null,
+  TSNonNullExpression: walkTSNonNullExpression,
+  TSNullKeyword: null,
+  TSNumberKeyword: null,
+  TSObjectKeyword: null,
+  TSOptionalType: walkTSOptionalType,
+  TSParameterProperty: walkTSParameterProperty,
+  TSParenthesizedType: walkTSParenthesizedType,
+  TSPropertySignature: walkTSPropertySignature,
+  TSQualifiedName: walkTSQualifiedName,
+  TSRestType: walkTSRestType,
+  TSSatisfiesExpression: walkTSSatisfiesExpression,
+  TSStringKeyword: null,
+  TSSymbolKeyword: null,
+  TSTemplateLiteralType: walkTSTemplateLiteralType,
+  TSThisType: null,
+  TSTupleType: walkTSTupleType,
+  TSTypeAliasDeclaration: walkTSTypeAliasDeclaration,
+  TSTypeAnnotation: walkTSTypeAnnotation,
+  TSTypeAssertion: walkTSTypeAssertion,
+  TSTypeLiteral: walkTSTypeLiteral,
+  TSTypeOperator: walkTSTypeOperator,
+  TSTypeParameter: walkTSTypeParameter,
+  TSTypeParameterDeclaration: walkTSTypeParameterDeclaration,
+  TSTypeParameterInstantiation: walkTSTypeParameterInstantiation,
+  TSTypePredicate: walkTSTypePredicate,
+  TSTypeQuery: walkTSTypeQuery,
+  TSTypeReference: walkTSTypeReference,
+  TSUndefinedKeyword: null,
+  TSUnionType: walkTSUnionType,
+  TSUnknownKeyword: null,
+  TSVoidKeyword: null,
+  TaggedTemplateExpression: walkTaggedTemplateExpression,
+  TemplateElement: null,
+  TemplateLiteral: walkTemplateLiteral,
+  ThisExpression: null,
+  ThrowStatement: walkThrowStatement,
+  TryStatement: walkTryStatement,
+  UnaryExpression: walkUnaryExpression,
+  UpdateExpression: walkUpdateExpression,
+  VariableDeclaration: walkVariableDeclaration,
+  VariableDeclarator: walkVariableDeclarator,
+  WhileStatement: walkWhileStatement,
+  WithStatement: walkWithStatement,
+  YieldExpression: walkYieldExpression,
+});
+
+function walkAccessorProperty(node, walker, parent, key, list, index) {
+  const child0 = node.decorators;
+  if (child0 != null && walker.visitList(child0, node, "decorators")) return index;
+  const child1 = node.key;
+  if (child1 != null && walker.visitScalar(child1, node, "key")) return index;
+  const child2 = node.typeAnnotation;
+  if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return index;
+  const child3 = node.value;
+  if (child3 != null && walker.visitScalar(child3, node, "value")) return index;
+  if (node.type !== "AccessorProperty") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkArrayExpression(node, walker, parent, key, list, index) {
+  const child0 = node.elements;
+  if (child0 != null && walker.visitList(child0, node, "elements")) return index;
+  if (node.type !== "ArrayExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkArrayPattern(node, walker, parent, key, list, index) {
+  const child0 = node.decorators;
+  if (child0 != null && walker.visitList(child0, node, "decorators")) return index;
+  const child1 = node.elements;
+  if (child1 != null && walker.visitList(child1, node, "elements")) return index;
+  const child2 = node.typeAnnotation;
+  if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return index;
+  if (node.type !== "ArrayPattern") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkArrowFunctionExpression(node, walker, parent, key, list, index) {
+  const child0 = node.typeParameters;
+  if (child0 != null && walker.visitScalar(child0, node, "typeParameters")) return index;
+  const child1 = node.params;
+  if (child1 != null && walker.visitList(child1, node, "params")) return index;
+  const child2 = node.returnType;
+  if (child2 != null && walker.visitScalar(child2, node, "returnType")) return index;
+  const child3 = node.body;
+  if (child3 != null && walker.visitScalar(child3, node, "body")) return index;
+  if (node.type !== "ArrowFunctionExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkAssignmentExpression(node, walker, parent, key, list, index) {
+  const child0 = node.left;
+  if (child0 != null && walker.visitScalar(child0, node, "left")) return index;
+  const child1 = node.right;
+  if (child1 != null && walker.visitScalar(child1, node, "right")) return index;
+  if (node.type !== "AssignmentExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkAssignmentPattern(node, walker, parent, key, list, index) {
+  const child0 = node.decorators;
+  if (child0 != null && walker.visitList(child0, node, "decorators")) return index;
+  const child1 = node.left;
+  if (child1 != null && walker.visitScalar(child1, node, "left")) return index;
+  const child2 = node.typeAnnotation;
+  if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return index;
+  const child3 = node.right;
+  if (child3 != null && walker.visitScalar(child3, node, "right")) return index;
+  if (node.type !== "AssignmentPattern") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkAwaitExpression(node, walker, parent, key, list, index) {
+  const child0 = node.argument;
+  if (child0 != null && walker.visitScalar(child0, node, "argument")) return index;
+  if (node.type !== "AwaitExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkBinaryExpression(node, walker, parent, key, list, index) {
+  const child0 = node.left;
+  if (child0 != null && walker.visitScalar(child0, node, "left")) return index;
+  const child1 = node.right;
+  if (child1 != null && walker.visitScalar(child1, node, "right")) return index;
+  if (node.type !== "BinaryExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkBlockStatement(node, walker, parent, key, list, index) {
+  const child0 = node.body;
+  if (child0 != null && walker.visitList(child0, node, "body")) return index;
+  if (node.type !== "BlockStatement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkBreakStatement(node, walker, parent, key, list, index) {
+  const child0 = node.label;
+  if (child0 != null && walker.visitScalar(child0, node, "label")) return index;
+  if (node.type !== "BreakStatement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkCallExpression(node, walker, parent, key, list, index) {
+  const child0 = node.callee;
+  if (child0 != null && walker.visitScalar(child0, node, "callee")) return index;
+  const child1 = node.typeArguments;
+  if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return index;
+  const child2 = node.arguments;
+  if (child2 != null && walker.visitList(child2, node, "arguments")) return index;
+  if (node.type !== "CallExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkCatchClause(node, walker, parent, key, list, index) {
+  const child0 = node.param;
+  if (child0 != null && walker.visitScalar(child0, node, "param")) return index;
+  const child1 = node.body;
+  if (child1 != null && walker.visitScalar(child1, node, "body")) return index;
+  if (node.type !== "CatchClause") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkChainExpression(node, walker, parent, key, list, index) {
+  const child0 = node.expression;
+  if (child0 != null && walker.visitScalar(child0, node, "expression")) return index;
+  if (node.type !== "ChainExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkClassBody(node, walker, parent, key, list, index) {
+  const child0 = node.body;
+  if (child0 != null && walker.visitList(child0, node, "body")) return index;
+  if (node.type !== "ClassBody") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkClassDeclaration(node, walker, parent, key, list, index) {
+  const child0 = node.decorators;
+  if (child0 != null && walker.visitList(child0, node, "decorators")) return index;
+  const child1 = node.id;
+  if (child1 != null && walker.visitScalar(child1, node, "id")) return index;
+  const child2 = node.typeParameters;
+  if (child2 != null && walker.visitScalar(child2, node, "typeParameters")) return index;
+  const child3 = node.superClass;
+  if (child3 != null && walker.visitScalar(child3, node, "superClass")) return index;
+  const child4 = node.superTypeArguments;
+  if (child4 != null && walker.visitScalar(child4, node, "superTypeArguments")) return index;
+  const child5 = node.implements;
+  if (child5 != null && walker.visitList(child5, node, "implements")) return index;
+  const child6 = node.body;
+  if (child6 != null && walker.visitScalar(child6, node, "body")) return index;
+  if (node.type !== "ClassDeclaration") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkClassExpression(node, walker, parent, key, list, index) {
+  const child0 = node.decorators;
+  if (child0 != null && walker.visitList(child0, node, "decorators")) return index;
+  const child1 = node.id;
+  if (child1 != null && walker.visitScalar(child1, node, "id")) return index;
+  const child2 = node.typeParameters;
+  if (child2 != null && walker.visitScalar(child2, node, "typeParameters")) return index;
+  const child3 = node.superClass;
+  if (child3 != null && walker.visitScalar(child3, node, "superClass")) return index;
+  const child4 = node.superTypeArguments;
+  if (child4 != null && walker.visitScalar(child4, node, "superTypeArguments")) return index;
+  const child5 = node.implements;
+  if (child5 != null && walker.visitList(child5, node, "implements")) return index;
+  const child6 = node.body;
+  if (child6 != null && walker.visitScalar(child6, node, "body")) return index;
+  if (node.type !== "ClassExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkConditionalExpression(node, walker, parent, key, list, index) {
+  const child0 = node.test;
+  if (child0 != null && walker.visitScalar(child0, node, "test")) return index;
+  const child1 = node.consequent;
+  if (child1 != null && walker.visitScalar(child1, node, "consequent")) return index;
+  const child2 = node.alternate;
+  if (child2 != null && walker.visitScalar(child2, node, "alternate")) return index;
+  if (node.type !== "ConditionalExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkContinueStatement(node, walker, parent, key, list, index) {
+  const child0 = node.label;
+  if (child0 != null && walker.visitScalar(child0, node, "label")) return index;
+  if (node.type !== "ContinueStatement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkDecorator(node, walker, parent, key, list, index) {
+  const child0 = node.expression;
+  if (child0 != null && walker.visitScalar(child0, node, "expression")) return index;
+  if (node.type !== "Decorator") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkDoWhileStatement(node, walker, parent, key, list, index) {
+  const child0 = node.body;
+  if (child0 != null && walker.visitScalar(child0, node, "body")) return index;
+  const child1 = node.test;
+  if (child1 != null && walker.visitScalar(child1, node, "test")) return index;
+  if (node.type !== "DoWhileStatement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkExportAllDeclaration(node, walker, parent, key, list, index) {
+  const child0 = node.exported;
+  if (child0 != null && walker.visitScalar(child0, node, "exported")) return index;
+  const child1 = node.source;
+  if (child1 != null && walker.visitScalar(child1, node, "source")) return index;
+  const child2 = node.attributes;
+  if (child2 != null && walker.visitList(child2, node, "attributes")) return index;
+  if (node.type !== "ExportAllDeclaration") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkExportDefaultDeclaration(node, walker, parent, key, list, index) {
+  const child0 = node.declaration;
+  if (child0 != null && walker.visitScalar(child0, node, "declaration")) return index;
+  if (node.type !== "ExportDefaultDeclaration") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkExportNamedDeclaration(node, walker, parent, key, list, index) {
+  const child0 = node.declaration;
+  if (child0 != null && walker.visitScalar(child0, node, "declaration")) return index;
+  const child1 = node.specifiers;
+  if (child1 != null && walker.visitList(child1, node, "specifiers")) return index;
+  const child2 = node.source;
+  if (child2 != null && walker.visitScalar(child2, node, "source")) return index;
+  const child3 = node.attributes;
+  if (child3 != null && walker.visitList(child3, node, "attributes")) return index;
+  if (node.type !== "ExportNamedDeclaration") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkExportSpecifier(node, walker, parent, key, list, index) {
+  const child0 = node.local;
+  if (child0 != null && walker.visitScalar(child0, node, "local")) return index;
+  const child1 = node.exported;
+  if (child1 != null && walker.visitScalar(child1, node, "exported")) return index;
+  if (node.type !== "ExportSpecifier") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkExpressionStatement(node, walker, parent, key, list, index) {
+  const child0 = node.expression;
+  if (child0 != null && walker.visitScalar(child0, node, "expression")) return index;
+  if (node.type !== "ExpressionStatement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkForInStatement(node, walker, parent, key, list, index) {
+  const child0 = node.left;
+  if (child0 != null && walker.visitScalar(child0, node, "left")) return index;
+  const child1 = node.right;
+  if (child1 != null && walker.visitScalar(child1, node, "right")) return index;
+  const child2 = node.body;
+  if (child2 != null && walker.visitScalar(child2, node, "body")) return index;
+  if (node.type !== "ForInStatement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkForOfStatement(node, walker, parent, key, list, index) {
+  const child0 = node.left;
+  if (child0 != null && walker.visitScalar(child0, node, "left")) return index;
+  const child1 = node.right;
+  if (child1 != null && walker.visitScalar(child1, node, "right")) return index;
+  const child2 = node.body;
+  if (child2 != null && walker.visitScalar(child2, node, "body")) return index;
+  if (node.type !== "ForOfStatement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkForStatement(node, walker, parent, key, list, index) {
+  const child0 = node.init;
+  if (child0 != null && walker.visitScalar(child0, node, "init")) return index;
+  const child1 = node.test;
+  if (child1 != null && walker.visitScalar(child1, node, "test")) return index;
+  const child2 = node.update;
+  if (child2 != null && walker.visitScalar(child2, node, "update")) return index;
+  const child3 = node.body;
+  if (child3 != null && walker.visitScalar(child3, node, "body")) return index;
+  if (node.type !== "ForStatement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkFunctionDeclaration(node, walker, parent, key, list, index) {
+  const child0 = node.id;
+  if (child0 != null && walker.visitScalar(child0, node, "id")) return index;
+  const child1 = node.typeParameters;
+  if (child1 != null && walker.visitScalar(child1, node, "typeParameters")) return index;
+  const child2 = node.params;
+  if (child2 != null && walker.visitList(child2, node, "params")) return index;
+  const child3 = node.returnType;
+  if (child3 != null && walker.visitScalar(child3, node, "returnType")) return index;
+  const child4 = node.body;
+  if (child4 != null && walker.visitScalar(child4, node, "body")) return index;
+  if (node.type !== "FunctionDeclaration") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkFunctionExpression(node, walker, parent, key, list, index) {
+  const child0 = node.id;
+  if (child0 != null && walker.visitScalar(child0, node, "id")) return index;
+  const child1 = node.typeParameters;
+  if (child1 != null && walker.visitScalar(child1, node, "typeParameters")) return index;
+  const child2 = node.params;
+  if (child2 != null && walker.visitList(child2, node, "params")) return index;
+  const child3 = node.returnType;
+  if (child3 != null && walker.visitScalar(child3, node, "returnType")) return index;
+  const child4 = node.body;
+  if (child4 != null && walker.visitScalar(child4, node, "body")) return index;
+  if (node.type !== "FunctionExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkIdentifier(node, walker, parent, key, list, index) {
+  const child0 = node.decorators;
+  if (child0 != null && walker.visitList(child0, node, "decorators")) return index;
+  const child1 = node.typeAnnotation;
+  if (child1 != null && walker.visitScalar(child1, node, "typeAnnotation")) return index;
+  if (node.type !== "Identifier") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkIfStatement(node, walker, parent, key, list, index) {
+  const child0 = node.test;
+  if (child0 != null && walker.visitScalar(child0, node, "test")) return index;
+  const child1 = node.consequent;
+  if (child1 != null && walker.visitScalar(child1, node, "consequent")) return index;
+  const child2 = node.alternate;
+  if (child2 != null && walker.visitScalar(child2, node, "alternate")) return index;
+  if (node.type !== "IfStatement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkImportAttribute(node, walker, parent, key, list, index) {
+  const child0 = node.key;
+  if (child0 != null && walker.visitScalar(child0, node, "key")) return index;
+  const child1 = node.value;
+  if (child1 != null && walker.visitScalar(child1, node, "value")) return index;
+  if (node.type !== "ImportAttribute") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkImportDeclaration(node, walker, parent, key, list, index) {
+  const child0 = node.specifiers;
+  if (child0 != null && walker.visitList(child0, node, "specifiers")) return index;
+  const child1 = node.source;
+  if (child1 != null && walker.visitScalar(child1, node, "source")) return index;
+  const child2 = node.attributes;
+  if (child2 != null && walker.visitList(child2, node, "attributes")) return index;
+  if (node.type !== "ImportDeclaration") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkImportDefaultSpecifier(node, walker, parent, key, list, index) {
+  const child0 = node.local;
+  if (child0 != null && walker.visitScalar(child0, node, "local")) return index;
+  if (node.type !== "ImportDefaultSpecifier") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkImportExpression(node, walker, parent, key, list, index) {
+  const child0 = node.source;
+  if (child0 != null && walker.visitScalar(child0, node, "source")) return index;
+  const child1 = node.options;
+  if (child1 != null && walker.visitScalar(child1, node, "options")) return index;
+  if (node.type !== "ImportExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkImportNamespaceSpecifier(node, walker, parent, key, list, index) {
+  const child0 = node.local;
+  if (child0 != null && walker.visitScalar(child0, node, "local")) return index;
+  if (node.type !== "ImportNamespaceSpecifier") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkImportSpecifier(node, walker, parent, key, list, index) {
+  const child0 = node.imported;
+  if (child0 != null && walker.visitScalar(child0, node, "imported")) return index;
+  const child1 = node.local;
+  if (child1 != null && walker.visitScalar(child1, node, "local")) return index;
+  if (node.type !== "ImportSpecifier") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkJSXAttribute(node, walker, parent, key, list, index) {
+  const child0 = node.name;
+  if (child0 != null && walker.visitScalar(child0, node, "name")) return index;
+  const child1 = node.value;
+  if (child1 != null && walker.visitScalar(child1, node, "value")) return index;
+  if (node.type !== "JSXAttribute") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkJSXClosingElement(node, walker, parent, key, list, index) {
+  const child0 = node.name;
+  if (child0 != null && walker.visitScalar(child0, node, "name")) return index;
+  if (node.type !== "JSXClosingElement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkJSXElement(node, walker, parent, key, list, index) {
+  const child0 = node.openingElement;
+  if (child0 != null && walker.visitScalar(child0, node, "openingElement")) return index;
+  const child1 = node.children;
+  if (child1 != null && walker.visitList(child1, node, "children")) return index;
+  const child2 = node.closingElement;
+  if (child2 != null && walker.visitScalar(child2, node, "closingElement")) return index;
+  if (node.type !== "JSXElement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkJSXExpressionContainer(node, walker, parent, key, list, index) {
+  const child0 = node.expression;
+  if (child0 != null && walker.visitScalar(child0, node, "expression")) return index;
+  if (node.type !== "JSXExpressionContainer") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkJSXFragment(node, walker, parent, key, list, index) {
+  const child0 = node.openingFragment;
+  if (child0 != null && walker.visitScalar(child0, node, "openingFragment")) return index;
+  const child1 = node.children;
+  if (child1 != null && walker.visitList(child1, node, "children")) return index;
+  const child2 = node.closingFragment;
+  if (child2 != null && walker.visitScalar(child2, node, "closingFragment")) return index;
+  if (node.type !== "JSXFragment") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkJSXMemberExpression(node, walker, parent, key, list, index) {
+  const child0 = node.object;
+  if (child0 != null && walker.visitScalar(child0, node, "object")) return index;
+  const child1 = node.property;
+  if (child1 != null && walker.visitScalar(child1, node, "property")) return index;
+  if (node.type !== "JSXMemberExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkJSXNamespacedName(node, walker, parent, key, list, index) {
+  const child0 = node.namespace;
+  if (child0 != null && walker.visitScalar(child0, node, "namespace")) return index;
+  const child1 = node.name;
+  if (child1 != null && walker.visitScalar(child1, node, "name")) return index;
+  if (node.type !== "JSXNamespacedName") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkJSXOpeningElement(node, walker, parent, key, list, index) {
+  const child0 = node.name;
+  if (child0 != null && walker.visitScalar(child0, node, "name")) return index;
+  const child1 = node.typeArguments;
+  if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return index;
+  const child2 = node.attributes;
+  if (child2 != null && walker.visitList(child2, node, "attributes")) return index;
+  if (node.type !== "JSXOpeningElement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkJSXSpreadAttribute(node, walker, parent, key, list, index) {
+  const child0 = node.argument;
+  if (child0 != null && walker.visitScalar(child0, node, "argument")) return index;
+  if (node.type !== "JSXSpreadAttribute") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkJSXSpreadChild(node, walker, parent, key, list, index) {
+  const child0 = node.expression;
+  if (child0 != null && walker.visitScalar(child0, node, "expression")) return index;
+  if (node.type !== "JSXSpreadChild") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkLabeledStatement(node, walker, parent, key, list, index) {
+  const child0 = node.label;
+  if (child0 != null && walker.visitScalar(child0, node, "label")) return index;
+  const child1 = node.body;
+  if (child1 != null && walker.visitScalar(child1, node, "body")) return index;
+  if (node.type !== "LabeledStatement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkLogicalExpression(node, walker, parent, key, list, index) {
+  const child0 = node.left;
+  if (child0 != null && walker.visitScalar(child0, node, "left")) return index;
+  const child1 = node.right;
+  if (child1 != null && walker.visitScalar(child1, node, "right")) return index;
+  if (node.type !== "LogicalExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkMemberExpression(node, walker, parent, key, list, index) {
+  const child0 = node.object;
+  if (child0 != null && walker.visitScalar(child0, node, "object")) return index;
+  const child1 = node.property;
+  if (child1 != null && walker.visitScalar(child1, node, "property")) return index;
+  if (node.type !== "MemberExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkMetaProperty(node, walker, parent, key, list, index) {
+  const child0 = node.meta;
+  if (child0 != null && walker.visitScalar(child0, node, "meta")) return index;
+  const child1 = node.property;
+  if (child1 != null && walker.visitScalar(child1, node, "property")) return index;
+  if (node.type !== "MetaProperty") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkMethodDefinition(node, walker, parent, key, list, index) {
+  const child0 = node.decorators;
+  if (child0 != null && walker.visitList(child0, node, "decorators")) return index;
+  const child1 = node.key;
+  if (child1 != null && walker.visitScalar(child1, node, "key")) return index;
+  const child2 = node.value;
+  if (child2 != null && walker.visitScalar(child2, node, "value")) return index;
+  if (node.type !== "MethodDefinition") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkNewExpression(node, walker, parent, key, list, index) {
+  const child0 = node.callee;
+  if (child0 != null && walker.visitScalar(child0, node, "callee")) return index;
+  const child1 = node.typeArguments;
+  if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return index;
+  const child2 = node.arguments;
+  if (child2 != null && walker.visitList(child2, node, "arguments")) return index;
+  if (node.type !== "NewExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkObjectExpression(node, walker, parent, key, list, index) {
+  const child0 = node.properties;
+  if (child0 != null && walker.visitList(child0, node, "properties")) return index;
+  if (node.type !== "ObjectExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkObjectPattern(node, walker, parent, key, list, index) {
+  const child0 = node.decorators;
+  if (child0 != null && walker.visitList(child0, node, "decorators")) return index;
+  const child1 = node.properties;
+  if (child1 != null && walker.visitList(child1, node, "properties")) return index;
+  const child2 = node.typeAnnotation;
+  if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return index;
+  if (node.type !== "ObjectPattern") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkParenthesizedExpression(node, walker, parent, key, list, index) {
+  const child0 = node.expression;
+  if (child0 != null && walker.visitScalar(child0, node, "expression")) return index;
+  if (node.type !== "ParenthesizedExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkProgram(node, walker, parent, key, list, index) {
+  const child0 = node.body;
+  if (child0 != null && walker.visitList(child0, node, "body")) return index;
+  if (node.type !== "Program") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkProperty(node, walker, parent, key, list, index) {
+  const child0 = node.key;
+  if (child0 != null && walker.visitScalar(child0, node, "key")) return index;
+  const child1 = node.value;
+  if (child1 != null && walker.visitScalar(child1, node, "value")) return index;
+  if (node.type !== "Property") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkPropertyDefinition(node, walker, parent, key, list, index) {
+  const child0 = node.decorators;
+  if (child0 != null && walker.visitList(child0, node, "decorators")) return index;
+  const child1 = node.key;
+  if (child1 != null && walker.visitScalar(child1, node, "key")) return index;
+  const child2 = node.typeAnnotation;
+  if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return index;
+  const child3 = node.value;
+  if (child3 != null && walker.visitScalar(child3, node, "value")) return index;
+  if (node.type !== "PropertyDefinition") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkRestElement(node, walker, parent, key, list, index) {
+  const child0 = node.decorators;
+  if (child0 != null && walker.visitList(child0, node, "decorators")) return index;
+  const child1 = node.argument;
+  if (child1 != null && walker.visitScalar(child1, node, "argument")) return index;
+  const child2 = node.typeAnnotation;
+  if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return index;
+  if (node.type !== "RestElement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkReturnStatement(node, walker, parent, key, list, index) {
+  const child0 = node.argument;
+  if (child0 != null && walker.visitScalar(child0, node, "argument")) return index;
+  if (node.type !== "ReturnStatement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkSequenceExpression(node, walker, parent, key, list, index) {
+  const child0 = node.expressions;
+  if (child0 != null && walker.visitList(child0, node, "expressions")) return index;
+  if (node.type !== "SequenceExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkSpreadElement(node, walker, parent, key, list, index) {
+  const child0 = node.argument;
+  if (child0 != null && walker.visitScalar(child0, node, "argument")) return index;
+  if (node.type !== "SpreadElement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkStaticBlock(node, walker, parent, key, list, index) {
+  const child0 = node.body;
+  if (child0 != null && walker.visitList(child0, node, "body")) return index;
+  if (node.type !== "StaticBlock") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkSwitchCase(node, walker, parent, key, list, index) {
+  const child0 = node.test;
+  if (child0 != null && walker.visitScalar(child0, node, "test")) return index;
+  const child1 = node.consequent;
+  if (child1 != null && walker.visitList(child1, node, "consequent")) return index;
+  if (node.type !== "SwitchCase") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkSwitchStatement(node, walker, parent, key, list, index) {
+  const child0 = node.discriminant;
+  if (child0 != null && walker.visitScalar(child0, node, "discriminant")) return index;
+  const child1 = node.cases;
+  if (child1 != null && walker.visitList(child1, node, "cases")) return index;
+  if (node.type !== "SwitchStatement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSAbstractAccessorProperty(node, walker, parent, key, list, index) {
+  const child0 = node.decorators;
+  if (child0 != null && walker.visitList(child0, node, "decorators")) return index;
+  const child1 = node.key;
+  if (child1 != null && walker.visitScalar(child1, node, "key")) return index;
+  const child2 = node.typeAnnotation;
+  if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return index;
+  const child3 = node.value;
+  if (child3 != null && walker.visitScalar(child3, node, "value")) return index;
+  if (node.type !== "TSAbstractAccessorProperty") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSAbstractMethodDefinition(node, walker, parent, key, list, index) {
+  const child0 = node.decorators;
+  if (child0 != null && walker.visitList(child0, node, "decorators")) return index;
+  const child1 = node.key;
+  if (child1 != null && walker.visitScalar(child1, node, "key")) return index;
+  const child2 = node.value;
+  if (child2 != null && walker.visitScalar(child2, node, "value")) return index;
+  if (node.type !== "TSAbstractMethodDefinition") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSAbstractPropertyDefinition(node, walker, parent, key, list, index) {
+  const child0 = node.decorators;
+  if (child0 != null && walker.visitList(child0, node, "decorators")) return index;
+  const child1 = node.key;
+  if (child1 != null && walker.visitScalar(child1, node, "key")) return index;
+  const child2 = node.typeAnnotation;
+  if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return index;
+  const child3 = node.value;
+  if (child3 != null && walker.visitScalar(child3, node, "value")) return index;
+  if (node.type !== "TSAbstractPropertyDefinition") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSArrayType(node, walker, parent, key, list, index) {
+  const child0 = node.elementType;
+  if (child0 != null && walker.visitScalar(child0, node, "elementType")) return index;
+  if (node.type !== "TSArrayType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSAsExpression(node, walker, parent, key, list, index) {
+  const child0 = node.expression;
+  if (child0 != null && walker.visitScalar(child0, node, "expression")) return index;
+  const child1 = node.typeAnnotation;
+  if (child1 != null && walker.visitScalar(child1, node, "typeAnnotation")) return index;
+  if (node.type !== "TSAsExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSCallSignatureDeclaration(node, walker, parent, key, list, index) {
+  const child0 = node.typeParameters;
+  if (child0 != null && walker.visitScalar(child0, node, "typeParameters")) return index;
+  const child1 = node.params;
+  if (child1 != null && walker.visitList(child1, node, "params")) return index;
+  const child2 = node.returnType;
+  if (child2 != null && walker.visitScalar(child2, node, "returnType")) return index;
+  if (node.type !== "TSCallSignatureDeclaration") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSClassImplements(node, walker, parent, key, list, index) {
+  const child0 = node.expression;
+  if (child0 != null && walker.visitScalar(child0, node, "expression")) return index;
+  const child1 = node.typeArguments;
+  if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return index;
+  if (node.type !== "TSClassImplements") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSConditionalType(node, walker, parent, key, list, index) {
+  const child0 = node.checkType;
+  if (child0 != null && walker.visitScalar(child0, node, "checkType")) return index;
+  const child1 = node.extendsType;
+  if (child1 != null && walker.visitScalar(child1, node, "extendsType")) return index;
+  const child2 = node.trueType;
+  if (child2 != null && walker.visitScalar(child2, node, "trueType")) return index;
+  const child3 = node.falseType;
+  if (child3 != null && walker.visitScalar(child3, node, "falseType")) return index;
+  if (node.type !== "TSConditionalType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSConstructSignatureDeclaration(node, walker, parent, key, list, index) {
+  const child0 = node.typeParameters;
+  if (child0 != null && walker.visitScalar(child0, node, "typeParameters")) return index;
+  const child1 = node.params;
+  if (child1 != null && walker.visitList(child1, node, "params")) return index;
+  const child2 = node.returnType;
+  if (child2 != null && walker.visitScalar(child2, node, "returnType")) return index;
+  if (node.type !== "TSConstructSignatureDeclaration") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSConstructorType(node, walker, parent, key, list, index) {
+  const child0 = node.typeParameters;
+  if (child0 != null && walker.visitScalar(child0, node, "typeParameters")) return index;
+  const child1 = node.params;
+  if (child1 != null && walker.visitList(child1, node, "params")) return index;
+  const child2 = node.returnType;
+  if (child2 != null && walker.visitScalar(child2, node, "returnType")) return index;
+  if (node.type !== "TSConstructorType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSDeclareFunction(node, walker, parent, key, list, index) {
+  const child0 = node.id;
+  if (child0 != null && walker.visitScalar(child0, node, "id")) return index;
+  const child1 = node.typeParameters;
+  if (child1 != null && walker.visitScalar(child1, node, "typeParameters")) return index;
+  const child2 = node.params;
+  if (child2 != null && walker.visitList(child2, node, "params")) return index;
+  const child3 = node.returnType;
+  if (child3 != null && walker.visitScalar(child3, node, "returnType")) return index;
+  const child4 = node.body;
+  if (child4 != null && walker.visitScalar(child4, node, "body")) return index;
+  if (node.type !== "TSDeclareFunction") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSEmptyBodyFunctionExpression(node, walker, parent, key, list, index) {
+  const child0 = node.id;
+  if (child0 != null && walker.visitScalar(child0, node, "id")) return index;
+  const child1 = node.typeParameters;
+  if (child1 != null && walker.visitScalar(child1, node, "typeParameters")) return index;
+  const child2 = node.params;
+  if (child2 != null && walker.visitList(child2, node, "params")) return index;
+  const child3 = node.returnType;
+  if (child3 != null && walker.visitScalar(child3, node, "returnType")) return index;
+  const child4 = node.body;
+  if (child4 != null && walker.visitScalar(child4, node, "body")) return index;
+  if (node.type !== "TSEmptyBodyFunctionExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSEnumBody(node, walker, parent, key, list, index) {
+  const child0 = node.members;
+  if (child0 != null && walker.visitList(child0, node, "members")) return index;
+  if (node.type !== "TSEnumBody") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSEnumDeclaration(node, walker, parent, key, list, index) {
+  const child0 = node.id;
+  if (child0 != null && walker.visitScalar(child0, node, "id")) return index;
+  const child1 = node.body;
+  if (child1 != null && walker.visitScalar(child1, node, "body")) return index;
+  if (node.type !== "TSEnumDeclaration") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSEnumMember(node, walker, parent, key, list, index) {
+  const child0 = node.id;
+  if (child0 != null && walker.visitScalar(child0, node, "id")) return index;
+  const child1 = node.initializer;
+  if (child1 != null && walker.visitScalar(child1, node, "initializer")) return index;
+  if (node.type !== "TSEnumMember") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSExportAssignment(node, walker, parent, key, list, index) {
+  const child0 = node.expression;
+  if (child0 != null && walker.visitScalar(child0, node, "expression")) return index;
+  if (node.type !== "TSExportAssignment") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSExternalModuleReference(node, walker, parent, key, list, index) {
+  const child0 = node.expression;
+  if (child0 != null && walker.visitScalar(child0, node, "expression")) return index;
+  if (node.type !== "TSExternalModuleReference") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSFunctionType(node, walker, parent, key, list, index) {
+  const child0 = node.typeParameters;
+  if (child0 != null && walker.visitScalar(child0, node, "typeParameters")) return index;
+  const child1 = node.params;
+  if (child1 != null && walker.visitList(child1, node, "params")) return index;
+  const child2 = node.returnType;
+  if (child2 != null && walker.visitScalar(child2, node, "returnType")) return index;
+  if (node.type !== "TSFunctionType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSImportEqualsDeclaration(node, walker, parent, key, list, index) {
+  const child0 = node.id;
+  if (child0 != null && walker.visitScalar(child0, node, "id")) return index;
+  const child1 = node.moduleReference;
+  if (child1 != null && walker.visitScalar(child1, node, "moduleReference")) return index;
+  if (node.type !== "TSImportEqualsDeclaration") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSImportType(node, walker, parent, key, list, index) {
+  const child0 = node.source;
+  if (child0 != null && walker.visitScalar(child0, node, "source")) return index;
+  const child1 = node.options;
+  if (child1 != null && walker.visitScalar(child1, node, "options")) return index;
+  const child2 = node.qualifier;
+  if (child2 != null && walker.visitScalar(child2, node, "qualifier")) return index;
+  const child3 = node.typeArguments;
+  if (child3 != null && walker.visitScalar(child3, node, "typeArguments")) return index;
+  if (node.type !== "TSImportType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSIndexSignature(node, walker, parent, key, list, index) {
+  const child0 = node.parameters;
+  if (child0 != null && walker.visitList(child0, node, "parameters")) return index;
+  const child1 = node.typeAnnotation;
+  if (child1 != null && walker.visitScalar(child1, node, "typeAnnotation")) return index;
+  if (node.type !== "TSIndexSignature") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSIndexedAccessType(node, walker, parent, key, list, index) {
+  const child0 = node.objectType;
+  if (child0 != null && walker.visitScalar(child0, node, "objectType")) return index;
+  const child1 = node.indexType;
+  if (child1 != null && walker.visitScalar(child1, node, "indexType")) return index;
+  if (node.type !== "TSIndexedAccessType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSInferType(node, walker, parent, key, list, index) {
+  const child0 = node.typeParameter;
+  if (child0 != null && walker.visitScalar(child0, node, "typeParameter")) return index;
+  if (node.type !== "TSInferType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSInstantiationExpression(node, walker, parent, key, list, index) {
+  const child0 = node.expression;
+  if (child0 != null && walker.visitScalar(child0, node, "expression")) return index;
+  const child1 = node.typeArguments;
+  if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return index;
+  if (node.type !== "TSInstantiationExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSInterfaceBody(node, walker, parent, key, list, index) {
+  const child0 = node.body;
+  if (child0 != null && walker.visitList(child0, node, "body")) return index;
+  if (node.type !== "TSInterfaceBody") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSInterfaceDeclaration(node, walker, parent, key, list, index) {
+  const child0 = node.id;
+  if (child0 != null && walker.visitScalar(child0, node, "id")) return index;
+  const child1 = node.typeParameters;
+  if (child1 != null && walker.visitScalar(child1, node, "typeParameters")) return index;
+  const child2 = node.extends;
+  if (child2 != null && walker.visitList(child2, node, "extends")) return index;
+  const child3 = node.body;
+  if (child3 != null && walker.visitScalar(child3, node, "body")) return index;
+  if (node.type !== "TSInterfaceDeclaration") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSInterfaceHeritage(node, walker, parent, key, list, index) {
+  const child0 = node.expression;
+  if (child0 != null && walker.visitScalar(child0, node, "expression")) return index;
+  const child1 = node.typeArguments;
+  if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return index;
+  if (node.type !== "TSInterfaceHeritage") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSIntersectionType(node, walker, parent, key, list, index) {
+  const child0 = node.types;
+  if (child0 != null && walker.visitList(child0, node, "types")) return index;
+  if (node.type !== "TSIntersectionType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSJSDocNonNullableType(node, walker, parent, key, list, index) {
+  const child0 = node.typeAnnotation;
+  if (child0 != null && walker.visitScalar(child0, node, "typeAnnotation")) return index;
+  if (node.type !== "TSJSDocNonNullableType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSJSDocNullableType(node, walker, parent, key, list, index) {
+  const child0 = node.typeAnnotation;
+  if (child0 != null && walker.visitScalar(child0, node, "typeAnnotation")) return index;
+  if (node.type !== "TSJSDocNullableType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSLiteralType(node, walker, parent, key, list, index) {
+  const child0 = node.literal;
+  if (child0 != null && walker.visitScalar(child0, node, "literal")) return index;
+  if (node.type !== "TSLiteralType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSMappedType(node, walker, parent, key, list, index) {
+  const child0 = node.key;
+  if (child0 != null && walker.visitScalar(child0, node, "key")) return index;
+  const child1 = node.constraint;
+  if (child1 != null && walker.visitScalar(child1, node, "constraint")) return index;
+  const child2 = node.nameType;
+  if (child2 != null && walker.visitScalar(child2, node, "nameType")) return index;
+  const child3 = node.typeAnnotation;
+  if (child3 != null && walker.visitScalar(child3, node, "typeAnnotation")) return index;
+  if (node.type !== "TSMappedType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSMethodSignature(node, walker, parent, key, list, index) {
+  const child0 = node.key;
+  if (child0 != null && walker.visitScalar(child0, node, "key")) return index;
+  const child1 = node.typeParameters;
+  if (child1 != null && walker.visitScalar(child1, node, "typeParameters")) return index;
+  const child2 = node.params;
+  if (child2 != null && walker.visitList(child2, node, "params")) return index;
+  const child3 = node.returnType;
+  if (child3 != null && walker.visitScalar(child3, node, "returnType")) return index;
+  if (node.type !== "TSMethodSignature") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSModuleBlock(node, walker, parent, key, list, index) {
+  const child0 = node.body;
+  if (child0 != null && walker.visitList(child0, node, "body")) return index;
+  if (node.type !== "TSModuleBlock") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSModuleDeclaration(node, walker, parent, key, list, index) {
+  const child0 = node.id;
+  if (child0 != null && walker.visitScalar(child0, node, "id")) return index;
+  const child1 = node.body;
+  if (child1 != null && walker.visitScalar(child1, node, "body")) return index;
+  if (node.type !== "TSModuleDeclaration") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSNamedTupleMember(node, walker, parent, key, list, index) {
+  const child0 = node.label;
+  if (child0 != null && walker.visitScalar(child0, node, "label")) return index;
+  const child1 = node.elementType;
+  if (child1 != null && walker.visitScalar(child1, node, "elementType")) return index;
+  if (node.type !== "TSNamedTupleMember") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSNamespaceExportDeclaration(node, walker, parent, key, list, index) {
+  const child0 = node.id;
+  if (child0 != null && walker.visitScalar(child0, node, "id")) return index;
+  if (node.type !== "TSNamespaceExportDeclaration") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSNonNullExpression(node, walker, parent, key, list, index) {
+  const child0 = node.expression;
+  if (child0 != null && walker.visitScalar(child0, node, "expression")) return index;
+  if (node.type !== "TSNonNullExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSOptionalType(node, walker, parent, key, list, index) {
+  const child0 = node.typeAnnotation;
+  if (child0 != null && walker.visitScalar(child0, node, "typeAnnotation")) return index;
+  if (node.type !== "TSOptionalType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSParameterProperty(node, walker, parent, key, list, index) {
+  const child0 = node.decorators;
+  if (child0 != null && walker.visitList(child0, node, "decorators")) return index;
+  const child1 = node.parameter;
+  if (child1 != null && walker.visitScalar(child1, node, "parameter")) return index;
+  if (node.type !== "TSParameterProperty") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSParenthesizedType(node, walker, parent, key, list, index) {
+  const child0 = node.typeAnnotation;
+  if (child0 != null && walker.visitScalar(child0, node, "typeAnnotation")) return index;
+  if (node.type !== "TSParenthesizedType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSPropertySignature(node, walker, parent, key, list, index) {
+  const child0 = node.key;
+  if (child0 != null && walker.visitScalar(child0, node, "key")) return index;
+  const child1 = node.typeAnnotation;
+  if (child1 != null && walker.visitScalar(child1, node, "typeAnnotation")) return index;
+  if (node.type !== "TSPropertySignature") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSQualifiedName(node, walker, parent, key, list, index) {
+  const child0 = node.left;
+  if (child0 != null && walker.visitScalar(child0, node, "left")) return index;
+  const child1 = node.right;
+  if (child1 != null && walker.visitScalar(child1, node, "right")) return index;
+  if (node.type !== "TSQualifiedName") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSRestType(node, walker, parent, key, list, index) {
+  const child0 = node.typeAnnotation;
+  if (child0 != null && walker.visitScalar(child0, node, "typeAnnotation")) return index;
+  if (node.type !== "TSRestType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSSatisfiesExpression(node, walker, parent, key, list, index) {
+  const child0 = node.expression;
+  if (child0 != null && walker.visitScalar(child0, node, "expression")) return index;
+  const child1 = node.typeAnnotation;
+  if (child1 != null && walker.visitScalar(child1, node, "typeAnnotation")) return index;
+  if (node.type !== "TSSatisfiesExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSTemplateLiteralType(node, walker, parent, key, list, index) {
+  const child0 = node.quasis;
+  if (child0 != null && walker.visitList(child0, node, "quasis")) return index;
+  const child1 = node.types;
+  if (child1 != null && walker.visitList(child1, node, "types")) return index;
+  if (node.type !== "TSTemplateLiteralType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSTupleType(node, walker, parent, key, list, index) {
+  const child0 = node.elementTypes;
+  if (child0 != null && walker.visitList(child0, node, "elementTypes")) return index;
+  if (node.type !== "TSTupleType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSTypeAliasDeclaration(node, walker, parent, key, list, index) {
+  const child0 = node.id;
+  if (child0 != null && walker.visitScalar(child0, node, "id")) return index;
+  const child1 = node.typeParameters;
+  if (child1 != null && walker.visitScalar(child1, node, "typeParameters")) return index;
+  const child2 = node.typeAnnotation;
+  if (child2 != null && walker.visitScalar(child2, node, "typeAnnotation")) return index;
+  if (node.type !== "TSTypeAliasDeclaration") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSTypeAnnotation(node, walker, parent, key, list, index) {
+  const child0 = node.typeAnnotation;
+  if (child0 != null && walker.visitScalar(child0, node, "typeAnnotation")) return index;
+  if (node.type !== "TSTypeAnnotation") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSTypeAssertion(node, walker, parent, key, list, index) {
+  const child0 = node.typeAnnotation;
+  if (child0 != null && walker.visitScalar(child0, node, "typeAnnotation")) return index;
+  const child1 = node.expression;
+  if (child1 != null && walker.visitScalar(child1, node, "expression")) return index;
+  if (node.type !== "TSTypeAssertion") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSTypeLiteral(node, walker, parent, key, list, index) {
+  const child0 = node.members;
+  if (child0 != null && walker.visitList(child0, node, "members")) return index;
+  if (node.type !== "TSTypeLiteral") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSTypeOperator(node, walker, parent, key, list, index) {
+  const child0 = node.typeAnnotation;
+  if (child0 != null && walker.visitScalar(child0, node, "typeAnnotation")) return index;
+  if (node.type !== "TSTypeOperator") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSTypeParameter(node, walker, parent, key, list, index) {
+  const child0 = node.name;
+  if (child0 != null && walker.visitScalar(child0, node, "name")) return index;
+  const child1 = node.constraint;
+  if (child1 != null && walker.visitScalar(child1, node, "constraint")) return index;
+  const child2 = node.default;
+  if (child2 != null && walker.visitScalar(child2, node, "default")) return index;
+  if (node.type !== "TSTypeParameter") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSTypeParameterDeclaration(node, walker, parent, key, list, index) {
+  const child0 = node.params;
+  if (child0 != null && walker.visitList(child0, node, "params")) return index;
+  if (node.type !== "TSTypeParameterDeclaration") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSTypeParameterInstantiation(node, walker, parent, key, list, index) {
+  const child0 = node.params;
+  if (child0 != null && walker.visitList(child0, node, "params")) return index;
+  if (node.type !== "TSTypeParameterInstantiation") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSTypePredicate(node, walker, parent, key, list, index) {
+  const child0 = node.parameterName;
+  if (child0 != null && walker.visitScalar(child0, node, "parameterName")) return index;
+  const child1 = node.typeAnnotation;
+  if (child1 != null && walker.visitScalar(child1, node, "typeAnnotation")) return index;
+  if (node.type !== "TSTypePredicate") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSTypeQuery(node, walker, parent, key, list, index) {
+  const child0 = node.exprName;
+  if (child0 != null && walker.visitScalar(child0, node, "exprName")) return index;
+  const child1 = node.typeArguments;
+  if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return index;
+  if (node.type !== "TSTypeQuery") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSTypeReference(node, walker, parent, key, list, index) {
+  const child0 = node.typeName;
+  if (child0 != null && walker.visitScalar(child0, node, "typeName")) return index;
+  const child1 = node.typeArguments;
+  if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return index;
+  if (node.type !== "TSTypeReference") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTSUnionType(node, walker, parent, key, list, index) {
+  const child0 = node.types;
+  if (child0 != null && walker.visitList(child0, node, "types")) return index;
+  if (node.type !== "TSUnionType") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTaggedTemplateExpression(node, walker, parent, key, list, index) {
+  const child0 = node.tag;
+  if (child0 != null && walker.visitScalar(child0, node, "tag")) return index;
+  const child1 = node.typeArguments;
+  if (child1 != null && walker.visitScalar(child1, node, "typeArguments")) return index;
+  const child2 = node.quasi;
+  if (child2 != null && walker.visitScalar(child2, node, "quasi")) return index;
+  if (node.type !== "TaggedTemplateExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTemplateLiteral(node, walker, parent, key, list, index) {
+  const child0 = node.quasis;
+  if (child0 != null && walker.visitList(child0, node, "quasis")) return index;
+  const child1 = node.expressions;
+  if (child1 != null && walker.visitList(child1, node, "expressions")) return index;
+  if (node.type !== "TemplateLiteral") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkThrowStatement(node, walker, parent, key, list, index) {
+  const child0 = node.argument;
+  if (child0 != null && walker.visitScalar(child0, node, "argument")) return index;
+  if (node.type !== "ThrowStatement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkTryStatement(node, walker, parent, key, list, index) {
+  const child0 = node.block;
+  if (child0 != null && walker.visitScalar(child0, node, "block")) return index;
+  const child1 = node.handler;
+  if (child1 != null && walker.visitScalar(child1, node, "handler")) return index;
+  const child2 = node.finalizer;
+  if (child2 != null && walker.visitScalar(child2, node, "finalizer")) return index;
+  if (node.type !== "TryStatement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkUnaryExpression(node, walker, parent, key, list, index) {
+  const child0 = node.argument;
+  if (child0 != null && walker.visitScalar(child0, node, "argument")) return index;
+  if (node.type !== "UnaryExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkUpdateExpression(node, walker, parent, key, list, index) {
+  const child0 = node.argument;
+  if (child0 != null && walker.visitScalar(child0, node, "argument")) return index;
+  if (node.type !== "UpdateExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkVariableDeclaration(node, walker, parent, key, list, index) {
+  const child0 = node.declarations;
+  if (child0 != null && walker.visitList(child0, node, "declarations")) return index;
+  if (node.type !== "VariableDeclaration") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkVariableDeclarator(node, walker, parent, key, list, index) {
+  const child0 = node.id;
+  if (child0 != null && walker.visitScalar(child0, node, "id")) return index;
+  const child1 = node.init;
+  if (child1 != null && walker.visitScalar(child1, node, "init")) return index;
+  if (node.type !== "VariableDeclarator") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkWhileStatement(node, walker, parent, key, list, index) {
+  const child0 = node.test;
+  if (child0 != null && walker.visitScalar(child0, node, "test")) return index;
+  const child1 = node.body;
+  if (child1 != null && walker.visitScalar(child1, node, "body")) return index;
+  if (node.type !== "WhileStatement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkWithStatement(node, walker, parent, key, list, index) {
+  const child0 = node.object;
+  if (child0 != null && walker.visitScalar(child0, node, "object")) return index;
+  const child1 = node.body;
+  if (child1 != null && walker.visitScalar(child1, node, "body")) return index;
+  if (node.type !== "WithStatement") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
+
+function walkYieldExpression(node, walker, parent, key, list, index) {
+  const child0 = node.argument;
+  if (child0 != null && walker.visitScalar(child0, node, "argument")) return index;
+  if (node.type !== "YieldExpression") return walker.leaveChanged(node, parent, key, list, index);
+  return index;
+}
