@@ -1481,8 +1481,13 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.lexer.processed_comments = checkpoint.lexer_processed_comments;
         self.lexer.tokens.truncate(checkpoint.lexer_tokens_len);
         self.current_token = checkpoint.current_token;
-        self.ast
-            .truncate(checkpoint.nodes_len, checkpoint.extra_len);
+        // SAFETY: Speculative parsing does not attach new storage to nodes
+        // retained at the checkpoint, and rewind callers discard handles into
+        // the removed storage.
+        unsafe {
+            self.ast
+                .truncate(checkpoint.nodes_len, checkpoint.extra_len);
+        }
         self.diagnostics.truncate(checkpoint.diagnostics_len);
         self.commonjs_conditional_diagnostic_indices
             .truncate(checkpoint.commonjs_conditional_diagnostic_indices_len);
