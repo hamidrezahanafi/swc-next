@@ -11,33 +11,33 @@ use super::diagnostics::ACCESSOR_TYPE_REQUIRED;
 use crate::surface::{AccessorKey, AccessorPair, AccessorType, class_accessors, property_identity};
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct AccessorAnnotations {
+pub(super) struct AccessorAnnotations<'id> {
     pub(super) span: Span,
     pub(super) has_getter: bool,
     pub(super) has_setter: bool,
-    pub(super) getter_explicit: Option<TsTypeAnnotation>,
-    pub(super) setter_explicit: Option<TsTypeAnnotation>,
-    pub(super) getter_inferred: Option<TsTypeAnnotation>,
+    pub(super) getter_explicit: Option<TsTypeAnnotation<'id>>,
+    pub(super) setter_explicit: Option<TsTypeAnnotation<'id>>,
+    pub(super) getter_inferred: Option<TsTypeAnnotation<'id>>,
 }
 
-impl AccessorAnnotations {
+impl<'id> AccessorAnnotations<'id> {
     pub(super) fn separate_signatures(&self) -> bool {
         self.getter_explicit.is_some() && self.setter_explicit.is_some()
     }
 }
 
 #[derive(Default)]
-struct AccessorSignatureAnnotations {
-    getter: Option<TsTypeAnnotation>,
-    setter: Option<TsTypeAnnotation>,
+struct AccessorSignatureAnnotations<'id> {
+    getter: Option<TsTypeAnnotation<'id>>,
+    setter: Option<TsTypeAnnotation<'id>>,
 }
 
-impl<'ast> Transformer<'_, 'ast> {
+impl<'id, 'ast> Transformer<'_, 'ast, 'id> {
     pub(super) fn collect_accessor_annotations(
         &mut self,
-        elements: SubRange<ClassElement>,
-        ast: &mut Ast<'ast>,
-    ) -> FxHashMap<AccessorKey<'ast>, AccessorAnnotations> {
+        elements: SubRange<'id, ClassElement<'id>>,
+        ast: &mut Ast<'ast, 'id>,
+    ) -> FxHashMap<AccessorKey<'ast>, AccessorAnnotations<'id>> {
         let pairs = class_accessors(
             elements
                 .iter()
@@ -63,9 +63,9 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn resolve_accessor_pair(
         &mut self,
-        pair: AccessorPair,
-        ast: &mut Ast<'ast>,
-    ) -> AccessorAnnotations {
+        pair: AccessorPair<'id>,
+        ast: &mut Ast<'ast, 'id>,
+    ) -> AccessorAnnotations<'id> {
         let getter_explicit = pair.getter_annotation(ast);
         let setter_explicit = pair.setter_annotation(ast);
         let getter_inferred = match pair.read_type(ast) {
@@ -86,12 +86,12 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn accessor_annotation<'map>(
         &self,
-        property: PropertyKey,
+        property: PropertyKey<'id>,
         is_static: bool,
         kind: MethodDefinitionKind,
-        annotations: &'map FxHashMap<AccessorKey<'ast>, AccessorAnnotations>,
-        ast: &Ast<'ast>,
-    ) -> Option<&'map TsTypeAnnotation> {
+        annotations: &'map FxHashMap<AccessorKey<'ast>, AccessorAnnotations<'id>>,
+        ast: &Ast<'ast, 'id>,
+    ) -> Option<&'map TsTypeAnnotation<'id>> {
         if !matches!(kind, MethodDefinitionKind::Get | MethodDefinitionKind::Set) {
             return None;
         }
@@ -114,8 +114,8 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn transform_type_accessor_elements(
         &self,
-        elements: SubRange<TsTypeElement>,
-        ast: &mut Ast<'ast>,
+        elements: SubRange<'id, TsTypeElement<'id>>,
+        ast: &mut Ast<'ast, 'id>,
     ) {
         let mut annotations = FxHashMap::default();
 
@@ -131,7 +131,7 @@ impl<'ast> Transformer<'_, 'ast> {
             let Some(key) = self.accessor_key(signature.key(ast), false, ast) else {
                 continue;
             };
-            let entry: &mut AccessorSignatureAnnotations = annotations.entry(key).or_default();
+            let entry: &mut AccessorSignatureAnnotations<'id> = annotations.entry(key).or_default();
             match signature.kind(ast) {
                 TsMethodSignatureKind::Get => {
                     entry.getter = signature.return_type(ast);
@@ -192,9 +192,9 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn accessor_key(
         &self,
-        key: PropertyKey,
+        key: PropertyKey<'id>,
         r#static: bool,
-        ast: &Ast<'ast>,
+        ast: &Ast<'ast, 'id>,
     ) -> Option<AccessorKey<'ast>> {
         let name = property_identity(key, ast, self.semantic)?;
         Some(AccessorKey { name, r#static })

@@ -7,14 +7,14 @@ use swc_next_ecma_ast::{
 };
 use swc_next_ecma_semantic::SymbolFlags;
 
-impl TypeScriptLowerer<'_, '_> {
+impl<'id> TypeScriptLowerer<'_, '_, 'id> {
     pub(super) fn runtime_binding_statement(
         &mut self,
-        binding: swc_next_ecma_ast::BindingIdentifier,
+        binding: swc_next_ecma_ast::BindingIdentifier<'id>,
         span: swc_next_ecma_ast::Span,
         kind: VariableKind,
         exported: bool,
-    ) -> Stmt {
+    ) -> Stmt<'id> {
         let declarator = self.ast().variable_declarator(
             span,
             BindingPattern::BindingIdentifier(binding),
@@ -57,7 +57,7 @@ impl TypeScriptLowerer<'_, '_> {
         })
     }
 
-    pub(super) fn register_scope_runtime_bindings(&mut self, statements: SubRange<Stmt>) {
+    pub(super) fn register_scope_runtime_bindings(&mut self, statements: SubRange<'id, Stmt<'id>>) {
         let ast = &*self.ast;
         let semantic = self.semantic;
         let scope = self

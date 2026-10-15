@@ -126,6 +126,7 @@ mod tests {
     fn range_lookup_skips_trivia_and_respects_direction() {
         let source = "import { A, /* keep */ type B, C } from 'm';";
         let allocator = Allocator::default();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let parsed = Parser::init(
             &allocator,
             source,
@@ -136,6 +137,7 @@ mod tests {
                 comments: CommentMode::None,
             },
             TokenParserConfig,
+            ast_guard,
         )
         .parse();
         let cursor = TokenCursor::new(source, parsed.tokens.as_slice());
@@ -154,6 +156,7 @@ mod tests {
     fn range_endpoints_use_parser_token_boundaries() {
         let source = "type Result = Box<Foo>;";
         let allocator = Allocator::default();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let parsed = Parser::init(
             &allocator,
             source,
@@ -164,6 +167,7 @@ mod tests {
                 comments: CommentMode::None,
             },
             TokenParserConfig,
+            ast_guard,
         )
         .parse();
         let cursor = TokenCursor::new(source, parsed.tokens.as_slice());

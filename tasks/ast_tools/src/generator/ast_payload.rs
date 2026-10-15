@@ -17,23 +17,12 @@ pub fn payload_member(ast: &AstStruct) -> syn::Ident {
 /// Optional values retain their explicit wire encodings.
 pub fn direct_payload_field(ty: &AstType, schema: &Schema) -> bool {
     match ty {
-        AstType::Struct(_) | AstType::Enum(_) | AstType::SubRange(_) => true,
+        AstType::Struct(_) | AstType::Enum(_) | AstType::SubRange(_) => false,
         AstType::Option(_) => false,
         AstType::Primitive(primitive) => {
             matches!(
                 primitive.name,
-                "bool"
-                    | "u8"
-                    | "i8"
-                    | "u16"
-                    | "i16"
-                    | "u32"
-                    | "i32"
-                    | "u64"
-                    | "f64"
-                    | "Span"
-                    | "AstUtf8"
-                    | "AstWtf8"
+                "bool" | "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "u64" | "f64" | "Span"
             ) || schema.repr_sizes.contains_key(primitive.name)
         }
     }
@@ -77,7 +66,7 @@ pub fn ast_payload(schema: &Schema) -> RawOutput {
                 endian_swaps.extend(quote!(bytes[#offset..#end].reverse();));
             } else if size == 8 {
                 if matches!(field_ty, AstType::Option(_))
-                    || matches!(field_ty, AstType::Primitive(primitive) if matches!(primitive.name, "f64" | "u64"))
+                    || matches!(field_ty, AstType::Primitive(primitive) if matches!(primitive.name, "f64" | "u64" | "AstUtf8" | "AstWtf8"))
                 {
                     let end = offset + size;
                     endian_swaps.extend(quote!(bytes[#offset..#end].reverse();));
@@ -90,7 +79,9 @@ pub fn ast_payload(schema: &Schema) -> RawOutput {
                     });
                 }
             }
-            let ty = if direct_payload_field(field_ty, schema) {
+            let ty = if matches!(field_ty, AstType::SubRange(_)) {
+                quote!(RawSubRange)
+            } else if direct_payload_field(field_ty, schema) {
                 field_ty.repr_ident(schema)
             } else {
                 match size {
@@ -153,6 +144,7 @@ pub fn ast_payload(schema: &Schema) -> RawOutput {
         tokens: quote! {
             #![allow(unused)]
             use crate::*;
+            use crate::node_id::{ExtraDataId, RawSubRange};
 
             // Every variant occupies the same 16 wire bytes. The raw member also
             // gives the union the alignment required by the node table.

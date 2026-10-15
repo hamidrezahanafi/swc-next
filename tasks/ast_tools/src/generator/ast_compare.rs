@@ -14,7 +14,19 @@ pub fn ast_compare(schema: &Schema) -> RawOutput {
     let mut impls = TokenStream::new();
     let mut arms = TokenStream::new();
     for ty in &schema.types {
-        let name = ty.repr_ident(schema);
+        let name = ty.expr_ident(schema);
+        let left_ty = ty
+            .repr_ident(schema)
+            .to_string()
+            .replace("'id", "'left")
+            .parse::<TokenStream>()
+            .unwrap();
+        let right_ty = ty
+            .repr_ident(schema)
+            .to_string()
+            .replace("'id", "'right")
+            .parse::<TokenStream>()
+            .unwrap();
         match ty {
             AstType::Struct(node) => {
                 let mut fields = TokenStream::new();
@@ -41,8 +53,8 @@ pub fn ast_compare(schema: &Schema) -> RawOutput {
                     });
                 }
                 impls.extend(quote! {
-                    impl Compare for #name {
-                        fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+                    impl<'left, 'right> Compare<'left, 'right, #right_ty> for #left_ty {
+                        fn compare(self, other: #right_ty, asts: &AstPair<'_, '_, 'left, 'right>) -> Result<(), String> {
                             #fields
                             Ok(())
                         }
@@ -54,8 +66,8 @@ pub fn ast_compare(schema: &Schema) -> RawOutput {
             }
             AstType::Enum(_) => {
                 impls.extend(quote! {
-                    impl Compare for #name {
-                        fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+                    impl<'left, 'right> Compare<'left, 'right, #right_ty> for #left_ty {
+                        fn compare(self, other: #right_ty, asts: &AstPair<'_, '_, 'left, 'right>) -> Result<(), String> {
                             asts.nodes(self.node_id(), other.node_id())
                         }
                     }
@@ -81,7 +93,7 @@ pub fn ast_compare(schema: &Schema) -> RawOutput {
 
             #impls
 
-            pub(super) fn compare_nodes(left: NodeKindData, right: NodeKindData, asts: &AstPair<'_, '_>) -> Result<(), String> {
+            pub(super) fn compare_nodes<'left, 'right>(left: NodeKindData<'left>, right: NodeKindData<'right>, asts: &AstPair<'_, '_, 'left, 'right>) -> Result<(), String> {
                 match (left, right) {
                     #arms
                     _ => Err(format!("node kind: {:?} != {:?}", asts.left.node_kind(left.node_id()), asts.right.node_kind(right.node_id()))),

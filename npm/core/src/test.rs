@@ -11,11 +11,13 @@ pub fn native_parse_print_sync(
     codegen_options: Option<CodegenOptions>,
 ) -> Result<String, String> {
     let allocator = Allocator::default();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
     let result = Parser::init(
         &allocator,
         &source,
         parser_options.unwrap_or_default().into(),
         NoTokenParserConfig,
+        ast_guard,
     )
     .parse();
     let output = print(

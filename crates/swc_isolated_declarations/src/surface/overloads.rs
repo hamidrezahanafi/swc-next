@@ -19,12 +19,12 @@ enum FunctionOverloadInfo {
     DefaultImplementation,
 }
 
-impl DeclarationSurface {
+impl<'id> DeclarationSurface<'id> {
     pub(crate) fn record_statement_overloads(
         &mut self,
-        statements: SubRange<Stmt>,
-        ast: &Ast<'_>,
-        semantic: &Semantic<'_>,
+        statements: SubRange<'id, Stmt<'id>>,
+        ast: &Ast<'_, 'id>,
+        semantic: &Semantic<'_, 'id>,
     ) {
         let mut overloads = FxHashSet::default();
         let mut has_default_overload = false;
@@ -53,9 +53,9 @@ impl DeclarationSurface {
 
     pub(crate) fn record_class_overloads(
         &mut self,
-        class: Class,
-        ast: &Ast<'_>,
-        semantic: &Semantic<'_>,
+        class: Class<'id>,
+        ast: &Ast<'_, 'id>,
+        semantic: &Semantic<'_, 'id>,
     ) {
         let mut overloads = FxHashSet::default();
         let mut constructor_overload = false;
@@ -100,9 +100,9 @@ impl DeclarationSurface {
 
     fn function_overload_info(
         &self,
-        statement: Stmt,
-        ast: &Ast<'_>,
-        semantic: &Semantic<'_>,
+        statement: Stmt<'id>,
+        ast: &Ast<'_, 'id>,
+        semantic: &Semantic<'_, 'id>,
     ) -> Option<FunctionOverloadInfo> {
         match ast.stmt_data(statement) {
             StmtData::Declaration(declaration) => {
@@ -127,9 +127,9 @@ impl DeclarationSurface {
     }
 
     fn decl_overload_info(
-        declaration: Decl,
-        ast: &Ast<'_>,
-        semantic: &Semantic<'_>,
+        declaration: Decl<'id>,
+        ast: &Ast<'_, 'id>,
+        semantic: &Semantic<'_, 'id>,
     ) -> Option<FunctionOverloadInfo> {
         let (binding, signature) = match ast.decl_data(declaration) {
             DeclData::TsFunction(function) => (function.id(ast)?, true),

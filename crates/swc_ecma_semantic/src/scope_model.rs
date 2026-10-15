@@ -22,11 +22,11 @@ use crate::{
 /// This model maintains basic indexes without Semantic's TypeScript
 /// name-resolution queries or AST traversal.
 #[derive(Debug)]
-pub struct ScopeModel<'a> {
-    scopes: ScopeTree<'a>,
-    symbols: ArenaVec<'a, Symbol>,
-    references: ArenaVec<'a, Reference>,
-    declarations: ArenaVec<'a, Declaration>,
+pub struct ScopeModel<'a, 'id> {
+    scopes: ScopeTree<'a, 'id>,
+    symbols: ArenaVec<'a, Symbol<'id>>,
+    references: ArenaVec<'a, Reference<'id>>,
+    declarations: ArenaVec<'a, Declaration<'id>>,
     redeclarations: Redeclarations<'a>,
     /// Independently growable use lists, indexed by SymbolId.
     uses: ArenaVec<'a, ArenaVec<'a, ReferenceId>>,
@@ -34,10 +34,10 @@ pub struct ScopeModel<'a> {
     node_semantic: ArenaVec<'a, NodeSemanticId>,
 }
 
-impl<'a> ScopeModel<'a> {
+impl<'id, 'a> ScopeModel<'a, 'id> {
     /// Consumes Semantic, moving its basic indexes and expanding its compact
     /// use index into one arena vector per symbol.
-    pub fn new(semantic: Semantic<'a>) -> Self {
+    pub fn new(semantic: Semantic<'a, 'id>) -> Self {
         let allocator = semantic.use_ids.bump();
         let uses = ArenaVec::from_iter_in(
             semantic.use_ranges.iter().map(|range| {
@@ -65,42 +65,42 @@ impl<'a> ScopeModel<'a> {
     }
 
     /// The scope with the given id.
-    pub fn scope(&self, id: ScopeId) -> Scope {
+    pub fn scope(&self, id: ScopeId) -> Scope<'id> {
         self.scopes.get(id)
     }
 
     /// The symbol with the given id.
-    pub fn symbol(&self, id: SymbolId) -> Symbol {
+    pub fn symbol(&self, id: SymbolId) -> Symbol<'id> {
         self.symbols[id.index()]
     }
 
     /// The reference with the given id.
-    pub fn reference(&self, id: ReferenceId) -> Reference {
+    pub fn reference(&self, id: ReferenceId) -> Reference<'id> {
         self.references[id.index()]
     }
 
     /// The declaration with the given id.
-    pub fn declaration(&self, id: DeclarationId) -> Declaration {
+    pub fn declaration(&self, id: DeclarationId) -> Declaration<'id> {
         self.declarations[id.index()]
     }
 
     /// The symbol declared at `node`, or `None` when the node is not a
     /// binding or member declaration site. Source-module and anonymous default
     /// export symbols do not have a node mapping.
-    pub fn symbol_of(&self, node: NodeId) -> Option<SymbolId> {
+    pub fn symbol_of(&self, node: NodeId<'id>) -> Option<SymbolId> {
         self.node_semantic[node.index()].symbol()
     }
 
     /// The reference recorded at `node`, or `None` when the node is
     /// not a reference site.
-    pub fn reference_of(&self, node: NodeId) -> Option<ReferenceId> {
+    pub fn reference_of(&self, node: NodeId<'id>) -> Option<ReferenceId> {
         self.node_semantic[node.index()].reference()
     }
 
     /// The scope created by the given node, or `None` if the node is not a
     /// scope-creating site. If a node creates multiple scopes, returns the
     /// last one created (for example, the program's source-type wrapper).
-    pub fn scope_of(&self, node: NodeId) -> Option<ScopeId> {
+    pub fn scope_of(&self, node: NodeId<'id>) -> Option<ScopeId> {
         self.node_semantic[node.index()].scope()
     }
 
@@ -126,7 +126,7 @@ impl<'a> ScopeModel<'a> {
     pub fn declarations(
         &self,
         id: SymbolId,
-    ) -> impl ExactSizeIterator<Item = Declaration> + DoubleEndedIterator + '_ {
+    ) -> impl ExactSizeIterator<Item = Declaration<'id>> + DoubleEndedIterator + '_ {
         self.declaration_ids(id).map(|id| self.declaration(id))
     }
 
@@ -153,7 +153,7 @@ impl<'a> ScopeModel<'a> {
     }
 
     /// Iterates every `(id, scope)` pair in creation order.
-    pub fn iter_scopes(&self) -> ScopeIterator<'_> {
+    pub fn iter_scopes(&self) -> ScopeIterator<'_, 'id> {
         ScopeIterator {
             list: &self.scopes.list,
             index: 0,
@@ -161,7 +161,7 @@ impl<'a> ScopeModel<'a> {
     }
 
     /// Iterates every `(id, symbol)` pair in declaration order.
-    pub fn iter_symbols(&self) -> SymbolIterator<'_> {
+    pub fn iter_symbols(&self) -> SymbolIterator<'_, 'id> {
         SymbolIterator {
             symbols: &self.symbols,
             index: 0,
@@ -169,7 +169,7 @@ impl<'a> ScopeModel<'a> {
     }
 
     /// Iterates every `(id, reference)` pair in source order.
-    pub fn iter_references(&self) -> ReferenceIterator<'_> {
+    pub fn iter_references(&self) -> ReferenceIterator<'_, 'id> {
         ReferenceIterator {
             references: &self.references,
             node_semantic: &self.node_semantic,
@@ -178,7 +178,7 @@ impl<'a> ScopeModel<'a> {
     }
 
     /// Iterates every `(id, declaration)` pair in source order.
-    pub fn iter_declarations(&self) -> DeclarationIterator<'_> {
+    pub fn iter_declarations(&self) -> DeclarationIterator<'_, 'id> {
         DeclarationIterator {
             declarations: &self.declarations,
             index: 0,
@@ -217,8 +217,8 @@ impl<'a> ScopeModel<'a> {
     pub fn register_binding(
         &mut self,
         scope: ScopeId,
-        node: NodeId,
-        name: AstUtf8,
+        node: NodeId<'id>,
+        name: AstUtf8<'id>,
         text: &'a str,
         flags: SymbolFlags,
     ) -> SymbolId {
@@ -275,7 +275,7 @@ impl<'a> ScopeModel<'a> {
     /// // Register the read's node, scope, target and flags, then append its ReferenceId to uses.
     /// // An unresolved reference has no target/use entry; registering the same node twice is invalid.
     /// ```
-    pub fn register_reference(&mut self, reference: Reference) -> ReferenceId {
+    pub fn register_reference(&mut self, reference: Reference<'id>) -> ReferenceId {
         let Reference {
             node,
             scope,
@@ -299,7 +299,7 @@ impl<'a> ScopeModel<'a> {
     }
 }
 
-impl ScopeModel<'_> {
+impl<'id> ScopeModel<'_, 'id> {
     /// Register a fresh scope owner below an active parent with the supplied kind and flags.
     ///
     /// The caller must compute strictness from the parent context and the new scope's own directives.
@@ -315,7 +315,7 @@ impl ScopeModel<'_> {
     pub fn create_child_scope(
         &mut self,
         parent: ScopeId,
-        owner: NodeId,
+        owner: NodeId<'id>,
         kind: ScopeKind,
         flags: ScopeFlags,
     ) -> ScopeId {
@@ -372,7 +372,7 @@ impl ScopeModel<'_> {
     pub fn convert_scope(
         &mut self,
         scope: ScopeId,
-        owner: NodeId,
+        owner: NodeId<'id>,
         kind: ScopeKind,
         flags: ScopeFlags,
     ) {

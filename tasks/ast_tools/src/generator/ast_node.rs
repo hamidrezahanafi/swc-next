@@ -31,7 +31,7 @@ pub fn ast_node(schema: &Schema) -> RawOutput {
                 let name = format_ident!("{}", ast_struct.name);
                 node_kind_variants.extend(quote!(#name,));
                 node_kind_data_variants.extend(quote!(
-                    #name(#name) = NodeKind::#name as u8,
+                    #name(#name<'id>) = NodeKind::#name as u8,
                 ));
             }
             AstType::Enum(ast_enum) => {
@@ -68,33 +68,33 @@ pub fn ast_node(schema: &Schema) -> RawOutput {
             #enum_data
 
             #[repr(C)]
-            struct AstEnumDataRepr {
+            struct AstEnumDataRepr<'id> {
                 kind: NodeKind,
-                node_id: NodeId,
+                node_id: NodeId<'id>,
             }
 
             /// The typed wrapper for the concrete node stored at a node ID.
             #[repr(C, u8)]
             #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-            pub enum NodeKindData {
+            pub enum NodeKindData<'id> {
                 #node_kind_data_variants
             }
 
-            impl NodeKindData {
+            impl<'id> NodeKindData<'id> {
                 #[inline]
-                pub fn node_id(self) -> NodeId {
+                pub fn node_id(self) -> NodeId<'id> {
                     // SAFETY: `NodeKindData` uses the same C layout, discriminant, and node ID
                     // payload as `AstEnumDataRepr` for every variant.
-                    unsafe { std::mem::transmute::<Self, AstEnumDataRepr>(self).node_id }
+                    unsafe { std::mem::transmute::<Self, AstEnumDataRepr<'id>>(self).node_id }
                 }
             }
 
             #node_impls
 
-            impl<'a> Ast<'a> {
+            impl<'a, 'id> Ast<'a, 'id> {
                 /// Returns the typed wrapper for the concrete node stored at `node_id`.
                 #[inline]
-                pub fn kind_data(&self, node_id: NodeId) -> NodeKindData {
+                pub fn kind_data(&self, node_id: NodeId<'id>) -> NodeKindData<'id> {
                     let kind = self.node_kind(node_id);
                     // SAFETY: `NodeKindData` uses the same C layout, discriminant, and node ID
                     // payload as `AstEnumDataRepr` for every `NodeKind`.
@@ -147,7 +147,7 @@ fn generate_enum_data(ast: &AstEnum, schema: &Schema) -> TokenStream {
     quote! {
         #[repr(C, #repr)]
         #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-        pub enum #data_name {
+        pub enum #data_name<'id> {
             #(#variants)*
         }
     }
@@ -201,8 +201,8 @@ fn generate_flat_data_accessor(ast: &AstEnum) -> TokenStream {
 
     quote! {
         #[inline]
-        pub fn #fn_name(&self, node: #wrapper_ident) -> #data_ident {
-            let kind = unsafe { *self.nodes.kind_unchecked(node.0) };
+        pub fn #fn_name(&self, node: #wrapper_ident<'id>) -> #data_ident<'id> {
+            let kind = unsafe { *self.nodes.kind_unchecked(node.0.raw()) };
             debug_assert!(kind.#kind_check());
             // SAFETY: Flat `#[ast(repr)]` enums align every data variant discriminant with its
             // payload's `NodeKind`. Typed wrappers guarantee `kind` belongs to this enum.
@@ -228,7 +228,7 @@ fn generate_nested_data_accessor(ast: &AstEnum, schema: &Schema) -> TokenStream 
             continue;
         };
         let variant_ident = format_ident!("{}", variant.name);
-        let payload_ident = schema.types[type_id].repr_ident(schema);
+        let payload_ident = schema.types[type_id].expr_ident(schema);
         let node_kinds = concrete_node_kinds(type_id, schema);
         for node_kind_name in node_kinds {
             if !seen.insert(node_kind_name.clone()) {
@@ -272,8 +272,8 @@ fn generate_nested_data_accessor(ast: &AstEnum, schema: &Schema) -> TokenStream 
 
     quote! {
         #[inline]
-        pub fn #fn_name(&self, node: #wrapper_ident) -> #data_ident {
-            match unsafe { *self.nodes.kind_unchecked(node.0) } {
+        pub fn #fn_name(&self, node: #wrapper_ident<'id>) -> #data_ident<'id> {
+            match unsafe { *self.nodes.kind_unchecked(node.0.raw()) } {
                 #arms
                 // SAFETY: Typed wrappers can only be created by typed AST
                 // constructors, so their node kind belongs to this enum.
@@ -322,7 +322,7 @@ fn generate_node_impls_for_enum(ast: &AstEnum, schema: &Schema) -> TokenStream {
     quote! {
         #node_impls
 
-        impl #name {
+        impl<'id> #name<'id> {
             #(#constructors)*
         }
     }
@@ -330,39 +330,39 @@ fn generate_node_impls_for_enum(ast: &AstEnum, schema: &Schema) -> TokenStream {
 
 fn generate_node_impls(name: &proc_macro2::Ident) -> TokenStream {
     quote! {
-        impl #name {
+        impl<'id> #name<'id> {
             #[inline]
-            pub fn node_id(self) -> NodeId {
+            pub fn node_id(self) -> NodeId<'id> {
                 self.0
             }
         }
 
-        impl SealedAstNode for #name {}
+        impl<'id> SealedAstNode for #name<'id> {}
 
-        impl AstNode for #name {
+        impl<'id> AstNode<'id> for #name<'id> {
             #[inline]
-            unsafe fn from_node_id_unchecked(node_id: NodeId) -> Self {
+            unsafe fn from_node_id_unchecked(node_id: NodeId<'id>) -> Self {
                 Self(node_id)
             }
 
             #[inline]
-            fn node_id(self) -> NodeId {
+            fn node_id(self) -> NodeId<'id> {
                 self.0
             }
         }
 
-        impl GetSpan for #name {
+        impl<'id> GetSpan<'id> for #name<'id> {
             #[inline]
-            fn span(self, ast: &Ast<'_>) -> crate::Span {
-                unsafe { *ast.nodes.span_unchecked(self.0) }
+            fn span(self, ast: &Ast<'_, 'id>) -> crate::Span {
+                unsafe { *ast.nodes.span_unchecked(self.0.raw()) }
             }
         }
 
-        impl SetSpan for #name {
+        impl<'id> SetSpan<'id> for #name<'id> {
             #[inline]
-            fn set_span(self, ast: &mut Ast<'_>, span: crate::Span) {
+            fn set_span(self, ast: &mut Ast<'_, 'id>, span: crate::Span) {
                 unsafe {
-                    *ast.nodes.span_mut_unchecked(self.0) = span;
+                    *ast.nodes.span_mut_unchecked(self.0.raw()) = span;
                 }
             }
         }

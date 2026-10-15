@@ -4,9 +4,9 @@ use crate::{
 };
 use unicode_id_start::{is_id_continue, is_id_start};
 
-impl Stmt {
+impl<'id> Stmt<'id> {
     /// Whether this statement marks its containing program as a ES module.
-    pub fn is_module_indicator(self, ast: &Ast<'_>) -> bool {
+    pub fn is_module_indicator(self, ast: &Ast<'_, 'id>) -> bool {
         match ast.stmt_data(self) {
             StmtData::ImportDeclaration(_)
             | StmtData::ExportNamedDeclaration(_)

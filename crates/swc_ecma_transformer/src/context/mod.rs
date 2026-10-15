@@ -16,19 +16,19 @@ use swc_next_ecma_semantic::{ScopeModel, SymbolFlags};
 
 /// Configuration, caches and pending work for a single transform.
 /// Passes access state through the context's mutation APIs.
-pub(crate) struct TransformerState<'a> {
-    pub(crate) path: Vec<NodeId>,
+pub(crate) struct TransformerState<'a, 'id> {
+    pub(crate) path: Vec<NodeId<'id>>,
     pub(crate) scope_stack: Vec<ScopeId>,
-    pub(crate) semantic: ScopeModel<'a>,
-    pub(crate) helpers: Helpers,
-    pub(crate) statement_injector: StatementInjector,
-    pub(crate) container: Container,
+    pub(crate) semantic: ScopeModel<'a, 'id>,
+    pub(crate) helpers: Helpers<'id>,
+    pub(crate) statement_injector: StatementInjector<'id>,
+    pub(crate) container: Container<'id>,
     pub(crate) comments: CommentState,
     pub(crate) used_names: Option<UsedNameState<'a>>,
 }
 
-impl<'a> TransformerState<'a> {
-    pub(crate) fn new(semantic: ScopeModel<'a>) -> Self {
+impl<'id, 'a> TransformerState<'a, 'id> {
+    pub(crate) fn new(semantic: ScopeModel<'a, 'id>) -> Self {
         Self {
             path: Vec::with_capacity(64),
             scope_stack: Vec::with_capacity(64),
@@ -43,20 +43,20 @@ impl<'a> TransformerState<'a> {
 }
 
 /// Borrowed context for AST reads and synchronized transform operations.
-pub struct TransformCtx<'c, 'a> {
-    pub ast: &'c mut Ast<'a>,
-    state: &'c mut TransformerState<'a>,
+pub struct TransformCtx<'c, 'a, 'id> {
+    pub ast: &'c mut Ast<'a, 'id>,
+    state: &'c mut TransformerState<'a, 'id>,
 }
 
-impl<'c, 'a> TransformCtx<'c, 'a> {
-    pub(crate) fn new(ctx: &'c mut TraverseMutCtx<'_, 'a, TransformerState<'a>>) -> Self {
+impl<'id, 'c, 'a> TransformCtx<'c, 'a, 'id> {
+    pub(crate) fn new(ctx: &'c mut TraverseMutCtx<'_, 'a, 'id, TransformerState<'a, 'id>>) -> Self {
         Self {
             ast: ctx.ast,
             state: &mut ctx.state,
         }
     }
 
-    pub fn ast(&self) -> &Ast<'a> {
+    pub fn ast(&self) -> &Ast<'a, 'id> {
         self.ast
     }
 
@@ -68,15 +68,15 @@ impl<'c, 'a> TransformCtx<'c, 'a> {
             .unwrap_or(ScopeId::ROOT)
     }
 
-    pub fn semantic(&self) -> &ScopeModel<'a> {
+    pub fn semantic(&self) -> &ScopeModel<'a, 'id> {
         &self.state.semantic
     }
 
-    pub(crate) fn parent(&self) -> Option<NodeId> {
+    pub(crate) fn parent(&self) -> Option<NodeId<'id>> {
         self.state.path.iter().rev().nth(1).copied()
     }
 
-    pub(crate) fn ancestors(&self) -> impl DoubleEndedIterator<Item = NodeId> + '_ {
+    pub(crate) fn ancestors(&self) -> impl DoubleEndedIterator<Item = NodeId<'id>> + '_ {
         self.state.path.iter().rev().copied()
     }
 
@@ -96,14 +96,18 @@ impl<'c, 'a> TransformCtx<'c, 'a> {
     }
 }
 
-impl TransformCtx<'_, '_> {
+impl<'id> TransformCtx<'_, '_, 'id> {
     /// Babel: t.inheritsComments(child, parent). Retain the child's attachments,
     /// inherit the parent's leading/trailing attachments, and return the child.
     /// The parent is being replaced; the AST stores one attachment per comment
     /// rather than Babel's shared comment objects on both nodes. Inner comments
     /// retain their existing child/token anchors; there is no inner-comment list.
     /// Nodes use their span boundaries as attachment anchors, as in Normalizer.
-    pub fn inherits_comments<C: GetSpan, P: GetSpan>(&mut self, child: C, parent: P) -> C {
+    pub fn inherits_comments<C: GetSpan<'id>, P: GetSpan<'id>>(
+        &mut self,
+        child: C,
+        parent: P,
+    ) -> C {
         if !self.ast.comments().is_empty() {
             self.state
                 .comments
@@ -113,7 +117,7 @@ impl TransformCtx<'_, '_> {
     }
 
     /// Append a prepared member; container_flush attaches the final range.
-    pub fn push_container(&mut self, owner: ContainerOwnerChild) {
+    pub fn push_container(&mut self, owner: ContainerOwnerChild<'id>) {
         match owner {
             ContainerOwnerChild::ClassBody((class_body, class_element)) => self
                 .container_class_body_mut(class_body)
@@ -124,7 +128,7 @@ impl TransformCtx<'_, '_> {
     /// Prepend a prepared member, visible immediately through container_class_body.
     /// The caller must register new scope owners and references before insertion.
     #[expect(dead_code, reason = "Retain generic container insertion support")]
-    pub fn unshift_container(&mut self, owner: ContainerOwnerChild) {
+    pub fn unshift_container(&mut self, owner: ContainerOwnerChild<'id>) {
         match owner {
             ContainerOwnerChild::ClassBody((class_body, class_element)) => self
                 .container_class_body_mut(class_body)
@@ -134,7 +138,7 @@ impl TransformCtx<'_, '_> {
 
     /// Register a fresh var binding in the hoist target and queue its declaration.
     /// `base` is the complete identifier stem, including any leading underscore.
-    pub fn generate_var(&mut self, scope: ScopeId, base: &str) -> BoundIdentifier {
+    pub fn generate_var(&mut self, scope: ScopeId, base: &str) -> BoundIdentifier<'id> {
         let scope = self.semantic().scope(scope).hoist_target;
         // Parameter expressions can give the function body its own var scope.
         let scope = self.semantic().scope(scope).function_body.unwrap_or(scope);
@@ -165,7 +169,7 @@ impl TransformCtx<'_, '_> {
     /// This covers statement-list insertion used by static-block lowering.
     /// Expression rewriting and wrapping single-statement bodies require
     /// separate mutation support.
-    pub fn insert_after(&mut self, path: NodeId, statement: Stmt) {
+    pub fn insert_after(&mut self, path: NodeId<'id>, statement: Stmt<'id>) {
         let index = self
             .state
             .path

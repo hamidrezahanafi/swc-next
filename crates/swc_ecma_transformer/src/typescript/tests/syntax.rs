@@ -4,6 +4,7 @@ use super::*;
 fn declaration_files() {
     let allocator = Allocator::new();
     let source = "/*! license */ declare const value: number;";
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
     let parsed = Parser::init(
         &allocator,
         source,
@@ -14,6 +15,7 @@ fn declaration_files() {
             ..ParserOptions::default()
         },
         NoTokenParserConfig,
+        ast_guard,
     )
     .parse();
     assert!(parsed.diagnostics.is_empty(), "{:#?}", parsed.diagnostics);

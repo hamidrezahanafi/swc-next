@@ -19,22 +19,37 @@ use crate::{
 };
 
 #[track_caller]
-fn analyze_source<'a>(
+fn analyze_source<'id, 'a>(
     allocator: &'a Allocator,
     source: &'a str,
     parser_options: Options,
-) -> (Ast<'a>, Semantic<'a>) {
-    analyze_with_options(allocator, source, parser_options, AnalyzeOptions::default())
+    guard: swc_next_ecma_ast::AstGuard<'id>,
+) -> (Ast<'a, 'id>, Semantic<'a, 'id>) {
+    analyze_with_options(
+        allocator,
+        source,
+        parser_options,
+        AnalyzeOptions::default(),
+        guard,
+    )
 }
 
 #[track_caller]
-fn analyze_with_options<'a>(
+fn analyze_with_options<'id, 'a>(
     allocator: &'a Allocator,
     source: &'a str,
     parser_options: Options,
     analyze_options: AnalyzeOptions,
-) -> (Ast<'a>, Semantic<'a>) {
-    let parse = Parser::init(allocator, source, parser_options, NoTokenParserConfig).parse();
+    guard: swc_next_ecma_ast::AstGuard<'id>,
+) -> (Ast<'a, 'id>, Semantic<'a, 'id>) {
+    let parse = Parser::init(
+        allocator,
+        source,
+        parser_options,
+        NoTokenParserConfig,
+        guard,
+    )
+    .parse();
     let ast = parse.ast;
     assert!(parse.diagnostics.is_empty());
 
@@ -44,12 +59,20 @@ fn analyze_with_options<'a>(
 }
 
 #[track_caller]
-fn analyze_syntax_source<'a>(
+fn analyze_syntax_source<'id, 'a>(
     allocator: &'a Allocator,
     source: &'a str,
     parser_options: Options,
-) -> (Ast<'a>, SemanticReturn<'a>) {
-    let parse = Parser::init(allocator, source, parser_options, NoTokenParserConfig).parse();
+    guard: swc_next_ecma_ast::AstGuard<'id>,
+) -> (Ast<'a, 'id>, SemanticReturn<'a, 'id>) {
+    let parse = Parser::init(
+        allocator,
+        source,
+        parser_options,
+        NoTokenParserConfig,
+        guard,
+    )
+    .parse();
     assert!(parse.diagnostics.is_empty());
     let result = analyze(
         &parse.ast,
@@ -63,12 +86,17 @@ fn analyze_syntax_source<'a>(
 
 #[track_caller]
 fn has_syntax_diagnostics(allocator: &Allocator, source: &str, parser_options: Options) -> bool {
-    let (_, result) = analyze_syntax_source(allocator, source, parser_options);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (_, result) = analyze_syntax_source(allocator, source, parser_options, ast_guard);
     !result.diagnostics.is_empty()
 }
 
 #[track_caller]
-fn reference_symbol(ast: &Ast<'_>, semantic: &Semantic<'_>, name: &[u8]) -> Option<SymbolId> {
+fn reference_symbol<'id>(
+    ast: &Ast<'_, 'id>,
+    semantic: &Semantic<'_, 'id>,
+    name: &[u8],
+) -> Option<SymbolId> {
     let mut references = semantic
         .iter_references()
         .filter(|entry| ast.get_utf8(entry.reference.name).as_bytes() == name);
@@ -77,7 +105,11 @@ fn reference_symbol(ast: &Ast<'_>, semantic: &Semantic<'_>, name: &[u8]) -> Opti
     symbol
 }
 
-fn reference_symbols(ast: &Ast<'_>, semantic: &Semantic<'_>, name: &[u8]) -> Vec<Option<SymbolId>> {
+fn reference_symbols<'id>(
+    ast: &Ast<'_, 'id>,
+    semantic: &Semantic<'_, 'id>,
+    name: &[u8],
+) -> Vec<Option<SymbolId>> {
     semantic
         .iter_references()
         .filter(|entry| ast.get_utf8(entry.reference.name).as_bytes() == name)
@@ -86,7 +118,7 @@ fn reference_symbols(ast: &Ast<'_>, semantic: &Semantic<'_>, name: &[u8]) -> Vec
 }
 
 #[track_caller]
-fn symbol_named(ast: &Ast<'_>, semantic: &Semantic<'_>, name: &[u8]) -> SymbolId {
+fn symbol_named<'id>(ast: &Ast<'_, 'id>, semantic: &Semantic<'_, 'id>, name: &[u8]) -> SymbolId {
     let mut symbols = semantic
         .iter_symbols()
         .filter(|entry| ast.get_wtf8(entry.symbol.name).as_bytes() == name);
@@ -117,7 +149,11 @@ enum TsModuleState {
 }
 
 #[track_caller]
-fn assert_ts_module_state(semantic: &Semantic<'_>, symbol: SymbolId, expected: TsModuleState) {
+fn assert_ts_module_state<'id>(
+    semantic: &Semantic<'_, 'id>,
+    symbol: SymbolId,
+    expected: TsModuleState,
+) {
     let flags = semantic.symbol(symbol).flags;
     let actual = match (
         flags.contains(SymbolFlags::VALUE_MODULE),

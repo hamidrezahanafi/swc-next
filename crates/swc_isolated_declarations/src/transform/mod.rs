@@ -31,7 +31,10 @@ use crate::type_usage::TypeUsageAnalyzer;
 /// transform consumes its symbol and reference indexes during declaration reachability analysis,
 /// then mutates the AST in place. Re-run semantic analysis before performing later semantic work
 /// on the transformed tree.
-pub fn transform<'ast>(ast: &mut Ast<'ast>, semantic: &Semantic<'ast>) -> Vec<Diagnostic<'static>> {
+pub fn transform<'id, 'ast>(
+    ast: &mut Ast<'ast, 'id>,
+    semantic: &Semantic<'ast, 'id>,
+) -> Vec<Diagnostic<'static>> {
     let (used, diagnostics, surface) = TypeUsageAnalyzer::analyze(ast, semantic);
     let mut transformer = Transformer {
         semantic,
@@ -46,18 +49,18 @@ pub fn transform<'ast>(ast: &mut Ast<'ast>, semantic: &Semantic<'ast>) -> Vec<Di
     transformer.diagnostics
 }
 
-struct Transformer<'semantic, 'ast> {
-    semantic: &'semantic Semantic<'ast>,
+struct Transformer<'semantic, 'ast, 'id> {
+    semantic: &'semantic Semantic<'ast, 'id>,
     used: UsedSymbols,
-    surface: DeclarationSurface,
+    surface: DeclarationSurface<'id>,
     diagnostics: Vec<Diagnostic<'static>>,
     next_default_id: u32,
     reserved_names: Option<FxHashSet<&'ast [u8]>>,
-    validated_type_methods: FxHashSet<NodeId>,
+    validated_type_methods: FxHashSet<NodeId<'id>>,
 }
 
-impl<'ast> Transformer<'_, 'ast> {
-    fn transform_program(&mut self, ast: &mut Ast<'ast>) {
+impl<'id, 'ast> Transformer<'_, 'ast, 'id> {
+    fn transform_program(&mut self, ast: &mut Ast<'ast, 'id>) {
         let program = ast.root_program();
         let context = DeclContext::for_program(ast.source_type());
         let body = self.transform_statements(program.body(ast), context, ast);
@@ -75,10 +78,10 @@ impl<'ast> Transformer<'_, 'ast> {
 
     fn transform_statements(
         &mut self,
-        statements: SubRange<Stmt>,
+        statements: SubRange<'id, Stmt<'id>>,
         context: DeclContext,
-        ast: &mut Ast<'ast>,
-    ) -> Vec<Stmt> {
+        ast: &mut Ast<'ast, 'id>,
+    ) -> Vec<Stmt<'id>> {
         self.report_expando_assignments(statements, context, ast);
         let mut transformed = Vec::with_capacity(statements.len());
         for statement in statements.iter() {

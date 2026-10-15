@@ -8,8 +8,9 @@ pub(super) fn assert_uncertain_alias_targets(source: &str, declarations: &[&str]
         .collect::<Vec<_>>();
     let allocator = Allocator::new();
     let check = |options| {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) =
-            analyze_with_options(&allocator, source, ts_module_options(), options);
+            analyze_with_options(&allocator, source, ts_module_options(), options, ast_guard);
         let mut references = semantic
             .iter_references()
             .filter(|entry| ast.get_utf8(entry.reference.name) == "A");
@@ -83,7 +84,9 @@ pub(super) fn assert_named_declaration_targets(
         .collect::<Vec<_>>();
     let allocator = Allocator::new();
     let check = |parser_options, options| {
-        let (ast, semantic) = analyze_with_options(&allocator, source, parser_options, options);
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let (ast, semantic) =
+            analyze_with_options(&allocator, source, parser_options, options, ast_guard);
         let targets = semantic
             .iter_references()
             .filter(|entry| ast.get_utf8(entry.reference.name).as_bytes() == name)
@@ -146,7 +149,11 @@ pub(super) fn assert_named_declaration_targets(
 }
 
 #[track_caller]
-pub(super) fn assert_merged_type_parameter(ast: &Ast<'_>, semantic: &Semantic<'_>, name: &[u8]) {
+pub(super) fn assert_merged_type_parameter<'id>(
+    ast: &Ast<'_, 'id>,
+    semantic: &Semantic<'_, 'id>,
+    name: &[u8],
+) {
     let symbol = symbol_named(ast, semantic, name);
     let declarations = semantic.declarations(symbol).collect::<Vec<_>>();
     assert_eq!(declarations.len(), 2);
@@ -183,9 +190,9 @@ fn declaration_start(source: &str, declaration: &str) -> u32 {
 }
 
 #[track_caller]
-pub(super) fn symbol_at_declaration(
-    ast: &Ast<'_>,
-    semantic: &Semantic<'_>,
+pub(super) fn symbol_at_declaration<'id>(
+    ast: &Ast<'_, 'id>,
+    semantic: &Semantic<'_, 'id>,
     source: &str,
     declaration: &str,
 ) -> SymbolId {

@@ -6,18 +6,18 @@ use crate::context::BoundIdentifier;
 
 /// Prepared external helper imports, allocated on first use and attached once.
 #[derive(Default)]
-pub(crate) struct Helpers {
-    require: Option<AstUtf8>,
-    set_function_name: Option<PreparedHelper>,
-    to_property_key: Option<PreparedHelper>,
+pub(crate) struct Helpers<'id> {
+    require: Option<AstUtf8<'id>>,
+    set_function_name: Option<PreparedHelper<'id>>,
+    to_property_key: Option<PreparedHelper<'id>>,
 }
 
 /// One generated helper name and its detached external declaration.
 /// For example, `_swc_helpers` accompanies
 /// `import * as _swc_helpers from "@swc/helpers";` until program injection.
-pub(crate) struct PreparedHelper {
-    pub(crate) bound_identifier: BoundIdentifier,
-    pub(crate) statement: Stmt,
+pub(crate) struct PreparedHelper<'id> {
+    pub(crate) bound_identifier: BoundIdentifier<'id>,
+    pub(crate) statement: Stmt<'id>,
 }
 
 /// Selects the runtime package and callee shape for a supported helper.
@@ -29,11 +29,11 @@ pub(crate) enum HelperKind {
     ToPropertyKey,
 }
 
-impl Helpers {
+impl<'id> Helpers<'id> {
     /// Return the cached local binding name, or `None` before preparation or
     /// after draining the declaration. The name is the local identifier, such as
     /// `_swc_helpers2`, rather than a member expression or runtime package path.
-    pub(crate) fn bound_identifier(&self, helper: HelperKind) -> Option<BoundIdentifier> {
+    pub(crate) fn bound_identifier(&self, helper: HelperKind) -> Option<BoundIdentifier<'id>> {
         let entry = match helper {
             HelperKind::SetFunctionName => &self.set_function_name,
             HelperKind::ToPropertyKey => &self.to_property_key,
@@ -43,7 +43,7 @@ impl Helpers {
 
     /// Cache the callee spelling, without inventing a local `require` binding.
     /// Each call site registers a fresh reference in the program scope.
-    pub(crate) fn require(&mut self, ast: &mut Ast) -> AstUtf8 {
+    pub(crate) fn require(&mut self, ast: &mut Ast<'_, 'id>) -> AstUtf8<'id> {
         *self.require.get_or_insert_with(|| ast.add_utf8("require"))
     }
 
@@ -55,7 +55,7 @@ impl Helpers {
     /// _swc_helpers._to_property_key(a);
     /// _swc_helpers._to_property_key(b);
     /// ```
-    pub(crate) fn insert(&mut self, helper: HelperKind, prepared: PreparedHelper) {
+    pub(crate) fn insert(&mut self, helper: HelperKind, prepared: PreparedHelper<'id>) {
         let entry = match helper {
             HelperKind::SetFunctionName => &mut self.set_function_name,
             HelperKind::ToPropertyKey => &mut self.to_property_key,
@@ -73,7 +73,7 @@ impl Helpers {
     /// import * as _swc_helpers from "@swc/helpers";
     /// import _set_function_name from "@babel/runtime/helpers/setFunctionName";
     /// ```
-    pub(crate) fn take_statements(&mut self) -> [Option<Stmt>; 2] {
+    pub(crate) fn take_statements(&mut self) -> [Option<Stmt<'id>>; 2] {
         // Keep import order stable regardless of the order of first use.
         [self.to_property_key.take(), self.set_function_name.take()]
             .map(|helper| helper.map(|helper| helper.statement))

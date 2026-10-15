@@ -10,7 +10,12 @@ use swc_next_ecma_ast::{
 };
 use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
 
-fn parse_program<'a>(src: &'a str, allocator: &'a Allocator, lang: Lang) -> Ast<'a> {
+fn parse_program<'id, 'a>(
+    src: &'a str,
+    allocator: &'a Allocator,
+    lang: Lang,
+    guard: swc_next_ecma_ast::AstGuard<'id>,
+) -> Ast<'a, 'id> {
     let result = Parser::init(
         allocator,
         src,
@@ -19,6 +24,7 @@ fn parse_program<'a>(src: &'a str, allocator: &'a Allocator, lang: Lang) -> Ast<
             ..Options::default()
         },
         NoTokenParserConfig,
+        guard,
     )
     .parse();
     assert!(result.diagnostics.is_empty());
@@ -27,36 +33,37 @@ fn parse_program<'a>(src: &'a str, allocator: &'a Allocator, lang: Lang) -> Ast<
 
 fn bench_visit(b: &mut Bencher, src: &'static str, lang: Lang) {
     let allocator = Allocator::new();
-    let ast = parse_program(src, &allocator, lang);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let ast = parse_program(src, &allocator, lang, ast_guard);
     let program = ast.root_program();
 
-    struct Counter<'a> {
-        ast: &'a Ast<'a>,
+    struct Counter<'a, 'id> {
+        ast: &'a Ast<'a, 'id>,
         count: usize,
     }
 
-    impl<'a> Visit<'a> for Counter<'a> {
-        fn ast(&self) -> &Ast<'a> {
+    impl<'id, 'a> Visit<'a, 'id> for Counter<'a, 'id> {
+        fn ast(&self) -> &Ast<'a, 'id> {
             self.ast
         }
 
-        fn visit_identifier_reference(&mut self, _node: IdentifierReference) {
+        fn visit_identifier_reference(&mut self, _node: IdentifierReference<'id>) {
             self.count += 1;
         }
 
-        fn visit_private_identifier(&mut self, _node: PrivateIdentifier) {
+        fn visit_private_identifier(&mut self, _node: PrivateIdentifier<'id>) {
             self.count += 1;
         }
 
-        fn visit_binding_identifier(&mut self, _node: BindingIdentifier) {
+        fn visit_binding_identifier(&mut self, _node: BindingIdentifier<'id>) {
             self.count += 1;
         }
 
-        fn visit_identifier_name(&mut self, _node: IdentifierName) {
+        fn visit_identifier_name(&mut self, _node: IdentifierName<'id>) {
             self.count += 1;
         }
 
-        fn visit_label_identifier(&mut self, _node: LabelIdentifier) {
+        fn visit_label_identifier(&mut self, _node: LabelIdentifier<'id>) {
             self.count += 1;
         }
     }
@@ -72,69 +79,73 @@ fn bench_visit(b: &mut Bencher, src: &'static str, lang: Lang) {
 }
 
 fn bench_visit_mut(b: &mut Bencher, src: &'static str, lang: Lang) {
-    struct Counter<'visit, 'ast> {
-        ast: &'visit mut Ast<'ast>,
+    struct Counter<'visit, 'ast, 'id> {
+        ast: &'visit mut Ast<'ast, 'id>,
         count: usize,
     }
 
-    impl<'ast> VisitMut<'ast> for Counter<'_, 'ast> {
-        fn ast(&mut self) -> &mut Ast<'ast> {
+    impl<'id, 'ast> VisitMut<'ast, 'id> for Counter<'_, 'ast, 'id> {
+        fn ast(&mut self) -> &mut Ast<'ast, 'id> {
             self.ast
         }
 
         fn visit_mut_identifier_reference(
             &mut self,
-            _node: IdentifierReference,
-        ) -> Option<IdentifierReference> {
+            _node: IdentifierReference<'id>,
+        ) -> Option<IdentifierReference<'id>> {
             self.count += 1;
             None
         }
 
         fn visit_mut_private_identifier(
             &mut self,
-            _node: PrivateIdentifier,
-        ) -> Option<PrivateIdentifier> {
+            _node: PrivateIdentifier<'id>,
+        ) -> Option<PrivateIdentifier<'id>> {
             self.count += 1;
             None
         }
 
         fn visit_mut_binding_identifier(
             &mut self,
-            _node: BindingIdentifier,
-        ) -> Option<BindingIdentifier> {
+            _node: BindingIdentifier<'id>,
+        ) -> Option<BindingIdentifier<'id>> {
             self.count += 1;
             None
         }
 
-        fn visit_mut_identifier_name(&mut self, _node: IdentifierName) -> Option<IdentifierName> {
+        fn visit_mut_identifier_name(
+            &mut self,
+            _node: IdentifierName<'id>,
+        ) -> Option<IdentifierName<'id>> {
             self.count += 1;
             None
         }
 
         fn visit_mut_label_identifier(
             &mut self,
-            _node: LabelIdentifier,
-        ) -> Option<LabelIdentifier> {
+            _node: LabelIdentifier<'id>,
+        ) -> Option<LabelIdentifier<'id>> {
             self.count += 1;
             None
         }
 
         fn visit_mut_ts_type_annotation(
             &mut self,
-            _node: TsTypeAnnotation,
-        ) -> Option<TsTypeAnnotation> {
+            _node: TsTypeAnnotation<'id>,
+        ) -> Option<TsTypeAnnotation<'id>> {
             self.count += 1;
             None
         }
 
-        fn visit_mut_decorator(&mut self, _node: Decorator) -> Option<Decorator> {
+        fn visit_mut_decorator(&mut self, _node: Decorator<'id>) -> Option<Decorator<'id>> {
             self.count += 1;
             None
         }
     }
 
     let allocator = Allocator::new();
-    let mut ast = parse_program(src, &allocator, lang);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let mut ast = parse_program(src, &allocator, lang, ast_guard);
     let program = ast.root_program();
 
     b.iter(|| {
@@ -152,50 +163,51 @@ fn bench_traverse(b: &mut Bencher, src: &'static str, lang: Lang) {
         count: usize,
     }
 
-    impl<'ast> Traverse<'ast> for Counter {
+    impl<'id, 'ast> Traverse<'ast, 'id> for Counter {
         fn enter_identifier_reference(
             &mut self,
-            _node: IdentifierReference,
-            _ctx: &mut TraverseCtx<'_, 'ast>,
+            _node: IdentifierReference<'id>,
+            _ctx: &mut TraverseCtx<'_, 'ast, 'id>,
         ) {
             self.count += 1;
         }
 
         fn enter_private_identifier(
             &mut self,
-            _node: PrivateIdentifier,
-            _ctx: &mut TraverseCtx<'_, 'ast>,
+            _node: PrivateIdentifier<'id>,
+            _ctx: &mut TraverseCtx<'_, 'ast, 'id>,
         ) {
             self.count += 1;
         }
 
         fn enter_binding_identifier(
             &mut self,
-            _node: BindingIdentifier,
-            _ctx: &mut TraverseCtx<'_, 'ast>,
+            _node: BindingIdentifier<'id>,
+            _ctx: &mut TraverseCtx<'_, 'ast, 'id>,
         ) {
             self.count += 1;
         }
 
         fn enter_identifier_name(
             &mut self,
-            _node: IdentifierName,
-            _ctx: &mut TraverseCtx<'_, 'ast>,
+            _node: IdentifierName<'id>,
+            _ctx: &mut TraverseCtx<'_, 'ast, 'id>,
         ) {
             self.count += 1;
         }
 
         fn enter_label_identifier(
             &mut self,
-            _node: LabelIdentifier,
-            _ctx: &mut TraverseCtx<'_, 'ast>,
+            _node: LabelIdentifier<'id>,
+            _ctx: &mut TraverseCtx<'_, 'ast, 'id>,
         ) {
             self.count += 1;
         }
     }
 
     let allocator = Allocator::new();
-    let ast = parse_program(src, &allocator, lang);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let ast = parse_program(src, &allocator, lang, ast_guard);
     let program = ast.root_program();
 
     b.iter(|| {

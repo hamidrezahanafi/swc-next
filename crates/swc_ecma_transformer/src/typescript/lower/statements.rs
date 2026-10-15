@@ -4,21 +4,21 @@ use swc_next_ecma_ast::{
     TsModuleNameData, VisitMut, VisitMutWith,
 };
 
-pub(super) enum StatementExpansion {
+pub(super) enum StatementExpansion<'id> {
     Remove,
-    Single(Stmt),
-    Pair(Stmt, Stmt),
+    Single(Stmt<'id>),
+    Pair(Stmt<'id>, Stmt<'id>),
 }
 
-impl StatementExpansion {
-    pub(super) fn with_prefix(prefix: Option<Stmt>, statement: Stmt) -> Self {
+impl<'id> StatementExpansion<'id> {
+    pub(super) fn with_prefix(prefix: Option<Stmt<'id>>, statement: Stmt<'id>) -> Self {
         match prefix {
             Some(prefix) => Self::Pair(prefix, statement),
             None => Self::Single(statement),
         }
     }
 
-    pub(super) fn extend_into(self, output: &mut Vec<Stmt>) {
+    pub(super) fn extend_into(self, output: &mut Vec<Stmt<'id>>) {
         match self {
             Self::Remove => {}
             Self::Single(statement) => output.push(statement),
@@ -27,15 +27,15 @@ impl StatementExpansion {
     }
 }
 
-impl TypeScriptLowerer<'_, '_> {
-    pub(super) fn has_module_indicator(&self, statements: SubRange<Stmt>) -> bool {
+impl<'id> TypeScriptLowerer<'_, '_, 'id> {
+    pub(super) fn has_module_indicator(&self, statements: SubRange<'id, Stmt<'id>>) -> bool {
         statements.iter().any(|statement_id| {
             let statement = self.ast_ref().get_node_in_sub_range(statement_id);
             statement.is_module_indicator(self.ast_ref())
         })
     }
 
-    pub(super) fn append_esm_marker(&mut self, program: Program) {
+    pub(super) fn append_esm_marker(&mut self, program: Program<'id>) {
         let body = program.body(self.ast_ref());
         let mut statements = Vec::with_capacity(body.len() + 1);
         for statement_id in body.iter() {
@@ -56,8 +56,8 @@ impl TypeScriptLowerer<'_, '_> {
 
     pub(super) fn lower_statement_list(
         &mut self,
-        statements: SubRange<Stmt>,
-    ) -> Option<SubRange<Stmt>> {
+        statements: SubRange<'id, Stmt<'id>>,
+    ) -> Option<SubRange<'id, Stmt<'id>>> {
         self.enter_binding_scope();
         if self.analysis.has_merged_runtime_bindings() {
             self.register_scope_runtime_bindings(statements);
@@ -69,11 +69,11 @@ impl TypeScriptLowerer<'_, '_> {
 
     pub(super) fn lower_statement_list_in_current_scope(
         &mut self,
-        statements: SubRange<Stmt>,
-    ) -> Option<SubRange<Stmt>> {
+        statements: SubRange<'id, Stmt<'id>>,
+    ) -> Option<SubRange<'id, Stmt<'id>>> {
         debug_assert!(!self.runtime_binding_scopes.is_empty());
 
-        let mut lowered: Option<Vec<Stmt>> = None;
+        let mut lowered: Option<Vec<Stmt<'id>>> = None;
         for (index, statement_id) in statements.iter().enumerate() {
             let statement = self.ast().get_node_in_sub_range(statement_id);
             if let Some(replacement) = self.lower_statement(statement) {
@@ -97,7 +97,10 @@ impl TypeScriptLowerer<'_, '_> {
     }
 
     // None preserves the statement handle; children are still lowered in place.
-    pub(super) fn lower_statement(&mut self, statement: Stmt) -> Option<StatementExpansion> {
+    pub(super) fn lower_statement(
+        &mut self,
+        statement: Stmt<'id>,
+    ) -> Option<StatementExpansion<'id>> {
         match self.ast_ref().stmt_data(statement) {
             StmtData::Declaration(declaration) => {
                 if let Some(namespace) = declaration.as_ts_module_declaration(self.ast_ref()) {
@@ -178,7 +181,7 @@ impl TypeScriptLowerer<'_, '_> {
         None
     }
 
-    fn should_drop_declaration(&self, declaration: Decl) -> bool {
+    fn should_drop_declaration(&self, declaration: Decl<'id>) -> bool {
         let ast = self.ast_ref();
         match ast.decl_data(declaration) {
             DeclData::VariableDeclaration(declaration) => declaration.declare(ast),

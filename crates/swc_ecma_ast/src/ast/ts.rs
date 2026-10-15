@@ -11,7 +11,7 @@ macro_rules! impl_extra_data_value {
     ($($ty:ty),+ $(,)?) => {
         $(
             impl SealedExtraDataValue for $ty {}
-            impl ExtraDataValue for $ty {
+            impl<'id> ExtraDataValue<'id> for $ty {
                 #[inline]
                 fn into_extra_data(self) -> ExtraData {
                     ExtraData::from_raw(self as u64)
@@ -78,7 +78,6 @@ impl_extra_data_value!(
     TsModuleDeclarationKind,
     TsMappedTypeModifier,
 );
-
 #[ast(repr)]
 pub enum TsType {
     TsAnyKeyword(TsAnyKeyword),

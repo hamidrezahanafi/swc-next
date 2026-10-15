@@ -12,12 +12,12 @@ use crate::{context::TransformCtx, used_names::UsedNameState};
 
 /// A generated binding keeps its declaration and symbol together
 #[derive(Clone, Copy)]
-pub struct BoundIdentifier {
-    pub identifier: BindingIdentifier,
+pub struct BoundIdentifier<'id> {
+    pub identifier: BindingIdentifier<'id>,
     pub symbol: SymbolId,
 }
 
-impl BoundIdentifier {
+impl<'id> BoundIdentifier<'id> {
     /// Allocate a collision-free binding identifier and register its declaration and symbol.
     ///
     /// ```javascript
@@ -30,11 +30,11 @@ impl BoundIdentifier {
     /// // Return the identifier and SymbolId together; declaration attachment happens separately.
     /// ```
     pub fn named(
-        ctx: &mut TransformCtx<'_, '_>,
+        ctx: &mut TransformCtx<'_, '_, 'id>,
         scope: ScopeId,
         base: &str,
         flags: SymbolFlags,
-    ) -> BoundIdentifier {
+    ) -> BoundIdentifier<'id> {
         let name = ctx.generate_name(base, 2);
         let identifier = ctx.ast.binding_identifier(DUMMY_SP, name);
         let symbol = ctx.register_binding(scope, identifier, flags);
@@ -53,10 +53,10 @@ impl BoundIdentifier {
     /// ```
     pub fn reference_read(
         &self,
-        ctx: &mut TransformCtx<'_, '_>,
+        ctx: &mut TransformCtx<'_, '_, 'id>,
         scope: ScopeId,
         span: Span,
-    ) -> IdentifierReference {
+    ) -> IdentifierReference<'id> {
         let node = ctx
             .ast
             .identifier_reference(span, self.identifier.name(ctx.ast));
@@ -77,10 +77,10 @@ impl BoundIdentifier {
     /// ```
     pub fn reference_write(
         &self,
-        ctx: &mut TransformCtx<'_, '_>,
+        ctx: &mut TransformCtx<'_, '_, 'id>,
         scope: ScopeId,
         span: Span,
-    ) -> IdentifierReference {
+    ) -> IdentifierReference<'id> {
         let node = ctx
             .ast
             .identifier_reference(span, self.identifier.name(ctx.ast));
@@ -105,11 +105,11 @@ impl BoundIdentifier {
     /// ```
     pub fn assign(
         &self,
-        ctx: &mut TransformCtx<'_, '_>,
+        ctx: &mut TransformCtx<'_, '_, 'id>,
         scope: ScopeId,
         span: Span,
-        value: Expr,
-    ) -> Expr {
+        value: Expr<'id>,
+    ) -> Expr<'id> {
         let target = AssignmentTarget::SimpleAssignmentTarget(
             SimpleAssignmentTarget::IdentifierReference(self.reference_write(ctx, scope, span)),
         );
@@ -119,7 +119,7 @@ impl BoundIdentifier {
     }
 }
 
-impl TransformCtx<'_, '_> {
+impl<'id> TransformCtx<'_, '_, 'id> {
     /// Reserve and intern an available name in the lazily initialized shared transform collision domain.
     ///
     /// ```javascript
@@ -133,7 +133,7 @@ impl TransformCtx<'_, '_> {
     /// // On first use, observe symbols, binding declaration spellings and all reference names.
     /// // Reserve _temp3 immediately so another allocation cannot reuse it; no binding is registered yet.
     /// ```
-    pub fn generate_name(&mut self, base: &str, start_suffix: u64) -> AstUtf8 {
+    pub fn generate_name(&mut self, base: &str, start_suffix: u64) -> AstUtf8<'id> {
         let names = self.state.used_names.get_or_insert_with(|| {
             let mut names = UsedNameState::new(self.ast.allocator());
             for entry in self.state.semantic.iter_symbols() {
@@ -157,7 +157,7 @@ impl TransformCtx<'_, '_> {
     }
 }
 
-impl<'a> TransformCtx<'_, 'a> {
+impl<'id, 'a> TransformCtx<'_, 'a, 'id> {
     /// Read a binding's AST name and register pending allocations before registering its declaration and symbol.
     ///
     /// ```javascript
@@ -172,7 +172,7 @@ impl<'a> TransformCtx<'_, 'a> {
     pub fn register_binding(
         &mut self,
         scope: ScopeId,
-        binding: BindingIdentifier,
+        binding: BindingIdentifier<'id>,
         flags: SymbolFlags,
     ) -> SymbolId {
         let name = binding.name(self.ast);
@@ -197,7 +197,7 @@ impl<'a> TransformCtx<'_, 'a> {
     pub fn register_reference(
         &mut self,
         scope: ScopeId,
-        reference: IdentifierReference,
+        reference: IdentifierReference<'id>,
         target: Option<SymbolId>,
         flags: ReferenceFlags,
     ) -> ReferenceId {
@@ -222,7 +222,7 @@ impl<'a> TransformCtx<'_, 'a> {
     /// // Allocate only the UnaryExpression and grow indexes through its new NodeId.
     /// // Retain the existing call; attach the wrapper separately and register new semantic identities explicitly.
     /// ```
-    pub fn add_node<N>(&mut self, f: impl FnOnce(&mut Ast<'a>) -> N) -> N {
+    pub fn add_node<N>(&mut self, f: impl FnOnce(&mut Ast<'a, 'id>) -> N) -> N {
         let node = f(self.ast);
         self.state.semantic.grow_to(self.ast.node_count());
         node
@@ -243,7 +243,7 @@ impl<'a> TransformCtx<'_, 'a> {
     pub fn create_child_scope(
         &mut self,
         parent: ScopeId,
-        owner: NodeId,
+        owner: NodeId<'id>,
         kind: ScopeKind,
         flags: ScopeFlags,
     ) -> ScopeId {
@@ -270,7 +270,7 @@ impl<'a> TransformCtx<'_, 'a> {
     pub fn convert_scope(
         &mut self,
         scope: ScopeId,
-        owner: NodeId,
+        owner: NodeId<'id>,
         kind: ScopeKind,
         flags: ScopeFlags,
     ) {
@@ -294,7 +294,7 @@ impl<'a> TransformCtx<'_, 'a> {
     /// ```
     pub fn move_subtree_to_scope(
         &mut self,
-        root: impl TraverseWith<'a>,
+        root: impl TraverseWith<'a, 'id>,
         from: ScopeId,
         to: ScopeId,
     ) {
@@ -342,14 +342,14 @@ impl<'a> TransformCtx<'_, 'a> {
     }
 }
 
-struct ScopeMover<'c, 'a> {
-    semantic: &'c mut ScopeModel<'a>,
+struct ScopeMover<'c, 'a, 'id> {
+    semantic: &'c mut ScopeModel<'a, 'id>,
     from: ScopeId,
     to: ScopeId,
 }
 
-impl<'a> Traverse<'a> for ScopeMover<'_, 'a> {
-    fn enter_node(&mut self, node: NodeId, _ctx: &mut TraverseCtx<'_, 'a>) {
+impl<'id, 'a> Traverse<'a, 'id> for ScopeMover<'_, 'a, 'id> {
+    fn enter_node(&mut self, node: NodeId<'id>, _ctx: &mut TraverseCtx<'_, 'a, 'id>) {
         if let Some(scope) = self.semantic.scope_of(node) {
             // Program scopes keep their fixed outer wrapper.
             if self.semantic.scope(scope).parent == Some(self.from)

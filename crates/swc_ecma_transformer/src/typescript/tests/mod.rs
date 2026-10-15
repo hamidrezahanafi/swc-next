@@ -44,7 +44,8 @@ fn transformed_code_with_source_type(
         source_type,
         ..ParserOptions::default()
     };
-    let parsed = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let parsed = Parser::init(&allocator, source, options, NoTokenParserConfig, ast_guard).parse();
     assert!(parsed.diagnostics.is_empty());
     let mut ast = parsed.ast;
     Normalizer::normalize_runtime(ast.root_program(), &mut ast);
@@ -58,14 +59,19 @@ fn transformed_code_with_source_type(
 /// Analyze printed JavaScript, so assertions cover the bindings consumers see.
 pub(super) fn with_output_semantic(
     source: &str,
-    check: impl FnOnce(&swc_next_ecma_ast::Ast<'_>, &swc_next_ecma_semantic::Semantic<'_>),
+    check: impl for<'id> FnOnce(
+        &swc_next_ecma_ast::Ast<'_, 'id>,
+        &swc_next_ecma_semantic::Semantic<'_, 'id>,
+    ),
 ) {
     let allocator = Allocator::new();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
     let parsed = Parser::init(
         &allocator,
         source,
         ParserOptions::default(),
         NoTokenParserConfig,
+        ast_guard,
     )
     .parse();
     assert!(parsed.diagnostics.is_empty());

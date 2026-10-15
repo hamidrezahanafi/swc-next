@@ -12,11 +12,11 @@ use super::diagnostics::{
     FUNCTION_RETURN_TYPE_REQUIRED, METHOD_RETURN_TYPE_REQUIRED, PARAMETER_TYPE_REQUIRED,
 };
 
-impl<'ast> Transformer<'_, 'ast> {
+impl<'id, 'ast> Transformer<'_, 'ast, 'id> {
     pub(super) fn transform_ts_function_signature(
         &mut self,
-        function: TsFunction,
-        ast: &mut Ast<'ast>,
+        function: TsFunction<'id>,
+        ast: &mut Ast<'ast, 'id>,
     ) {
         if function.r#async(ast) {
             function.set_async(ast, false);
@@ -33,8 +33,8 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn validate_type_method_signature(
         &mut self,
-        signature: TsMethodSignature,
-        ast: &mut Ast<'ast>,
+        signature: TsMethodSignature<'id>,
+        ast: &mut Ast<'ast, 'id>,
     ) {
         self.report_untyped_this_parameter(signature.this_param(ast), ast);
         self.transform_formal_parameters_with_diagnostics(signature.params(ast), true, ast);
@@ -48,9 +48,9 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn transform_function_signature(
         &mut self,
-        function: Function,
-        ast: &mut Ast<'ast>,
-    ) -> Option<TsTypeAnnotation> {
+        function: Function<'id>,
+        ast: &mut Ast<'ast, 'id>,
+    ) -> Option<TsTypeAnnotation<'id>> {
         let mut return_type = function.return_type(ast);
         if return_type.is_none() && !function.r#async(ast) && !function.generator(ast) {
             return_type = self.infer_function_return_type(function, ast);
@@ -68,10 +68,10 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn transform_method_signature(
         &mut self,
-        function: Function,
+        function: Function<'id>,
         diagnostic_span: Span,
-        ast: &mut Ast<'ast>,
-    ) -> Option<TsTypeAnnotation> {
+        ast: &mut Ast<'ast, 'id>,
+    ) -> Option<TsTypeAnnotation<'id>> {
         let mut return_type = function.return_type(ast);
         if return_type.is_none() && !function.r#async(ast) && !function.generator(ast) {
             return_type = self.infer_function_return_type(function, ast);
@@ -89,8 +89,8 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn report_untyped_this_parameter(
         &mut self,
-        this_parameter: Option<TsThisParameter>,
-        ast: &Ast<'ast>,
+        this_parameter: Option<TsThisParameter<'id>>,
+        ast: &Ast<'ast, 'id>,
     ) {
         if let Some(this_parameter) = this_parameter
             && this_parameter.type_annotation(ast).is_none()
@@ -104,17 +104,17 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn transform_formal_parameters(
         &mut self,
-        params: FormalParameters,
-        ast: &mut Ast<'ast>,
+        params: FormalParameters<'id>,
+        ast: &mut Ast<'ast, 'id>,
     ) {
         self.transform_formal_parameters_with_diagnostics(params, true, ast);
     }
 
     pub(super) fn transform_formal_parameters_with_diagnostics(
         &mut self,
-        params: FormalParameters,
+        params: FormalParameters<'id>,
         report_missing_types: bool,
-        ast: &mut Ast<'ast>,
+        ast: &mut Ast<'ast, 'id>,
     ) {
         let items = params.items(ast);
         let mut transformed = Vec::with_capacity(items.len());
@@ -155,10 +155,10 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn transform_formal_parameter_with_diagnostics(
         &mut self,
-        parameter: FormalParameter,
+        parameter: FormalParameter<'id>,
         required_after: bool,
         report_missing_type: bool,
-        ast: &mut Ast<'ast>,
+        ast: &mut Ast<'ast, 'id>,
     ) -> bool {
         let pattern = parameter.pattern(ast);
         let initializer = parameter.initializer(ast);
@@ -208,25 +208,25 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn formal_parameter_is_required(
         &self,
-        parameter: FormalParameter,
-        ast: &Ast<'ast>,
+        parameter: FormalParameter<'id>,
+        ast: &Ast<'ast, 'id>,
     ) -> bool {
         !parameter.optional(ast) && parameter.initializer(ast).is_none()
     }
 
     pub(super) fn first_parameter_annotation(
         &self,
-        function: Function,
-        ast: &Ast<'ast>,
-    ) -> Option<TsTypeAnnotation> {
+        function: Function<'id>,
+        ast: &Ast<'ast, 'id>,
+    ) -> Option<TsTypeAnnotation<'id>> {
         self.first_parameter_annotation_in_params(function.params(ast), ast)
     }
 
     pub(super) fn first_parameter_annotation_in_params(
         &self,
-        params: FormalParameters,
-        ast: &Ast<'ast>,
-    ) -> Option<TsTypeAnnotation> {
+        params: FormalParameters<'id>,
+        ast: &Ast<'ast, 'id>,
+    ) -> Option<TsTypeAnnotation<'id>> {
         let item = ast.get_node_in_sub_range(params.items(ast).first()?);
         match ast.formal_parameter_item_data(item) {
             FormalParameterItemData::FormalParameter(parameter) => parameter.type_annotation(ast),
@@ -238,18 +238,18 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn set_first_parameter_annotation(
         &self,
-        function: Function,
-        annotation: &TsTypeAnnotation,
-        ast: &mut Ast<'ast>,
+        function: Function<'id>,
+        annotation: &TsTypeAnnotation<'id>,
+        ast: &mut Ast<'ast, 'id>,
     ) {
         self.set_first_parameter_annotation_in_params(function.params(ast), annotation, ast);
     }
 
     pub(super) fn set_first_parameter_annotation_in_params(
         &self,
-        params: FormalParameters,
-        annotation: &TsTypeAnnotation,
-        ast: &mut Ast<'ast>,
+        params: FormalParameters<'id>,
+        annotation: &TsTypeAnnotation<'id>,
+        ast: &mut Ast<'ast, 'id>,
     ) {
         let Some(item) = params.items(ast).first() else {
             return;
@@ -263,7 +263,11 @@ impl<'ast> Transformer<'_, 'ast> {
         parameter.set_type_annotation(ast, Some(annotation));
     }
 
-    fn add_undefined_to_parameter(&mut self, parameter: FormalParameter, ast: &mut Ast<'ast>) {
+    fn add_undefined_to_parameter(
+        &mut self,
+        parameter: FormalParameter<'id>,
+        ast: &mut Ast<'ast, 'id>,
+    ) {
         let Some(annotation) = parameter.type_annotation(ast) else {
             return;
         };
@@ -287,8 +291,8 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn add_explicit_undefined_to_parameter(
         &self,
-        parameter: FormalParameter,
-        ast: &mut Ast<'ast>,
+        parameter: FormalParameter<'id>,
+        ast: &mut Ast<'ast, 'id>,
     ) {
         let Some(annotation) = parameter.type_annotation(ast) else {
             return;
@@ -305,7 +309,7 @@ impl<'ast> Transformer<'_, 'ast> {
         parameter.set_type_annotation(ast, Some(annotation));
     }
 
-    fn type_maybe_undefined(&self, ty: TsType, ast: &Ast<'ast>) -> bool {
+    fn type_maybe_undefined(&self, ty: TsType<'id>, ast: &Ast<'ast, 'id>) -> bool {
         match ast.ts_type_data(ty) {
             TsTypeData::TsAnyKeyword(_)
             | TsTypeData::TsUnknownKeyword(_)
@@ -319,7 +323,7 @@ impl<'ast> Transformer<'_, 'ast> {
         }
     }
 
-    fn undefined_presence(&self, ty: TsType, ast: &Ast<'ast>) -> UndefinedPresence {
+    fn undefined_presence(&self, ty: TsType<'id>, ast: &Ast<'ast, 'id>) -> UndefinedPresence {
         match ast.ts_type_data(ty) {
             TsTypeData::TsUndefinedKeyword(_) => UndefinedPresence::Present,
             TsTypeData::TsAnyKeyword(_) => UndefinedPresence::Any,
@@ -375,7 +379,7 @@ impl<'ast> Transformer<'_, 'ast> {
         }
     }
 
-    fn has_explicit_undefined_union_member(&self, ty: TsType, ast: &Ast<'ast>) -> bool {
+    fn has_explicit_undefined_union_member(&self, ty: TsType<'id>, ast: &Ast<'ast, 'id>) -> bool {
         match ast.ts_type_data(ty) {
             TsTypeData::TsUndefinedKeyword(_) => true,
             TsTypeData::TsParenthesizedType(parenthesized) => {
@@ -392,9 +396,9 @@ impl<'ast> Transformer<'_, 'ast> {
 
     fn strip_binding_defaults(
         &self,
-        pattern: BindingPattern,
-        ast: &mut Ast<'ast>,
-    ) -> BindingPattern {
+        pattern: BindingPattern<'id>,
+        ast: &mut Ast<'ast, 'id>,
+    ) -> BindingPattern<'id> {
         match ast.binding_pattern_data(pattern) {
             BindingPatternData::AssignmentPattern(assignment) => {
                 self.strip_binding_defaults(assignment.left(ast), ast)

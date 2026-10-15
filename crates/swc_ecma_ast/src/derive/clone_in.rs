@@ -6,18 +6,18 @@ use crate::{
     UpdateOperator, VariableKind, node_id::ExtraDataValue,
 };
 
-pub trait CloneIn<'a>: Sized {
+pub trait CloneIn<'a, 'id>: Sized {
     type Cloned;
 
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned;
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned;
 }
 
 macro_rules! impl_clone_in_trivial {
     ($i:ident) => {
-        impl<'a> CloneIn<'a> for $i {
+        impl<'id, 'a> CloneIn<'a, 'id> for $i {
             type Cloned = $i;
 
-            fn clone_in(&self, _ast: &mut Ast<'a>) -> Self::Cloned {
+            fn clone_in(&self, _ast: &mut Ast<'a, 'id>) -> Self::Cloned {
                 self.clone()
             }
         }
@@ -46,10 +46,10 @@ impl_clone_in_trivial!(TsTypeOperatorKind);
 impl_clone_in_trivial!(TsMethodSignatureKind);
 impl_clone_in_trivial!(TsModuleDeclarationKind);
 impl_clone_in_trivial!(TsMappedTypeModifier);
-impl<'a, C, T: CloneIn<'a, Cloned = C>> CloneIn<'a> for Vec<T> {
+impl<'a, 'id, C, T: CloneIn<'a, 'id, Cloned = C>> CloneIn<'a, 'id> for Vec<T> {
     type Cloned = Vec<C>;
 
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let mut cloned = Vec::with_capacity(self.len());
         for item in self {
             cloned.push(item.clone_in(ast));
@@ -58,22 +58,22 @@ impl<'a, C, T: CloneIn<'a, Cloned = C>> CloneIn<'a> for Vec<T> {
     }
 }
 
-impl<'a, C, T: CloneIn<'a, Cloned = C>> CloneIn<'a> for Option<T> {
+impl<'a, 'id, C, T: CloneIn<'a, 'id, Cloned = C>> CloneIn<'a, 'id> for Option<T> {
     type Cloned = Option<C>;
 
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         self.as_ref().map(|it| it.clone_in(ast))
     }
 }
 
-impl<'a, C, T> CloneIn<'a> for SubRange<T>
+impl<'id, 'a, C, T> CloneIn<'a, 'id> for SubRange<'id, T>
 where
-    C: ExtraDataValue,
-    T: CloneIn<'a, Cloned = C> + ExtraDataValue,
+    C: ExtraDataValue<'id>,
+    T: CloneIn<'a, 'id, Cloned = C> + ExtraDataValue<'id>,
 {
-    type Cloned = SubRange<C>;
+    type Cloned = SubRange<'id, C>;
 
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let mut ids = Vec::with_capacity(self.len());
         for id in self.iter() {
             let node = ast.get_node_in_sub_range(id);
@@ -83,18 +83,18 @@ where
     }
 }
 
-impl<'a> CloneIn<'a> for AstUtf8 {
+impl<'id, 'a> CloneIn<'a, 'id> for AstUtf8<'id> {
     type Cloned = Self;
 
-    fn clone_in(&self, _ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, _ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         *self
     }
 }
 
-impl<'a> CloneIn<'a> for AstWtf8 {
+impl<'id, 'a> CloneIn<'a, 'id> for AstWtf8<'id> {
     type Cloned = Self;
 
-    fn clone_in(&self, _ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, _ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         *self
     }
 }

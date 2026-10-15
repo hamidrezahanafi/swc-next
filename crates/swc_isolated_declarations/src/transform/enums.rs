@@ -17,13 +17,13 @@ const CONST_ENUM_INITIALIZER_NOT_CONSTANT: &str =
     "const enum member initializers must be constant expressions.";
 
 #[derive(Debug, Clone, Copy)]
-enum ConstantValue {
+enum ConstantValue<'id> {
     Number(f64),
-    String(AstWtf8),
+    String(AstWtf8<'id>),
 }
 
-impl ConstantValue {
-    fn to_expression(self, span: Span, ast: &mut Ast<'_>) -> Expr {
+impl<'id> ConstantValue<'id> {
+    fn to_expression(self, span: Span, ast: &mut Ast<'_, 'id>) -> Expr<'id> {
         match self {
             Self::Number(value) => ast.expr_numeric_literal(span, value, None),
             Self::String(value) => ast.expr_string_literal(span, value, ast.empty_utf8()),
@@ -31,14 +31,14 @@ impl ConstantValue {
     }
 }
 
-enum EvaluatedValue {
+enum EvaluatedValue<'id> {
     Number(f64),
-    StoredString(AstWtf8),
+    StoredString(AstWtf8<'id>),
     ComputedString(Wtf8Buf),
 }
 
-impl From<ConstantValue> for EvaluatedValue {
-    fn from(value: ConstantValue) -> Self {
+impl<'id> From<ConstantValue<'id>> for EvaluatedValue<'id> {
+    fn from(value: ConstantValue<'id>) -> Self {
         match value {
             ConstantValue::Number(value) => Self::Number(value),
             ConstantValue::String(value) => Self::StoredString(value),
@@ -46,9 +46,9 @@ impl From<ConstantValue> for EvaluatedValue {
     }
 }
 
-impl EvaluatedValue {
+impl<'id> EvaluatedValue<'id> {
     // Commit synthesized strings once; subsequent members reuse the AST pool handle.
-    fn into_constant(self, ast: &mut Ast<'_>) -> ConstantValue {
+    fn into_constant(self, ast: &mut Ast<'_, 'id>) -> ConstantValue<'id> {
         match self {
             Self::Number(value) => ConstantValue::Number(value),
             Self::StoredString(value) => ConstantValue::String(value),
@@ -56,7 +56,7 @@ impl EvaluatedValue {
         }
     }
 
-    fn append_to(self, output: &mut Wtf8Buf, ast: &Ast<'_>) {
+    fn append_to(self, output: &mut Wtf8Buf, ast: &Ast<'_, 'id>) {
         match self {
             Self::Number(value) if value.is_nan() => output.push_str("NaN"),
             Self::Number(value) if value == f64::INFINITY => output.push_str("Infinity"),
@@ -71,12 +71,12 @@ impl EvaluatedValue {
     }
 }
 
-pub(super) fn transform_enum(
-    declaration: TsEnumDeclaration,
+pub(super) fn transform_enum<'id>(
+    declaration: TsEnumDeclaration<'id>,
     ambient: bool,
     diagnostics: &mut Vec<Diagnostic<'static>>,
-    semantic: &Semantic<'_>,
-    ast: &mut Ast<'_>,
+    semantic: &Semantic<'_, 'id>,
+    ast: &mut Ast<'_, 'id>,
 ) {
     let members = declaration.body(ast).members(ast);
     let mut previous_number = Some(-1.0);
@@ -115,12 +115,12 @@ pub(super) fn transform_enum(
     }
 }
 
-fn evaluate(
-    expression: Expr,
-    semantic: &Semantic<'_>,
-    previous_members: &FxHashMap<SymbolId, ConstantValue>,
-    ast: &Ast<'_>,
-) -> Option<EvaluatedValue> {
+fn evaluate<'id>(
+    expression: Expr<'id>,
+    semantic: &Semantic<'_, 'id>,
+    previous_members: &FxHashMap<SymbolId, ConstantValue<'id>>,
+    ast: &Ast<'_, 'id>,
+) -> Option<EvaluatedValue<'id>> {
     match ast.expr_data(unparenthesized(expression, ast)) {
         ExprData::StringLiteral(literal) => Some(EvaluatedValue::StoredString(literal.value(ast))),
         ExprData::NumericLiteral(literal) => Some(EvaluatedValue::Number(literal.value(ast))),
@@ -183,7 +183,10 @@ fn evaluate(
     }
 }
 
-fn evaluate_unary(operator: UnaryOperator, value: EvaluatedValue) -> Option<EvaluatedValue> {
+fn evaluate_unary<'id>(
+    operator: UnaryOperator,
+    value: EvaluatedValue<'id>,
+) -> Option<EvaluatedValue<'id>> {
     let value = match value {
         EvaluatedValue::Number(value) => value,
         EvaluatedValue::StoredString(_) | EvaluatedValue::ComputedString(_) => return None,
@@ -199,12 +202,12 @@ fn evaluate_unary(operator: UnaryOperator, value: EvaluatedValue) -> Option<Eval
     }
 }
 
-fn evaluate_binary(
+fn evaluate_binary<'id>(
     operator: BinaryOperator,
-    left: EvaluatedValue,
-    right: EvaluatedValue,
-    ast: &Ast<'_>,
-) -> Option<EvaluatedValue> {
+    left: EvaluatedValue<'id>,
+    right: EvaluatedValue<'id>,
+    ast: &Ast<'_, 'id>,
+) -> Option<EvaluatedValue<'id>> {
     if operator == BinaryOperator::Add
         && (!matches!(left, EvaluatedValue::Number(_))
             || !matches!(right, EvaluatedValue::Number(_)))
@@ -259,7 +262,11 @@ fn to_int32(value: f64) -> i32 {
     to_uint32(value) as i32
 }
 
-fn resolve_symbol(expression: Expr, semantic: &Semantic<'_>, ast: &Ast<'_>) -> Option<SymbolId> {
+fn resolve_symbol<'id>(
+    expression: Expr<'id>,
+    semantic: &Semantic<'_, 'id>,
+    ast: &Ast<'_, 'id>,
+) -> Option<SymbolId> {
     let expression = unparenthesized(expression, ast);
     match ast.expr_data(expression) {
         ExprData::IdentifierReference(identifier) => {
@@ -283,7 +290,10 @@ fn unique_symbol(mut targets: impl Iterator<Item = NameResolution>) -> Option<Sy
         .then_some(symbol)
 }
 
-fn property_name<'ast>(key: PropertyKey, ast: &Ast<'ast>) -> Option<Cow<'ast, [u8]>> {
+fn property_name<'id, 'ast>(
+    key: PropertyKey<'id>,
+    ast: &Ast<'ast, 'id>,
+) -> Option<Cow<'ast, [u8]>> {
     match ast.property_key_data(key) {
         PropertyKeyData::IdentifierName(identifier) => {
             Some(Cow::Borrowed(ast.get_utf8(identifier.name(ast)).as_bytes()))

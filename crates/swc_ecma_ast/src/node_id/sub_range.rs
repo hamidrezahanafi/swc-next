@@ -7,24 +7,38 @@ use crate::{
 
 /// A typed range of values in the AST extra-data arena.
 ///
-/// It only contains the start and end of the range in [crate::ast_list::NodeList].
+/// The invariant brand identifies the AST owning the range, independently of
+/// the element type. Empty ranges are valid in every AST.
 #[repr(C)]
 #[derive(Debug, Hash)]
-pub struct SubRange<T> {
+pub struct SubRange<'id, T> {
     pub(crate) start: ExtraDataId,
     pub(crate) end: ExtraDataId,
-    _phantom: PhantomData<T>,
+    _phantom: PhantomData<(T, generativity::Id<'id>)>,
 }
 
-impl<T> Clone for SubRange<T> {
+impl<'id, T> Clone for SubRange<'id, T> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<T> Copy for SubRange<T> {}
+impl<'id, T> Copy for SubRange<'id, T> {}
 
-impl<T> SubRange<T> {
+impl<'id, T> SubRange<'id, T> {
+    #[inline]
+    pub(crate) fn raw(self) -> super::RawSubRange {
+        super::RawSubRange {
+            start: self.start,
+            end: self.end,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn from_raw(range: super::RawSubRange) -> Self {
+        Self::new(range.start, range.end)
+    }
+
     pub(crate) fn new(start: ExtraDataId, end: ExtraDataId) -> Self {
         Self {
             start,
@@ -50,7 +64,7 @@ impl<T> SubRange<T> {
     }
 
     /// Similar to `Vec::remove(0)`.
-    pub fn remove_first(&mut self) -> NodeExtraDataId<T> {
+    pub fn remove_first(&mut self) -> NodeExtraDataId<'id, T> {
         assert!(!self.is_empty());
         let start = self.start;
         self.start += 1;
@@ -60,7 +74,7 @@ impl<T> SubRange<T> {
         }
     }
 
-    pub fn get(self, index: usize) -> Option<NodeExtraDataId<T>> {
+    pub fn get(self, index: usize) -> Option<NodeExtraDataId<'id, T>> {
         if index < self.len() {
             let id = self.start + index;
             return Some(NodeExtraDataId {
@@ -71,7 +85,7 @@ impl<T> SubRange<T> {
         None
     }
 
-    pub fn first(self) -> Option<NodeExtraDataId<T>> {
+    pub fn first(self) -> Option<NodeExtraDataId<'id, T>> {
         if self.is_empty() {
             return None;
         }
@@ -82,7 +96,7 @@ impl<T> SubRange<T> {
         })
     }
 
-    pub fn last(self) -> Option<NodeExtraDataId<T>> {
+    pub fn last(self) -> Option<NodeExtraDataId<'id, T>> {
         if self.is_empty() {
             return None;
         }
@@ -93,7 +107,7 @@ impl<T> SubRange<T> {
         })
     }
 
-    pub fn iter(self) -> SubRangeIterator<T> {
+    pub fn iter(self) -> SubRangeIterator<'id, T> {
         SubRangeIterator {
             cur: self.start,
             end: self.end,
@@ -121,11 +135,15 @@ impl<T> SubRange<T> {
     }
 
     #[inline]
-    pub fn replace_slot<'a>(self, ast: &mut Ast<'a>, at: NodeExtraDataId<T>, new: T)
+    pub fn replace_slot<'a>(self, ast: &mut Ast<'a, 'id>, at: NodeExtraDataId<'id, T>, new: T)
     where
-        T: ExtraDataValue,
+        T: ExtraDataValue<'id>,
     {
-        // SAFETY: A typed sub-range index identifies a slot assigned to `T`.
+        assert!(
+            self.start <= at.inner && at.inner < self.end,
+            "slot is outside this range"
+        );
+        // SAFETY: The slot and range belong to this AST and the slot stores `T`.
         unsafe {
             *ast.extra_data
                 .as_mut_slice()
@@ -134,22 +152,22 @@ impl<T> SubRange<T> {
     }
 
     #[inline]
-    pub fn get_node<'a>(self, ast: &Ast<'a>, index: usize) -> Option<T>
+    pub fn get_node<'a>(self, ast: &Ast<'a, 'id>, index: usize) -> Option<T>
     where
-        T: ExtraDataValue,
+        T: ExtraDataValue<'id>,
     {
         self.get(index).map(|id| ast.get_node_in_sub_range(id))
     }
 }
 
-pub struct SubRangeIterator<T> {
+pub struct SubRangeIterator<'id, T> {
     cur: ExtraDataId,
     end: ExtraDataId,
-    _phantom: PhantomData<T>,
+    _phantom: PhantomData<(T, generativity::Id<'id>)>,
 }
 
-impl<T> Iterator for SubRangeIterator<T> {
-    type Item = NodeExtraDataId<T>;
+impl<'id, T> Iterator for SubRangeIterator<'id, T> {
+    type Item = NodeExtraDataId<'id, T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.cur == self.end {
@@ -169,7 +187,7 @@ impl<T> Iterator for SubRangeIterator<T> {
     }
 }
 
-impl<T> DoubleEndedIterator for SubRangeIterator<T> {
+impl<'id, T> DoubleEndedIterator for SubRangeIterator<'id, T> {
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.cur == self.end {
             return None;
@@ -190,13 +208,13 @@ impl<T> DoubleEndedIterator for SubRangeIterator<T> {
 
 /// A typed index for a value inside a [`SubRange`].
 #[derive(Debug, Clone, Copy)]
-pub struct NodeExtraDataId<T> {
+pub struct NodeExtraDataId<'id, T> {
     inner: ExtraDataId,
-    _phantom: PhantomData<T>,
+    _phantom: PhantomData<(T, generativity::Id<'id>)>,
 }
 
-impl<'a> Ast<'a> {
-    pub fn get_node_in_sub_range<T: ExtraDataValue>(&self, id: NodeExtraDataId<T>) -> T {
+impl<'id, 'a> Ast<'a, 'id> {
+    pub fn get_node_in_sub_range<T: ExtraDataValue<'id>>(&self, id: NodeExtraDataId<'id, T>) -> T {
         // SAFETY: A typed sub-range index identifies a slot containing `T`.
         unsafe { T::from_extra_data(self.extra_data.as_slice().get_unchecked(id.inner.index())) }
     }

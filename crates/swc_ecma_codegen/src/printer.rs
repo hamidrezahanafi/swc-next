@@ -113,13 +113,13 @@ fn parse_small_int(bytes: &[u8]) -> i32 {
     if was_negative { -n } else { n }
 }
 
-struct Printer<'a> {
+struct Printer<'a, 'id> {
     allocator: &'a Allocator,
-    ast: &'a Ast<'a>,
+    ast: &'a Ast<'a, 'id>,
     options: Options,
     js: ArenaVec<'a, u8>,
     comments: &'a [Comment],
-    expr_visitor_stack: ArenaVec<'a, BinaryExprVisitor>,
+    expr_visitor_stack: ArenaVec<'a, BinaryExprVisitor<'id>>,
     builder: ChunkBuilder<'a>,
     next_comment: usize,
     indent: usize,
@@ -153,9 +153,9 @@ enum TsTypePrecedence {
     Postfix,
 }
 
-enum TsTypeList {
-    Union(TsUnionType),
-    Intersection(TsIntersectionType),
+enum TsTypeList<'id> {
+    Union(TsUnionType<'id>),
+    Intersection(TsIntersectionType<'id>),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -184,12 +184,16 @@ impl TsTypeContext {
     }
 }
 
-pub fn print<'a>(allocator: &'a Allocator, tree: &'a Ast<'a>, options: Options) -> PrintResult<'a> {
+pub fn print<'id, 'a>(
+    allocator: &'a Allocator,
+    tree: &'a Ast<'a, 'id>,
+    options: Options,
+) -> PrintResult<'a> {
     Printer::init(allocator, tree, options).generate()
 }
 
-impl BinaryExprVisitor {
-    fn prepare(&mut self, p: &mut Printer<'_>) {
+impl<'id> BinaryExprVisitor<'id> {
+    fn prepare(&mut self, p: &mut Printer<'_, 'id>) {
         let e = self.e;
 
         let operator = e.operator(p.ast);
@@ -258,7 +262,7 @@ impl BinaryExprVisitor {
         }
     }
 
-    fn visit_right_and_finish(self, p: &mut Printer<'_>) {
+    fn visit_right_and_finish(self, p: &mut Printer<'_, 'id>) {
         p.print_space();
         if self.operator.is_keyword() {
             p.print_space_before_identifier();
@@ -289,8 +293,8 @@ impl BinaryExprVisitor {
     }
 }
 
-impl<'a> Printer<'a> {
-    fn init(allocator: &'a Allocator, ast: &'a Ast<'a>, options: Options) -> Self {
+impl<'id, 'a> Printer<'a, 'id> {
+    fn init(allocator: &'a Allocator, ast: &'a Ast<'a, 'id>, options: Options) -> Self {
         let line_offset_tables = if options.source_map_path.is_some() {
             generate_line_offset_tables(allocator, ast.source().as_bytes())
         } else {
@@ -384,7 +388,7 @@ impl<'a> Printer<'a> {
         self.js.extend_from_slice_copy(text.as_ref());
     }
 
-    fn print_program(&mut self, program: Program) {
+    fn print_program(&mut self, program: Program<'id>) {
         if let Some(hashbang) = program.hashbang(self.ast) {
             self.print("#!");
             self.print_bytes(self.ast.get_utf8(hashbang.value(self.ast)));
@@ -422,7 +426,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_directive(&mut self, directive: Directive) {
+    fn print_directive(&mut self, directive: Directive<'id>) {
         let expression = directive.expression(self.ast);
         let value = self.ast.get_wtf8(expression.value(self.ast));
         let raw = self.ast.get_utf8(expression.raw(self.ast));
@@ -464,10 +468,7 @@ impl<'a> Printer<'a> {
             if !self.options.comments || (!preserve_all && !is_legal_comment(self.ast, comment)) {
                 continue;
             }
-            let value = self
-                .ast
-                .get_utf8(comment.value(self.ast.source().as_bytes()))
-                .as_bytes();
+            let value = self.ast.get_utf8(comment.value(self.ast)).as_bytes();
             let mut trim_start = 0;
             while value[trim_start..]
                 .first()
@@ -619,7 +620,11 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn has_direct_argument_comments(&self, args: SubRange<Argument>, close_offset: u32) -> bool {
+    fn has_direct_argument_comments(
+        &self,
+        args: SubRange<'id, Argument<'id>>,
+        close_offset: u32,
+    ) -> bool {
         self.comments[self.next_comment..]
             .iter()
             .take_while(|comment| comment.span.end <= close_offset)
@@ -820,11 +825,11 @@ impl<'a> Printer<'a> {
         );
     }
 
-    fn print_stmt(&mut self, stmt: Stmt) {
+    fn print_stmt(&mut self, stmt: Stmt<'id>) {
         self.print_stmt_with_context(stmt, false);
     }
 
-    fn print_stmt_with_context(&mut self, stmt: Stmt, prevent_directive: bool) {
+    fn print_stmt_with_context(&mut self, stmt: Stmt<'id>, prevent_directive: bool) {
         self.print_comments_before(stmt.span(self.ast).start, true, true);
         self.add_source_mapping(stmt.span(self.ast).start);
         self.stmt_start = self.js.len();
@@ -1153,7 +1158,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_body(&mut self, body: Stmt) {
+    fn print_body(&mut self, body: Stmt<'id>) {
         if let Some(block) = body.as_block_statement(self.ast) {
             self.print_space();
             self.print_block(block);
@@ -1169,7 +1174,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_block(&mut self, block: BlockStatement) {
+    fn print_block(&mut self, block: BlockStatement<'id>) {
         self.add_source_mapping(block.span(self.ast).start);
         self.print("{");
         let body = block.body(self.ast);
@@ -1206,7 +1211,7 @@ impl<'a> Printer<'a> {
         self.print("}");
     }
 
-    fn print_function_body(&mut self, body: FunctionBody) {
+    fn print_function_body(&mut self, body: FunctionBody<'id>) {
         self.add_source_mapping(body.span(self.ast).start);
         self.print("{");
         let directives = body.directives(self.ast);
@@ -1252,7 +1257,7 @@ impl<'a> Printer<'a> {
         self.print("}");
     }
 
-    fn print_if(&mut self, s: IfStatement) {
+    fn print_if(&mut self, s: IfStatement<'id>) {
         self.print_indent();
         self.add_source_mapping(s.span(self.ast).start);
         self.print("if");
@@ -1300,7 +1305,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_switch(&mut self, s: SwitchStatement) {
+    fn print_switch(&mut self, s: SwitchStatement<'id>) {
         self.print_indent();
         self.add_source_mapping(s.span(self.ast).start);
         self.print("switch");
@@ -1355,7 +1360,7 @@ impl<'a> Printer<'a> {
         self.print_newline();
     }
 
-    fn print_try(&mut self, s: TryStatement) {
+    fn print_try(&mut self, s: TryStatement<'id>) {
         self.print_indent();
         self.add_source_mapping(s.span(self.ast).start);
         self.print("try");
@@ -1385,14 +1390,14 @@ impl<'a> Printer<'a> {
         self.print_newline();
     }
 
-    fn print_for_left(&mut self, left: ForStatementLeft) {
+    fn print_for_left(&mut self, left: ForStatementLeft<'id>) {
         match self.ast.for_statement_left_data(left) {
             ForStatementLeftData::VariableDeclaration(v) => self.print_variable_decl(v, false),
             ForStatementLeftData::AssignmentTarget(t) => self.print_assignment_target(t),
         }
     }
 
-    fn print_for_of_left(&mut self, left: ForStatementLeft, is_await: bool) {
+    fn print_for_of_left(&mut self, left: ForStatementLeft<'id>, is_await: bool) {
         if is_await {
             self.print_for_left(left);
             return;
@@ -1415,7 +1420,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_decl(&mut self, decl: Decl) {
+    fn print_decl(&mut self, decl: Decl<'id>) {
         match self.ast.decl_data(decl) {
             DeclData::VariableDeclaration(v) => self.print_variable_decl(v, true),
             DeclData::Function(f) => self.print_function(f),
@@ -1430,7 +1435,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_decl_terminator(&mut self, decl: Decl) {
+    fn print_decl_terminator(&mut self, decl: Decl<'id>) {
         let ends_with_block = match self.ast.decl_data(decl) {
             DeclData::Function(_)
             | DeclData::Class(_)
@@ -1447,7 +1452,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_variable_decl(&mut self, decl: VariableDeclaration, include_declare: bool) {
+    fn print_variable_decl(&mut self, decl: VariableDeclaration<'id>, include_declare: bool) {
         self.add_source_mapping(decl.span(self.ast).start);
         if include_declare && decl.declare(self.ast) {
             self.print("declare ");
@@ -1478,7 +1483,7 @@ impl<'a> Printer<'a> {
         self.print_comments_before(decl.span(self.ast).end, false, true);
     }
 
-    fn print_function(&mut self, f: Function) {
+    fn print_function(&mut self, f: Function<'id>) {
         let is_expression = matches!(f.function_type(self.ast), FunctionType::FunctionExpression);
         let offset = self.js.len();
         let wrap =
@@ -1515,7 +1520,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_ts_function(&mut self, f: TsFunction, declaration: bool) {
+    fn print_ts_function(&mut self, f: TsFunction<'id>, declaration: bool) {
         self.print_space_before_identifier();
         self.add_source_mapping(f.span(self.ast).start);
         if f.declare(self.ast) {
@@ -1545,8 +1550,8 @@ impl<'a> Printer<'a> {
 
     fn print_formal_parameters(
         &mut self,
-        params: FormalParameters,
-        this_param: Option<TsThisParameter>,
+        params: FormalParameters<'id>,
+        this_param: Option<TsThisParameter<'id>>,
     ) {
         self.add_source_mapping(params.span(self.ast).start);
         self.print("(");
@@ -1587,7 +1592,7 @@ impl<'a> Printer<'a> {
         self.print(")");
     }
 
-    fn print_formal_parameter(&mut self, parameter: FormalParameter) {
+    fn print_formal_parameter(&mut self, parameter: FormalParameter<'id>) {
         self.print_decorators(parameter.decorators(self.ast));
         self.print_binding(parameter.pattern(self.ast).into());
         if parameter.optional(self.ast) {
@@ -1607,13 +1612,13 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_binding_identifier(&mut self, id: BindingIdentifier) {
+    fn print_binding_identifier(&mut self, id: BindingIdentifier<'id>) {
         let name = self.ast.get_utf8(id.name(self.ast));
         self.add_source_mapping_for_name(id.span(self.ast).start, name);
         self.print_identifier(name);
     }
 
-    fn print_binding(&mut self, binding: BindingPattern) {
+    fn print_binding(&mut self, binding: BindingPattern<'id>) {
         match self.ast.binding_pattern_data(binding) {
             BindingPatternData::BindingIdentifier(id) => self.print_binding_identifier(id),
             BindingPatternData::SimpleAssignmentTarget(t) => self.print_simple_assignment_target(t),
@@ -1637,7 +1642,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_array_pattern(&mut self, a: ArrayPattern) {
+    fn print_array_pattern(&mut self, a: ArrayPattern<'id>) {
         self.add_source_mapping(a.span(self.ast).start);
         self.print("[");
         let elements = a.elements(self.ast);
@@ -1666,7 +1671,7 @@ impl<'a> Printer<'a> {
         self.print("]");
     }
 
-    fn print_object_pattern(&mut self, o: ObjectPattern) {
+    fn print_object_pattern(&mut self, o: ObjectPattern<'id>) {
         self.add_source_mapping(o.span(self.ast).start);
         self.print("{");
         let props = o.properties(self.ast);
@@ -1716,7 +1721,7 @@ impl<'a> Printer<'a> {
         self.print("}");
     }
 
-    fn print_assignment_target(&mut self, target: AssignmentTarget) {
+    fn print_assignment_target(&mut self, target: AssignmentTarget<'id>) {
         match self.ast.assignment_target_data(target) {
             AssignmentTargetData::SimpleAssignmentTarget(t) => {
                 self.print_simple_assignment_target(t)
@@ -1726,7 +1731,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_simple_assignment_target(&mut self, target: SimpleAssignmentTarget) {
+    fn print_simple_assignment_target(&mut self, target: SimpleAssignmentTarget<'id>) {
         match self.ast.simple_assignment_target_data(target) {
             SimpleAssignmentTargetData::IdentifierReference(i) => {
                 let name = self.ast.get_utf8(i.name(self.ast));
@@ -1759,7 +1764,7 @@ impl<'a> Printer<'a> {
             return true;
         }
         self.ast
-            .get_utf8(comment.value(self.ast.source().as_bytes()))
+            .get_utf8(comment.value(self.ast))
             .chars()
             .any(|c| matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}'))
     }
@@ -1772,7 +1777,10 @@ impl<'a> Printer<'a> {
                 .any(|comment| self.comment_has_line_terminator(*comment))
     }
 
-    fn simple_assignment_target_expression(&self, target: SimpleAssignmentTarget) -> Expr {
+    fn simple_assignment_target_expression(
+        &self,
+        target: SimpleAssignmentTarget<'id>,
+    ) -> Expr<'id> {
         match self.ast.simple_assignment_target_data(target) {
             SimpleAssignmentTargetData::IdentifierReference(expression) => {
                 Expr::IdentifierReference(expression)
@@ -1795,7 +1803,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn expr_first_token_offset(&self, mut expr: Expr) -> u32 {
+    fn expr_first_token_offset(&self, mut expr: Expr<'id>) -> u32 {
         loop {
             expr = match self.ast.expr_data(expr) {
                 ExprData::MemberExpression(expression) => expression.object(self.ast),
@@ -1838,7 +1846,7 @@ impl<'a> Printer<'a> {
 
     // Only rightmost binary/logical operands carry the cast grouping context.
     // Skip consequent lookahead when it cannot affect the test.
-    fn expr_ends_with_ts_cast(&self, mut expr: Expr) -> bool {
+    fn expr_ends_with_ts_cast(&self, mut expr: Expr<'id>) -> bool {
         loop {
             expr = match self.ast.expr_data(expr) {
                 ExprData::BinaryExpression(expression) => expression.right(self.ast),
@@ -1868,7 +1876,7 @@ impl<'a> Printer<'a> {
     // https://github.com/microsoft/TypeScript/blob/1e4744d68260a7cb91b62b12edc3f6a2187faaf1/tsc/internal/parser/parser.go#L6210-L6242
     // TS7: nullable `?` parsing:
     // https://github.com/microsoft/TypeScript/blob/1e4744d68260a7cb91b62b12edc3f6a2187faaf1/tsc/internal/parser/parser.go#L2719-L2755
-    fn expr_can_start_ts_type(&self, mut expr: Expr) -> bool {
+    fn expr_can_start_ts_type(&self, mut expr: Expr<'id>) -> bool {
         loop {
             expr = match self.ast.expr_data(expr) {
                 ExprData::MemberExpression(expression) => expression.object(self.ast),
@@ -1925,14 +1933,14 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn expr_has_leading_line_terminator(&self, expr: Expr) -> bool {
+    fn expr_has_leading_line_terminator(&self, expr: Expr<'id>) -> bool {
         // Locate the first token before scanning comments. Scanning at every
         // node on the left spine would make deep expressions quadratic.
         let offset = self.expr_first_token_offset(expr);
         self.has_leading_line_terminator_before(offset)
     }
 
-    fn print_expr_with_leading_comments_in_parens(&mut self, expr: Expr, level: Precedence) {
+    fn print_expr_with_leading_comments_in_parens(&mut self, expr: Expr<'id>, level: Precedence) {
         self.print("(");
         self.print_newline();
         self.indent += 1;
@@ -1945,7 +1953,7 @@ impl<'a> Printer<'a> {
         self.print(")");
     }
 
-    fn print_expr_without_leading_line_terminator(&mut self, expr: Expr, level: Precedence) {
+    fn print_expr_without_leading_line_terminator(&mut self, expr: Expr<'id>, level: Precedence) {
         if self.expr_has_leading_line_terminator(expr) {
             self.print_expr_with_leading_comments_in_parens(expr, level);
         } else {
@@ -1953,11 +1961,11 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_expr(&mut self, expr: Expr, level: Precedence) {
+    fn print_expr(&mut self, expr: Expr<'id>, level: Precedence) {
         self.print_expr_with_context(expr, level, ExprContext::empty());
     }
 
-    fn print_expr_leading_comments(&mut self, expr: Expr) {
+    fn print_expr_leading_comments(&mut self, expr: Expr<'id>) {
         let is_at_stmt_start = self.js.len() == self.stmt_start;
         let is_at_export_default_start = self.js.len() == self.export_default_start;
         self.print_comments_before(expr.span(self.ast).start, false, true);
@@ -1969,7 +1977,12 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_expr_with_context(&mut self, expr: Expr, level: Precedence, context: ExprContext) {
+    fn print_expr_with_context(
+        &mut self,
+        expr: Expr<'id>,
+        level: Precedence,
+        context: ExprContext,
+    ) {
         self.print_expr_leading_comments(expr);
         match self.ast.expr_data(expr) {
             ExprData::IdentifierReference(e) => {
@@ -2343,7 +2356,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_ts_non_null(&mut self, expression: TsNonNullExpression, in_new_callee: bool) {
+    fn print_ts_non_null(&mut self, expression: TsNonNullExpression<'id>, in_new_callee: bool) {
         let operand = expression.expression(self.ast);
         let level = if matches!(self.ast.expr_data(operand), ExprData::ChainExpression(_)) {
             Precedence::Call
@@ -2356,7 +2369,7 @@ impl<'a> Printer<'a> {
         self.print_operator(OperatorCode::TsNonNull, "!");
     }
 
-    fn print_binaryish(&mut self, e: Binaryish, level: Precedence, context: ExprContext) {
+    fn print_binaryish(&mut self, e: Binaryish<'id>, level: Precedence, context: ExprContext) {
         // Binary-expression printing is iterative instead of recursive to
         // avoid overflowing the call stack for deeply nested ASTs.
         let operator = e.operator(self.ast);
@@ -2422,7 +2435,7 @@ impl<'a> Printer<'a> {
 
     // Keep prefix operand contexts outside the main expression dispatch.
     #[inline(never)]
-    fn print_await(&mut self, e: AwaitExpression, level: Precedence, context: ExprContext) {
+    fn print_await(&mut self, e: AwaitExpression<'id>, level: Precedence, context: ExprContext) {
         let wrap = level > Precedence::Prefix;
         if wrap {
             self.print("(");
@@ -2441,7 +2454,7 @@ impl<'a> Printer<'a> {
     #[inline(never)]
     fn print_ts_type_assertion(
         &mut self,
-        e: TsTypeAssertion,
+        e: TsTypeAssertion<'id>,
         level: Precedence,
         context: ExprContext,
     ) {
@@ -2457,7 +2470,11 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_unary<const NO_INSTANTIATION: bool>(&mut self, e: UnaryExpression, level: Precedence) {
+    fn print_unary<const NO_INSTANTIATION: bool>(
+        &mut self,
+        e: UnaryExpression<'id>,
+        level: Precedence,
+    ) {
         let wrap = level > Precedence::Prefix;
         if wrap {
             self.print("(");
@@ -2487,7 +2504,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_update(&mut self, e: UpdateExpression, level: Precedence) {
+    fn print_update(&mut self, e: UpdateExpression<'id>, level: Precedence) {
         let wrap = level >= Precedence::Postfix;
         if wrap {
             self.print("(");
@@ -2507,7 +2524,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_member(&mut self, e: MemberExpression, in_new_callee: bool) {
+    fn print_member(&mut self, e: MemberExpression<'id>, in_new_callee: bool) {
         let object = e.object(self.ast);
         let object_data = self.ast.expr_data(object);
         let computed = e.computed(self.ast);
@@ -2597,7 +2614,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_call(&mut self, e: CallExpression, level: Precedence, in_new_callee: bool) {
+    fn print_call(&mut self, e: CallExpression<'id>, level: Precedence, in_new_callee: bool) {
         let wrap = level > Precedence::Call || in_new_callee;
         if wrap {
             self.print("(");
@@ -2628,7 +2645,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_new(&mut self, e: NewExpression, level: Precedence) {
+    fn print_new(&mut self, e: NewExpression<'id>, level: Precedence) {
         let wrap = level > Precedence::New;
         if wrap {
             self.print("(");
@@ -2656,7 +2673,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_arguments(&mut self, args: SubRange<Argument>, close_offset: u32) {
+    fn print_arguments(&mut self, args: SubRange<'id, Argument<'id>>, close_offset: u32) {
         let old_forbid_in = self.forbid_in;
         self.forbid_in = false;
         self.print("(");
@@ -2703,7 +2720,7 @@ impl<'a> Printer<'a> {
         self.forbid_in = old_forbid_in;
     }
 
-    fn print_array(&mut self, e: ArrayExpression) {
+    fn print_array(&mut self, e: ArrayExpression<'id>) {
         let old_forbid_in = self.forbid_in;
         self.forbid_in = false;
         self.add_source_mapping(e.span(self.ast).start);
@@ -2739,7 +2756,7 @@ impl<'a> Printer<'a> {
         self.forbid_in = old_forbid_in;
     }
 
-    fn print_object(&mut self, e: ObjectExpression, _level: Precedence) {
+    fn print_object(&mut self, e: ObjectExpression<'id>, _level: Precedence) {
         let old_forbid_in = self.forbid_in;
         self.forbid_in = false;
         let wrap = self.js.len() == self.stmt_start || self.js.len() == self.arrow_expr_start;
@@ -2804,7 +2821,7 @@ impl<'a> Printer<'a> {
         self.forbid_in = old_forbid_in;
     }
 
-    fn print_object_property(&mut self, p: ObjectProperty) {
+    fn print_object_property(&mut self, p: ObjectProperty<'id>) {
         let kind = p.kind(self.ast);
         match kind {
             PropertyKind::Get => self.print("get "),
@@ -2845,7 +2862,7 @@ impl<'a> Printer<'a> {
     }
 
     #[inline(always)]
-    fn can_use_shorthand_property(&self, property: ObjectProperty) -> bool {
+    fn can_use_shorthand_property(&self, property: ObjectProperty<'id>) -> bool {
         property.shorthand(self.ast)
             && !property.computed(self.ast)
             && match self.ast.property_key_data(property.key(self.ast)) {
@@ -2856,7 +2873,7 @@ impl<'a> Printer<'a> {
             }
     }
 
-    fn print_property_key(&mut self, key: PropertyKey, computed: bool) {
+    fn print_property_key(&mut self, key: PropertyKey<'id>, computed: bool) {
         self.add_source_mapping(key.span(self.ast).start);
         if computed {
             self.print("[");
@@ -2868,7 +2885,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_property_key_expr(&mut self, key: PropertyKey, level: Precedence) {
+    fn print_property_key_expr(&mut self, key: PropertyKey<'id>, level: Precedence) {
         match self.ast.property_key_data(key) {
             PropertyKeyData::IdentifierName(e) => {
                 self.print_identifier(self.ast.get_utf8(e.name(self.ast)))
@@ -2895,12 +2912,12 @@ impl<'a> Printer<'a> {
     }
 
     #[inline(always)]
-    fn print_property_key_plain(&mut self, key: PropertyKey) {
+    fn print_property_key_plain(&mut self, key: PropertyKey<'id>) {
         self.print_property_key_plain_data(key, self.ast.property_key_data(key));
     }
 
     #[inline(always)]
-    fn print_property_key_plain_data(&mut self, key: PropertyKey, data: PropertyKeyData) {
+    fn print_property_key_plain_data(&mut self, key: PropertyKey<'id>, data: PropertyKeyData<'id>) {
         match data {
             PropertyKeyData::IdentifierName(value) => {
                 let name = self.ast.get_utf8(value.name(self.ast));
@@ -2920,7 +2937,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_number_property_key(&mut self, literal: NumericLiteral) {
+    fn print_number_property_key(&mut self, literal: NumericLiteral<'id>) {
         let value = literal.value(self.ast);
         let has_source_spelling = literal.raw(self.ast).is_some();
         let requires_string = value.is_sign_negative() || !value.is_finite();
@@ -2934,7 +2951,7 @@ impl<'a> Printer<'a> {
         self.print_number_literal(literal, Precedence::Lowest);
     }
 
-    fn print_template(&mut self, e: TemplateLiteral, is_tagged: bool) {
+    fn print_template(&mut self, e: TemplateLiteral<'id>, is_tagged: bool) {
         if !is_tagged {
             self.add_source_mapping(e.span(self.ast).start);
         }
@@ -2976,7 +2993,7 @@ impl<'a> Printer<'a> {
         self.print("`");
     }
 
-    fn print_arrow(&mut self, e: ArrowFunctionExpression, level: Precedence) {
+    fn print_arrow(&mut self, e: ArrowFunctionExpression<'id>, level: Precedence) {
         let old_forbid_in = self.forbid_in;
         let wrap = level > Precedence::Assignment;
         if wrap {
@@ -3051,7 +3068,7 @@ impl<'a> Printer<'a> {
         self.forbid_in = old_forbid_in;
     }
 
-    fn print_class(&mut self, c: Class, declaration: bool) {
+    fn print_class(&mut self, c: Class<'id>, declaration: bool) {
         let is_expression = c.class_type(self.ast) == ClassType::ClassExpression;
         let offset = self.js.len();
         let wrap =
@@ -3132,7 +3149,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_class_element(&mut self, element: ClassElement) {
+    fn print_class_element(&mut self, element: ClassElement<'id>) {
         match self.ast.class_element_data(element) {
             ClassElementData::MethodDefinition(m) => {
                 self.print_indent();
@@ -3290,8 +3307,8 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_decorators(&mut self, decorators: SubRange<Decorator>) {
-        fn need_wrap(ast: &Ast<'_>, mut expression: Expr) -> bool {
+    fn print_decorators(&mut self, decorators: SubRange<'id, Decorator<'id>>) {
+        fn need_wrap<'id>(ast: &Ast<'_, 'id>, mut expression: Expr<'id>) -> bool {
             loop {
                 match ast.expr_data(expression) {
                     ExprData::IdentifierReference(_) => return false,
@@ -3349,7 +3366,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_bigint_literal(&mut self, literal: BigIntLiteral) {
+    fn print_bigint_literal(&mut self, literal: BigIntLiteral<'id>) {
         let raw = self.ast.get_utf8(literal.raw(self.ast));
         for byte in raw.bytes() {
             if byte != b'_' {
@@ -3359,7 +3376,7 @@ impl<'a> Printer<'a> {
         self.print("n");
     }
 
-    fn print_number_literal(&mut self, literal: NumericLiteral, level: Precedence) {
+    fn print_number_literal(&mut self, literal: NumericLiteral<'id>, level: Precedence) {
         let value = literal.value(self.ast);
         assert!(
             !value.is_nan(),
@@ -3382,7 +3399,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_number_expr(&mut self, literal: NumericLiteral, level: Precedence) {
+    fn print_number_expr(&mut self, literal: NumericLiteral<'id>, level: Precedence) {
         if self.try_print_number_raw(literal) {
             return;
         }
@@ -3391,7 +3408,7 @@ impl<'a> Printer<'a> {
     }
 
     #[inline(always)]
-    fn try_print_number_raw(&mut self, literal: NumericLiteral) -> bool {
+    fn try_print_number_raw(&mut self, literal: NumericLiteral<'id>) -> bool {
         if self.options.minify || self.options.number_format != NumberFormat::Preserve {
             return false;
         }
@@ -3715,7 +3732,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_import(&mut self, d: ImportDeclaration) {
+    fn print_import(&mut self, d: ImportDeclaration<'id>) {
         self.print("import");
         if d.phase(self.ast) == Some(ImportPhase::Source) {
             self.print(" source");
@@ -3803,7 +3820,7 @@ impl<'a> Printer<'a> {
         self.print_import_attributes(d.attributes(self.ast), d.span(self.ast));
     }
 
-    fn print_import_attributes(&mut self, attrs: SubRange<ImportAttribute>, span: Span) {
+    fn print_import_attributes(&mut self, attrs: SubRange<'id, ImportAttribute<'id>>, span: Span) {
         if attrs.is_empty() {
             return;
         }
@@ -3839,7 +3856,7 @@ impl<'a> Printer<'a> {
         self.print("}");
     }
 
-    fn print_module_name(&mut self, name: ModuleExportName) {
+    fn print_module_name(&mut self, name: ModuleExportName<'id>) {
         match self.ast.module_export_name_data(name) {
             ModuleExportNameData::IdentifierName(i) => {
                 let text = self.ast.get_utf8(i.name(self.ast));
@@ -3861,7 +3878,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_export_named(&mut self, d: ExportNamedDeclaration) {
+    fn print_export_named(&mut self, d: ExportNamedDeclaration<'id>) {
         self.print_indent();
         self.add_source_mapping(d.span(self.ast).start);
         let declaration = d.declaration(self.ast);
@@ -3940,7 +3957,7 @@ impl<'a> Printer<'a> {
         self.print_semicolon_after_statement();
     }
 
-    fn print_export_default(&mut self, d: ExportDefaultDeclaration) {
+    fn print_export_default(&mut self, d: ExportDefaultDeclaration<'id>) {
         self.print_indent();
         self.add_source_mapping(d.span(self.ast).start);
         self.print("export default");
@@ -3986,19 +4003,19 @@ impl<'a> Printer<'a> {
 
     // TypeScript printing follows the same recursive shape as the JavaScript
     // printer. Keeping it here avoids a second representation or conversion.
-    fn print_ts_annotation(&mut self, a: TsTypeAnnotation) {
+    fn print_ts_annotation(&mut self, a: TsTypeAnnotation<'id>) {
         self.print(":");
         self.print_space();
         self.print_ts_type(a.type_annotation(self.ast), TsTypePrecedence::Lowest);
     }
 
-    fn print_ts_type_params(&mut self, d: TsTypeParameterDeclaration) {
+    fn print_ts_type_params(&mut self, d: TsTypeParameterDeclaration<'id>) {
         self.print_ts_type_params_with_trailing_comma(d, false);
     }
 
     fn print_ts_type_params_with_trailing_comma(
         &mut self,
-        d: TsTypeParameterDeclaration,
+        d: TsTypeParameterDeclaration<'id>,
         trailing_comma: bool,
     ) {
         self.print_operator(OperatorCode::TsTypeOpen, "<");
@@ -4035,7 +4052,7 @@ impl<'a> Printer<'a> {
         self.print_operator(OperatorCode::TsTypeClose, ">");
     }
 
-    fn print_ts_type_args(&mut self, d: TsTypeParameterInstantiation) {
+    fn print_ts_type_args(&mut self, d: TsTypeParameterInstantiation<'id>) {
         self.print_operator(OperatorCode::TsTypeOpen, "<");
         for (i, id) in d.params(self.ast).iter().enumerate() {
             if i != 0 {
@@ -4047,19 +4064,19 @@ impl<'a> Printer<'a> {
         self.print_operator(OperatorCode::TsTypeClose, ">");
     }
 
-    fn print_ts_type_assertion_prefix(&mut self, ty: TsType, source_offset: u32) {
+    fn print_ts_type_assertion_prefix(&mut self, ty: TsType<'id>, source_offset: u32) {
         self.print_mapped_operator(OperatorCode::TsTypeOpen, "<", source_offset);
         self.print_ts_type(ty, TsTypePrecedence::Lowest);
         self.print_operator(OperatorCode::TsTypeClose, ">");
     }
 
-    fn print_ts_type(&mut self, ty: TsType, level: TsTypePrecedence) {
+    fn print_ts_type(&mut self, ty: TsType<'id>, level: TsTypePrecedence) {
         self.print_ts_type_with_context(ty, level, TsTypeContext::Default);
     }
 
     fn print_ts_type_with_context(
         &mut self,
-        ty: TsType,
+        ty: TsType<'id>,
         level: TsTypePrecedence,
         context: TsTypeContext,
     ) {
@@ -4331,7 +4348,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_ts_type_list(&mut self, list: TsTypeList, level: TsTypePrecedence) {
+    fn print_ts_type_list(&mut self, list: TsTypeList<'id>, level: TsTypePrecedence) {
         let (types, sep, precedence, member_precedence) = match list {
             TsTypeList::Union(t) => (
                 t.types(self.ast),
@@ -4369,7 +4386,7 @@ impl<'a> Printer<'a> {
             self.print(")");
         }
     }
-    fn print_ts_type_name(&mut self, n: TsTypeName) {
+    fn print_ts_type_name(&mut self, n: TsTypeName<'id>) {
         match self.ast.ts_type_name_data(n) {
             TsTypeNameData::IdentifierReference(i) => {
                 let name = self.ast.get_utf8(i.name(self.ast));
@@ -4379,7 +4396,7 @@ impl<'a> Printer<'a> {
             TsTypeNameData::TsQualifiedName(q) => self.print_ts_qualified(q),
         }
     }
-    fn print_ts_qualified(&mut self, q: TsQualifiedName) {
+    fn print_ts_qualified(&mut self, q: TsQualifiedName<'id>) {
         match self.ast.ts_qualified_name_left_data(q.left(self.ast)) {
             TsQualifiedNameLeftData::IdentifierReference(i) => {
                 let name = self.ast.get_utf8(i.name(self.ast));
@@ -4405,7 +4422,7 @@ impl<'a> Printer<'a> {
         self.add_source_mapping_for_name(right.span(self.ast).start, name);
         self.print_identifier(name);
     }
-    fn print_ts_import_type(&mut self, t: TsImportType) {
+    fn print_ts_import_type(&mut self, t: TsImportType<'id>) {
         self.print("import(");
         let source = t.source(self.ast);
         self.add_source_mapping(source.span(self.ast).start);
@@ -4425,7 +4442,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_ts_import_qualifier(&mut self, q: TsImportTypeQualifier) {
+    fn print_ts_import_qualifier(&mut self, q: TsImportTypeQualifier<'id>) {
         match self.ast.ts_import_type_qualifier_data(q) {
             TsImportTypeQualifierData::IdentifierName(i) => {
                 let name = self.ast.get_utf8(i.name(self.ast));
@@ -4435,14 +4452,14 @@ impl<'a> Printer<'a> {
             TsImportTypeQualifierData::TsQualifiedName(q) => self.print_ts_qualified(q),
         }
     }
-    fn print_ts_query_name(&mut self, n: TsTypeQueryExprName) {
+    fn print_ts_query_name(&mut self, n: TsTypeQueryExprName<'id>) {
         match self.ast.ts_type_query_expr_name_data(n) {
             TsTypeQueryExprNameData::TsTypeName(n) => self.print_ts_type_name(n),
             TsTypeQueryExprNameData::ThisExpression(_) => self.print("this"),
             TsTypeQueryExprNameData::TsImportType(t) => self.print_ts_import_type(t),
         }
     }
-    fn print_ts_literal(&mut self, l: TsLiteral) {
+    fn print_ts_literal(&mut self, l: TsLiteral<'id>) {
         match self.ast.ts_literal_data(l) {
             TsLiteralData::StringLiteral(s) => {
                 self.print_quoted(self.ast.get_wtf8(s.value(self.ast)), true)
@@ -4459,7 +4476,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_ts_signed_numeric_literal(&mut self, expression: UnaryExpression) {
+    fn print_ts_signed_numeric_literal(&mut self, expression: UnaryExpression<'id>) {
         let operator = expression.operator(self.ast);
         let argument = expression.argument(self.ast);
         let ExprData::NumericLiteral(number) = self.ast.expr_data(argument) else {
@@ -4482,7 +4499,7 @@ impl<'a> Printer<'a> {
         self.add_source_mapping(argument.span(self.ast).start);
         self.print_number_literal(number, Precedence::Prefix);
     }
-    fn print_ts_tuple_element(&mut self, e: TsTupleElement) {
+    fn print_ts_tuple_element(&mut self, e: TsTupleElement<'id>) {
         match self.ast.ts_tuple_element_data(e) {
             TsTupleElementData::TsType(t) => self.print_ts_type(t, TsTypePrecedence::Lowest),
             TsTupleElementData::TsNamedTupleMember(n) => {
@@ -4499,7 +4516,7 @@ impl<'a> Printer<'a> {
             }
         }
     }
-    fn print_ts_type_members(&mut self, m: SubRange<TsTypeElement>) {
+    fn print_ts_type_members(&mut self, m: SubRange<'id, TsTypeElement<'id>>) {
         self.print("{");
         if !m.is_empty() {
             self.print_newline();
@@ -4518,7 +4535,7 @@ impl<'a> Printer<'a> {
         self.print_indent();
         self.print("}");
     }
-    fn print_ts_type_element(&mut self, e: TsTypeElement) {
+    fn print_ts_type_element(&mut self, e: TsTypeElement<'id>) {
         match self.ast.ts_type_element_data(e) {
             TsTypeElementData::TsPropertySignature(s) => {
                 if s.readonly(self.ast) {
@@ -4572,7 +4589,7 @@ impl<'a> Printer<'a> {
             TsTypeElementData::TsIndexSignature(s) => self.print_ts_index_signature(s),
         }
     }
-    fn print_ts_index_signature(&mut self, s: TsIndexSignature) {
+    fn print_ts_index_signature(&mut self, s: TsIndexSignature<'id>) {
         if s.r#static(self.ast) {
             self.print("static ");
         }
@@ -4592,7 +4609,7 @@ impl<'a> Printer<'a> {
         self.print("]");
         self.print_ts_annotation(s.type_annotation(self.ast));
     }
-    fn print_ts_mapped(&mut self, t: TsMappedType) {
+    fn print_ts_mapped(&mut self, t: TsMappedType<'id>) {
         self.print("{");
         self.print_newline();
         self.indent += 1;
@@ -4629,7 +4646,7 @@ impl<'a> Printer<'a> {
         self.print_indent();
         self.print("}");
     }
-    fn print_ts_type_alias(&mut self, d: TsTypeAliasDeclaration) {
+    fn print_ts_type_alias(&mut self, d: TsTypeAliasDeclaration<'id>) {
         self.add_source_mapping(d.span(self.ast).start);
         if d.declare(self.ast) {
             self.print("declare ");
@@ -4644,7 +4661,7 @@ impl<'a> Printer<'a> {
         self.print_space();
         self.print_ts_type(d.type_annotation(self.ast), TsTypePrecedence::Lowest);
     }
-    fn print_ts_interface(&mut self, d: TsInterfaceDeclaration) {
+    fn print_ts_interface(&mut self, d: TsInterfaceDeclaration<'id>) {
         self.add_source_mapping(d.span(self.ast).start);
         if d.declare(self.ast) {
             self.print("declare ");
@@ -4672,7 +4689,7 @@ impl<'a> Printer<'a> {
         self.print_space();
         self.print_ts_type_members(d.body(self.ast).body(self.ast));
     }
-    fn print_ts_enum(&mut self, d: TsEnumDeclaration) {
+    fn print_ts_enum(&mut self, d: TsEnumDeclaration<'id>) {
         self.add_source_mapping(d.span(self.ast).start);
         if d.declare(self.ast) {
             self.print("declare ");
@@ -4709,7 +4726,7 @@ impl<'a> Printer<'a> {
         self.add_source_mapping(d.body(self.ast).span(self.ast).end.saturating_sub(1));
         self.print("}");
     }
-    fn print_ts_enum_name(&mut self, n: TsEnumMemberName, computed: bool) {
+    fn print_ts_enum_name(&mut self, n: TsEnumMemberName<'id>, computed: bool) {
         if computed {
             self.print("[");
             self.print_comments_before(n.span(self.ast).start, false, true);
@@ -4730,7 +4747,7 @@ impl<'a> Printer<'a> {
             self.print("]");
         }
     }
-    fn print_ts_module(&mut self, d: TsModuleDeclaration) {
+    fn print_ts_module(&mut self, d: TsModuleDeclaration<'id>) {
         self.add_source_mapping(d.span(self.ast).start);
         if d.declare(self.ast) {
             self.print("declare ");
@@ -4745,7 +4762,7 @@ impl<'a> Printer<'a> {
             self.print_ts_module_body(b);
         }
     }
-    fn print_ts_module_name(&mut self, n: TsModuleName) {
+    fn print_ts_module_name(&mut self, n: TsModuleName<'id>) {
         match self.ast.ts_module_name_data(n) {
             TsModuleNameData::BindingIdentifier(i) => self.print_binding_identifier(i),
             TsModuleNameData::StringLiteral(s) => {
@@ -4755,7 +4772,7 @@ impl<'a> Printer<'a> {
             TsModuleNameData::TsQualifiedName(q) => self.print_ts_qualified(q),
         }
     }
-    fn print_ts_module_body(&mut self, b: TsModuleBody) {
+    fn print_ts_module_body(&mut self, b: TsModuleBody<'id>) {
         match self.ast.ts_module_body_data(b) {
             TsModuleBodyData::TsModuleBlock(b) => {
                 self.add_source_mapping(b.span(self.ast).start);
@@ -4787,7 +4804,7 @@ impl<'a> Printer<'a> {
             TsModuleBodyData::TsModuleDeclaration(d) => self.print_ts_module(d),
         }
     }
-    fn print_ts_global(&mut self, d: TsGlobalDeclaration) {
+    fn print_ts_global(&mut self, d: TsGlobalDeclaration<'id>) {
         self.add_source_mapping(d.span(self.ast).start);
         if d.declare(self.ast) {
             self.print("declare ");
@@ -4822,7 +4839,7 @@ impl<'a> Printer<'a> {
         self.add_source_mapping(b.span(self.ast).end.saturating_sub(1));
         self.print("}");
     }
-    fn print_ts_parameter_property(&mut self, p: TsParameterProperty) {
+    fn print_ts_parameter_property(&mut self, p: TsParameterProperty<'id>) {
         self.print_decorators(p.decorators(self.ast));
         self.print_accessibility(p.accessibility(self.ast));
         if p.r#override(self.ast) {
@@ -4833,7 +4850,7 @@ impl<'a> Printer<'a> {
         }
         self.print_formal_parameter(p.parameter(self.ast));
     }
-    fn print_ts_import_equals(&mut self, d: TsImportEqualsDeclaration) {
+    fn print_ts_import_equals(&mut self, d: TsImportEqualsDeclaration<'id>) {
         self.add_source_mapping(d.span(self.ast).start);
         self.print("import ");
         if d.import_kind(self.ast) == ImportOrExportKind::Type {
@@ -4860,7 +4877,7 @@ impl<'a> Printer<'a> {
         }
     }
 
-    fn print_jsx_element(&mut self, e: JsxElement) {
+    fn print_jsx_element(&mut self, e: JsxElement<'id>) {
         let o = e.opening_element(self.ast);
         self.add_source_mapping(e.span(self.ast).start);
         self.print("<");
@@ -4910,7 +4927,7 @@ impl<'a> Printer<'a> {
             self.print(">");
         }
     }
-    fn print_jsx_fragment(&mut self, e: JsxFragment) {
+    fn print_jsx_fragment(&mut self, e: JsxFragment<'id>) {
         self.add_source_mapping(e.span(self.ast).start);
         self.print("<>");
         for id in e.children(self.ast).iter() {
@@ -4919,7 +4936,7 @@ impl<'a> Printer<'a> {
         self.add_source_mapping(e.span(self.ast).end.saturating_sub(3));
         self.print("</>");
     }
-    fn print_jsx_name(&mut self, n: JsxElementName) {
+    fn print_jsx_name(&mut self, n: JsxElementName<'id>) {
         self.print_comments_before(n.span(self.ast).start, false, false);
         match self.ast.jsx_element_name_data(n) {
             JsxElementNameData::JsxIdentifier(i) => {
@@ -4936,7 +4953,7 @@ impl<'a> Printer<'a> {
             JsxElementNameData::JsxMemberExpression(m) => self.print_jsx_member(m),
         }
     }
-    fn print_jsx_member(&mut self, m: JsxMemberExpression) {
+    fn print_jsx_member(&mut self, m: JsxMemberExpression<'id>) {
         match self
             .ast
             .jsx_member_expression_object_data(m.object(self.ast))
@@ -4954,7 +4971,7 @@ impl<'a> Printer<'a> {
         self.add_source_mapping_for_name(property.span(self.ast).start, name);
         self.print_bytes(name);
     }
-    fn print_jsx_attr_name(&mut self, n: JsxAttributeName) {
+    fn print_jsx_attr_name(&mut self, n: JsxAttributeName<'id>) {
         match self.ast.jsx_attribute_name_data(n) {
             JsxAttributeNameData::JsxIdentifier(i) => {
                 let name = self.ast.get_utf8(i.name(self.ast));
@@ -4969,7 +4986,7 @@ impl<'a> Printer<'a> {
             }
         }
     }
-    fn print_jsx_attr_value(&mut self, v: JsxAttributeValue) {
+    fn print_jsx_attr_value(&mut self, v: JsxAttributeValue<'id>) {
         self.print_comments_before(v.span(self.ast).start, false, false);
         match self.ast.jsx_attribute_value_data(v) {
             JsxAttributeValueData::StringLiteral(s) => {
@@ -4995,7 +5012,7 @@ impl<'a> Printer<'a> {
             JsxAttributeValueData::JsxFragment(e) => self.print_jsx_fragment(e),
         }
     }
-    fn print_jsx_container(&mut self, c: JsxExpressionContainer) {
+    fn print_jsx_container(&mut self, c: JsxExpressionContainer<'id>) {
         self.print("{");
         match self.ast.jsx_expression_data(c.expression(self.ast)) {
             JsxExpressionData::Expr(e) => {
@@ -5019,7 +5036,7 @@ impl<'a> Printer<'a> {
         self.print_comments_before(c.span(self.ast).end.saturating_sub(1), false, true);
         self.print("}");
     }
-    fn print_jsx_child(&mut self, c: JsxChild) {
+    fn print_jsx_child(&mut self, c: JsxChild<'id>) {
         match self.ast.jsx_child_data(c) {
             JsxChildData::JsxText(t) => {
                 self.print_bytes(self.ast.get_utf8(t.value(self.ast)));
@@ -5037,8 +5054,8 @@ impl<'a> Printer<'a> {
     }
 }
 
-impl Printer<'_> {
-    fn binding_pattern_identifier_name(&self, binding: BindingPattern) -> Option<&str> {
+impl<'id> Printer<'_, 'id> {
+    fn binding_pattern_identifier_name(&self, binding: BindingPattern<'id>) -> Option<&str> {
         match self.ast.binding_pattern_data(binding) {
             BindingPatternData::BindingIdentifier(identifier) => {
                 Some(self.ast.get_utf8(identifier.name(self.ast)))
@@ -5055,7 +5072,10 @@ impl Printer<'_> {
         }
     }
 
-    fn bare_arrow_parameter(&self, params: FormalParameters) -> Option<BindingIdentifier> {
+    fn bare_arrow_parameter(
+        &self,
+        params: FormalParameters<'id>,
+    ) -> Option<BindingIdentifier<'id>> {
         let ast = self.ast;
         let items = params.items(ast);
         if items.len() != 1 || params.rest(ast).is_some() {
@@ -5097,7 +5117,7 @@ impl Printer<'_> {
         }
     }
 
-    fn module_name(&self, n: ModuleExportName) -> &Wtf8 {
+    fn module_name(&self, n: ModuleExportName<'id>) -> &Wtf8 {
         let ast = self.ast;
         match ast.module_export_name_data(n) {
             ModuleExportNameData::IdentifierName(i) => Wtf8::from_str(ast.get_utf8(i.name(ast))),
@@ -5106,10 +5126,8 @@ impl Printer<'_> {
     }
 }
 
-fn is_legal_comment(ast: &Ast, comment: Comment) -> bool {
-    let value = ast
-        .get_utf8(comment.value(ast.source().as_bytes()))
-        .as_bytes();
+fn is_legal_comment<'id>(ast: &Ast<'_, 'id>, comment: Comment) -> bool {
+    let value = ast.get_utf8(comment.value(ast)).as_bytes();
     if ast
         .source()
         .as_bytes()

@@ -2,22 +2,22 @@ use swc_next_ecma_ast::{Ast, Expr, ExprData, GetSpan, UnaryOperator, VisitMut, V
 
 use crate::CompressOptions;
 
-pub(super) fn compress(ast: &mut Ast<'_>, options: CompressOptions) {
+pub(super) fn compress<'id>(ast: &mut Ast<'_, 'id>, options: CompressOptions) {
     ast.root_program()
         .visit_mut_with(&mut Compressor { ast, options });
 }
 
-struct Compressor<'visit, 'ast> {
-    ast: &'visit mut Ast<'ast>,
+struct Compressor<'visit, 'ast, 'id> {
+    ast: &'visit mut Ast<'ast, 'id>,
     options: CompressOptions,
 }
 
-impl<'ast> VisitMut<'ast> for Compressor<'_, 'ast> {
-    fn ast(&mut self) -> &mut Ast<'ast> {
+impl<'id, 'ast> VisitMut<'ast, 'id> for Compressor<'_, 'ast, 'id> {
+    fn ast(&mut self) -> &mut Ast<'ast, 'id> {
         self.ast
     }
 
-    fn visit_mut_expr(&mut self, node: Expr) -> Option<Expr> {
+    fn visit_mut_expr(&mut self, node: Expr<'id>) -> Option<Expr<'id>> {
         if self.options.booleans
             && let ExprData::BooleanLiteral(literal) = self.ast.expr_data(node)
         {
@@ -43,14 +43,24 @@ mod tests {
 
     use crate::{Minifier, MinifierOptions};
 
-    fn parse<'a>(allocator: &'a Allocator, source: &'a str) -> Ast<'a> {
-        let result =
-            Parser::init(allocator, source, Options::default(), NoTokenParserConfig).parse();
+    fn parse<'id, 'a>(
+        allocator: &'a Allocator,
+        source: &'a str,
+        guard: swc_next_ecma_ast::AstGuard<'id>,
+    ) -> Ast<'a, 'id> {
+        let result = Parser::init(
+            allocator,
+            source,
+            Options::default(),
+            NoTokenParserConfig,
+            guard,
+        )
+        .parse();
         assert!(result.diagnostics.is_empty());
         result.ast
     }
 
-    fn expression(ast: &Ast<'_>) -> Expr {
+    fn expression<'id>(ast: &Ast<'_, 'id>) -> Expr<'id> {
         let statement =
             ast.get_node_in_sub_range(ast.root_program().body(ast).iter().next().unwrap());
         let StmtData::ExpressionStatement(statement) = ast.stmt_data(statement) else {
@@ -62,7 +72,8 @@ mod tests {
     #[test]
     fn source_spans() {
         let allocator = Allocator::new();
-        let mut ast = parse(&allocator, "  true;");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let mut ast = parse(&allocator, "  true;", ast_guard);
         let span = expression(&ast).span(&ast);
         Minifier::minify(&mut ast, MinifierOptions::default());
         let ExprData::UnaryExpression(replacement) = ast.expr_data(expression(&ast)) else {

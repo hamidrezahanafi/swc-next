@@ -14,12 +14,16 @@ use crate::surface::{
     first_template_quasi, signed_numeric_value, supported_computed_key, unparenthesized,
 };
 
-impl<'ast> Transformer<'_, 'ast> {
-    pub(super) fn is_supported_computed_key(&self, key: PropertyKey, ast: &Ast<'ast>) -> bool {
+impl<'id, 'ast> Transformer<'_, 'ast, 'id> {
+    pub(super) fn is_supported_computed_key(
+        &self,
+        key: PropertyKey<'id>,
+        ast: &Ast<'ast, 'id>,
+    ) -> bool {
         supported_computed_key(key, ast, self.semantic)
     }
 
-    pub(super) fn property_key_is_private(key: PropertyKey, ast: &Ast<'ast>) -> bool {
+    pub(super) fn property_key_is_private(key: PropertyKey<'id>, ast: &Ast<'ast, 'id>) -> bool {
         matches!(
             ast.property_key_data(key),
             PropertyKeyData::Expr(expression)
@@ -29,8 +33,8 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn validate_computed_type_elements(
         &mut self,
-        elements: SubRange<TsTypeElement>,
-        ast: &Ast<'ast>,
+        elements: SubRange<'id, TsTypeElement<'id>>,
+        ast: &Ast<'ast, 'id>,
     ) {
         for element in elements.iter() {
             let element = ast.get_node_in_sub_range(element);
@@ -61,8 +65,8 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn property_key_name(
         &self,
-        key: PropertyKey,
-        ast: &Ast<'ast>,
+        key: PropertyKey<'id>,
+        ast: &Ast<'ast, 'id>,
     ) -> Option<Cow<'ast, str>> {
         match ast.property_key_data(key) {
             PropertyKeyData::IdentifierName(identifier) => {
@@ -74,8 +78,8 @@ impl<'ast> Transformer<'_, 'ast> {
 
     fn property_expression_name(
         &self,
-        expression: Expr,
-        ast: &Ast<'ast>,
+        expression: Expr<'id>,
+        ast: &Ast<'ast, 'id>,
     ) -> Option<Cow<'ast, str>> {
         match ast.expr_data(expression) {
             ExprData::IdentifierReference(identifier) => {
@@ -110,9 +114,9 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn declaration_property_key(
         &self,
-        key: PropertyKey,
-        ast: &mut Ast<'ast>,
-    ) -> PropertyKey {
+        key: PropertyKey<'id>,
+        ast: &mut Ast<'ast, 'id>,
+    ) -> PropertyKey<'id> {
         let PropertyKeyData::Expr(expression) = ast.property_key_data(key) else {
             return key;
         };
@@ -129,11 +133,11 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn object_declaration_key(
         &self,
-        key: PropertyKey,
+        key: PropertyKey<'id>,
         computed: bool,
         preserve_syntax: bool,
-        ast: &mut Ast<'ast>,
-    ) -> (PropertyKey, bool) {
+        ast: &mut Ast<'ast, 'id>,
+    ) -> (PropertyKey<'id>, bool) {
         let key = self.declaration_property_key(key, ast);
         if preserve_syntax {
             if computed
@@ -219,7 +223,11 @@ impl<'ast> Transformer<'_, 'ast> {
         (PropertyKey::Expr(expression), true)
     }
 
-    fn normalize_plain_property_key(&self, key: PropertyKey, ast: &mut Ast<'ast>) -> PropertyKey {
+    fn normalize_plain_property_key(
+        &self,
+        key: PropertyKey<'id>,
+        ast: &mut Ast<'ast, 'id>,
+    ) -> PropertyKey<'id> {
         let PropertyKeyData::Expr(expression) = ast.property_key_data(key) else {
             return key;
         };

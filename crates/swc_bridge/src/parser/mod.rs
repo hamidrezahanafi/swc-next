@@ -18,11 +18,13 @@ pub unsafe fn parse_to_buffer(
 ) -> Vec<u8> {
     let source = unsafe { std::str::from_utf8_unchecked(source) };
     let allocator = Allocator::default();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
     let result = Parser::init(
         &allocator,
         source,
         options.unwrap_or_default().into(),
         NoTokenParserConfig,
+        ast_guard,
     )
     .parse();
 

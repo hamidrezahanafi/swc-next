@@ -17,29 +17,29 @@ use swc_next_ecma_ast::{
 /// state. Local names that do not yet have a reference remain explicitly
 /// unresolved instead of being conflated with external exports.
 #[derive(Debug)]
-pub struct ModuleRecord<'a> {
-    exports: ArenaVec<'a, ExportEntry>,
+pub struct ModuleRecord<'a, 'id> {
+    exports: ArenaVec<'a, ExportEntry<'id>>,
 }
 
-impl ModuleRecord<'_> {
+impl<'id> ModuleRecord<'_, 'id> {
     /// Every export occurrence in source order.
-    pub fn exports(&self) -> &[ExportEntry] {
+    pub fn exports(&self) -> &[ExportEntry<'id>] {
         &self.exports
     }
 }
 
 /// A module name together with the AST node that spells it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ModuleName {
-    pub name: AstWtf8,
-    pub node: NodeId,
+pub struct ModuleName<'id> {
+    pub name: AstWtf8<'id>,
+    pub node: NodeId<'id>,
 }
 
 /// The name introduced into this module's export namespace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExportName {
-    Named(ModuleName),
-    Default { node: NodeId },
+pub enum ExportName<'id> {
+    Named(ModuleName<'id>),
+    Default { node: NodeId<'id> },
 }
 
 /// The syntactic form that created an [`ExportEntry`].
@@ -56,8 +56,8 @@ pub enum ExportOrigin {
 
 /// The name requested from an external module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExternalExportName {
-    Named(ModuleName),
+pub enum ExternalExportName<'id> {
+    Named(ModuleName<'id>),
     All,
     AllButDefault,
 }
@@ -68,37 +68,37 @@ pub enum ExternalExportName {
 /// [`crate::Semantic::reference_candidates`] for that reference's certainty
 /// and additional possible targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExportTarget {
+pub enum ExportTarget<'id> {
     Local {
         symbol: SymbolId,
         reference: Option<ReferenceId>,
     },
     External {
-        source: ModuleName,
-        imported: ExternalExportName,
+        source: ModuleName<'id>,
+        imported: ExternalExportName<'id>,
     },
     AnonymousDeclaration {
-        node: NodeId,
+        node: NodeId<'id>,
     },
     Expression {
-        node: NodeId,
+        node: NodeId<'id>,
         reference: Option<ReferenceId>,
         symbol: Option<SymbolId>,
     },
     UnresolvedLocal {
-        name: ModuleName,
+        name: ModuleName<'id>,
         reference: Option<ReferenceId>,
     },
 }
 
 /// One export occurrence and its finalized semantic target state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ExportEntry {
-    pub node: NodeId,
-    pub statement: NodeId,
-    pub exported: Option<ExportName>,
+pub struct ExportEntry<'id> {
+    pub node: NodeId<'id>,
+    pub statement: NodeId<'id>,
+    pub exported: Option<ExportName<'id>>,
     pub origin: ExportOrigin,
-    pub target: ExportTarget,
+    pub target: ExportTarget<'id>,
     /// Whether a specifier or re-export explicitly restricts its target to
     /// type meanings. Direct declarations do not set this flag: their syntax
     /// determines the meanings they contribute. Consumers that need
@@ -107,13 +107,13 @@ pub struct ExportEntry {
     pub type_only: bool,
 }
 
-pub(crate) struct ModuleRecordBuilder<'a> {
+pub(crate) struct ModuleRecordBuilder<'a, 'id> {
     allocator: &'a Allocator,
     enabled: bool,
-    exports: RawVec<RawExportEntry>,
+    exports: RawVec<RawExportEntry<'id>>,
 }
 
-impl<'a> ModuleRecordBuilder<'a> {
+impl<'id, 'a> ModuleRecordBuilder<'a, 'id> {
     pub fn new(allocator: &'a Allocator, enabled: bool) -> Self {
         Self {
             allocator,
@@ -122,7 +122,12 @@ impl<'a> ModuleRecordBuilder<'a> {
         }
     }
 
-    pub fn add_direct_export(&mut self, tree: &Ast, binding: NodeId, statement: NodeId) {
+    pub fn add_direct_export(
+        &mut self,
+        tree: &Ast<'_, 'id>,
+        binding: NodeId<'id>,
+        statement: NodeId<'id>,
+    ) {
         if !self.enabled {
             return;
         }
@@ -139,9 +144,9 @@ impl<'a> ModuleRecordBuilder<'a> {
 
     pub fn add_specifier(
         &mut self,
-        tree: &Ast,
-        declaration: ExportNamedDeclaration,
-        specifier: ExportSpecifier,
+        tree: &Ast<'_, 'id>,
+        declaration: ExportNamedDeclaration<'id>,
+        specifier: ExportSpecifier<'id>,
     ) {
         if !self.enabled {
             return;
@@ -178,7 +183,7 @@ impl<'a> ModuleRecordBuilder<'a> {
         });
     }
 
-    pub fn add_export_all(&mut self, tree: &Ast, declaration: ExportAllDeclaration) {
+    pub fn add_export_all(&mut self, tree: &Ast<'_, 'id>, declaration: ExportAllDeclaration<'id>) {
         if !self.enabled {
             return;
         }
@@ -213,7 +218,11 @@ impl<'a> ModuleRecordBuilder<'a> {
         });
     }
 
-    pub fn add_default_export(&mut self, tree: &Ast, declaration: ExportDefaultDeclaration) {
+    pub fn add_default_export(
+        &mut self,
+        tree: &Ast<'_, 'id>,
+        declaration: ExportDefaultDeclaration<'id>,
+    ) {
         if !self.enabled {
             return;
         }
@@ -257,8 +266,8 @@ impl<'a> ModuleRecordBuilder<'a> {
     pub fn finalize(
         self,
         node_semantic: &[NodeSemanticId],
-        references: &[crate::Reference],
-    ) -> ModuleRecord<'a> {
+        references: &[crate::Reference<'id>],
+    ) -> ModuleRecord<'a, 'id> {
         let mut exports = ArenaVec::with_capacity_in(self.exports.len(), self.allocator);
         for raw in self.exports {
             let target = match raw.target {
@@ -323,35 +332,35 @@ impl<'a> ModuleRecordBuilder<'a> {
 }
 
 #[derive(Clone, Copy)]
-struct RawExportEntry {
-    node: NodeId,
-    statement: NodeId,
-    exported: Option<ExportName>,
+struct RawExportEntry<'id> {
+    node: NodeId<'id>,
+    statement: NodeId<'id>,
+    exported: Option<ExportName<'id>>,
     origin: ExportOrigin,
-    target: RawExportTarget,
+    target: RawExportTarget<'id>,
     type_only: bool,
 }
 
 #[derive(Clone, Copy)]
-enum RawExportTarget {
+enum RawExportTarget<'id> {
     Direct {
-        binding: NodeId,
+        binding: NodeId<'id>,
     },
     Local {
-        name: ModuleName,
+        name: ModuleName<'id>,
     },
     External {
-        source: ModuleName,
-        imported: ExternalExportName,
+        source: ModuleName<'id>,
+        imported: ExternalExportName<'id>,
     },
     Default {
-        value: NodeId,
-        binding: Option<NodeId>,
-        expression: Option<NodeId>,
+        value: NodeId<'id>,
+        binding: Option<NodeId<'id>>,
+        expression: Option<NodeId<'id>>,
     },
 }
 
-fn module_name(tree: &Ast, node: NodeId) -> ModuleName {
+fn module_name<'id>(tree: &Ast<'_, 'id>, node: NodeId<'id>) -> ModuleName<'id> {
     let name = match tree.kind_data(node) {
         NodeKindData::IdentifierName(identifier) => identifier.name(tree).into(),
         NodeKindData::IdentifierReference(identifier) => identifier.name(tree).into(),
@@ -362,7 +371,7 @@ fn module_name(tree: &Ast, node: NodeId) -> ModuleName {
     ModuleName { name, node }
 }
 
-fn string_name(tree: &Ast, node: NodeId) -> ModuleName {
+fn string_name<'id>(tree: &Ast<'_, 'id>, node: NodeId<'id>) -> ModuleName<'id> {
     let NodeKindData::StringLiteral(string) = tree.kind_data(node) else {
         unreachable!("module source must be a string literal")
     };

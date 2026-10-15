@@ -32,7 +32,7 @@ impl CommentState {
         targets
     }
 
-    pub(crate) fn flush(&mut self, ast: &mut Ast<'_>) {
+    pub(crate) fn flush<'id>(&mut self, ast: &mut Ast<'_, 'id>) {
         if self.leading.is_empty() && self.trailing.is_empty() {
             return;
         }

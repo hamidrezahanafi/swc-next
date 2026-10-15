@@ -18,17 +18,17 @@ This part of the design is inspired by the [Zig compiler](https://codeberg.org/z
 `Ast` borrows the source text and an arena allocator. Besides node and field storage, it keeps the root, source metadata, attached comments, and strings. The main storage fields are:
 
 ```rs
-pub struct Ast<'a> {
+pub struct Ast<'a, 'id> {
     allocator: &'a Allocator,
-    root: Option<NodeId>,
+    root: Option<RawNodeId>,
     // Source metadata and attached comments omitted.
     nodes: NodeData<'a>,
     extra_data: ArenaVec<'a, ExtraData>,
-    strings: StringPool<'a>,
+    strings: StringPool<'a, 'id>,
 }
 ```
 
-The node table uses a structure-of-arrays layout: spans, kinds, and payloads are stored in separate arena-backed columns, all indexed by the same `NodeId`. There is no stored `AstNode` record; `AstNode` is the trait implemented by typed handles.
+The node table uses a structure-of-arrays layout: spans, kinds, and payloads are stored in separate arena-backed columns, all indexed internally by the same raw node index. There is no stored `AstNode` record; `AstNode` is the trait implemented by typed handles.
 
 | Column | Element type  | Size     |
 | ------ | ------------- | -------- |
@@ -46,7 +46,7 @@ For example, `Program` stores `directives` and `hashbang` inline, while `body` o
 ```rs
 #[repr(C)]
 pub(crate) struct ProgramPayload {
-    directives: SubRange<Directive>, // 8 bytes
+    directives: RawSubRange,         // 8 bytes: two u32 bounds
     hashbang: u32,                   // 4 bytes: NodeId or None sentinel
     extra_data_start: ExtraDataId,   // 4 bytes: points to body
 }
@@ -54,12 +54,16 @@ pub(crate) struct ProgramPayload {
 
 `ExtraData` is an 8-byte, type-erased slot. The AST schema supplies the field type and its encoding; no per-slot runtime discriminant is needed.
 
-- Node handles are encoded as `NodeId` values.
+- Node handles are encoded as raw `u32` indices.
 - Supported scalar fields are encoded as compact words.
-- `AstUtf8`, `AstWtf8`, and `SubRange<T>` store two `u32` offsets in one slot.
+- `AstUtf8`, `AstWtf8`, and `SubRange<'id, T>` store two `u32` offsets in one slot.
 - Optional handles and strings use reserved representations for `None`, such as `u32::MAX` for an optional node ID.
 
 ![Flattening AST](./images/flattening-ast.excalidraw.png)
+
+Node IDs, typed nodes, strings, lists, and list slots carry a unique, invariant lifetime brand identifying their owning AST. The AST brand `'id` is separate from the source/allocator lifetime `'a`; it adds no stored bytes. `AstUtf8<'id>` and `AstWtf8<'id>` remain two `u32` offsets, while payloads and the FFI format store their unbranded eight-byte encoding. Empty handles are obtained from the owning AST rather than a global constant.
+
+Constructors consume a fresh `AstGuard<'id>`, created with `make_ast_guard!`. Builders, setters, list storage, and string access all preserve the brand. String contents can still be borrowed for `'a`. Node IDs remain 4 bytes, lists remain 8 bytes, and list slots remain 4 bytes. Raw IDs and list bounds are private to storage; public handles cannot be constructed from integers. `node_id_at` bounds-checks a live index and returns an ID branded by its AST. Empty lists are valid in every AST, while nonempty lists preserve their owner even when their element type has no brand.
 
 #### Typed AST
 
@@ -75,12 +79,12 @@ pub struct Program {
 
 // Macro expansion, omitting derives:
 #[repr(transparent)]
-pub struct Program(pub(crate) NodeId);
+pub struct Program<'id>(pub(crate) NodeId<'id>);
 ```
 
 AST enum declarations such as `Expr` and `Stmt` also become `NodeId` wrappers. Their concrete kind is read from the node table, so the handle does not carry a separate enum discriminant. Generated `is_*` and `as_*` methods provide variant checks and downcasts. Types marked with `#[ast(repr)]` additionally get a matching data enum, such as `ExprData`, for pattern matching through `ast.expr_data(expr)`.
 
-Handles do not encode ownership or an AST lifetime. They must refer to a valid node of the expected kind in the same context; unchecked construction or changing a node's kind must preserve that invariant.
+Handles encode ownership through their invariant brand. Safe field access, conversions, builders, setters, cloning, and traversal preserve it. Unchecked typed construction still requires the expected node kind; changing node kinds or truncating storage must not invalidate surviving handles. FFI deserialization needs separate validation of serialized payloads and edges.
 
 #### Ast Tool
 
@@ -89,21 +93,21 @@ Handles do not encode ownership or an AST lifetime. They must refer to a valid n
 Generated builders take a span and the declared fields, write inline and extra-data fields according to the layout, append the node, and return its typed handle. For example:
 
 ```rs
-impl<'a> Ast<'a> {
+impl<'a, 'id> Ast<'a, 'id> {
     pub fn program(
         &mut self,
         span: Span,
-        directives: SubRange<Directive>,
-        body: SubRange<Stmt>,
-        hashbang: Option<Hashbang>,
-    ) -> Program {
+        directives: SubRange<'id, Directive<'id>>,
+        body: SubRange<'id, Stmt<'id>>,
+        hashbang: Option<Hashbang<'id>>,
+    ) -> Program<'id> {
         let extra_data_start = self.add_extra(body);
         Program(self.add_node(
             span,
             NodeKind::Program,
             NodePayload {
                 program: ProgramPayload {
-                    directives,
+                    directives: directives.raw(),
                     hashbang: hashbang.map_or(u32::MAX, |node| node.node_id().index() as u32),
                     extra_data_start,
                 },
@@ -126,7 +130,8 @@ program.set_body(&mut ast, new_body);
 The parser returns an AST context with its typed root stored on it. A single `Program` type represents Script, Module, and CommonJS sources; `Ast::source_type()` distinguishes them.
 
 ```rs
-let result = Parser::init(&allocator, source, options, config).parse();
+make_ast_guard!(guard);
+let result = Parser::init(&allocator, source, options, config, guard).parse();
 let mut ast = result.ast;
 let program = ast.root_program();
 ```
@@ -149,12 +154,12 @@ match ast.expr_data(expression) {
 Visitors also operate on handles. `Visit` and `VisitMut` obtain the AST through an `ast()` method on the visitor, rather than an argument on every hook. Mutable hooks return `Option<T>`: `Some` replaces the visited handle, while `None` leaves it in place (including any field edits).
 
 ```rs
-struct ExampleVisitor<'v, 'a> {
-    ast: &'v Ast<'a>,
+struct ExampleVisitor<'v, 'a, 'id> {
+    ast: &'v Ast<'a, 'id>,
 }
 
-impl<'a> Visit<'a> for ExampleVisitor<'_, 'a> {
-    fn ast(&self) -> &Ast<'a> {
+impl<'a, 'id> Visit<'a, 'id> for ExampleVisitor<'_, 'a, 'id> {
+    fn ast(&self) -> &Ast<'a, 'id> {
         self.ast
     }
 

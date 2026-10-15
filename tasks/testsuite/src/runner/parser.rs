@@ -18,7 +18,8 @@ impl<C: Case> Runner<C> for ParserRunner {
         let path = case.relative_path().to_path_buf();
         let result = catch_unwind(AssertUnwindSafe(|| {
             let allocator = Allocator::new();
-            let ast = match parse_case(&allocator, case) {
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let ast = match parse_case(&allocator, case, ast_guard) {
                 Ok(result) => result,
                 Err(_) if case.expects_error() => return Ok(()),
                 Err(error) => return Err(format!("{}: {error}", case.name())),

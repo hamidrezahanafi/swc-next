@@ -20,10 +20,10 @@ pub(crate) enum PropertyIdentity<'ast> {
     Member(Box<PropertyIdentity<'ast>>, Cow<'ast, [u8]>),
 }
 
-pub(crate) fn property_identity<'ast>(
-    key: PropertyKey,
-    ast: &Ast<'ast>,
-    semantic: &Semantic<'_>,
+pub(crate) fn property_identity<'id, 'ast>(
+    key: PropertyKey<'id>,
+    ast: &Ast<'ast, 'id>,
+    semantic: &Semantic<'_, 'id>,
 ) -> Option<PropertyIdentity<'ast>> {
     let expression = match ast.property_key_data(key) {
         PropertyKeyData::IdentifierName(identifier) => {
@@ -75,7 +75,10 @@ pub(crate) fn property_identity<'ast>(
     }
 }
 
-pub(crate) fn signed_numeric_value(unary: UnaryExpression, ast: &Ast<'_>) -> Option<f64> {
+pub(crate) fn signed_numeric_value<'id>(
+    unary: UnaryExpression<'id>,
+    ast: &Ast<'_, 'id>,
+) -> Option<f64> {
     let ExprData::NumericLiteral(literal) =
         ast.expr_data(unparenthesized(unary.argument(ast), ast))
     else {
@@ -94,7 +97,7 @@ fn numeric_property_identity(value: f64) -> PropertyIdentity<'static> {
 }
 
 /// Object inference requires a literal name; classes can retain entity-name keys.
-pub(crate) fn supported_object_key(key: PropertyKey, ast: &Ast<'_>) -> bool {
+pub(crate) fn supported_object_key<'id>(key: PropertyKey<'id>, ast: &Ast<'_, 'id>) -> bool {
     let PropertyKeyData::Expr(expression) = ast.property_key_data(key) else {
         return true;
     };
@@ -114,17 +117,21 @@ pub(crate) fn supported_object_key(key: PropertyKey, ast: &Ast<'_>) -> bool {
     }
 }
 
-pub(crate) fn supported_computed_key(
-    key: PropertyKey,
-    ast: &Ast<'_>,
-    semantic: &Semantic<'_>,
+pub(crate) fn supported_computed_key<'id>(
+    key: PropertyKey<'id>,
+    ast: &Ast<'_, 'id>,
+    semantic: &Semantic<'_, 'id>,
 ) -> bool {
     match ast.property_key_data(key) {
         PropertyKeyData::IdentifierName(_) => true,
         PropertyKeyData::Expr(expression) => is_computed_name_expression(expression, ast, semantic),
     }
 }
-fn is_computed_name_expression(expression: Expr, ast: &Ast<'_>, semantic: &Semantic<'_>) -> bool {
+fn is_computed_name_expression<'id>(
+    expression: Expr<'id>,
+    ast: &Ast<'_, 'id>,
+    semantic: &Semantic<'_, 'id>,
+) -> bool {
     match ast.expr_data(unparenthesized(expression, ast)) {
         ExprData::IdentifierReference(_)
         | ExprData::StringLiteral(_)
@@ -154,7 +161,11 @@ fn is_computed_name_expression(expression: Expr, ast: &Ast<'_>, semantic: &Seman
     }
 }
 
-fn well_known_symbol_object(object: Expr, ast: &Ast<'_>, semantic: &Semantic<'_>) -> Option<bool> {
+fn well_known_symbol_object<'id>(
+    object: Expr<'id>,
+    ast: &Ast<'_, 'id>,
+    semantic: &Semantic<'_, 'id>,
+) -> Option<bool> {
     match ast.expr_data(unparenthesized(object, ast)) {
         ExprData::IdentifierReference(identifier)
             if ast.get_utf8(identifier.name(ast)) == "Symbol" =>

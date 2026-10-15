@@ -108,6 +108,7 @@ fn normalize_newlines(source: &str) -> String {
 
 fn minify_source(source: &str, options: &FixtureOptions) -> Result<String, String> {
     let allocator = Allocator::new();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
     let result = Parser::init(
         &allocator,
         source,
@@ -118,6 +119,7 @@ fn minify_source(source: &str, options: &FixtureOptions) -> Result<String, Strin
             comments: CommentMode::None,
         },
         NoTokenParserConfig,
+        ast_guard,
     )
     .parse();
     check_diagnostics("parser", &result.diagnostics)?;

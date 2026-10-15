@@ -1,9 +1,9 @@
 //! File-header JSX pragmas shared by syntax transforms.
 use swc_next_ecma_ast::{Ast, GetSpan, Program};
 
-pub(crate) fn pragmas<'a>(
-    program: Program,
-    ast: &'a Ast<'_>,
+pub(crate) fn pragmas<'id, 'a>(
+    program: Program<'id>,
+    ast: &'a Ast<'_, 'id>,
 ) -> impl Iterator<Item = (PragmaKind, &'a str)> {
     let mut boundary = u32::MAX;
     if let Some(id) = program.directives(ast).iter().next() {
@@ -12,12 +12,11 @@ pub(crate) fn pragmas<'a>(
     if let Some(id) = program.body(ast).iter().next() {
         boundary = boundary.min(ast.get_node_in_sub_range(id).span(ast).start);
     }
-    let source = ast.source().as_bytes();
     ast.comments()
         .iter()
         .take_while(move |comment| comment.span.end <= boundary)
         .flat_map(move |comment| {
-            let mut text = ast.get_utf8(comment.value(source));
+            let mut text = ast.get_utf8(comment.value(ast));
             std::iter::from_fn(move || {
                 let (kind, value, rest) = find_pragma(text)?;
                 text = rest;

@@ -19,12 +19,12 @@ struct ExpandoFunction<'ast> {
     properties: FxHashSet<&'ast str>,
 }
 
-impl<'ast> Transformer<'_, 'ast> {
+impl<'id, 'ast> Transformer<'_, 'ast, 'id> {
     pub(super) fn report_expando_assignments(
         &mut self,
-        statements: SubRange<Stmt>,
+        statements: SubRange<'id, Stmt<'id>>,
         context: DeclContext,
-        ast: &Ast<'ast>,
+        ast: &Ast<'ast, 'id>,
     ) {
         let has_assignment = statements
             .iter()
@@ -143,10 +143,10 @@ impl<'ast> Transformer<'_, 'ast> {
     }
 }
 
-fn expando_member(
-    statement: Stmt,
-    ast: &Ast<'_>,
-) -> Option<(MemberExpression, IdentifierReference)> {
+fn expando_member<'id>(
+    statement: Stmt<'id>,
+    ast: &Ast<'_, 'id>,
+) -> Option<(MemberExpression<'id>, IdentifierReference<'id>)> {
     let StmtData::ExpressionStatement(statement) = ast.stmt_data(statement) else {
         return None;
     };
@@ -171,10 +171,10 @@ fn expando_member(
     Some((member, object))
 }
 
-fn collect_namespace_properties<'ast>(
-    statements: SubRange<Stmt>,
+fn collect_namespace_properties<'id, 'ast>(
+    statements: SubRange<'id, Stmt<'id>>,
     functions: &mut FxHashMap<&'ast str, ExpandoFunction<'ast>>,
-    ast: &Ast<'ast>,
+    ast: &Ast<'ast, 'id>,
 ) {
     for statement in statements.iter() {
         let statement = ast.get_node_in_sub_range(statement);
@@ -220,10 +220,10 @@ fn collect_namespace_properties<'ast>(
     }
 }
 
-fn collect_declaration_names<'ast>(
-    declaration: Decl,
+fn collect_declaration_names<'id, 'ast>(
+    declaration: Decl<'id>,
     names: &mut FxHashSet<&'ast str>,
-    ast: &Ast<'ast>,
+    ast: &Ast<'ast, 'id>,
 ) {
     let binding = match ast.decl_data(declaration) {
         DeclData::VariableDeclaration(declaration) => {

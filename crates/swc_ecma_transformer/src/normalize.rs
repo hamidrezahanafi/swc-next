@@ -13,16 +13,19 @@ use crate::context::CommentState;
 pub struct Normalizer {}
 
 impl Normalizer {
-    pub fn normalize<'ast>(program: Program, ast: &mut Ast<'ast>) {
+    pub fn normalize<'id, 'ast>(program: Program<'id>, ast: &mut Ast<'ast, 'id>) {
         Self::run::<true>(program, ast);
     }
 
     /// Normalize runtime expressions while retaining TypeScript declaration shapes.
-    pub fn normalize_runtime<'ast>(program: Program, ast: &mut Ast<'ast>) {
+    pub fn normalize_runtime<'id, 'ast>(program: Program<'id>, ast: &mut Ast<'ast, 'id>) {
         Self::run::<false>(program, ast);
     }
 
-    fn run<'ast, const NORMALIZE_TYPES: bool>(program: Program, ast: &mut Ast<'ast>) {
+    fn run<'id, 'ast, const NORMALIZE_TYPES: bool>(
+        program: Program<'id>,
+        ast: &mut Ast<'ast, 'id>,
+    ) {
         let mut pass = NormalizePass::<NORMALIZE_TYPES> {
             ast,
             comments: CommentState::default(),
@@ -32,33 +35,37 @@ impl Normalizer {
     }
 }
 
-struct NormalizePass<'visit, 'ast, const NORMALIZE_TYPES: bool> {
-    ast: &'visit mut Ast<'ast>,
+struct NormalizePass<'visit, 'ast, 'id, const NORMALIZE_TYPES: bool> {
+    ast: &'visit mut Ast<'ast, 'id>,
     comments: CommentState,
 }
 
 #[derive(Clone, Copy)]
-enum AssociativeType {
-    Union(TsUnionType),
-    Intersection(TsIntersectionType),
+enum AssociativeType<'id> {
+    Union(TsUnionType<'id>),
+    Intersection(TsIntersectionType<'id>),
 }
 
-impl AssociativeType {
-    fn types(self, ast: &Ast<'_>) -> SubRange<TsType> {
+impl<'id> AssociativeType<'id> {
+    fn types(self, ast: &Ast<'_, 'id>) -> SubRange<'id, TsType<'id>> {
         match self {
             Self::Union(node) => node.types(ast),
             Self::Intersection(node) => node.types(ast),
         }
     }
 
-    fn span(self, ast: &Ast<'_>) -> Span {
+    fn span(self, ast: &Ast<'_, 'id>) -> Span {
         match self {
             Self::Union(node) => node.span(ast),
             Self::Intersection(node) => node.span(ast),
         }
     }
 
-    fn nested_types(self, node: TsType, ast: &Ast<'_>) -> Option<SubRange<TsType>> {
+    fn nested_types(
+        self,
+        node: TsType<'id>,
+        ast: &Ast<'_, 'id>,
+    ) -> Option<SubRange<'id, TsType<'id>>> {
         match (self, ast.ts_type_data(node)) {
             (Self::Union(_), TsTypeData::TsUnionType(node)) => Some(node.types(ast)),
             (Self::Intersection(_), TsTypeData::TsIntersectionType(node)) => Some(node.types(ast)),
@@ -72,7 +79,7 @@ impl AssociativeType {
         }
     }
 
-    fn set_types(self, ast: &mut Ast<'_>, types: SubRange<TsType>) {
+    fn set_types(self, ast: &mut Ast<'_, 'id>, types: SubRange<'id, TsType<'id>>) {
         match self {
             Self::Union(node) => node.set_types(ast, types),
             Self::Intersection(node) => node.set_types(ast, types),
@@ -80,14 +87,14 @@ impl AssociativeType {
     }
 }
 
-impl<const NORMALIZE_TYPES: bool> NormalizePass<'_, '_, NORMALIZE_TYPES> {
+impl<'id, const NORMALIZE_TYPES: bool> NormalizePass<'_, '_, 'id, NORMALIZE_TYPES> {
     fn record_replacement(&mut self, removed: Span, replacement: Span) {
         if !self.ast.comments().is_empty() {
             self.comments.inherit(replacement, removed);
         }
     }
 
-    fn replacement_span(&self, flattened: &[Expr], start: usize) -> Option<Span> {
+    fn replacement_span(&self, flattened: &[Expr<'id>], start: usize) -> Option<Span> {
         let first = *flattened.get(start)?;
         let last = *flattened.last()?;
         let first_span = first.span(self.ast);
@@ -95,7 +102,11 @@ impl<const NORMALIZE_TYPES: bool> NormalizePass<'_, '_, NORMALIZE_TYPES> {
         Some(Span::new(first_span.start, last_span.end))
     }
 
-    fn append_sequence_elements(&mut self, expression: Expr, flattened: &mut Vec<Expr>) -> bool {
+    fn append_sequence_elements(
+        &mut self,
+        expression: Expr<'id>,
+        flattened: &mut Vec<Expr<'id>>,
+    ) -> bool {
         let start = flattened.len();
         let removed = match self.ast.expr_data(expression) {
             ExprData::ParenthesizedExpression(parenthesized) => {
@@ -128,7 +139,7 @@ impl<const NORMALIZE_TYPES: bool> NormalizePass<'_, '_, NORMALIZE_TYPES> {
         removed
     }
 
-    fn normalize_sequence(&mut self, sequence: SequenceExpression) -> Option<Expr> {
+    fn normalize_sequence(&mut self, sequence: SequenceExpression<'id>) -> Option<Expr<'id>> {
         let expressions = sequence.expressions(self.ast);
         let mut flattened = Vec::with_capacity(expressions.len());
         let mut changed = false;
@@ -154,9 +165,9 @@ impl<const NORMALIZE_TYPES: bool> NormalizePass<'_, '_, NORMALIZE_TYPES> {
 
     fn append_type_members(
         &mut self,
-        outer: AssociativeType,
-        node: TsType,
-        flattened: &mut Vec<TsType>,
+        outer: AssociativeType<'id>,
+        node: TsType<'id>,
+        flattened: &mut Vec<TsType<'id>>,
     ) -> Span {
         let removed = node.span(self.ast);
         if let TsTypeData::TsParenthesizedType(parenthesized) = self.ast.ts_type_data(node) {
@@ -190,7 +201,7 @@ impl<const NORMALIZE_TYPES: bool> NormalizePass<'_, '_, NORMALIZE_TYPES> {
         removed
     }
 
-    fn normalize_type_list(&mut self, node: AssociativeType) -> Option<TsType> {
+    fn normalize_type_list(&mut self, node: AssociativeType<'id>) -> Option<TsType<'id>> {
         let types = node.types(self.ast);
         if types.len() == 1 {
             let member = types.get_node(self.ast, 0)?;
@@ -229,14 +240,14 @@ impl<const NORMALIZE_TYPES: bool> NormalizePass<'_, '_, NORMALIZE_TYPES> {
     }
 }
 
-impl<'ast, const NORMALIZE_TYPES: bool> VisitMut<'ast>
-    for NormalizePass<'_, 'ast, NORMALIZE_TYPES>
+impl<'id, 'ast, const NORMALIZE_TYPES: bool> VisitMut<'ast, 'id>
+    for NormalizePass<'_, 'ast, 'id, NORMALIZE_TYPES>
 {
-    fn ast(&mut self) -> &mut Ast<'ast> {
+    fn ast(&mut self) -> &mut Ast<'ast, 'id> {
         self.ast
     }
 
-    fn visit_mut_expr(&mut self, node: Expr) -> Option<Expr> {
+    fn visit_mut_expr(&mut self, node: Expr<'id>) -> Option<Expr<'id>> {
         match self.ast.expr_data(node) {
             ExprData::ParenthesizedExpression(parenthesized) => {
                 let expression = parenthesized.expression(self.ast);
@@ -258,8 +269,8 @@ impl<'ast, const NORMALIZE_TYPES: bool> VisitMut<'ast>
 
     fn visit_mut_ts_type_alias_declaration(
         &mut self,
-        node: TsTypeAliasDeclaration,
-    ) -> Option<TsTypeAliasDeclaration> {
+        node: TsTypeAliasDeclaration<'id>,
+    ) -> Option<TsTypeAliasDeclaration<'id>> {
         if NORMALIZE_TYPES {
             node.visit_mut_children_with(self);
         }
@@ -268,15 +279,15 @@ impl<'ast, const NORMALIZE_TYPES: bool> VisitMut<'ast>
 
     fn visit_mut_ts_interface_declaration(
         &mut self,
-        node: TsInterfaceDeclaration,
-    ) -> Option<TsInterfaceDeclaration> {
+        node: TsInterfaceDeclaration<'id>,
+    ) -> Option<TsInterfaceDeclaration<'id>> {
         if NORMALIZE_TYPES {
             node.visit_mut_children_with(self);
         }
         None
     }
 
-    fn visit_mut_ts_type(&mut self, node: TsType) -> Option<TsType> {
+    fn visit_mut_ts_type(&mut self, node: TsType<'id>) -> Option<TsType<'id>> {
         if !NORMALIZE_TYPES {
             return None;
         }

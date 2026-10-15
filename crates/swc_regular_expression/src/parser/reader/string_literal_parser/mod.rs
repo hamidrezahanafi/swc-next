@@ -269,7 +269,6 @@ without continuation""#,
         let offset2 = (6, 24);
 
         let combine_surrogate_pair = false;
-
         let ret1 = Parser::new(
             &source_text1[offset1.0..offset1.1],
             Options {

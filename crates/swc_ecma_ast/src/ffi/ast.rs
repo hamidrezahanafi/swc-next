@@ -37,8 +37,8 @@ use std::{
 use swc_next_allocator::Allocator;
 
 use crate::{
-    Ast, Comment, CommentKind, CommentPosition, Diagnostic, ExtraData, Lang, NodeId, NodeKind,
-    NodePayload, SourceType, Span,
+    Ast, Comment, CommentKind, CommentPosition, Diagnostic, ExtraData, Lang, NodeKind, NodePayload,
+    SourceType, Span,
 };
 
 const HEADER_SIZE: usize = 40;
@@ -74,7 +74,7 @@ const _: () = {
 };
 
 /// Return the exact number of bytes required to serialize `tree` and `diagnostics`.
-pub fn buffer_size(tree: &Ast<'_>, diagnostics: &[Diagnostic<'_>]) -> usize {
+pub fn buffer_size<'id>(tree: &Ast<'_, 'id>, diagnostics: &[Diagnostic<'_>]) -> usize {
     HEADER_SIZE
         + tree.node_count() * SPAN_SIZE
         + align_to_four(tree.node_count() * NODE_KIND_SIZE)
@@ -110,8 +110,8 @@ pub fn buffer_size(tree: &Ast<'_>, diagnostics: &[Diagnostic<'_>]) -> usize {
 /// When `buf` is too small, including when it is empty, this returns the
 /// required size without writing a partial payload.
 /// `source_utf16_len` must be the UTF-16 code unit length of `tree.source()`.
-pub fn serialize_into(
-    tree: &Ast<'_>,
+pub fn serialize_into<'id>(
+    tree: &Ast<'_, 'id>,
     diagnostics: &[Diagnostic<'_>],
     buf: &mut [u8],
     source_utf16_len: usize,
@@ -277,10 +277,11 @@ impl std::error::Error for DeserializeError {}
 /// The source section holds concatenated UTF-8 field values, not original source
 /// text. Transfers containing lone surrogates use the extra WTF-8 pool instead.
 /// Node spans remain independent UTF-16 positions in the original source.
-pub fn deserialize_from<'a>(
+pub fn deserialize_from<'id, 'a>(
     buf: &[u8],
     allocator: &'a Allocator,
-) -> Result<Ast<'a>, DeserializeError> {
+    guard: crate::AstGuard<'id>,
+) -> Result<Ast<'a, 'id>, DeserializeError> {
     // ====================== Header ======================
     if buf.len() < HEADER_SIZE {
         return Err(DeserializeError("AST buffer is shorter than its header"));
@@ -331,7 +332,7 @@ pub fn deserialize_from<'a>(
     // released immediately after deserialization.
     let source = std::str::from_utf8(&buf[strings..source_end])
         .map_err(|_| DeserializeError("AST string source contains invalid UTF-8"))?;
-    let mut tree = Ast::new(allocator.alloc_str(source), allocator);
+    let mut tree = Ast::new(allocator.alloc_str(source), allocator, guard);
     tree.reserve(node_count, extra_count);
 
     // SAFETY: `reserve` allocated each destination for `node_count` elements.
@@ -374,7 +375,7 @@ pub fn deserialize_from<'a>(
         );
         tree.nodes.len = node_count as u32;
     }
-    tree.root = Some(NodeId::from_usize(program_index));
+    tree.root = Some(crate::node_id::RawNodeId::from_usize(program_index));
 
     // =================== Extra Data ====================
     // SAFETY: `reserve` allocated space for `extra_count` entries, the source
@@ -644,12 +645,26 @@ mod tests {
     use super::{
         PositionMap, buffer_size, build_pos_map, deserialize_from, serialize_into, utf16_pos,
     };
-    use crate::{Ast, Diagnostic, GetSpan, Label, Severity, Span, SubRange};
+    use crate::{Ast, Diagnostic, GetSpan, Label, NodeKind, Severity, Span, SubRange};
+
+    #[test]
+    fn payload_endianness() {
+        let value = 0x1122_3344_5566_7788u64;
+        let raw = 0x99aa_bbcc_ddee_ff00u64;
+        let mut payload = [0; 16];
+        payload[..8].copy_from_slice(&value.to_be_bytes());
+        payload[8..].copy_from_slice(&raw.to_be_bytes());
+
+        crate::generated::ast_payload::swap_payload_endian(&mut payload, NodeKind::StringLiteral);
+        assert_eq!(&payload[..8], &value.to_le_bytes());
+        assert_eq!(&payload[8..], &raw.to_le_bytes());
+    }
 
     #[test]
     fn canonical_little_endian_format() {
         let allocator = Allocator::new();
-        let mut ast = Ast::new("", &allocator);
+        crate::make_ast_guard!(ast_guard);
+        let mut ast = Ast::new("", &allocator, ast_guard);
         let statement = ast.stmt_empty_statement(Span::new(0, 0));
         let body = ast.add_sub_range([statement]);
         let program = ast.program(Span::new(0, 0), SubRange::empty(), body, None);
@@ -678,7 +693,8 @@ mod tests {
     #[test]
     fn deserialize_little_endian_format() {
         let allocator = Allocator::new();
-        let mut ast = Ast::new("", &allocator);
+        crate::make_ast_guard!(ast_guard);
+        let mut ast = Ast::new("", &allocator, ast_guard);
         let statement = ast.stmt_empty_statement(Span::new(2, 3));
         let body = ast.add_sub_range([statement]);
         let program = ast.program(Span::new(1, 4), SubRange::empty(), body, None);
@@ -688,7 +704,8 @@ mod tests {
         serialize_into(&ast, &[], &mut buffer, 0);
 
         let decoded_allocator = Allocator::new();
-        let decoded = deserialize_from(&buffer, &decoded_allocator).unwrap();
+        crate::make_ast_guard!(ast_guard);
+        let decoded = deserialize_from(&buffer, &decoded_allocator, ast_guard).unwrap();
         let decoded_program = decoded.root_program();
         let decoded_body = decoded_program.body(&decoded);
         let decoded_statement = decoded_body.get_node(&decoded, 0).unwrap();
@@ -756,7 +773,8 @@ mod tests {
     #[test]
     fn packed_diagnostic_format() {
         let allocator = Allocator::new();
-        let mut ast = Ast::new("éx", &allocator);
+        crate::make_ast_guard!(ast_guard);
+        let mut ast = Ast::new("éx", &allocator, ast_guard);
         let program = ast.program(Span::new(0, 3), SubRange::empty(), SubRange::empty(), None);
         ast.set_root_program(program);
 

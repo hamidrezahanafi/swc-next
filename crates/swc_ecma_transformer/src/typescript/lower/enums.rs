@@ -10,12 +10,12 @@ use swc_next_ecma_semantic::Semantic;
 use super::{StatementExpansion, TypeScriptLowerer, runtime::RuntimeTarget};
 use crate::typescript::analysis::TsEnumConstantValue;
 
-impl TypeScriptLowerer<'_, '_> {
+impl<'id> TypeScriptLowerer<'_, '_, 'id> {
     pub(super) fn lower_enum(
         &mut self,
-        declaration: TsEnumDeclaration,
+        declaration: TsEnumDeclaration<'id>,
         exported: bool,
-    ) -> StatementExpansion {
+    ) -> StatementExpansion<'id> {
         if declaration.declare(self.ast_ref()) {
             return StatementExpansion::Remove;
         }
@@ -44,9 +44,9 @@ impl TypeScriptLowerer<'_, '_> {
 
     pub(super) fn lower_namespace_enum(
         &mut self,
-        declaration: TsEnumDeclaration,
-        namespace: AstUtf8,
-        output: &mut Vec<Stmt>,
+        declaration: TsEnumDeclaration<'id>,
+        namespace: AstUtf8<'id>,
+        output: &mut Vec<Stmt<'id>>,
     ) {
         if declaration.declare(self.ast_ref()) {
             return;
@@ -78,20 +78,20 @@ impl TypeScriptLowerer<'_, '_> {
 
     pub(super) fn inline_enum_constant(
         &mut self,
-        expression: Expr,
-        value: TsEnumConstantValue<'_>,
-    ) -> Expr {
+        expression: Expr<'id>,
+        value: TsEnumConstantValue<'_, 'id>,
+    ) -> Expr<'id> {
         let span = expression.span(self.ast_ref());
         self.enum_constant_expression(value, span)
     }
 
     fn enum_iife_statement(
         &mut self,
-        declaration: TsEnumDeclaration,
+        declaration: TsEnumDeclaration<'id>,
         owner: SymbolId,
-        enum_name: AstUtf8,
-        target: RuntimeTarget,
-    ) -> Stmt {
+        enum_name: AstUtf8<'id>,
+        target: RuntimeTarget<'id>,
+    ) -> Stmt<'id> {
         let parameter = self.container_parameter(enum_name, owner);
         let members = declaration.body(self.ast_ref()).members(self.ast_ref());
         let mut statements = Vec::with_capacity(members.len());
@@ -131,11 +131,11 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn enum_member_statement(
         &mut self,
-        enum_name: AstUtf8,
-        member_name: AstWtf8,
-        initializer: Expr,
+        enum_name: AstUtf8<'id>,
+        member_name: AstWtf8<'id>,
+        initializer: Expr<'id>,
         string_member: bool,
-    ) -> Stmt {
+    ) -> Stmt<'id> {
         let member = self.enum_member_access(enum_name, member_name);
         let target = AssignmentTarget::SimpleAssignmentTarget(
             SimpleAssignmentTarget::MemberExpression(member),
@@ -174,9 +174,9 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn enum_member_access(
         &mut self,
-        enum_name: AstUtf8,
-        member_name: AstWtf8,
-    ) -> swc_next_ecma_ast::MemberExpression {
+        enum_name: AstUtf8<'id>,
+        member_name: AstWtf8<'id>,
+    ) -> swc_next_ecma_ast::MemberExpression<'id> {
         let object = self.ast().expr_identifier_reference(DUMMY_SP, enum_name);
         let property = self.enum_member_name_literal(member_name);
         self.ast().member_expression(
@@ -190,21 +190,22 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn enum_member_name_literal(
         &mut self,
-        member_name: AstWtf8,
-    ) -> swc_next_ecma_ast::StringLiteral {
-        self.ast()
-            .string_literal(DUMMY_SP, member_name, AstUtf8::EMPTY)
+        member_name: AstWtf8<'id>,
+    ) -> swc_next_ecma_ast::StringLiteral<'id> {
+        let raw = self.ast().empty_utf8();
+        self.ast().string_literal(DUMMY_SP, member_name, raw)
     }
 
     fn enum_constant_expression(
         &mut self,
-        value: TsEnumConstantValue<'_>,
+        value: TsEnumConstantValue<'_, 'id>,
         span: swc_next_ecma_ast::Span,
-    ) -> Expr {
+    ) -> Expr<'id> {
         match value {
             TsEnumConstantValue::String(value) => {
                 let value = self.ast().add_wtf8(value);
-                Expr::StringLiteral(self.ast().string_literal(span, value, AstUtf8::EMPTY))
+                let raw = self.ast().empty_utf8();
+                Expr::StringLiteral(self.ast().string_literal(span, value, raw))
             }
             TsEnumConstantValue::Number { value, raw } => {
                 // TypeScript prints either zero as `0`, but evaluation must retain its sign.
@@ -216,10 +217,10 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn rewrite_enum_initializer(
         &mut self,
-        initializer: Expr,
+        initializer: Expr<'id>,
         owner: SymbolId,
-        enum_name: AstUtf8,
-    ) -> Expr {
+        enum_name: AstUtf8<'id>,
+    ) -> Expr<'id> {
         let members = self
             .enum_member_symbols
             .entry(owner)
@@ -237,20 +238,20 @@ impl TypeScriptLowerer<'_, '_> {
     }
 }
 
-struct EnumInitializerRewriter<'visit, 'ast> {
-    ast: &'visit mut Ast<'ast>,
-    semantic: &'visit Semantic<'ast>,
+struct EnumInitializerRewriter<'visit, 'ast, 'id> {
+    ast: &'visit mut Ast<'ast, 'id>,
+    semantic: &'visit Semantic<'ast, 'id>,
     semantic_node_count: usize,
     members: &'visit FxHashSet<SymbolId>,
-    enum_name: AstUtf8,
+    enum_name: AstUtf8<'id>,
 }
 
-impl<'ast> VisitMut<'ast> for EnumInitializerRewriter<'_, 'ast> {
-    fn ast(&mut self) -> &mut Ast<'ast> {
+impl<'id, 'ast> VisitMut<'ast, 'id> for EnumInitializerRewriter<'_, 'ast, 'id> {
+    fn ast(&mut self) -> &mut Ast<'ast, 'id> {
         self.ast
     }
 
-    fn visit_mut_expr(&mut self, expression: Expr) -> Option<Expr> {
+    fn visit_mut_expr(&mut self, expression: Expr<'id>) -> Option<Expr<'id>> {
         let ExprData::IdentifierReference(identifier) = self.ast.expr_data(expression) else {
             return expression.visit_mut_children_with(self);
         };
@@ -278,7 +279,10 @@ impl<'ast> VisitMut<'ast> for EnumInitializerRewriter<'_, 'ast> {
         ))
     }
 
-    fn visit_mut_object_property(&mut self, property: ObjectProperty) -> Option<ObjectProperty> {
+    fn visit_mut_object_property(
+        &mut self,
+        property: ObjectProperty<'id>,
+    ) -> Option<ObjectProperty<'id>> {
         property.visit_mut_children_with(self);
         let shorthand_value_is_identifier = matches!(
             self.ast.expr_data(property.value(self.ast)),

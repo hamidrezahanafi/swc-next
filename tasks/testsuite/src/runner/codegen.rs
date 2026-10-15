@@ -52,10 +52,12 @@ fn run_case<C: Case>(case: &C) -> Result<(), String> {
             preserve_parens,
             ..ParserOptions::default()
         };
-        let ast = parse_with_options(&allocator, case.code(), options)
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let ast = parse_with_options(&allocator, case.code(), options, ast_guard)
             .map_err(|error| format!("preserve_parens={preserve_parens}: input {error}"))?;
         let output = print(&allocator, &ast, CodegenOptions::default()).code;
-        let reparsed = parse_with_options(&allocator, output, options)
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let reparsed = parse_with_options(&allocator, output, options, ast_guard)
             .map_err(|error| format!("preserve_parens={preserve_parens}: output {error}"))?;
         if let Err(error) = ast_compare::compare(&ast, &reparsed) {
             errors.push(format!("preserve_parens={preserve_parens}: {error}"));

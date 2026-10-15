@@ -47,7 +47,8 @@ fn uncertain_alias_dependencies() {
         source_type: SourceType::Module,
         ..ParserOptions::default()
     };
-    let parsed = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let parsed = Parser::init(&allocator, source, options, NoTokenParserConfig, ast_guard).parse();
     assert!(parsed.diagnostics.is_empty());
     let ast = parsed.ast;
     let semantic = analyze(&ast, AnalyzeOptions::default()).semantic;
@@ -77,7 +78,9 @@ fn assert_default_export(source: &str, value: bool) {
                 preserve_parens,
                 ..ParserOptions::default()
             };
-            let parsed = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let parsed =
+                Parser::init(&allocator, source, options, NoTokenParserConfig, ast_guard).parse();
             assert!(parsed.diagnostics.is_empty());
             let mut ast = parsed.ast;
             let semantic = analyze(&ast, AnalyzeOptions::default()).semantic;

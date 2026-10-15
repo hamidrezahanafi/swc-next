@@ -4,33 +4,33 @@ use swc_next_ecma_ast::{ClassBody, ClassElement, SubRange};
 use crate::context::TransformCtx;
 
 #[derive(Clone, Copy)]
-pub enum ContainerOwner {
-    ClassBody(ClassBody),
+pub enum ContainerOwner<'id> {
+    ClassBody(ClassBody<'id>),
 }
 
 #[derive(Clone, Copy)]
-pub enum ContainerOwnerChild {
-    ClassBody((ClassBody, ClassElement)),
+pub enum ContainerOwnerChild<'id> {
+    ClassBody((ClassBody<'id>, ClassElement<'id>)),
 }
 
 #[derive(Default)]
-pub struct Container {
-    class_body: FxHashMap<ClassBody, Vec<ClassElement>>,
+pub struct Container<'id> {
+    class_body: FxHashMap<ClassBody<'id>, Vec<ClassElement<'id>>>,
 }
 
-impl Container {
+impl<'id> Container<'id> {
     pub fn is_empty(&self) -> bool {
         self.class_body.is_empty()
     }
 }
 
-impl<'c, 'a> TransformCtx<'c, 'a> {
+impl<'id, 'c, 'a> TransformCtx<'c, 'a, 'id> {
     /// Read pending members, or the attached AST range if no edits are cached.
     /// Reading does not allocate or initialize a mutable container.
     pub fn container_class_body(
         &self,
-        class_body: ClassBody,
-    ) -> impl DoubleEndedIterator<Item = ClassElement> + '_ {
+        class_body: ClassBody<'id>,
+    ) -> impl DoubleEndedIterator<Item = ClassElement<'id>> + '_ {
         let elements = self.state.container.class_body.get(&class_body);
         let body = if elements.is_some() {
             SubRange::empty()
@@ -45,7 +45,10 @@ impl<'c, 'a> TransformCtx<'c, 'a> {
     }
 
     /// The current logical member list, including pending edits.
-    pub fn container_class_body_mut(&mut self, class_body: ClassBody) -> &mut Vec<ClassElement> {
+    pub fn container_class_body_mut(
+        &mut self,
+        class_body: ClassBody<'id>,
+    ) -> &mut Vec<ClassElement<'id>> {
         self.state
             .container
             .class_body
@@ -62,7 +65,7 @@ impl<'c, 'a> TransformCtx<'c, 'a> {
     /// Attach a prepared list and release its cached handles. This only changes
     /// the attachment range, so it allocates no AST nodes or semantic identities.
     /// Callers must synchronize semantic changes when preparing member edits.
-    pub fn container_flush(&mut self, owner: ContainerOwner) {
+    pub fn container_flush(&mut self, owner: ContainerOwner<'id>) {
         match owner {
             ContainerOwner::ClassBody(class_body) => {
                 let Some(elements) = self.state.container.class_body.remove(&class_body) else {

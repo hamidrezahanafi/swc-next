@@ -19,9 +19,9 @@ use super::{DeclContext, Transformer};
 use crate::SymbolUsage;
 use crate::surface::{ExportExpression, export_expression, namespace_binding, unparenthesized};
 
-pub(super) struct ExportExpressionBinding {
-    declaration: Stmt,
-    pub(super) name: AstUtf8,
+pub(super) struct ExportExpressionBinding<'id> {
+    declaration: Stmt<'id>,
+    pub(super) name: AstUtf8<'id>,
     order: ExportOrder,
 }
 
@@ -30,8 +30,8 @@ enum ExportOrder {
     AfterBinding,
 }
 
-impl ExportExpressionBinding {
-    pub(super) fn into_statements(self, export: Stmt) -> [Stmt; 2] {
+impl<'id> ExportExpressionBinding<'id> {
+    pub(super) fn into_statements(self, export: Stmt<'id>) -> [Stmt<'id>; 2] {
         match self.order {
             ExportOrder::BeforeBinding => [export, self.declaration],
             ExportOrder::AfterBinding => [self.declaration, export],
@@ -39,13 +39,13 @@ impl ExportExpressionBinding {
     }
 }
 
-impl<'ast> Transformer<'_, 'ast> {
+impl<'id, 'ast> Transformer<'_, 'ast, 'id> {
     pub(super) fn transform_decl(
         &mut self,
-        declaration: Decl,
+        declaration: Decl<'id>,
         context: DeclContext,
-        ast: &mut Ast<'ast>,
-    ) -> Option<Decl> {
+        ast: &mut Ast<'ast, 'id>,
+    ) -> Option<Decl<'id>> {
         match ast.decl_data(declaration) {
             DeclData::VariableDeclaration(declaration) => {
                 self.transform_variable_declaration(declaration, context, ast)
@@ -156,10 +156,10 @@ impl<'ast> Transformer<'_, 'ast> {
 
     fn transform_variable_declaration(
         &mut self,
-        declaration: VariableDeclaration,
+        declaration: VariableDeclaration<'id>,
         context: DeclContext,
-        ast: &mut Ast<'ast>,
-    ) -> Option<Decl> {
+        ast: &mut Ast<'ast, 'id>,
+    ) -> Option<Decl<'id>> {
         let declarators = declaration.declarators(ast);
         if declarators.is_empty() {
             return None;
@@ -195,9 +195,9 @@ impl<'ast> Transformer<'_, 'ast> {
 
     fn report_unsupported_binding_pattern(
         &mut self,
-        pattern: BindingPattern,
+        pattern: BindingPattern<'id>,
         context: DeclContext,
-        ast: &Ast<'ast>,
+        ast: &Ast<'ast, 'id>,
     ) {
         let mut collector = BindingCollector::new(ast);
         pattern.visit_with(&mut collector);
@@ -226,9 +226,9 @@ impl<'ast> Transformer<'_, 'ast> {
 
     fn transform_variable_declarator(
         &mut self,
-        declarator: VariableDeclarator,
+        declarator: VariableDeclarator<'id>,
         kind: VariableKind,
-        ast: &mut Ast<'ast>,
+        ast: &mut Ast<'ast, 'id>,
     ) {
         declarator.set_definite(ast, false);
         if declarator.type_annotation(ast).is_some() {
@@ -270,10 +270,10 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn transform_default_declaration(
         &mut self,
-        declaration: ExportDefaultDeclarationKind,
+        declaration: ExportDefaultDeclarationKind<'id>,
         context: DeclContext,
-        ast: &mut Ast<'ast>,
-    ) -> ExportDefaultDeclarationKind {
+        ast: &mut Ast<'ast, 'id>,
+    ) -> ExportDefaultDeclarationKind<'id> {
         match ast.export_default_declaration_kind_data(declaration) {
             ExportDefaultDeclarationKindData::Function(function) => {
                 let return_type = self.transform_function_signature(function, ast);
@@ -315,10 +315,10 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn transform_export_expression_binding(
         &mut self,
-        expression: Expr,
+        expression: Expr<'id>,
         context: DeclContext,
-        ast: &mut Ast<'ast>,
-    ) -> ExportExpressionBinding {
+        ast: &mut Ast<'ast, 'id>,
+    ) -> ExportExpressionBinding<'id> {
         let expression = unparenthesized(expression, ast);
         let span = expression.span(ast);
         let name = self.fresh_default_name(ast);
@@ -378,7 +378,7 @@ impl<'ast> Transformer<'_, 'ast> {
         }
     }
 
-    fn fresh_default_name(&mut self, ast: &mut Ast<'ast>) -> AstUtf8 {
+    fn fresh_default_name(&mut self, ast: &mut Ast<'ast, 'id>) -> AstUtf8<'id> {
         let names = self.reserved_names.get_or_insert_with(|| {
             let symbols = self
                 .semantic
@@ -408,7 +408,7 @@ impl<'ast> Transformer<'_, 'ast> {
         }
     }
 
-    pub(super) fn binding_is_used(&self, binding: BindingIdentifier) -> bool {
+    pub(super) fn binding_is_used(&self, binding: BindingIdentifier<'id>) -> bool {
         self.semantic
             .symbol_of(binding.node_id())
             .is_some_and(|symbol| {
@@ -418,7 +418,7 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn binding_is_used_as(
         &self,
-        binding: BindingIdentifier,
+        binding: BindingIdentifier<'id>,
         usage: SymbolUsage,
     ) -> bool {
         self.semantic
@@ -430,7 +430,11 @@ impl<'ast> Transformer<'_, 'ast> {
             })
     }
 
-    fn binding_contributes_to_export(&self, binding: BindingIdentifier, symbol: SymbolId) -> bool {
+    fn binding_contributes_to_export(
+        &self,
+        binding: BindingIdentifier<'id>,
+        symbol: SymbolId,
+    ) -> bool {
         let mut current_flags = None;
         let mut exported_flags = Vec::new();
         for declaration in self.semantic.declarations(symbol) {
@@ -462,13 +466,13 @@ impl<'ast> Transformer<'_, 'ast> {
             .any(|flags| (flags & declaration_kinds).intersects(current_kind))
     }
 }
-struct BindingCollector<'visit, 'ast> {
-    ast: &'visit Ast<'ast>,
-    bindings: Vec<BindingIdentifier>,
+struct BindingCollector<'visit, 'ast, 'id> {
+    ast: &'visit Ast<'ast, 'id>,
+    bindings: Vec<BindingIdentifier<'id>>,
 }
 
-impl<'visit, 'ast> BindingCollector<'visit, 'ast> {
-    fn new(ast: &'visit Ast<'ast>) -> Self {
+impl<'id, 'visit, 'ast> BindingCollector<'visit, 'ast, 'id> {
+    fn new(ast: &'visit Ast<'ast, 'id>) -> Self {
         Self {
             ast,
             bindings: Vec::new(),
@@ -476,12 +480,12 @@ impl<'visit, 'ast> BindingCollector<'visit, 'ast> {
     }
 }
 
-impl<'ast> Visit<'ast> for BindingCollector<'_, 'ast> {
-    fn ast(&self) -> &Ast<'ast> {
+impl<'id, 'ast> Visit<'ast, 'id> for BindingCollector<'_, 'ast, 'id> {
+    fn ast(&self) -> &Ast<'ast, 'id> {
         self.ast
     }
 
-    fn visit_binding_identifier(&mut self, binding: BindingIdentifier) {
+    fn visit_binding_identifier(&mut self, binding: BindingIdentifier<'id>) {
         self.bindings.push(binding);
     }
 }

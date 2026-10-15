@@ -5,20 +5,20 @@ use swc_next_ecma_semantic::{Semantic, SymbolFlags, scope::ScopeKind};
 
 use super::super::TypeScriptOptions;
 
-pub(super) struct ModuleCollector {
-    initializer_references: FxHashSet<NodeId>,
-    erased_aliases: FxHashSet<NodeId>,
+pub(super) struct ModuleCollector<'id> {
+    initializer_references: FxHashSet<NodeId<'id>>,
+    erased_aliases: FxHashSet<NodeId<'id>>,
     collect_runtime_usage: bool,
-    alias_dependencies: FxHashMap<SymbolId, AliasDependency>,
+    alias_dependencies: FxHashMap<SymbolId, AliasDependency<'id>>,
 }
 
-struct AliasDependency {
-    declaration: NodeId,
+struct AliasDependency<'id> {
+    declaration: NodeId<'id>,
     targets: Vec<SymbolId>,
     global: bool,
 }
 
-impl ModuleCollector {
+impl<'id> ModuleCollector<'id> {
     pub(super) fn new(options: &TypeScriptOptions) -> Self {
         Self {
             initializer_references: FxHashSet::default(),
@@ -30,8 +30,8 @@ impl ModuleCollector {
 
     pub(super) fn apply_enum_policy(
         &mut self,
-        semantic: &Semantic<'_>,
-        enums: &super::enums::EnumAnalysis<'_>,
+        semantic: &Semantic<'_, 'id>,
+        enums: &super::enums::EnumAnalysis<'_, 'id>,
     ) {
         self.alias_dependencies.retain(|&alias, dependency| {
             let erased = semantic
@@ -46,9 +46,9 @@ impl ModuleCollector {
 
     pub(super) fn record_import_equals(
         &mut self,
-        declaration: TsImportEqualsDeclaration,
-        ast: &Ast<'_>,
-        semantic: &Semantic<'_>,
+        declaration: TsImportEqualsDeclaration<'id>,
+        ast: &Ast<'_, 'id>,
+        semantic: &Semantic<'_, 'id>,
     ) {
         let alias = semantic.symbol_of(declaration.id(ast).node_id());
         let reference = semantic.import_equals_reference(ast, declaration);
@@ -99,13 +99,13 @@ impl ModuleCollector {
 }
 
 #[derive(Default)]
-pub(super) struct ModuleAnalysis {
-    ignored_references: FxHashSet<NodeId>,
-    erased_aliases: FxHashSet<NodeId>,
+pub(super) struct ModuleAnalysis<'id> {
+    ignored_references: FxHashSet<NodeId<'id>>,
+    erased_aliases: FxHashSet<NodeId<'id>>,
     propagated_runtime_usage: FxHashSet<SymbolId>,
 }
 
-impl ModuleAnalysis {
+impl<'id> ModuleAnalysis<'id> {
     pub(super) fn with_implicit_usage(usage: FxHashSet<SymbolId>) -> Self {
         Self {
             propagated_runtime_usage: usage,
@@ -114,9 +114,9 @@ impl ModuleAnalysis {
     }
 
     pub(super) fn finish(
-        collector: ModuleCollector,
-        semantic: &Semantic<'_>,
-        mut ignored_references: FxHashSet<NodeId>,
+        collector: ModuleCollector<'id>,
+        semantic: &Semantic<'_, 'id>,
+        mut ignored_references: FxHashSet<NodeId<'id>>,
         implicit_usage: FxHashSet<SymbolId>,
     ) -> Self {
         ignored_references.extend(collector.initializer_references);
@@ -152,16 +152,16 @@ impl ModuleAnalysis {
         analysis
     }
 
-    pub(super) fn import_equals_is_erased(&self, node: NodeId) -> bool {
+    pub(super) fn import_equals_is_erased(&self, node: NodeId<'id>) -> bool {
         self.erased_aliases.contains(&node)
     }
 
-    pub(super) fn has_runtime_usage(&self, symbol: SymbolId, semantic: &Semantic<'_>) -> bool {
+    pub(super) fn has_runtime_usage(&self, symbol: SymbolId, semantic: &Semantic<'_, 'id>) -> bool {
         self.propagated_runtime_usage.contains(&symbol)
             || self.has_direct_runtime_usage(symbol, semantic)
     }
 
-    fn has_direct_runtime_usage(&self, symbol: SymbolId, semantic: &Semantic<'_>) -> bool {
+    fn has_direct_runtime_usage(&self, symbol: SymbolId, semantic: &Semantic<'_, 'id>) -> bool {
         semantic.uses(symbol).iter().any(|&reference| {
             let reference = semantic.reference(reference);
             !self.ignored_references.contains(&reference.node)

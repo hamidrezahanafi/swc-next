@@ -231,9 +231,9 @@ impl TsContext {
     }
 }
 
-struct ParsedBody {
-    directives: SubRange<Directive>,
-    body: SubRange<Stmt>,
+struct ParsedBody<'id> {
+    directives: SubRange<'id, Directive<'id>>,
+    body: SubRange<'id, Stmt<'id>>,
 }
 
 bitflags! {
@@ -271,18 +271,18 @@ impl Default for ReportOptions {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct ScratchBuffer {
+struct ScratchBuffer<'id> {
     // Allocate on the first append and reuse the capacity after reset.
-    items: Vec<NodeId>,
+    items: Vec<Option<NodeId<'id>>>,
 }
 
-impl ScratchBuffer {
+impl<'id> ScratchBuffer<'id> {
     fn begin(&self) -> usize {
         self.items.len()
     }
 
-    fn append(&mut self, index: impl AstNode) {
-        self.items.push(index.node_id());
+    fn append(&mut self, index: impl AstNode<'id>) {
+        self.items.push(Some(index.node_id()));
     }
 
     fn reset(&mut self, checkpoint: usize) {
@@ -344,27 +344,27 @@ fn enter_function_grammar_context(
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ParsedFunction {
-    Function(Function),
-    TsFunction(TsFunction),
+enum ParsedFunction<'id> {
+    Function(Function<'id>),
+    TsFunction(TsFunction<'id>),
 }
 
-impl ParsedFunction {
-    fn into_declaration(self) -> Decl {
+impl<'id> ParsedFunction<'id> {
+    fn into_declaration(self) -> Decl<'id> {
         match self {
             Self::Function(function) => Decl::Function(function),
             Self::TsFunction(function) => Decl::TsFunction(function),
         }
     }
 
-    fn into_default_export_declaration(self) -> ExportDefaultDeclarationKind {
+    fn into_default_export_declaration(self) -> ExportDefaultDeclarationKind<'id> {
         match self {
             Self::Function(function) => ExportDefaultDeclarationKind::Function(function),
             Self::TsFunction(function) => ExportDefaultDeclarationKind::TsFunction(function),
         }
     }
 
-    fn into_function_expression(self) -> Function {
+    fn into_function_expression(self) -> Function<'id> {
         match self {
             Self::Function(function) => function,
             Self::TsFunction(_) => {
@@ -431,28 +431,28 @@ struct ParseExpressionOpts {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct ArrowBodyResult {
-    body: ArrowFunctionBody,
+struct ArrowBodyResult<'id> {
+    body: ArrowFunctionBody<'id>,
     is_expression: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
-struct ArrayCover {
-    elements: SubRange<Option<Argument>>,
+struct ArrayCover<'id> {
+    elements: SubRange<'id, Option<Argument<'id>>>,
     start: u32,
     end: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
-struct ObjectCover {
-    properties: SubRange<ObjectPropertyKind>,
+struct ObjectCover<'id> {
+    properties: SubRange<'id, ObjectPropertyKind<'id>>,
     start: u32,
     end: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
-struct ParenthesizedCover {
-    elements: SubRange<Argument>,
+struct ParenthesizedCover<'id> {
+    elements: SubRange<'id, Argument<'id>>,
     start: u32,
     end: u32,
     has_trailing_comma: bool,
@@ -551,9 +551,9 @@ impl ClassElementModifiers {
     }
 }
 
-enum ClassModifierStep {
+enum ClassModifierStep<'id> {
     Consumed,
-    Key(PropertyKey),
+    Key(PropertyKey<'id>),
     None,
 }
 
@@ -564,9 +564,9 @@ enum StaticMemberKind {
 }
 
 #[derive(Clone, Copy)]
-struct SpecifierParts {
-    property_name: Option<ModuleExportName>,
-    name: ModuleExportName,
+struct SpecifierParts<'id> {
+    property_name: Option<ModuleExportName<'id>>,
+    name: ModuleExportName<'id>,
     name_token: Token,
     kind: ImportOrExportKind,
 }
@@ -597,9 +597,9 @@ enum AngleClose {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum AngleList {
-    Arguments(TsTypeParameterInstantiation),
-    Parameters(TsTypeParameterDeclaration),
+enum AngleList<'id> {
+    Arguments(TsTypeParameterInstantiation<'id>),
+    Parameters(TsTypeParameterDeclaration<'id>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -609,15 +609,15 @@ enum HeritageKind {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum HeritageClause {
-    Interface(SubRange<TsInterfaceHeritage>),
-    Class(SubRange<TsClassImplements>),
+enum HeritageClause<'id> {
+    Interface(SubRange<'id, TsInterfaceHeritage<'id>>),
+    Class(SubRange<'id, TsClassImplements<'id>>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum HeritageEntry {
-    Interface(TsInterfaceHeritage),
-    Class(TsClassImplements),
+enum HeritageEntry<'id> {
+    Interface(TsInterfaceHeritage<'id>),
+    Class(TsClassImplements<'id>),
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -638,14 +638,14 @@ enum JsxExprContext {
     Tag,
 }
 
-struct ExportSpecifiersResult {
-    specifiers: SubRange<ExportSpecifier>,
+struct ExportSpecifiersResult<'id> {
+    specifiers: SubRange<'id, ExportSpecifier<'id>>,
     local_tags: Vec<TokenTag>,
 }
 
 #[derive(Clone, Copy, Debug)]
-struct DefaultExportPart {
-    declaration: ExportDefaultDeclarationKind,
+struct DefaultExportPart<'id> {
+    declaration: ExportDefaultDeclarationKind<'id>,
     needs_semi: bool,
 }
 
@@ -710,8 +710,8 @@ impl From<MethodDefinitionKind> for PropertyOrMethodKind {
 }
 
 /// Parser state and typed AST writer.
-pub struct Parser<'a, C: ParserConfig = NoTokenParserConfig> {
-    ast: Ast<'a>,
+pub struct Parser<'a, 'id, C: ParserConfig = NoTokenParserConfig> {
+    ast: Ast<'a, 'id>,
     source: &'a str,
     source_type: SourceType,
     lang: Lang,
@@ -724,13 +724,13 @@ pub struct Parser<'a, C: ParserConfig = NoTokenParserConfig> {
     /// source type is not CommonJS.
     commonjs_conditional_diagnostic_indices: Vec<usize>,
     current_token: Token,
-    scratch_statements: ScratchBuffer,
-    scratch_cover: ScratchBuffer,
-    scratch_decorators: ScratchBuffer,
+    scratch_statements: ScratchBuffer<'id>,
+    scratch_cover: ScratchBuffer<'id>,
+    scratch_decorators: ScratchBuffer<'id>,
     /// General-purpose scratch buffers used when two extra-data lists are
     /// assembled at the same time.
-    scratch_a: ScratchBuffer,
-    scratch_b: ScratchBuffer,
+    scratch_a: ScratchBuffer<'id>,
+    scratch_b: ScratchBuffer<'id>,
     context: Context,
     statement_context: StatementContext,
     ts_context: TsContext,
@@ -740,7 +740,7 @@ pub struct Parser<'a, C: ParserConfig = NoTokenParserConfig> {
     /// Target node whose parentheses were stripped while converting an
     /// assignment target. The same target must be rejected if cover grammar
     /// later establishes that it is a binding pattern.
-    stripped_paren: Option<NodeId>,
+    stripped_paren: Option<NodeId<'id>>,
     /// Token start offsets whose TypeScript speculation was rejected.
     ///
     /// This cache is intentionally not part of [`Checkpoint`]: a failed
@@ -749,14 +749,14 @@ pub struct Parser<'a, C: ParserConfig = NoTokenParserConfig> {
     ts_rejected_speculations: FxHashSet<u32>,
 }
 
-pub struct ParseReturn<'a> {
-    pub ast: Ast<'a>,
+pub struct ParseReturn<'a, 'id> {
+    pub ast: Ast<'a, 'id>,
     pub tokens: ArenaVec<'a, Token>,
     pub diagnostics: Vec<Diagnostic<'static>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct Checkpoint {
+struct Checkpoint<'id> {
     // Lexer state.
     lexer_cursor: u32,
     lexer_state: LexerState,
@@ -777,7 +777,7 @@ struct Checkpoint {
     ts_context: TsContext,
     state: ParserState,
     cover_has_trailing_comma: Option<u32>,
-    stripped_paren: Option<NodeId>,
+    stripped_paren: Option<NodeId<'id>>,
     boundary_context: BoundaryContext,
 }
 
@@ -859,10 +859,31 @@ fn estimate_ast_capacity(source_len: usize) -> (usize, usize) {
     (estimated_nodes, estimated_extra)
 }
 
-impl<'a, C: ParserConfig> Parser<'a, C> {
-    pub fn init(allocator: &'a Allocator, source: &'a str, options: Options, config: C) -> Self {
+impl<'id, 'a, C: ParserConfig> Parser<'a, 'id, C> {
+    pub fn init(
+        allocator: &'a Allocator,
+        source: &'a str,
+        options: Options,
+        config: C,
+        guard: swc_next_ecma_ast::AstGuard<'id>,
+    ) -> Self {
+        Self::init_with_ast(
+            allocator,
+            source,
+            options,
+            config,
+            Ast::new(source, allocator, guard),
+        )
+    }
+
+    fn init_with_ast(
+        _allocator: &'a Allocator,
+        source: &'a str,
+        options: Options,
+        config: C,
+        mut ast: Ast<'a, 'id>,
+    ) -> Self {
         assert!(source.len() <= u32::MAX as usize);
-        let mut ast = Ast::new(source, allocator);
         ast.set_source_metadata(options.source_type, options.lang);
         let allow_html_like_comments = options.source_type != SourceType::Module;
         let lexer = Lexer::init(
@@ -904,7 +925,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    pub fn parse(mut self) -> ParseReturn<'a> {
+    pub fn parse(mut self) -> ParseReturn<'a, 'id> {
         self.ensure_capacity();
         if self.advance().is_none() {
             self.current_token = Token::eof(0);
@@ -919,7 +940,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn parse_unambiguous_program(mut self) -> ParseReturn<'a> {
+    fn parse_unambiguous_program(mut self) -> ParseReturn<'a, 'id> {
         let can_be_commonjs = self.lang != Lang::Dts;
         self.enter_program_context(SourceType::Module, true, can_be_commonjs);
         let body = self.parse_body(None, self.source_type.into());
@@ -941,7 +962,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                         preserve_parens: self.preserve_parens,
                         comments: self.comment_mode,
                     };
-                    Parser::init(allocator, source, options, config)
+                    // SAFETY: Parsing consumes the parser before exposing handles. The
+                    // retry uses only its own AST, and only one result escapes.
+                    let ast = unsafe { Ast::new_unchecked(source, allocator) };
+                    Parser::init_with_ast(allocator, source, options, config, ast)
                 };
                 let body = {
                     parser.ensure_capacity();
@@ -977,7 +1001,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.statement_context = source_type.into();
     }
 
-    fn finish_program(mut self, parsed_body: ParsedBody) -> ParseReturn<'a> {
+    fn finish_program(mut self, parsed_body: ParsedBody<'id>) -> ParseReturn<'a, 'id> {
         let ParsedBody { directives, body } = parsed_body;
         self.discard_commonjs_conditional_diagnostics();
 
@@ -1024,7 +1048,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     pub fn parse_expression_fragment(
         mut self,
         fragment_context: FragmentContext,
-    ) -> Result<Ast<'a>, Vec<Diagnostic<'a>>> {
+    ) -> Result<Ast<'a, 'id>, Vec<Diagnostic<'a>>> {
         if let Some(hashbang) = self.lexer.hashbang {
             let end = hashbang.start + u32::from(hashbang.len);
             self.report(
@@ -1052,7 +1076,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_unambiguous_expression_fragment(
         mut self,
         fragment_context: FragmentContext,
-    ) -> Result<Ast<'a>, Vec<Diagnostic<'a>>> {
+    ) -> Result<Ast<'a, 'id>, Vec<Diagnostic<'a>>> {
         let can_be_commonjs =
             self.lang != Lang::Dts && fragment_context == FragmentContext::TopLevel;
         self.enter_fragment_context(SourceType::Module, fragment_context, true, can_be_commonjs);
@@ -1075,7 +1099,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                         preserve_parens: self.preserve_parens,
                         comments: self.comment_mode,
                     };
-                    Parser::init(allocator, source, options, config)
+                    // SAFETY: Parsing consumes the parser before exposing handles. The
+                    // retry uses only its own AST, and only one result escapes.
+                    let ast = unsafe { Ast::new_unchecked(source, allocator) };
+                    Parser::init_with_ast(allocator, source, options, config, ast)
                 };
                 let expr = {
                     parser.ensure_capacity();
@@ -1128,8 +1155,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn finish_expression_fragment(
         mut self,
-        expr: Option<Expr>,
-    ) -> Result<Ast<'a>, Vec<Diagnostic<'a>>> {
+        expr: Option<Expr<'id>>,
+    ) -> Result<Ast<'a, 'id>, Vec<Diagnostic<'a>>> {
         self.discard_commonjs_conditional_diagnostics();
         if self.current_token.tag() != TokenTag::Eof {
             self.report_expected(
@@ -1246,7 +1273,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     ///
     /// This strips `#` from private identifiers and decodes Unicode escapes.
     #[inline]
-    fn identifier_name(&mut self, token: Token) -> AstUtf8 {
+    fn identifier_name(&mut self, token: Token) -> AstUtf8<'id> {
         if token.tag() != TokenTag::PrivateIdentifier && !token.is_escaped() {
             return self.ast.source_slice(token.start(), token.end());
         }
@@ -1256,7 +1283,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     #[cold]
     #[inline(never)]
-    fn identifier_name_slow(&mut self, token: Token) -> AstUtf8 {
+    fn identifier_name_slow(&mut self, token: Token) -> AstUtf8<'id> {
         let start = token.start() + u32::from(token.tag() == TokenTag::PrivateIdentifier);
         if token.is_escaped() {
             return self.decode_escaped_identifier(start, token.end());
@@ -1266,7 +1293,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     }
 
     /// Returns the decoded string value without the surrounding quotes.
-    fn string_value(&mut self, token: Token) -> AstWtf8 {
+    fn string_value(&mut self, token: Token) -> AstWtf8<'id> {
         if token.is_escaped() {
             return self.decode_escaped_string(token.start() + 1, token.end() - 1);
         }
@@ -1275,7 +1302,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     }
 
     /// Returns the decoded content of a template quasi span.
-    fn template_element_raw(&mut self, token: Token, span: Span) -> AstUtf8 {
+    fn template_element_raw(&mut self, token: Token, span: Span) -> AstUtf8<'id> {
         // The lexer marks physical CR as escaped. Ordinary source-backed raw
         // values need neither a second scan nor an allocation.
         if !token.is_escaped() {
@@ -1296,14 +1323,14 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.ast.add_utf8(&normalized)
     }
 
-    fn template_element_value(&mut self, token: Token, span: Span) -> AstWtf8 {
+    fn template_element_value(&mut self, token: Token, span: Span) -> AstWtf8<'id> {
         if !token.is_escaped() {
             return self.ast.source_slice_wtf8(span.start, span.end);
         }
         self.decode_escaped_string(span.start, span.end)
     }
 
-    fn decode_escaped_identifier(&mut self, start: u32, end: u32) -> AstUtf8 {
+    fn decode_escaped_identifier(&mut self, start: u32, end: u32) -> AstUtf8<'id> {
         let raw = &self.source[start as usize..end as usize];
         let mut buffer = [0u8; 256];
         if let Some(value) = decode_identifier_escapes(raw, &mut buffer) {
@@ -1324,7 +1351,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.ast.add_utf8(value)
     }
 
-    fn decode_escaped_string(&mut self, start: u32, end: u32) -> AstWtf8 {
+    fn decode_escaped_string(&mut self, start: u32, end: u32) -> AstWtf8<'id> {
         let mut decoded = Wtf8Buf::with_capacity((end - start) as usize);
         decode_string_escapes(&self.source[start as usize..end as usize], &mut decoded);
         self.ast.add_wtf8(&decoded)
@@ -1350,43 +1377,43 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     }
 
     // field-specific helpers avoid allocating scratch copies while splitting mutable borrows
-    fn add_extra_from_scratch_a<N>(&mut self, scratch_checkpoint: usize) -> SubRange<N>
+    fn add_extra_from_scratch_a<N>(&mut self, scratch_checkpoint: usize) -> SubRange<'id, N>
     where
-        N: AstNode,
+        N: AstNode<'id>,
     {
         debug_assert!(scratch_checkpoint <= self.scratch_a.items.len());
         let range = self.ast.add_sub_range(
             self.scratch_a.items[scratch_checkpoint..]
                 .iter()
-                .map(|node| unsafe { N::from_node_id_unchecked(*node) }),
+                .map(|node| unsafe { N::from_node_id_unchecked(node.unwrap()) }),
         );
         debug_assert_eq!(range.len(), self.scratch_a.items.len() - scratch_checkpoint);
         range
     }
 
-    fn add_extra_from_scratch_b<N>(&mut self, scratch_checkpoint: usize) -> SubRange<N>
+    fn add_extra_from_scratch_b<N>(&mut self, scratch_checkpoint: usize) -> SubRange<'id, N>
     where
-        N: AstNode,
+        N: AstNode<'id>,
     {
         debug_assert!(scratch_checkpoint <= self.scratch_b.items.len());
         let range = self.ast.add_sub_range(
             self.scratch_b.items[scratch_checkpoint..]
                 .iter()
-                .map(|node| unsafe { N::from_node_id_unchecked(*node) }),
+                .map(|node| unsafe { N::from_node_id_unchecked(node.unwrap()) }),
         );
         debug_assert_eq!(range.len(), self.scratch_b.items.len() - scratch_checkpoint);
         range
     }
 
-    fn add_extra_from_scratch_cover<N>(&mut self, scratch_checkpoint: usize) -> SubRange<N>
+    fn add_extra_from_scratch_cover<N>(&mut self, scratch_checkpoint: usize) -> SubRange<'id, N>
     where
-        N: AstNode,
+        N: AstNode<'id>,
     {
         debug_assert!(scratch_checkpoint <= self.scratch_cover.items.len());
         let range = self.ast.add_sub_range(
             self.scratch_cover.items[scratch_checkpoint..]
                 .iter()
-                .map(|node| unsafe { N::from_node_id_unchecked(*node) }),
+                .map(|node| unsafe { N::from_node_id_unchecked(node.unwrap()) }),
         );
         debug_assert_eq!(
             range.len(),
@@ -1395,15 +1422,18 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         range
     }
 
-    fn add_extra_from_scratch_decorators<N>(&mut self, scratch_checkpoint: usize) -> SubRange<N>
+    fn add_extra_from_scratch_decorators<N>(
+        &mut self,
+        scratch_checkpoint: usize,
+    ) -> SubRange<'id, N>
     where
-        N: AstNode,
+        N: AstNode<'id>,
     {
         debug_assert!(scratch_checkpoint <= self.scratch_decorators.items.len());
         let range = self.ast.add_sub_range(
             self.scratch_decorators.items[scratch_checkpoint..]
                 .iter()
-                .map(|node| unsafe { N::from_node_id_unchecked(*node) }),
+                .map(|node| unsafe { N::from_node_id_unchecked(node.unwrap()) }),
         );
         debug_assert_eq!(
             range.len(),
@@ -1412,9 +1442,12 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         range
     }
 
-    fn add_extra_from_scratch_statements<N>(&mut self, scratch_checkpoint: usize) -> SubRange<N>
+    fn add_extra_from_scratch_statements<N>(
+        &mut self,
+        scratch_checkpoint: usize,
+    ) -> SubRange<'id, N>
     where
-        N: AstNode,
+        N: AstNode<'id>,
     {
         let scratch_end = self.scratch_statements.items.len();
         self.add_extra_from_scratch_statements_range(scratch_checkpoint, scratch_end)
@@ -1424,23 +1457,23 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         scratch_start: usize,
         scratch_end: usize,
-    ) -> SubRange<N>
+    ) -> SubRange<'id, N>
     where
-        N: AstNode,
+        N: AstNode<'id>,
     {
         debug_assert!(scratch_start <= scratch_end);
         debug_assert!(scratch_end <= self.scratch_statements.items.len());
         let range = self.ast.add_sub_range(
             self.scratch_statements.items[scratch_start..scratch_end]
                 .iter()
-                .map(|node| unsafe { N::from_node_id_unchecked(*node) }),
+                .map(|node| unsafe { N::from_node_id_unchecked(node.unwrap()) }),
         );
         debug_assert_eq!(range.len(), scratch_end - scratch_start);
         range
     }
 
     /// Captures all state needed to commit or discard a speculative parse.
-    fn checkpoint(&self) -> Checkpoint {
+    fn checkpoint(&self) -> Checkpoint<'id> {
         Checkpoint {
             lexer_cursor: self.lexer.cursor,
             lexer_state: self.lexer.state,
@@ -1471,7 +1504,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     }
 
     /// Restores parser state captured by [`Parser::checkpoint`].
-    fn rewind(&mut self, checkpoint: Checkpoint) {
+    fn rewind(&mut self, checkpoint: Checkpoint<'id>) {
         self.lexer.cursor = checkpoint.lexer_cursor;
         self.lexer.state = checkpoint.lexer_state;
         self.lexer.mode = checkpoint.lexer_mode;
@@ -1560,7 +1593,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         terminator: Option<TokenTag>,
         statement_context: StatementContext,
-    ) -> ParsedBody {
+    ) -> ParsedBody<'id> {
         debug_assert!(statement_context.permits_declaration());
         let statement_context = mem::replace(&mut self.statement_context, statement_context);
         // `parse_body` is shared by ScriptBody, ModuleBody, FunctionBody, and
@@ -1613,7 +1646,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ParsedBody { directives, body }
     }
 
-    fn record_statement_module_syntax(&mut self, statement: Stmt) {
+    fn record_statement_module_syntax(&mut self, statement: Stmt<'id>) {
         if statement.is_module_indicator(&self.ast) {
             self.state.insert(ParserState::HAS_MODULE_SYNTAX);
         }
@@ -1624,7 +1657,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             || terminator.is_some_and(|tag| self.current_token.tag() == tag)
     }
 
-    fn parse_statement(&mut self, statement_context: StatementContext) -> Option<Stmt> {
+    fn parse_statement(&mut self, statement_context: StatementContext) -> Option<Stmt<'id>> {
         let statement_context = mem::replace(&mut self.statement_context, statement_context);
         let result = self.parse_statement_inner();
         self.statement_context = statement_context;
@@ -1632,7 +1665,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     }
 
     #[inline]
-    fn parse_statement_inner(&mut self) -> Option<Stmt> {
+    fn parse_statement_inner(&mut self) -> Option<Stmt<'id>> {
         if self.lang.is_typescript() && self.is_start_of_ts_declaration()? {
             return self.parse_ts_declaration();
         }
@@ -1676,7 +1709,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn parse_decorated_statement(&mut self) -> Option<Stmt> {
+    fn parse_decorated_statement(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::At);
         let (decorators_start, decorators) = self.parse_decorators()?;
         if self.current_token.tag() != TokenTag::Export {
@@ -1689,7 +1722,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.parse_export_decorated(decorators)
     }
 
-    fn parse_export_decorated(&mut self, decorators: SubRange<Decorator>) -> Option<Stmt> {
+    fn parse_export_decorated(
+        &mut self,
+        decorators: SubRange<'id, Decorator<'id>>,
+    ) -> Option<Stmt<'id>> {
         self.enter_module_context();
         let export_start = self.current_token.start();
         self.advance()?;
@@ -1701,8 +1737,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         export_start: u32,
         mut is_default: bool,
-        mut decorators: SubRange<Decorator>,
-    ) -> Option<Stmt> {
+        mut decorators: SubRange<'id, Decorator<'id>>,
+    ) -> Option<Stmt<'id>> {
         let before_export = !decorators.is_empty();
         let mut class_start = None;
         while self.current_token.tag() == TokenTag::At {
@@ -1768,7 +1804,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn parse_let(&mut self) -> Option<Stmt> {
+    fn parse_let(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Let);
         if !self.is_let_identifier()? {
             let start = self.current_token.start();
@@ -1780,7 +1816,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.parse_expression_statement()
     }
 
-    fn parse_using_or_expression(&mut self) -> Option<Stmt> {
+    fn parse_using_or_expression(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Using);
         if !self.is_using_identifier()? {
             let start = self.current_token.start();
@@ -1792,7 +1828,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.parse_expression_statement()
     }
 
-    fn parse_await_using_or_expression(&mut self) -> Option<Stmt> {
+    fn parse_await_using_or_expression(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Await);
         let await_span = self.current_token.span();
         let next = self.peek_ahead()?;
@@ -1829,14 +1865,14 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     // ExpressionStatement[Yield, Await] :
     //   [lookahead ∉ { `{`, `function`, `async` [no LineTerminator here] `function`, `class`, `let` `[` }] Expression[+In, ?Yield, ?Await] `;`
-    fn parse_await_expression_statement(&mut self, start: u32) -> Option<Stmt> {
+    fn parse_await_expression_statement(&mut self, start: u32) -> Option<Stmt<'id>> {
         // The program or function/static block entry already establishes +In.
         let expression = self.parse_await_expression(start)?;
         let expression = self.parse_expr_from_left(expression, Precedence::Comma)?;
         self.parse_expression_statement_with_expression(start, expression)
     }
 
-    fn parse_const_or_const_enum(&mut self) -> Option<Stmt> {
+    fn parse_const_or_const_enum(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Const);
         if self.lang.is_typescript() {
             let next = self.peek_ahead()?;
@@ -1850,7 +1886,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             .map(|declaration| Stmt::Declaration(Decl::VariableDeclaration(declaration)))
     }
 
-    fn parse_async_function_or_expression(&mut self) -> Option<Stmt> {
+    fn parse_async_function_or_expression(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Async);
         let next = self.peek_ahead()?;
         if next.tag() == TokenTag::Function && !next.has_line_terminator_before() {
@@ -1869,7 +1905,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.parse_expression_or_labeled_statement()
     }
 
-    fn parse_import_declaration_or_expression(&mut self) -> Option<Stmt> {
+    fn parse_import_declaration_or_expression(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Import);
         let import = self.current_token;
         let mut peek = self.begin_peek();
@@ -1931,7 +1967,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_block_statement(&mut self) -> Option<BlockStatement> {
+    fn parse_block_statement(&mut self) -> Option<BlockStatement<'id>> {
         let start = self.current_token.start();
         if !self.expect(
             TokenTag::LeftBrace,
@@ -1968,7 +2004,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_empty_statement(&mut self) -> Option<Stmt> {
+    fn parse_empty_statement(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Semicolon);
         let span = self.current_token.span();
         self.advance()?;
@@ -1978,7 +2014,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     // IfStatement[Yield, Await, Return] :
     //   `if` `(` Expression[+In, ?Yield, ?Await] `)` Statement[?Yield, ?Await, ?Return] `else` Statement[?Yield, ?Await, ?Return]
     //   `if` `(` Expression[+In, ?Yield, ?Await] `)` Statement[?Yield, ?Await, ?Return] [lookahead != `else`]
-    fn parse_if_statement(&mut self) -> Option<Stmt> {
+    fn parse_if_statement(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::If);
         let start = self.current_token.start();
         self.advance()?;
@@ -2012,7 +2048,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     // WhileStatement[Yield, Await, Return] :
     //   `while` `(` Expression[+In, ?Yield, ?Await] `)` Statement[?Yield, ?Await, ?Return]
-    fn parse_while_statement(&mut self) -> Option<Stmt> {
+    fn parse_while_statement(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::While);
         let start = self.current_token.start();
         self.advance()?;
@@ -2038,7 +2074,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     // DoWhileStatement[Yield, Await, Return] :
     //   `do` Statement[?Yield, ?Await, ?Return] `while` `(` Expression[+In, ?Yield, ?Await] `)` `;`
-    fn parse_do_while_statement(&mut self) -> Option<Stmt> {
+    fn parse_do_while_statement(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Do);
         let start = self.current_token.start();
         self.advance()?;
@@ -2073,7 +2109,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     // ReturnStatement[Yield, Await] :
     //   `return` `;`
     //   `return` [no LineTerminator here] Expression[+In, ?Yield, ?Await] `;`
-    fn parse_return_statement(&mut self) -> Option<Stmt> {
+    fn parse_return_statement(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Return);
         let start = self.current_token.start();
         self.advance()?;
@@ -2114,7 +2150,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     // ThrowStatement[Yield, Await] :
     //   `throw` [no LineTerminator here] Expression[+In, ?Yield, ?Await] `;`
-    fn parse_throw_statement(&mut self) -> Option<Stmt> {
+    fn parse_throw_statement(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Throw);
         let start = self.current_token.start();
         self.advance()?;
@@ -2138,7 +2174,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_break_statement(&mut self) -> Option<Stmt> {
+    fn parse_break_statement(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Break);
         let start = self.current_token.start();
         self.advance()?;
@@ -2153,7 +2189,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(self.ast.stmt_break_statement(Span::new(start, end), label))
     }
 
-    fn parse_continue_statement(&mut self) -> Option<Stmt> {
+    fn parse_continue_statement(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Continue);
         let start = self.current_token.start();
         self.advance()?;
@@ -2171,7 +2207,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_debugger_statement(&mut self) -> Option<Stmt> {
+    fn parse_debugger_statement(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Debugger);
         let start = self.current_token.start();
         self.advance()?;
@@ -2181,7 +2217,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     // WithStatement[Yield, Await, Return] :
     //   `with` `(` Expression[+In, ?Yield, ?Await] `)` Statement[?Yield, ?Await, ?Return]
-    fn parse_with_statement(&mut self) -> Option<Stmt> {
+    fn parse_with_statement(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::With);
         let start = self.current_token.start();
         self.advance()?;
@@ -2207,7 +2243,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     // ExpressionStatement[Yield, Await] :
     //   [lookahead ∉ { `{`, `function`, `async` [no LineTerminator here] `function`, `class`, `let` `[` }] Expression[+In, ?Yield, ?Await] `;`
-    fn parse_expression_or_labeled_statement(&mut self) -> Option<Stmt> {
+    fn parse_expression_or_labeled_statement(&mut self) -> Option<Stmt<'id>> {
         // The program or function/static block entry already establishes +In.
         let expression = self.parse_expr(Precedence::Lowest, ParseExpressionOpts::default())?;
         if self.ast.node_kind(expression.node_id()) == NodeKind::IdentifierReference
@@ -2223,7 +2259,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     // ExpressionStatement[Yield, Await] :
     //   [lookahead ∉ { `{`, `function`, `async` [no LineTerminator here] `function`, `class`, `let` `[` }] Expression[+In, ?Yield, ?Await] `;`
-    fn parse_expression_statement(&mut self) -> Option<Stmt> {
+    fn parse_expression_statement(&mut self) -> Option<Stmt<'id>> {
         let start = self.current_token.start();
         // The program or function/static block entry already establishes +In.
         let expression = self.parse_expr(Precedence::Comma, ParseExpressionOpts::default())?;
@@ -2233,8 +2269,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_expression_statement_with_expression(
         &mut self,
         start: u32,
-        expression: Expr,
-    ) -> Option<Stmt> {
+        expression: Expr<'id>,
+    ) -> Option<Stmt<'id>> {
         let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
         Some(
             self.ast
@@ -2242,7 +2278,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_labeled_statement(&mut self, identifier: Expr) -> Option<Stmt> {
+    fn parse_labeled_statement(&mut self, identifier: Expr<'id>) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Colon);
         let ExprData::IdentifierReference(identifier) = self.ast.expr_data(identifier) else {
             unreachable!("only an identifier reference can start a labeled statement")
@@ -2260,7 +2296,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_directive(&mut self, string_literal: StringLiteral, span: Span) -> Option<Directive> {
+    fn parse_directive(
+        &mut self,
+        string_literal: StringLiteral<'id>,
+        span: Span,
+    ) -> Option<Directive<'id>> {
         let raw_value = self.ast.source_slice(span.start + 1, span.end - 1);
         let end = self.eat_semicolon(span.end)?;
         Some(
@@ -2281,7 +2321,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         kind: VariableKind,
         is_declare: bool,
         declaration_start: u32,
-    ) -> Option<VariableDeclaration> {
+    ) -> Option<VariableDeclaration<'id>> {
         let context = if is_declare || self.ts_context.ambient() {
             DeclaratorCtx::Declare
         } else {
@@ -2321,7 +2361,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         kind: VariableKind,
         context: DeclaratorCtx,
-    ) -> Option<SubRange<VariableDeclarator>> {
+    ) -> Option<SubRange<'id, VariableDeclarator<'id>>> {
         let checkpoint = self.scratch_a.begin();
         let result = (|| {
             let first = self.parse_variable_declarator(kind, context)?;
@@ -2367,7 +2407,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         kind: VariableKind,
         context: DeclaratorCtx,
-    ) -> Option<VariableDeclarator> {
+    ) -> Option<VariableDeclarator<'id>> {
         let start = self.current_token.start();
         let id = self.parse_binding_pattern()?;
         let id_span = id.span(&self.ast);
@@ -2449,11 +2489,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_binding_pattern(&mut self) -> Option<BindingPattern> {
+    fn parse_binding_pattern(&mut self) -> Option<BindingPattern<'id>> {
         self.parse_formal_parameter_pattern().map(Into::into)
     }
 
-    fn parse_formal_parameter_pattern(&mut self) -> Option<FormalParameterPattern> {
+    fn parse_formal_parameter_pattern(&mut self) -> Option<FormalParameterPattern<'id>> {
         match self.current_token.tag() {
             tag if tag.is_identifier_like() => self
                 .parse_binding_identifier()
@@ -2484,13 +2524,13 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn parse_array_pattern(&mut self) -> Option<ArrayPattern> {
+    fn parse_array_pattern(&mut self) -> Option<ArrayPattern<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBracket);
         let cover = self.parse_array_cover()?;
         self.array_cover_to_pattern(cover, PatternContext::Binding)
     }
 
-    fn parse_object_pattern(&mut self) -> Option<ObjectPattern> {
+    fn parse_object_pattern(&mut self) -> Option<ObjectPattern<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBrace);
         let cover = self.parse_object_cover()?;
         self.object_cover_to_pattern(cover, PatternContext::Binding)
@@ -2500,7 +2540,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         opts: ParseFunctionOpts,
         start_from_param: Option<u32>,
-    ) -> Option<ParsedFunction> {
+    ) -> Option<ParsedFunction<'id>> {
         debug_assert!(start_from_param.is_some() || self.current_token.tag() == TokenTag::Function);
         let start = start_from_param.unwrap_or(self.current_token.start());
         if !self.expect(TokenTag::Function, "Expected 'function' keyword", None) {
@@ -2650,7 +2690,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         opts: ParseClassOpts,
         start_from_param: Option<u32>,
-    ) -> Option<Class> {
+    ) -> Option<Class<'id>> {
         let decorators = SubRange::empty();
         self.parse_class_decorated(opts, start_from_param, decorators)
     }
@@ -2659,8 +2699,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         opts: ParseClassOpts,
         start_from_param: Option<u32>,
-        decorators: SubRange<Decorator>,
-    ) -> Option<Class> {
+        decorators: SubRange<'id, Decorator<'id>>,
+    ) -> Option<Class<'id>> {
         let start = start_from_param.unwrap_or(self.current_token.start());
         let mut is_abstract = opts.is_abstract;
         if self.current_token.tag() == TokenTag::Abstract
@@ -2784,14 +2824,14 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         true
     }
 
-    fn parse_implements_clause(&mut self) -> Option<SubRange<TsClassImplements>> {
+    fn parse_implements_clause(&mut self) -> Option<SubRange<'id, TsClassImplements<'id>>> {
         match self.parse_heritage_clause(TokenTag::Implements, HeritageKind::Class)? {
             HeritageClause::Class(implements) => Some(implements),
             HeritageClause::Interface(_) => unreachable!(),
         }
     }
 
-    fn parse_heritage_expression(&mut self) -> Option<Expr> {
+    fn parse_heritage_expression(&mut self) -> Option<Expr<'id>> {
         let mut expression = self.parse_identifier()?;
         while self.current_token.tag() == TokenTag::Dot {
             expression = self.parse_static_member_expression(expression, false)?;
@@ -2799,7 +2839,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(expression)
     }
 
-    fn parse_class_body(&mut self) -> Option<ClassBody> {
+    fn parse_class_body(&mut self) -> Option<ClassBody<'id>> {
         let start = self.current_token.start();
         if !self.expect(
             TokenTag::LeftBrace,
@@ -2840,7 +2880,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_class_element(&mut self) -> Option<ClassElement> {
+    fn parse_class_element(&mut self) -> Option<ClassElement<'id>> {
         let element_start = self.current_token.start();
         let decorators = if self.current_token.tag() == TokenTag::At {
             self.parse_decorators()?.1
@@ -2994,9 +3034,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_index_signature_element(
         &mut self,
         start: u32,
-        _decorators: SubRange<Decorator>,
+        _decorators: SubRange<'id, Decorator<'id>>,
         modifiers: ClassElementModifiers,
-    ) -> Option<ClassElement> {
+    ) -> Option<ClassElement<'id>> {
         let element = self.parse_index_signature(start, modifiers.readonly, modifiers.is_static)?;
         let TsTypeElementData::TsIndexSignature(signature) = self.ast.ts_type_element_data(element)
         else {
@@ -3012,7 +3052,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn consume_modifier(
         &mut self,
         modifiers: &mut ClassElementModifiers,
-    ) -> Option<ClassModifierStep> {
+    ) -> Option<ClassModifierStep<'id>> {
         let token = self.current_token;
         if token.is_escaped() {
             return Some(ClassModifierStep::None);
@@ -3070,7 +3110,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(ClassModifierStep::Consumed)
     }
 
-    fn try_static_block(&mut self, decorators: SubRange<Decorator>) -> Option<ClassElement> {
+    fn try_static_block(
+        &mut self,
+        decorators: SubRange<'id, Decorator<'id>>,
+    ) -> Option<ClassElement<'id>> {
         let static_token = self.current_token;
         if static_token.tag() != TokenTag::Static || static_token.is_escaped() {
             return None;
@@ -3101,7 +3144,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     //
     // ClassStaticBlockStatementList :
     //   StatementList[~Yield, +Await, ~Return]?
-    fn parse_static_block(&mut self, start: u32) -> Option<ClassElement> {
+    fn parse_static_block(&mut self, start: u32) -> Option<ClassElement<'id>> {
         if !self.expect(
             TokenTag::LeftBrace,
             "Expected '{' to start static block",
@@ -3140,7 +3183,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn validate_private_constructor(&mut self, key: PropertyKey, computed: bool) {
+    fn validate_private_constructor(&mut self, key: PropertyKey<'id>, computed: bool) {
         if computed {
             return;
         }
@@ -3158,7 +3201,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn detect_constructor_kind(
         &mut self,
-        key: PropertyKey,
+        key: PropertyKey<'id>,
         modifiers: &mut ClassElementModifiers,
         computed: bool,
     ) {
@@ -3181,7 +3224,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn validate_method_modifiers(&mut self, key: PropertyKey, modifiers: ClassElementModifiers) {
+    fn validate_method_modifiers(
+        &mut self,
+        key: PropertyKey<'id>,
+        modifiers: ClassElementModifiers,
+    ) {
         let span = key.span(&self.ast);
         if modifiers.kind == MethodDefinitionKind::Constructor {
             if modifiers.is_async {
@@ -3220,7 +3267,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn validate_static_prototype_or_constructor(
         &mut self,
-        key: PropertyKey,
+        key: PropertyKey<'id>,
         kind: StaticMemberKind,
     ) {
         if !self.ts_context.ambient()
@@ -3242,7 +3289,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn validate_field_constructor(&mut self, key: PropertyKey) {
+    fn validate_field_constructor(&mut self, key: PropertyKey<'id>) {
         if let Some(span) = self.prop_name_eq(key, "constructor") {
             self.report(
                 span,
@@ -3255,11 +3302,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_method_definition(
         &mut self,
         start: u32,
-        decorators: SubRange<Decorator>,
-        key: PropertyKey,
+        decorators: SubRange<'id, Decorator<'id>>,
+        key: PropertyKey<'id>,
         modifiers: ClassElementModifiers,
         optional: bool,
-    ) -> Option<ClassElement> {
+    ) -> Option<ClassElement<'id>> {
         self.validate_method_modifiers(key, modifiers);
         if modifiers.is_static && !modifiers.computed {
             self.validate_static_prototype_or_constructor(key, StaticMemberKind::Method);
@@ -3379,12 +3426,12 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_property_definition(
         &mut self,
         start: u32,
-        decorators: SubRange<Decorator>,
-        key: PropertyKey,
+        decorators: SubRange<'id, Decorator<'id>>,
+        key: PropertyKey<'id>,
         modifiers: ClassElementModifiers,
         optional: bool,
         definite: bool,
-    ) -> Option<ClassElement> {
+    ) -> Option<ClassElement<'id>> {
         if !modifiers.computed {
             if modifiers.is_static {
                 self.validate_static_prototype_or_constructor(key, StaticMemberKind::Field);
@@ -3457,7 +3504,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_decorators(&mut self) -> Option<(u32, SubRange<Decorator>)> {
+    fn parse_decorators(&mut self) -> Option<(u32, SubRange<'id, Decorator<'id>>)> {
         let start = self.current_token.start();
         let checkpoint = self.scratch_decorators.begin();
         let result = (|| {
@@ -3471,7 +3518,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_decorator(&mut self) -> Option<Decorator> {
+    fn parse_decorator(&mut self) -> Option<Decorator<'id>> {
         let start = self.current_token.start();
         if !self.expect(TokenTag::At, "Expected '@' to start a decorator", None) {
             return None;
@@ -3483,7 +3530,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_left_hand_side_expression(&mut self, context: LhsContext) -> Option<Expr> {
+    fn parse_left_hand_side_expression(&mut self, context: LhsContext) -> Option<Expr<'id>> {
         let mut expression = match self.current_token.tag() {
             TokenTag::LeftParen => self.parse_parenthesized_expression()?,
             TokenTag::New => self.parse_new_expression()?,
@@ -3523,7 +3570,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(expression)
     }
 
-    fn prop_name_eq(&self, key: PropertyKey, expected: &str) -> Option<Span> {
+    fn prop_name_eq(&self, key: PropertyKey<'id>, expected: &str) -> Option<Span> {
         let matches = match self.ast.property_key_data(key) {
             PropertyKeyData::IdentifierName(identifier) => {
                 self.ast.get_utf8(identifier.name(&self.ast)) == expected
@@ -3544,7 +3591,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn check_accessor_arity(
         &mut self,
         kind: impl Into<PropertyOrMethodKind>,
-        params: FormalParameters,
+        params: FormalParameters<'id>,
     ) {
         let kind = kind.into();
         let Some((expected, msg, help)) = kind.accessor_arity() else {
@@ -3570,7 +3617,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         kind: FormalParameterKind,
         allow_parameter_properties: bool,
-    ) -> Option<(Option<TsThisParameter>, FormalParameters)> {
+    ) -> Option<(Option<TsThisParameter<'id>>, FormalParameters<'id>)> {
         let start = self.current_token.start();
         if !self.expect(
             TokenTag::LeftParen,
@@ -3678,9 +3725,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_formal_parameter<const IS_TYPESCRIPT: bool>(
         &mut self,
         allow_parameter_properties: bool,
-        decorators: SubRange<Decorator>,
+        decorators: SubRange<'id, Decorator<'id>>,
         start: u32,
-    ) -> Option<FormalParameterItem> {
+    ) -> Option<FormalParameterItem<'id>> {
         let modifiers = if IS_TYPESCRIPT && allow_parameter_properties {
             self.parse_parameter_property_modifiers()?
         } else {
@@ -3747,8 +3794,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn formal_parameter_pattern(
         &mut self,
-        pattern: BindingPattern,
-    ) -> Option<FormalParameterPattern> {
+        pattern: BindingPattern<'id>,
+    ) -> Option<FormalParameterPattern<'id>> {
         match self.ast.binding_pattern_data(pattern) {
             BindingPatternData::BindingIdentifier(node) => {
                 Some(FormalParameterPattern::BindingIdentifier(node))
@@ -3770,7 +3817,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn parse_this_parameter(&mut self) -> Option<TsThisParameter> {
+    fn parse_this_parameter(&mut self) -> Option<TsThisParameter<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::This);
         let start = self.current_token.start();
         self.advance()?;
@@ -3790,8 +3837,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn parse_formal_parameter_rest(
         &mut self,
-        decorators: SubRange<Decorator>,
-    ) -> Option<FormalParameterRest> {
+        decorators: SubRange<'id, Decorator<'id>>,
+    ) -> Option<FormalParameterRest<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Spread);
         let start = self.current_token.start();
         self.advance()?;
@@ -3848,7 +3895,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     //
     // FunctionStatementList[Yield, Await] :
     //   StatementList[?Yield, ?Await, +Return]?
-    fn parse_function_body(&mut self) -> Option<FunctionBody> {
+    fn parse_function_body(&mut self) -> Option<FunctionBody<'id>> {
         let start = self.current_token.start();
         if !self.expect(
             TokenTag::LeftBrace,
@@ -3882,14 +3929,14 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_import_declaration(&mut self) -> Option<Stmt> {
+    fn parse_import_declaration(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Import);
         let start = self.current_token.start();
         self.advance()?;
         self.parse_import_declaration_from(start)
     }
 
-    fn parse_import_declaration_from(&mut self, start: u32) -> Option<Stmt> {
+    fn parse_import_declaration_from(&mut self, start: u32) -> Option<Stmt<'id>> {
         if self.current_token.tag() == TokenTag::StringLiteral {
             return self.parse_side_effect_import(start, None);
         }
@@ -3994,7 +4041,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         after_from.is_some_and(|token| token.tag() == TokenTag::From)
     }
 
-    fn parse_side_effect_import(&mut self, start: u32, phase: Option<ImportPhase>) -> Option<Stmt> {
+    fn parse_side_effect_import(
+        &mut self,
+        start: u32,
+        phase: Option<ImportPhase>,
+    ) -> Option<Stmt<'id>> {
         let source = self.parse_module_specifier()?;
         let attributes = self.parse_with_clause();
         let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
@@ -4009,7 +4060,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_import_clause(&mut self) -> Option<SubRange<ImportDeclarationSpecifier>> {
+    fn parse_import_clause(&mut self) -> Option<SubRange<'id, ImportDeclarationSpecifier<'id>>> {
         let checkpoint = self.scratch_a.begin();
         let result = (|| {
             if self.current_token.tag() == TokenTag::Star {
@@ -4056,7 +4107,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_import_default_specifier(&mut self) -> Option<ImportDefaultSpecifier> {
+    fn parse_import_default_specifier(&mut self) -> Option<ImportDefaultSpecifier<'id>> {
         let start = self.current_token.start();
         let local = self.parse_imported_binding()?;
         Some(
@@ -4065,7 +4116,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_import_namespace_specifier(&mut self) -> Option<ImportNamespaceSpecifier> {
+    fn parse_import_namespace_specifier(&mut self) -> Option<ImportNamespaceSpecifier<'id>> {
         let start = self.current_token.start();
         if !self.expect(TokenTag::Star, "Expected '*' for namespace import", None) {
             return None;
@@ -4091,7 +4142,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_named_imports(&mut self) -> Option<SubRange<ImportDeclarationSpecifier>> {
+    fn parse_named_imports(&mut self) -> Option<SubRange<'id, ImportDeclarationSpecifier<'id>>> {
         if !self.expect(
             TokenTag::LeftBrace,
             "Expected '{' to start named imports",
@@ -4124,7 +4175,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_import_specifier(&mut self) -> Option<ImportSpecifier> {
+    fn parse_import_specifier(&mut self) -> Option<ImportSpecifier<'id>> {
         let start = self.current_token.start();
         let parts = self.parse_specifier_parts()?;
         let imported = parts.property_name.unwrap_or(parts.name);
@@ -4162,7 +4213,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_specifier_parts(&mut self) -> Option<SpecifierParts> {
+    fn parse_specifier_parts(&mut self) -> Option<SpecifierParts<'id>> {
         let first_token = self.current_token;
         let first = self.parse_module_export_name()?;
         let mut parts = SpecifierParts {
@@ -4189,8 +4240,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn parse_type_specifier_tail(
         &mut self,
-        parts: &mut SpecifierParts,
-        first: ModuleExportName,
+        parts: &mut SpecifierParts<'id>,
+        first: ModuleExportName<'id>,
     ) -> Option<TypeTailResult> {
         if self.current_token.tag() == TokenTag::As {
             let first_as_token = self.current_token;
@@ -4234,11 +4285,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             || self.current_token.tag() == TokenTag::StringLiteral
     }
 
-    fn parse_imported_binding(&mut self) -> Option<BindingIdentifier> {
+    fn parse_imported_binding(&mut self) -> Option<BindingIdentifier<'id>> {
         self.parse_binding_identifier()
     }
 
-    fn parse_module_specifier(&mut self) -> Option<StringLiteral> {
+    fn parse_module_specifier(&mut self) -> Option<StringLiteral<'id>> {
         if self.current_token.tag() != TokenTag::StringLiteral {
             self.report_expected(
                 self.current_token.span(),
@@ -4259,7 +4310,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         start: u32,
         import_kind: ImportOrExportKind,
-    ) -> Option<Stmt> {
+    ) -> Option<Stmt<'id>> {
         let id = self.parse_binding_identifier()?;
         if !self.expect(
             TokenTag::Assign,
@@ -4280,7 +4331,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_module_reference(&mut self) -> Option<TsModuleReference> {
+    fn parse_module_reference(&mut self) -> Option<TsModuleReference<'id>> {
         if self.current_token.tag() == TokenTag::Require
             && self.peek_ahead()?.tag() == TokenTag::LeftParen
         {
@@ -4330,7 +4381,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn parse_external_module_reference(&mut self) -> Option<TsModuleReference> {
+    fn parse_external_module_reference(&mut self) -> Option<TsModuleReference<'id>> {
         let start = self.current_token.start();
         self.advance()?;
         if !self.expect(
@@ -4357,7 +4408,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_export_declaration(&mut self) -> Option<Stmt> {
+    fn parse_export_declaration(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Export);
         self.enter_module_context();
         let start = self.current_token.start();
@@ -4420,7 +4471,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(statement)
     }
 
-    fn parse_ts_export_assignment(&mut self, start: u32) -> Option<Stmt> {
+    fn parse_ts_export_assignment(&mut self, start: u32) -> Option<Stmt<'id>> {
         self.advance()?;
         let expression = self.parse_expr(Precedence::Assignment, ParseExpressionOpts::default())?;
         let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
@@ -4430,7 +4481,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_ts_namespace_export_declaration(&mut self, start: u32) -> Option<Stmt> {
+    fn parse_ts_namespace_export_declaration(&mut self, start: u32) -> Option<Stmt<'id>> {
         self.advance()?;
         if self.current_token.tag() != TokenTag::Namespace {
             self.report_expected(
@@ -4444,7 +4495,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.parse_namespace_export_declaration(start)
     }
 
-    fn parse_namespace_export_declaration(&mut self, start: u32) -> Option<Stmt> {
+    fn parse_namespace_export_declaration(&mut self, start: u32) -> Option<Stmt<'id>> {
         let id = self.parse_identifier_name()?;
         let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
         Some(
@@ -4453,7 +4504,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_export_default_declaration(&mut self, start: u32) -> Option<Stmt> {
+    fn parse_export_default_declaration(&mut self, start: u32) -> Option<Stmt<'id>> {
         self.advance()?;
         let part = self.parse_export_default_part()?;
         let declaration_end = part.declaration.span(&self.ast).end;
@@ -4470,10 +4521,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     // ExportDeclaration :
     //   `export` `default` [lookahead ∉ { `function`, `async` [no LineTerminator here] `function`, `class` }] AssignmentExpression[+In, ~Yield, +Await] `;`
-    fn parse_export_default_part(&mut self) -> Option<DefaultExportPart> {
+    fn parse_export_default_part(&mut self) -> Option<DefaultExportPart<'id>> {
         let is_ts = self.lang.is_typescript();
         let tag = self.current_token.tag();
-
         if tag == TokenTag::Function {
             let function = self.parse_function(
                 ParseFunctionOpts {
@@ -4593,7 +4643,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         start: u32,
         export_kind: ImportOrExportKind,
-    ) -> Option<Stmt> {
+    ) -> Option<Stmt<'id>> {
         self.advance()?;
         let exported = if self.eat(TokenTag::As)? {
             Some(self.parse_module_export_name()?)
@@ -4626,7 +4676,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_export_with_declaration(&mut self, start: u32) -> Option<Stmt> {
+    fn parse_export_with_declaration(&mut self, start: u32) -> Option<Stmt<'id>> {
         if self.lang.is_typescript() && self.is_start_of_ts_declaration()? {
             let statement = self.parse_ts_declaration()?;
             let declaration = match self.ast.stmt_data(statement) {
@@ -4765,7 +4815,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     #[cold]
     #[inline(never)]
-    fn report_missing_export_declaration(&mut self) -> Option<Stmt> {
+    fn report_missing_export_declaration(&mut self) -> Option<Stmt<'id>> {
         self.report_expected(
             self.current_token.span(),
             "Expected declaration after 'export'",
@@ -4775,7 +4825,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     }
 
     #[inline]
-    fn export_kind_for_declaration(&self, declaration: Decl) -> ImportOrExportKind {
+    fn export_kind_for_declaration(&self, declaration: Decl<'id>) -> ImportOrExportKind {
         match self.ast.decl_data(declaration) {
             DeclData::TsInterfaceDeclaration(_) | DeclData::TsTypeAliasDeclaration(_) => {
                 ImportOrExportKind::Type
@@ -4805,7 +4855,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         start: u32,
         export_kind: ImportOrExportKind,
-    ) -> Option<Stmt> {
+    ) -> Option<Stmt<'id>> {
         let result = self.parse_export_specifiers()?;
         let (source, attributes) = if self.eat(TokenTag::From)? {
             let source = self.parse_module_specifier()?;
@@ -4826,7 +4876,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_export_specifiers(&mut self) -> Option<ExportSpecifiersResult> {
+    fn parse_export_specifiers(&mut self) -> Option<ExportSpecifiersResult<'id>> {
         if !self.expect(
             TokenTag::LeftBrace,
             "Expected '{' to start export specifiers",
@@ -4863,7 +4913,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_export_specifier(&mut self) -> Option<ExportSpecifier> {
+    fn parse_export_specifier(&mut self) -> Option<ExportSpecifier<'id>> {
         let start = self.current_token.start();
         let parts = self.parse_specifier_parts()?;
         let local = parts.property_name.unwrap_or(parts.name);
@@ -4876,7 +4926,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn resolve_local_export_specifiers(&mut self, result: &ExportSpecifiersResult) -> Option<()> {
+    fn resolve_local_export_specifiers(
+        &mut self,
+        result: &ExportSpecifiersResult<'id>,
+    ) -> Option<()> {
         for (index, local_tag) in result.local_tags.iter().copied().enumerate() {
             let specifier = result
                 .specifiers
@@ -4907,7 +4960,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(())
     }
 
-    fn parse_with_clause(&mut self) -> SubRange<ImportAttribute> {
+    fn parse_with_clause(&mut self) -> SubRange<'id, ImportAttribute<'id>> {
         match self.current_token.tag() {
             TokenTag::With => {}
             TokenTag::Assert if !self.current_token.has_line_terminator_before() => {}
@@ -4957,7 +5010,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         attributes
     }
 
-    fn parse_import_attribute(&mut self) -> Option<ImportAttribute> {
+    fn parse_import_attribute(&mut self) -> Option<ImportAttribute<'id>> {
         let start = self.current_token.start();
         let key = self.parse_attribute_key()?;
         if !self.expect(TokenTag::Colon, "Expected ':' in import attribute", None) {
@@ -4978,7 +5031,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_attribute_key(&mut self) -> Option<ModuleExportName> {
+    fn parse_attribute_key(&mut self) -> Option<ModuleExportName<'id>> {
         let token = self.current_token;
         if token.tag() == TokenTag::StringLiteral {
             return Some(ModuleExportName::StringLiteral(
@@ -4998,7 +5051,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         None
     }
 
-    fn parse_module_export_name(&mut self) -> Option<ModuleExportName> {
+    fn parse_module_export_name(&mut self) -> Option<ModuleExportName<'id>> {
         let token = self.current_token;
         if token.tag() == TokenTag::StringLiteral {
             if token.has_lone_surrogates() {
@@ -5105,7 +5158,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(result)
     }
 
-    fn parse_ts_declaration(&mut self) -> Option<Stmt> {
+    fn parse_ts_declaration(&mut self) -> Option<Stmt<'id>> {
         let start = self.current_token.start();
         let mut modifiers = TsDeclarationModifiers::default();
         if self.eat(TokenTag::Declare)? {
@@ -5187,12 +5240,12 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_declare_import_equals(&mut self, start: u32) -> Option<Stmt> {
+    fn parse_declare_import_equals(&mut self, start: u32) -> Option<Stmt<'id>> {
         self.advance()?;
         self.parse_import_equals_body(start, ImportOrExportKind::Value)
     }
 
-    fn parse_type_alias_declaration(&mut self, start: u32, declare: bool) -> Option<Stmt> {
+    fn parse_type_alias_declaration(&mut self, start: u32, declare: bool) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Type);
         self.advance()?;
         let id = self.parse_binding_identifier()?;
@@ -5220,7 +5273,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(Stmt::Declaration(Decl::TsTypeAliasDeclaration(declaration)))
     }
 
-    fn parse_interface_declaration(&mut self, start: u32, declare: bool) -> Option<Stmt> {
+    fn parse_interface_declaration(&mut self, start: u32, declare: bool) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Interface);
         self.advance()?;
         let id = self.parse_binding_identifier()?;
@@ -5251,7 +5304,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         keyword: TokenTag,
         kind: HeritageKind,
-    ) -> Option<HeritageClause> {
+    ) -> Option<HeritageClause<'id>> {
         if !self.eat(keyword)? {
             return Some(match kind {
                 HeritageKind::Interface => HeritageClause::Interface(SubRange::empty()),
@@ -5290,7 +5343,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_heritage_entry(&mut self, kind: HeritageKind) -> Option<HeritageEntry> {
+    fn parse_heritage_entry(&mut self, kind: HeritageKind) -> Option<HeritageEntry<'id>> {
         let expression = self.parse_heritage_expression()?;
         let type_arguments = if is_angle_open(self.current_token.tag()) {
             Some(self.parse_type_arguments()?)
@@ -5315,7 +5368,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         })
     }
 
-    fn parse_interface_body(&mut self) -> Option<TsInterfaceBody> {
+    fn parse_interface_body(&mut self) -> Option<TsInterfaceBody<'id>> {
         if self.current_token.tag() != TokenTag::LeftBrace {
             self.report_expected(
                 self.current_token.span(),
@@ -5339,7 +5392,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         start: u32,
         is_const: bool,
         declare: bool,
-    ) -> Option<Stmt> {
+    ) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Enum);
         self.advance()?;
         let id = self.parse_binding_identifier()?;
@@ -5351,7 +5404,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(Stmt::Declaration(Decl::TsEnumDeclaration(declaration)))
     }
 
-    fn parse_enum_body(&mut self) -> Option<TsEnumBody> {
+    fn parse_enum_body(&mut self) -> Option<TsEnumBody<'id>> {
         let start = self.current_token.start();
         if self.current_token.tag() != TokenTag::LeftBrace {
             self.report_expected(
@@ -5399,7 +5452,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_enum_member(&mut self) -> Option<TsEnumMember> {
+    fn parse_enum_member(&mut self) -> Option<TsEnumMember<'id>> {
         let (id, computed) = self.parse_enum_member_name()?;
         let start = id.span(&self.ast).start;
         let initializer = if self.eat(TokenTag::Assign)? {
@@ -5424,7 +5477,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_enum_member_name(&mut self) -> Option<(TsEnumMemberName, bool)> {
+    fn parse_enum_member_name(&mut self) -> Option<(TsEnumMemberName<'id>, bool)> {
         let computed = self.eat(TokenTag::LeftBracket)?;
         let token = self.current_token;
         let name = match token.tag() {
@@ -5472,7 +5525,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         start: u32,
         kind: TsModuleDeclarationKind,
         declare: bool,
-    ) -> Option<Stmt> {
+    ) -> Option<Stmt<'id>> {
         self.advance()?;
         let id = if kind == TsModuleDeclarationKind::Module
             && self.current_token.tag() == TokenTag::StringLiteral
@@ -5498,7 +5551,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(Stmt::Declaration(Decl::TsModuleDeclaration(declaration)))
     }
 
-    fn parse_global_declaration(&mut self, start: u32, declare: bool) -> Option<Stmt> {
+    fn parse_global_declaration(&mut self, start: u32, declare: bool) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Global);
         let token = self.current_token;
         self.advance()?;
@@ -5517,7 +5570,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(Stmt::Declaration(Decl::TsGlobalDeclaration(declaration)))
     }
 
-    fn parse_module_name(&mut self) -> Option<TsModuleName> {
+    fn parse_module_name(&mut self) -> Option<TsModuleName<'id>> {
         let head = self.parse_binding_identifier()?;
         if self.current_token.tag() != TokenTag::Dot {
             return Some(TsModuleName::BindingIdentifier(head));
@@ -5532,7 +5585,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_optional_module_block(&mut self) -> Option<Option<TsModuleBody>> {
+    fn parse_optional_module_block(&mut self) -> Option<Option<TsModuleBody<'id>>> {
         if self.current_token.tag() != TokenTag::LeftBrace {
             return Some(None);
         }
@@ -5541,7 +5594,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )))
     }
 
-    fn parse_module_block(&mut self) -> Option<TsModuleBlock> {
+    fn parse_module_block(&mut self) -> Option<TsModuleBlock<'id>> {
         let start = self.current_token.start();
         if !self.expect(
             TokenTag::LeftBrace,
@@ -5576,7 +5629,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_type_alias_body(&mut self) -> Option<TsType> {
+    fn parse_type_alias_body(&mut self) -> Option<TsType<'id>> {
         if self.current_token.tag() == TokenTag::Intrinsic && !self.current_token.is_escaped() {
             let next = self.peek_ahead()?;
             if !continues_type(next.tag()) {
@@ -5588,7 +5641,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.parse_type()
     }
 
-    fn parse_type_annotation(&mut self) -> Option<TsTypeAnnotation> {
+    fn parse_type_annotation(&mut self) -> Option<TsTypeAnnotation<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Colon);
         let start = self.current_token.start();
         self.advance()?;
@@ -5600,7 +5653,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_return_type_annotation(&mut self) -> Option<TsTypeAnnotation> {
+    fn parse_return_type_annotation(&mut self) -> Option<TsTypeAnnotation<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Colon);
         let start = self.current_token.start();
         self.advance()?;
@@ -5612,7 +5665,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_type_or_type_predicate(&mut self) -> Option<TsType> {
+    fn parse_type_or_type_predicate(&mut self) -> Option<TsType<'id>> {
         if !self.is_identifier_predicate_start()? {
             return self.parse_type();
         }
@@ -5620,7 +5673,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.finish_type_predicate(parameter_name.span(&self.ast).start, parameter_name, false)
     }
 
-    fn parse_this_type_or_predicate(&mut self) -> Option<TsType> {
+    fn parse_this_type_or_predicate(&mut self) -> Option<TsType<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::This);
         let token = self.current_token;
         self.advance()?;
@@ -5634,7 +5687,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.finish_type_predicate(token.start(), parameter_name, false)
     }
 
-    fn parse_asserts_type_predicate(&mut self) -> Option<TsType> {
+    fn parse_asserts_type_predicate(&mut self) -> Option<TsType<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Asserts);
         let start = self.current_token.start();
         self.advance()?;
@@ -5642,7 +5695,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.finish_type_predicate(start, parameter_name, true)
     }
 
-    fn parse_predicate_parameter_name(&mut self) -> Option<TsTypePredicateName> {
+    fn parse_predicate_parameter_name(&mut self) -> Option<TsTypePredicateName<'id>> {
         let token = self.current_token;
         if token.tag() == TokenTag::This {
             self.advance()?;
@@ -5656,9 +5709,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn finish_type_predicate(
         &mut self,
         start: u32,
-        parameter_name: TsTypePredicateName,
+        parameter_name: TsTypePredicateName<'id>,
         asserts: bool,
-    ) -> Option<TsType> {
+    ) -> Option<TsType<'id>> {
         let mut end = parameter_name.span(&self.ast).end;
         let type_annotation =
             if self.current_token.tag() == TokenTag::Is && !self.current_token.is_escaped() {
@@ -5700,7 +5753,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(next.tag() == TokenTag::Is && !next.is_escaped() && !next.has_line_terminator_before())
     }
 
-    fn parse_type(&mut self) -> Option<TsType> {
+    fn parse_type(&mut self) -> Option<TsType<'id>> {
         let disallow_conditional_types = self.ts_context.disallow_conditional_types();
         if disallow_conditional_types {
             self.ts_context
@@ -5734,7 +5787,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_type_no_conditional(&mut self) -> Option<TsType> {
+    fn parse_type_no_conditional(&mut self) -> Option<TsType<'id>> {
         let tag = self.current_token.tag();
         let may_start_function_or_constructor_type = matches!(
             tag,
@@ -5756,7 +5809,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn parse_conditional_type(&mut self) -> Option<TsType> {
+    fn parse_conditional_type(&mut self) -> Option<TsType<'id>> {
         let check_type = self.parse_union_type()?;
         if self.ts_context.disallow_conditional_types()
             || self.current_token.tag() != TokenTag::Extends
@@ -5800,7 +5853,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )))
     }
 
-    fn parse_union_type(&mut self) -> Option<TsType> {
+    fn parse_union_type(&mut self) -> Option<TsType<'id>> {
         self.parse_binary_type_chain(
             TokenTag::BitwiseOr,
             BinaryTypeKind::Union,
@@ -5813,9 +5866,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         separator: TokenTag,
         kind: BinaryTypeKind,
         parse_constituent: F,
-    ) -> Option<TsType>
+    ) -> Option<TsType<'id>>
     where
-        F: Fn(&mut Self) -> Option<TsType>,
+        F: Fn(&mut Self) -> Option<TsType<'id>>,
     {
         let leading_start = if self.current_token.tag() == separator {
             let start = self.current_token.start();
@@ -5852,7 +5905,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_intersection_type(&mut self) -> Option<TsType> {
+    fn parse_intersection_type(&mut self) -> Option<TsType<'id>> {
         self.parse_binary_type_chain(
             TokenTag::BitwiseAnd,
             BinaryTypeKind::Intersection,
@@ -5860,7 +5913,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_postfix_type(&mut self) -> Option<TsType> {
+    fn parse_postfix_type(&mut self) -> Option<TsType<'id>> {
         let mut type_annotation = self.parse_primary_type()?;
         loop {
             let token = self.current_token;
@@ -5885,7 +5938,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(type_annotation)
     }
 
-    fn parse_array_or_indexed_access_type(&mut self, object_type: TsType) -> Option<TsType> {
+    fn parse_array_or_indexed_access_type(
+        &mut self,
+        object_type: TsType<'id>,
+    ) -> Option<TsType<'id>> {
         let start = object_type.span(&self.ast).start;
         self.advance()?;
         if self.current_token.tag() == TokenTag::RightBracket {
@@ -5910,7 +5966,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_primary_type(&mut self) -> Option<TsType> {
+    fn parse_primary_type(&mut self) -> Option<TsType<'id>> {
         let token = self.current_token;
         match token.tag() {
             TokenTag::True
@@ -5982,7 +6038,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         None
     }
 
-    fn parse_type_keyword(&mut self) -> Option<TsType> {
+    fn parse_type_keyword(&mut self) -> Option<TsType<'id>> {
         let token = self.current_token;
         let keyword = match token.tag() {
             TokenTag::Any => self.ast.ts_type_ts_any_keyword(token.span()),
@@ -6008,13 +6064,13 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(!is_start_of_type(next.tag()))
     }
 
-    fn parse_jsdoc_postfix(&mut self, inner: TsType, kind: JsDocKind) -> Option<TsType> {
+    fn parse_jsdoc_postfix(&mut self, inner: TsType<'id>, kind: JsDocKind) -> Option<TsType<'id>> {
         let span = Span::new(inner.span(&self.ast).start, self.current_token.end());
         self.advance()?;
         Some(self.jsdoc_node_data(inner, kind, true, span))
     }
 
-    fn parse_parenthesized_type(&mut self) -> Option<TsType> {
+    fn parse_parenthesized_type(&mut self) -> Option<TsType<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftParen);
         let start = self.current_token.start();
         self.advance()?;
@@ -6033,7 +6089,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )))
     }
 
-    fn parse_tuple_type(&mut self) -> Option<TsType> {
+    fn parse_tuple_type(&mut self) -> Option<TsType<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBracket);
         let start = self.current_token.start();
         self.advance()?;
@@ -6065,7 +6121,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_tuple_element(&mut self) -> Option<TsTupleElement> {
+    fn parse_tuple_element(&mut self) -> Option<TsTupleElement<'id>> {
         if self.current_token.tag() == TokenTag::Spread {
             let start = self.current_token.start();
             self.advance()?;
@@ -6078,14 +6134,14 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.parse_tuple_element_body()
     }
 
-    fn parse_tuple_element_body(&mut self) -> Option<TsTupleElement> {
+    fn parse_tuple_element_body(&mut self) -> Option<TsTupleElement<'id>> {
         if self.is_named_tuple_element()? {
             return self.parse_named_tuple_member();
         }
         self.parse_tuple_element_type().map(TsTupleElement::TsType)
     }
 
-    fn parse_tuple_element_type(&mut self) -> Option<TsType> {
+    fn parse_tuple_element_type(&mut self) -> Option<TsType<'id>> {
         let type_annotation = self.parse_type()?;
         if let Some(nullable) = type_annotation.as_ts_js_doc_nullable_type(&self.ast)
             && nullable.postfix(&self.ast)
@@ -6121,7 +6177,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(second?.tag() == TokenTag::Colon)
     }
 
-    fn parse_named_tuple_member(&mut self) -> Option<TsTupleElement> {
+    fn parse_named_tuple_member(&mut self) -> Option<TsTupleElement<'id>> {
         let start = self.current_token.start();
         let label = self.parse_identifier_name()?;
         let optional = self.eat(TokenTag::Question)?;
@@ -6148,7 +6204,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     #[cold]
     #[inline(never)]
-    fn parse_misplaced_tuple_rest_type(&mut self) -> Option<TsType> {
+    fn parse_misplaced_tuple_rest_type(&mut self) -> Option<TsType<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Spread);
         let start = self.current_token.start();
         self.advance()?;
@@ -6158,7 +6214,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(TsType::TsRestType(self.ast.ts_rest_type(span, inner)))
     }
 
-    fn parse_type_operator(&mut self) -> Option<TsType> {
+    fn parse_type_operator(&mut self) -> Option<TsType<'id>> {
         let token = self.current_token;
         let operator = match token.tag() {
             TokenTag::Keyof => TsTypeOperatorKind::Keyof,
@@ -6176,7 +6232,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )))
     }
 
-    fn parse_infer_type(&mut self) -> Option<TsType> {
+    fn parse_infer_type(&mut self) -> Option<TsType<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Infer);
         let start = self.current_token.start();
         self.advance()?;
@@ -6198,7 +6254,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_infer_constraint(&mut self) -> Option<Option<TsType>> {
+    fn parse_infer_constraint(&mut self) -> Option<Option<TsType<'id>>> {
         if self.current_token.tag() != TokenTag::Extends {
             return Some(None);
         }
@@ -6304,7 +6360,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_function_or_constructor_type(&mut self) -> Option<TsType> {
+    fn parse_function_or_constructor_type(&mut self) -> Option<TsType<'id>> {
         let start = self.current_token.start();
         let is_abstract = self.eat(TokenTag::Abstract)?;
         let is_constructor = self.eat(TokenTag::New)?;
@@ -6362,7 +6418,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         })
     }
 
-    fn parse_type_query(&mut self) -> Option<TsType> {
+    fn parse_type_query(&mut self) -> Option<TsType<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Typeof);
         let start = self.current_token.start();
         self.advance()?;
@@ -6403,7 +6459,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )))
     }
 
-    fn parse_import_type(&mut self) -> Option<TsType> {
+    fn parse_import_type(&mut self) -> Option<TsType<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Import);
         let start = self.current_token.start();
         self.advance()?;
@@ -6450,7 +6506,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )))
     }
 
-    fn parse_import_type_options(&mut self) -> Option<Option<Expr>> {
+    fn parse_import_type_options(&mut self) -> Option<Option<Expr<'id>>> {
         if !self.eat(TokenTag::Comma)? {
             return Some(None);
         }
@@ -6462,7 +6518,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(Some(options))
     }
 
-    fn parse_import_type_qualifier(&mut self) -> Option<TsImportTypeQualifier> {
+    fn parse_import_type_qualifier(&mut self) -> Option<TsImportTypeQualifier<'id>> {
         let identifier = self.parse_identifier_name()?;
         if self.current_token.tag() != TokenTag::Dot {
             return Some(TsImportTypeQualifier::IdentifierName(identifier));
@@ -6477,9 +6533,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn extend_qualified_name(
         &mut self,
-        mut left: TsQualifiedNameLeft,
+        mut left: TsQualifiedNameLeft<'id>,
         start: u32,
-    ) -> Option<TsTypeName> {
+    ) -> Option<TsTypeName<'id>> {
         let mut result = None;
         while self.current_token.tag() == TokenTag::Dot {
             self.advance()?;
@@ -6511,7 +6567,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_jsdoc_nullable_or_unknown_type(&mut self) -> Option<TsType> {
+    fn parse_jsdoc_nullable_or_unknown_type(&mut self) -> Option<TsType<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Question);
         let token = self.current_token;
         self.advance()?;
@@ -6525,7 +6581,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(self.jsdoc_node_data(type_annotation, JsDocKind::Nullable, false, span))
     }
 
-    fn parse_jsdoc_non_nullable_type(&mut self) -> Option<TsType> {
+    fn parse_jsdoc_non_nullable_type(&mut self) -> Option<TsType<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LogicalNot);
         let start = self.current_token.start();
         self.advance()?;
@@ -6536,11 +6592,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn jsdoc_node_data(
         &mut self,
-        inner: TsType,
+        inner: TsType<'id>,
         kind: JsDocKind,
         postfix: bool,
         span: Span,
-    ) -> TsType {
+    ) -> TsType<'id> {
         match kind {
             JsDocKind::Nullable => {
                 TsType::TsJsDocNullableType(self.ast.ts_js_doc_nullable_type(span, inner, postfix))
@@ -6559,7 +6615,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(next.tag() == TokenTag::Dot && !next.has_line_terminator_before())
     }
 
-    fn parse_literal_type(&mut self) -> Option<TsType> {
+    fn parse_literal_type(&mut self) -> Option<TsType<'id>> {
         let start = self.current_token.start();
         let literal = match self.current_token.tag() {
             TokenTag::True | TokenTag::False => {
@@ -6590,7 +6646,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )))
     }
 
-    fn parse_signed_numeric_literal_type(&mut self) -> Option<TsLiteral> {
+    fn parse_signed_numeric_literal_type(&mut self) -> Option<TsLiteral<'id>> {
         let sign_token = self.current_token;
         let next = self.peek_ahead()?;
         if !next.tag().is_numeric_literal() {
@@ -6610,7 +6666,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )))
     }
 
-    fn parse_template_literal_type(&mut self) -> Option<TsType> {
+    fn parse_template_literal_type(&mut self) -> Option<TsType<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::TemplateHead);
         let start = self.current_token.start();
         let head = self.current_token;
@@ -6714,7 +6770,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(operator.tag() == TokenTag::In)
     }
 
-    fn parse_mapped_type(&mut self) -> Option<TsType> {
+    fn parse_mapped_type(&mut self) -> Option<TsType<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBrace);
         let start = self.current_token.start();
         self.advance()?;
@@ -6804,7 +6860,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(modifier)
     }
 
-    fn parse_type_literal(&mut self) -> Option<TsType> {
+    fn parse_type_literal(&mut self) -> Option<TsType<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBrace);
         let start = self.current_token.start();
         let (members, end) = self.parse_object_type_members()?;
@@ -6813,7 +6869,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_object_type_members(&mut self) -> Option<(SubRange<TsTypeElement>, u32)> {
+    fn parse_object_type_members(&mut self) -> Option<(SubRange<'id, TsTypeElement<'id>>, u32)> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBrace);
         self.advance()?;
         let checkpoint = self.scratch_a.begin();
@@ -6841,7 +6897,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn consume_type_member_separator(&mut self, member: TsTypeElement) -> Option<bool> {
+    fn consume_type_member_separator(&mut self, member: TsTypeElement<'id>) -> Option<bool> {
         match self.current_token.tag() {
             TokenTag::Semicolon | TokenTag::Comma => {
                 let end = self.current_token.end();
@@ -6867,14 +6923,14 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(true)
     }
 
-    fn extend_span_to<N: GetSpan + SetSpan>(&mut self, node: N, end: u32) {
+    fn extend_span_to<N: GetSpan<'id> + SetSpan<'id>>(&mut self, node: N, end: u32) {
         let span = node.span(&self.ast);
         if end > span.end {
             node.set_span(&mut self.ast, Span::new(span.start, end));
         }
     }
 
-    fn parse_type_member(&mut self) -> Option<TsTypeElement> {
+    fn parse_type_member(&mut self) -> Option<TsTypeElement<'id>> {
         let tag = self.current_token.tag();
         if matches!(tag, TokenTag::LeftParen | TokenTag::LessThan) {
             return self.parse_call_or_construct_signature(false);
@@ -6903,7 +6959,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.parse_property_or_method_signature(start, readonly)
     }
 
-    fn parse_call_or_construct_signature(&mut self, is_construct: bool) -> Option<TsTypeElement> {
+    fn parse_call_or_construct_signature(
+        &mut self,
+        is_construct: bool,
+    ) -> Option<TsTypeElement<'id>> {
         let start = self.current_token.start();
         if is_construct {
             self.advance()?;
@@ -6973,7 +7032,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         start: u32,
         readonly: bool,
         r#static: bool,
-    ) -> Option<TsTypeElement> {
+    ) -> Option<TsTypeElement<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBracket);
         self.advance()?;
         let parameters = self.parse_index_signature_parameters()?;
@@ -7008,7 +7067,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_index_signature_parameters(&mut self) -> Option<SubRange<TsIndexSignatureParameter>> {
+    fn parse_index_signature_parameters(
+        &mut self,
+    ) -> Option<SubRange<'id, TsIndexSignatureParameter<'id>>> {
         if self.current_token.tag() == TokenTag::RightBracket {
             self.report(
                 self.current_token.span(),
@@ -7042,7 +7103,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_index_signature_parameter(&mut self) -> Option<TsIndexSignatureParameter> {
+    fn parse_index_signature_parameter(&mut self) -> Option<TsIndexSignatureParameter<'id>> {
         let name = self.parse_binding_identifier()?;
         if self.current_token.tag() != TokenTag::Colon {
             self.report_expected(
@@ -7069,7 +7130,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         start: u32,
         readonly: bool,
-    ) -> Option<TsTypeElement> {
+    ) -> Option<TsTypeElement<'id>> {
         let mut kind = TsMethodSignatureKind::Method;
         let head_tag = self.current_token.tag();
         if matches!(head_tag, TokenTag::Get | TokenTag::Set)
@@ -7120,11 +7181,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_method_signature_body(
         &mut self,
         start: u32,
-        key: PropertyKey,
+        key: PropertyKey<'id>,
         kind: TsMethodSignatureKind,
         computed: bool,
         optional: bool,
-    ) -> Option<TsTypeElement> {
+    ) -> Option<TsTypeElement<'id>> {
         let type_parameters = if is_angle_open(self.current_token.tag()) {
             Some(self.parse_type_parameters()?)
         } else {
@@ -7159,7 +7220,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_type_reference(&mut self) -> Option<TsType> {
+    fn parse_type_reference(&mut self) -> Option<TsType<'id>> {
         let start = self.current_token.start();
         let type_name = self.parse_entity_name()?;
         let type_arguments = self.parse_type_arguments_after_entity_name()?;
@@ -7170,7 +7231,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_entity_name(&mut self) -> Option<TsTypeName> {
+    fn parse_entity_name(&mut self) -> Option<TsTypeName<'id>> {
         let token = self.current_token;
         if !token.tag().is_identifier_like() {
             self.report_expected(
@@ -7200,7 +7261,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn parse_type_arguments_after_entity_name(
         &mut self,
-    ) -> Option<Option<TsTypeParameterInstantiation>> {
+    ) -> Option<Option<TsTypeParameterInstantiation<'id>>> {
         if !is_angle_open(self.current_token.tag())
             || self.current_token.has_line_terminator_before()
         {
@@ -7209,28 +7270,32 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.parse_type_arguments().map(Some)
     }
 
-    fn parse_type_parameters(&mut self) -> Option<TsTypeParameterDeclaration> {
+    fn parse_type_parameters(&mut self) -> Option<TsTypeParameterDeclaration<'id>> {
         match self.parse_angle_list(AngleListKind::Parameters, AngleClose::Peel)? {
             AngleList::Parameters(parameters) => Some(parameters),
             AngleList::Arguments(_) => unreachable!(),
         }
     }
 
-    fn parse_type_arguments(&mut self) -> Option<TsTypeParameterInstantiation> {
+    fn parse_type_arguments(&mut self) -> Option<TsTypeParameterInstantiation<'id>> {
         match self.parse_angle_list(AngleListKind::Arguments, AngleClose::Peel)? {
             AngleList::Arguments(arguments) => Some(arguments),
             AngleList::Parameters(_) => unreachable!(),
         }
     }
 
-    fn parse_type_arguments_in_expression(&mut self) -> Option<TsTypeParameterInstantiation> {
+    fn parse_type_arguments_in_expression(&mut self) -> Option<TsTypeParameterInstantiation<'id>> {
         match self.parse_angle_list(AngleListKind::Arguments, AngleClose::Exact)? {
             AngleList::Arguments(arguments) => Some(arguments),
             AngleList::Parameters(_) => unreachable!(),
         }
     }
 
-    fn parse_angle_list(&mut self, kind: AngleListKind, close: AngleClose) -> Option<AngleList> {
+    fn parse_angle_list(
+        &mut self,
+        kind: AngleListKind,
+        close: AngleClose,
+    ) -> Option<AngleList<'id>> {
         let start = self.consume_angle_open()?;
         let checkpoint = self.scratch_a.begin();
         let result = (|| {
@@ -7242,7 +7307,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                     AngleListKind::Arguments => self.parse_type()?.node_id(),
                     AngleListKind::Parameters => self.parse_type_parameter()?.node_id(),
                 };
-                self.scratch_a.items.push(node);
+                self.scratch_a.items.push(Some(node));
                 parsed_any = true;
                 if !self.eat(TokenTag::Comma)? {
                     break;
@@ -7280,7 +7345,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_type_parameter(&mut self) -> Option<TsTypeParameter> {
+    fn parse_type_parameter(&mut self) -> Option<TsTypeParameter<'id>> {
         let mut is_const = false;
         let mut is_in = false;
         let mut is_out = false;
@@ -7399,7 +7464,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn parse_for_statement(&mut self) -> Option<Stmt> {
+    fn parse_for_statement(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::For);
         let start = self.current_token.start();
         self.advance()?;
@@ -7426,7 +7491,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.parse_for_head(start, false)
     }
 
-    fn parse_for_head(&mut self, start: u32, is_for_await: bool) -> Option<Stmt> {
+    fn parse_for_head(&mut self, start: u32, is_for_await: bool) -> Option<Stmt<'id>> {
         if self.current_token.tag() == TokenTag::Semicolon {
             return self.parse_for_statement_rest(start, None, is_for_await);
         }
@@ -7504,7 +7569,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         is_for_await: bool,
         kind: VariableKind,
         declaration_start: u32,
-    ) -> Option<Stmt> {
+    ) -> Option<Stmt<'id>> {
         let context = enter_grammar_context![&mut self.context, ~In];
         let declarators_result = self.parse_variable_declarators(kind, DeclaratorCtx::ForLoop);
         self.context = context;
@@ -7558,7 +7623,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     // ForStatement[Yield, Await, Return] :
     //   `for` `(` [lookahead != `let` `[`] Expression[~In, ?Yield, ?Await]? `;` Expression[+In, ?Yield, ?Await]? `;` Expression[+In, ?Yield, ?Await]? `)` Statement[?Yield, ?Await, ?Return]
-    fn parse_for_with_expression(&mut self, start: u32, is_for_await: bool) -> Option<Stmt> {
+    fn parse_for_with_expression(&mut self, start: u32, is_for_await: bool) -> Option<Stmt<'id>> {
         let head = self.current_token;
         let head_is_let = head.tag() == TokenTag::Let && !head.is_escaped();
         let context = enter_grammar_context![&mut self.context, ~In];
@@ -7613,9 +7678,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_for_statement_rest(
         &mut self,
         start: u32,
-        init: Option<ForStatementInit>,
+        init: Option<ForStatementInit<'id>>,
         is_for_await: bool,
-    ) -> Option<Stmt> {
+    ) -> Option<Stmt<'id>> {
         if is_for_await {
             return {
                 let span = self.current_token.span();
@@ -7675,9 +7740,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_for_in_statement_rest(
         &mut self,
         start: u32,
-        left: ForStatementLeft,
+        left: ForStatementLeft<'id>,
         is_for_await: bool,
-    ) -> Option<Stmt> {
+    ) -> Option<Stmt<'id>> {
         if is_for_await {
             return {
                 let span = self.current_token.span();
@@ -7718,9 +7783,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_for_of_statement_rest(
         &mut self,
         start: u32,
-        left: ForStatementLeft,
+        left: ForStatementLeft<'id>,
         is_for_await: bool,
-    ) -> Option<Stmt> {
+    ) -> Option<Stmt<'id>> {
         self.report_if_escaped_keyword(self.current_token);
         self.advance_without_escape_check()?;
         // The program or function/static block entry already establishes +In.
@@ -7740,7 +7805,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn is_async_identifier(&self, expression: Expr) -> bool {
+    fn is_async_identifier(&self, expression: Expr<'id>) -> bool {
         matches!(
             self.ast.expr_data(expression),
             ExprData::IdentifierReference(identifier)
@@ -7749,7 +7814,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn validate_regular_for_declarators(&mut self, declaration: VariableDeclaration) {
+    fn validate_regular_for_declarators(&mut self, declaration: VariableDeclaration<'id>) {
         let kind = declaration.kind(&self.ast);
         let declarators = declaration.declarators(&self.ast);
         for index in 0..declarators.len() {
@@ -7792,7 +7857,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     // SwitchStatement[Yield, Await, Return] :
     //   `switch` `(` Expression[+In, ?Yield, ?Await] `)` CaseBlock[?Yield, ?Await, ?Return]
-    fn parse_switch_statement(&mut self) -> Option<Stmt> {
+    fn parse_switch_statement(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Switch);
         let start = self.current_token.start();
         self.advance()?;
@@ -7830,7 +7895,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_switch_cases(&mut self) -> SubRange<SwitchCase> {
+    fn parse_switch_cases(&mut self) -> SubRange<'id, SwitchCase<'id>> {
         let checkpoint = self.scratch_a.begin();
         while matches!(self.current_token.tag(), TokenTag::Case | TokenTag::Default) {
             match self.parse_switch_case() {
@@ -7845,7 +7910,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     // CaseClause[Yield, Await, Return] :
     //   `case` Expression[+In, ?Yield, ?Await] `:` StatementList[?Yield, ?Await, ?Return]?
-    fn parse_switch_case(&mut self) -> Option<SwitchCase> {
+    fn parse_switch_case(&mut self) -> Option<SwitchCase<'id>> {
         debug_assert!(matches!(
             self.current_token.tag(),
             TokenTag::Case | TokenTag::Default
@@ -7878,7 +7943,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_case_consequent(&mut self) -> SubRange<Stmt> {
+    fn parse_case_consequent(&mut self) -> SubRange<'id, Stmt<'id>> {
         let checkpoint = self.scratch_b.begin();
         while !matches!(
             self.current_token.tag(),
@@ -7910,7 +7975,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_try_statement(&mut self) -> Option<Stmt> {
+    fn parse_try_statement(&mut self) -> Option<Stmt<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Try);
         let start = self.current_token.start();
         self.advance()?;
@@ -7946,7 +8011,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_catch_clause(&mut self) -> Option<CatchClause> {
+    fn parse_catch_clause(&mut self) -> Option<CatchClause<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Catch);
         let start = self.current_token.start();
         self.advance()?;
@@ -7984,7 +8049,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     // Propagate the caller's minimum/in_cover constants into expression parsing.
     // Keep this wrapper inline when the larger Pratt loop below is forced inline.
     #[inline(always)]
-    fn parse_expr(&mut self, minimum: Precedence, opts: ParseExpressionOpts) -> Option<Expr> {
+    fn parse_expr(&mut self, minimum: Precedence, opts: ParseExpressionOpts) -> Option<Expr<'id>> {
         let left = if self.current_token.tag() == TokenTag::Identifier {
             self.parse_plain_identifier()?
         } else {
@@ -8000,7 +8065,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         minimum: Precedence,
         opts: ParseExpressionOpts,
-    ) -> Option<Expr> {
+    ) -> Option<Expr<'id>> {
         let stripped_paren = self.stripped_paren;
         let expression = self.parse_expr(minimum, opts);
         self.stripped_paren = stripped_paren;
@@ -8015,7 +8080,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     //
     // TODO: this bloats binary size a lot
     #[inline(always)]
-    fn parse_expr_from_left(&mut self, mut left: Expr, minimum: Precedence) -> Option<Expr> {
+    fn parse_expr_from_left(
+        &mut self,
+        mut left: Expr<'id>,
+        minimum: Precedence,
+    ) -> Option<Expr<'id>> {
         let is_ts = self.lang.is_typescript();
         loop {
             let token = self.current_token;
@@ -8053,11 +8122,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     // Expression[In, Yield, Await] :
     //   AssignmentExpression[?In, ?Yield, ?Await]
     //   Expression[?In, ?Yield, ?Await] `,` AssignmentExpression[?In, ?Yield, ?Await]
-    fn parse_expression_in_cover(&mut self, precedence: Precedence) -> Option<Expr> {
+    fn parse_expression_in_cover(&mut self, precedence: Precedence) -> Option<Expr<'id>> {
         self.parse_expr(precedence, ParseExpressionOpts { in_cover: true })
     }
 
-    fn parse_assignment_expression_in_cover(&mut self) -> Option<Expr> {
+    fn parse_assignment_expression_in_cover(&mut self) -> Option<Expr<'id>> {
         self.parse_expression_in_cover(Precedence::Assignment)
     }
 
@@ -8078,7 +8147,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn parse_infix(&mut self, precedence: Precedence, left: Expr) -> Option<Expr> {
+    fn parse_infix(&mut self, precedence: Precedence, left: Expr<'id>) -> Option<Expr<'id>> {
         let token = self.current_token;
         match token.tag() {
             TokenTag::As | TokenTag::Satisfies if self.lang.is_typescript() => {
@@ -8129,7 +8198,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn parse_prefix(&mut self, in_cover: bool, minimum: Precedence) -> Option<Expr> {
+    fn parse_prefix(&mut self, in_cover: bool, minimum: Precedence) -> Option<Expr<'id>> {
         let tag = self.current_token.tag();
 
         if matches!(tag, TokenTag::Increment | TokenTag::Decrement) {
@@ -8203,7 +8272,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.parse_primary_expression(in_cover, minimum)
     }
 
-    fn parse_primary_expression(&mut self, in_cover: bool, minimum: Precedence) -> Option<Expr> {
+    fn parse_primary_expression(
+        &mut self,
+        in_cover: bool,
+        minimum: Precedence,
+    ) -> Option<Expr<'id>> {
         let token = self.current_token;
 
         if token.tag().is_numeric_literal() {
@@ -8296,14 +8369,14 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn parse_identifier(&mut self) -> Option<Expr> {
+    fn parse_identifier(&mut self) -> Option<Expr<'id>> {
         let token = self.current_token;
         self.validate_identifier(token, "an identifier");
         self.parse_identifier_from_token(token)
     }
 
     #[cold]
-    fn parse_recovered_await_or_yield(&mut self, minimum: Precedence) -> Option<Expr> {
+    fn parse_recovered_await_or_yield(&mut self, minimum: Precedence) -> Option<Expr<'id>> {
         let tag = self.current_token.tag();
         if minimum > Precedence::Prefix || minimum >= Precedence::Add && tag == TokenTag::Yield {
             return self.parse_identifier();
@@ -8342,7 +8415,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     // Carry the current token into identifier construction without leaving a
     // wrapper call when parse_identifier_from_token is forced inline.
     #[inline(always)]
-    fn parse_plain_identifier(&mut self) -> Option<Expr> {
+    fn parse_plain_identifier(&mut self) -> Option<Expr<'id>> {
         let token = self.current_token;
         debug_assert_eq!(token.tag(), TokenTag::Identifier);
         self.parse_identifier_from_token(token)
@@ -8352,13 +8425,13 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     // Combine token advancement and identifier construction in the caller,
     // removing this helper's call/return and register save/restore overhead.
     #[inline(always)]
-    fn parse_identifier_from_token(&mut self, token: Token) -> Option<Expr> {
+    fn parse_identifier_from_token(&mut self, token: Token) -> Option<Expr<'id>> {
         self.advance_without_escape_check()?;
         let name = self.identifier_name(token);
         Some(self.ast.expr_identifier_reference(token.span(), name))
     }
 
-    fn parse_private_identifier(&mut self) -> Option<PrivateIdentifier> {
+    fn parse_private_identifier(&mut self) -> Option<PrivateIdentifier<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::PrivateIdentifier);
         let token = self.current_token;
         self.advance()?;
@@ -8370,7 +8443,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     // Let member parsing reuse token fields across property-name and member-node
     // construction instead of crossing a separate identifier-name helper call.
     #[inline(always)]
-    fn parse_identifier_name(&mut self) -> Option<IdentifierName> {
+    fn parse_identifier_name(&mut self) -> Option<IdentifierName<'id>> {
         debug_assert!(self.current_token.tag().is_identifier_like());
         let token = self.current_token;
         self.advance_without_escape_check()?;
@@ -8378,14 +8451,14 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(self.ast.identifier_name(token.span(), name))
     }
 
-    fn parse_this_expression(&mut self) -> Option<Expr> {
+    fn parse_this_expression(&mut self) -> Option<Expr<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::This);
         let token = self.current_token;
         self.advance()?;
         Some(self.ast.expr_this_expression(token.span()))
     }
 
-    fn parse_super_expression(&mut self) -> Option<Expr> {
+    fn parse_super_expression(&mut self) -> Option<Expr<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Super);
         let token = self.current_token;
         self.advance()?;
@@ -8406,7 +8479,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(self.ast.expr_super(token.span()))
     }
 
-    fn parse_boolean_literal(&mut self) -> Option<Expr> {
+    fn parse_boolean_literal(&mut self) -> Option<Expr<'id>> {
         debug_assert!(matches!(
             self.current_token.tag(),
             TokenTag::True | TokenTag::False
@@ -8419,14 +8492,14 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_null_literal(&mut self) -> Option<Expr> {
+    fn parse_null_literal(&mut self) -> Option<Expr<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::NullLiteral);
         let token = self.current_token;
         self.advance()?;
         Some(self.ast.expr_null_literal(token.span()))
     }
 
-    fn parse_numeric_literal(&mut self) -> Option<Expr> {
+    fn parse_numeric_literal(&mut self) -> Option<Expr<'id>> {
         debug_assert!(self.current_token.tag().is_numeric_literal());
         let token = self.current_token;
         if token.tag() == TokenTag::BigIntLiteral {
@@ -8450,7 +8523,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_string_literal(&mut self) -> Option<StringLiteral> {
+    fn parse_string_literal(&mut self) -> Option<StringLiteral<'id>> {
         let token = self.current_token;
         if token.tag() != TokenTag::StringLiteral {
             self.report_expected(
@@ -8466,7 +8539,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(self.ast.string_literal(token.span(), value, raw))
     }
 
-    fn parse_regexp_literal(&mut self) -> Option<Expr> {
+    fn parse_regexp_literal(&mut self) -> Option<Expr<'id>> {
         debug_assert!(matches!(
             self.current_token.tag(),
             TokenTag::Slash | TokenTag::SlashAssign
@@ -8507,7 +8580,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(self.ast.expr_reg_exp_literal(result.span, pattern, flags))
     }
 
-    fn parse_no_substitution_template(&mut self, tagged: bool) -> Option<TemplateLiteral> {
+    fn parse_no_substitution_template(&mut self, tagged: bool) -> Option<TemplateLiteral<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::NoSubstitutionTemplate);
         let token = self.current_token;
         let quasi = self.add_template_element(token, true, tagged);
@@ -8523,7 +8596,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     // TemplateMiddleList[Yield, Await] :
     //   TemplateMiddle Expression[+In, ?Yield, ?Await]
     //   TemplateMiddleList[?Yield, ?Await] TemplateMiddle Expression[+In, ?Yield, ?Await]
-    fn parse_template_literal(&mut self, tagged: bool) -> Option<TemplateLiteral> {
+    fn parse_template_literal(&mut self, tagged: bool) -> Option<TemplateLiteral<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::TemplateHead);
         let start = self.current_token.start();
         let quasis_checkpoint = self.scratch_a.begin();
@@ -8596,9 +8669,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn parse_tagged_template_expression(
         &mut self,
-        tag: Expr,
-        type_arguments: Option<TsTypeParameterInstantiation>,
-    ) -> Option<Expr> {
+        tag: Expr<'id>,
+        type_arguments: Option<TsTypeParameterInstantiation<'id>>,
+    ) -> Option<Expr<'id>> {
         let start = tag.span(&self.ast).start;
         let quasi = if self.current_token.tag() == TokenTag::NoSubstitutionTemplate {
             self.parse_no_substitution_template(true)?
@@ -8613,7 +8686,12 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn add_template_element(&mut self, token: Token, tail: bool, tagged: bool) -> TemplateElement {
+    fn add_template_element(
+        &mut self,
+        token: Token,
+        tail: bool,
+        tagged: bool,
+    ) -> TemplateElement<'id> {
         let span = self.get_template_element_span(token);
         let raw = self.template_element_raw(token, span);
         let is_cooked_undefined = token.has_invalid_escape();
@@ -8625,7 +8703,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             );
         }
         let cooked = if is_cooked_undefined {
-            AstWtf8::EMPTY
+            self.ast.empty_wtf8()
         } else {
             self.template_element_value(token, span)
         };
@@ -8648,7 +8726,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_parenthesized_or_arrow_function<const CAN_BE_ARROW: bool>(
         &mut self,
         arrow_start: Option<u32>,
-    ) -> Option<Expr> {
+    ) -> Option<Expr<'id>> {
         let start = arrow_start.unwrap_or(self.current_token.start());
         if self.lang.is_typescript() && CAN_BE_ARROW {
             match self.classify_arrow_head() {
@@ -8678,7 +8756,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     //   `(` `...` BindingPattern[?Yield, ?Await] `)`
     //   `(` Expression[+In, ?Yield, ?Await] `,` `...` BindingIdentifier[?Yield, ?Await] `)`
     //   `(` Expression[+In, ?Yield, ?Await] `,` `...` BindingPattern[?Yield, ?Await] `)`
-    fn parse_parenthesized_cover(&mut self) -> Option<ParenthesizedCover> {
+    fn parse_parenthesized_cover(&mut self) -> Option<ParenthesizedCover<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftParen);
         let start = self.current_token.start();
         self.advance()?;
@@ -8757,7 +8835,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn cover_to_parenthesized_expression(&mut self, cover: ParenthesizedCover) -> Option<Expr> {
+    fn cover_to_parenthesized_expression(
+        &mut self,
+        cover: ParenthesizedCover<'id>,
+    ) -> Option<Expr<'id>> {
         if cover.elements.is_empty() {
             self.report(
                 Span::new(cover.start, cover.end),
@@ -8800,17 +8881,22 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 }
             }
             Some(if self.scratch_cover.items.len() - checkpoint == 1 {
-                unsafe { Expr::from_node_id_unchecked(self.scratch_cover.items[checkpoint]) }
+                unsafe {
+                    Expr::from_node_id_unchecked(self.scratch_cover.items[checkpoint].unwrap())
+                }
             } else {
-                let first =
-                    unsafe { Expr::from_node_id_unchecked(self.scratch_cover.items[checkpoint]) };
+                let first = unsafe {
+                    Expr::from_node_id_unchecked(self.scratch_cover.items[checkpoint].unwrap())
+                };
                 let last = unsafe {
                     Expr::from_node_id_unchecked(
                         *self
                             .scratch_cover
                             .items
                             .last()
-                            .expect("a sequence expression contains its last expression"),
+                            .expect("a sequence expression contains its last expression")
+                            .as_ref()
+                            .unwrap(),
                     )
                 };
                 let expressions = self.add_extra_from_scratch_cover(checkpoint);
@@ -8828,25 +8914,25 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_parenthesized_expression(&mut self) -> Option<Expr> {
+    fn parse_parenthesized_expression(&mut self) -> Option<Expr<'id>> {
         let cover = self.parse_parenthesized_cover()?;
         self.cover_to_parenthesized_expression(cover)
     }
 
     fn cover_to_arrow_function(
         &mut self,
-        cover: ParenthesizedCover,
+        cover: ParenthesizedCover<'id>,
         is_async: bool,
         arrow_start: u32,
-    ) -> Option<Expr> {
+    ) -> Option<Expr<'id>> {
         let parameters = self.convert_to_formal_parameters(cover)?;
         self.build_arrow_function(arrow_start, parameters, is_async, None, None)
     }
 
     fn convert_to_formal_parameters(
         &mut self,
-        cover: ParenthesizedCover,
-    ) -> Option<FormalParameters> {
+        cover: ParenthesizedCover<'id>,
+    ) -> Option<FormalParameters<'id>> {
         let arguments = (0..cover.elements.len())
             .map(|index| {
                 cover
@@ -8942,11 +9028,14 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn convert_to_formal_parameter(&mut self, expression: Expr) -> Option<FormalParameterItem> {
+    fn convert_to_formal_parameter(
+        &mut self,
+        expression: Expr<'id>,
+    ) -> Option<FormalParameterItem<'id>> {
         self.expression_to_parameter(expression)
     }
 
-    fn parse_async_function_expression(&mut self, async_token: Token) -> Option<Expr> {
+    fn parse_async_function_expression(&mut self, async_token: Token) -> Option<Expr<'id>> {
         self.report_if_escaped_keyword(async_token);
         let function = self.parse_function(
             ParseFunctionOpts {
@@ -8959,7 +9048,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(Expr::Function(function.into_function_expression()))
     }
 
-    fn parse_async_function_or_arrow(&mut self, minimum: Precedence) -> Option<Expr> {
+    fn parse_async_function_or_arrow(&mut self, minimum: Precedence) -> Option<Expr<'id>> {
         let token = self.current_token;
         let async_identifier = self.parse_identifier()?;
 
@@ -9007,10 +9096,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_async_arrow_function_or_call(
         &mut self,
         async_span: Span,
-        async_identifier: Expr,
+        async_identifier: Expr<'id>,
         minimum: Precedence,
         escaped_async: bool,
-    ) -> Option<Expr> {
+    ) -> Option<Expr<'id>> {
         if self.lang.is_typescript() && minimum <= Precedence::Assignment {
             let arrow = match self.classify_arrow_head() {
                 ArrowHead::Yes => Some(self.parse_arrow(true, async_span.start, true)?),
@@ -9042,10 +9131,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn identifier_to_arrow_function(
         &mut self,
-        identifier: Expr,
+        identifier: Expr<'id>,
         async_function: bool,
         arrow_start: u32,
-    ) -> Option<Expr> {
+    ) -> Option<Expr<'id>> {
         let parameter = self.expression_to_parameter(identifier)?;
         let parameter_span = parameter.span(&self.ast);
         let parameters = self.ast.add_sub_range([parameter]);
@@ -9058,7 +9147,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.build_arrow_function(arrow_start, parameters, async_function, None, None)
     }
 
-    fn parse_simple_arrow_function(&mut self, left: Expr) -> Option<Expr> {
+    fn parse_simple_arrow_function(&mut self, left: Expr<'id>) -> Option<Expr<'id>> {
         if self.ast.node_kind(left.node_id()) != NodeKind::IdentifierReference {
             self.report(
                 left.span(&self.ast),
@@ -9142,7 +9231,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn try_parse_arrow(&mut self, is_async: bool, start: u32) -> Option<Option<Expr>> {
+    fn try_parse_arrow(&mut self, is_async: bool, start: u32) -> Option<Option<Expr<'id>>> {
         let position = self.current_token.start();
         if self.ts_rejected_speculations.contains(&position) {
             return Some(None);
@@ -9172,7 +9261,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(Some(arrow))
     }
 
-    fn try_parse_generic_arrow(&mut self, is_async: bool, start: u32) -> Option<Option<Expr>> {
+    fn try_parse_generic_arrow(&mut self, is_async: bool, start: u32) -> Option<Option<Expr<'id>>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LessThan);
         let next = self.peek_ahead()?;
         if !next.tag().is_identifier_like() && next.tag() != TokenTag::Const {
@@ -9181,7 +9270,12 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.try_parse_arrow(is_async, start)
     }
 
-    fn parse_arrow(&mut self, is_async: bool, start: u32, need_diagnostics: bool) -> Option<Expr> {
+    fn parse_arrow(
+        &mut self,
+        is_async: bool,
+        start: u32,
+        need_diagnostics: bool,
+    ) -> Option<Expr<'id>> {
         let context = if is_async {
             // AsyncArrowHead reparses its formals with ~Yield, but the enclosing
             // cover grammar has a separate Early Error when it Contains a
@@ -9212,7 +9306,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         is_async: bool,
         start: u32,
         need_diagnostics: bool,
-    ) -> Option<Expr> {
+    ) -> Option<Expr<'id>> {
         let type_parameters = if is_angle_open(self.current_token.tag()) {
             Some(self.parse_type_parameters()?)
         } else {
@@ -9247,11 +9341,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn build_arrow_function(
         &mut self,
         start: u32,
-        parameters: FormalParameters,
+        parameters: FormalParameters<'id>,
         async_function: bool,
-        type_parameters: Option<TsTypeParameterDeclaration>,
-        return_type: Option<TsTypeAnnotation>,
-    ) -> Option<Expr> {
+        type_parameters: Option<TsTypeParameterDeclaration<'id>>,
+        return_type: Option<TsTypeAnnotation<'id>>,
+    ) -> Option<Expr<'id>> {
         // Keep the arrow for recovery, including when its head was parsed speculatively.
         if self.current_token.has_line_terminator_before() {
             self.report(
@@ -9298,7 +9392,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     //
     // ExpressionBody[In, Await] :
     //   AssignmentExpression[?In, ~Yield, ?Await]
-    fn parse_arrow_body(&mut self) -> Option<ArrowBodyResult> {
+    fn parse_arrow_body(&mut self) -> Option<ArrowBodyResult<'id>> {
         if self.current_token.tag() == TokenTag::LeftBrace {
             let body = self.parse_function_body()?;
             return Some(ArrowBodyResult {
@@ -9313,7 +9407,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         })
     }
 
-    fn expression_to_parameter(&mut self, expression: Expr) -> Option<FormalParameterItem> {
+    fn expression_to_parameter(
+        &mut self,
+        expression: Expr<'id>,
+    ) -> Option<FormalParameterItem<'id>> {
         let span = expression.span(&self.ast);
         if let ExprData::AssignmentExpression(assignment) = self.ast.expr_data(expression)
             && assignment.operator(&self.ast) == AssignmentOperator::Assign
@@ -9344,19 +9441,25 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(FormalParameterItem::FormalParameter(parameter))
     }
 
-    fn expression_to_binding_pattern(&mut self, expression: Expr) -> Option<BindingPattern> {
+    fn expression_to_binding_pattern(
+        &mut self,
+        expression: Expr<'id>,
+    ) -> Option<BindingPattern<'id>> {
         self.cover_to_pattern(expression, PatternContext::Binding)
     }
 
-    fn expression_to_assignment_pattern(&mut self, expression: Expr) -> Option<BindingPattern> {
+    fn expression_to_assignment_pattern(
+        &mut self,
+        expression: Expr<'id>,
+    ) -> Option<BindingPattern<'id>> {
         self.cover_to_pattern(expression, PatternContext::Assignment)
     }
 
     fn expression_to_pattern(
         &mut self,
-        expression: Expr,
+        expression: Expr<'id>,
         context: PatternContext,
-    ) -> Option<BindingPattern> {
+    ) -> Option<BindingPattern<'id>> {
         match self.ast.expr_data(expression) {
             ExprData::IdentifierReference(identifier) if context == PatternContext::Assignment => {
                 Some(BindingPattern::SimpleAssignmentTarget(
@@ -9545,9 +9648,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn cover_to_pattern(
         &mut self,
-        expression: Expr,
+        expression: Expr<'id>,
         context: PatternContext,
-    ) -> Option<BindingPattern> {
+    ) -> Option<BindingPattern<'id>> {
         match self.ast.expr_data(expression) {
             ExprData::ArrayExpression(array) => self.convert_array_pattern(array, context),
             ExprData::ObjectExpression(object) => self.convert_object_pattern(object, context),
@@ -9557,9 +9660,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn convert_array_pattern(
         &mut self,
-        array: ArrayExpression,
+        array: ArrayExpression<'id>,
         context: PatternContext,
-    ) -> Option<BindingPattern> {
+    ) -> Option<BindingPattern<'id>> {
         self.convert_array_pattern_impl(
             Some(array),
             array.elements(&self.ast),
@@ -9571,9 +9674,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn array_cover_to_pattern(
         &mut self,
-        cover: ArrayCover,
+        cover: ArrayCover<'id>,
         context: PatternContext,
-    ) -> Option<ArrayPattern> {
+    ) -> Option<ArrayPattern<'id>> {
         self.convert_array_pattern_impl(
             None,
             cover.elements,
@@ -9584,20 +9687,19 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn convert_array_pattern_impl(
         &mut self,
-        mutate_node: Option<ArrayExpression>,
-        elements_range: SubRange<Option<Argument>>,
+        mutate_node: Option<ArrayExpression<'id>>,
+        elements_range: SubRange<'id, Option<Argument<'id>>>,
         span: Span,
         context: PatternContext,
-    ) -> Option<ArrayPattern> {
+    ) -> Option<ArrayPattern<'id>> {
         let checkpoint = self.scratch_cover.begin();
         let result = (|| {
             let source_elements_len = elements_range.len();
-            let none = NodeId::from_raw_unchecked(u32::MAX);
             let mut rest = None;
             for index in 0..source_elements_len {
                 let argument = elements_range.get_node(&self.ast, index).unwrap();
                 let Some(argument) = argument else {
-                    self.scratch_cover.items.push(none);
+                    self.scratch_cover.items.push(None);
                     continue;
                 };
                 match self.ast.argument_data(argument) {
@@ -9658,8 +9760,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             let elements =
                 self.ast
                     .add_sub_range(self.scratch_cover.items[checkpoint..].iter().map(|node| {
-                        (*node != none)
-                            .then(|| unsafe { BindingPattern::from_node_id_unchecked(*node) })
+                        node.map(|node| unsafe { BindingPattern::from_node_id_unchecked(node) })
                     }));
             let temporary = self.ast.array_pattern(span, elements, rest);
             let pattern = if let Some(array) = mutate_node {
@@ -9677,9 +9778,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn convert_object_pattern(
         &mut self,
-        object: ObjectExpression,
+        object: ObjectExpression<'id>,
         context: PatternContext,
-    ) -> Option<BindingPattern> {
+    ) -> Option<BindingPattern<'id>> {
         self.convert_object_pattern_impl(
             Some(object),
             object.properties(&self.ast),
@@ -9691,9 +9792,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn object_cover_to_pattern(
         &mut self,
-        cover: ObjectCover,
+        cover: ObjectCover<'id>,
         context: PatternContext,
-    ) -> Option<ObjectPattern> {
+    ) -> Option<ObjectPattern<'id>> {
         self.convert_object_pattern_impl(
             None,
             cover.properties,
@@ -9704,11 +9805,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn convert_object_pattern_impl(
         &mut self,
-        mutate_node: Option<ObjectExpression>,
-        properties_range: SubRange<ObjectPropertyKind>,
+        mutate_node: Option<ObjectExpression<'id>>,
+        properties_range: SubRange<'id, ObjectPropertyKind<'id>>,
         span: Span,
         context: PatternContext,
-    ) -> Option<ObjectPattern> {
+    ) -> Option<ObjectPattern<'id>> {
         let checkpoint = self.scratch_cover.begin();
         let result = (|| {
             let source_properties_len = properties_range.len();
@@ -9839,9 +9940,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn assignment_target_to_pattern(
         &mut self,
-        target: AssignmentTarget,
+        target: AssignmentTarget<'id>,
         context: PatternContext,
-    ) -> Option<BindingPattern> {
+    ) -> Option<BindingPattern<'id>> {
         match self.ast.assignment_target_data(target) {
             AssignmentTargetData::SimpleAssignmentTarget(target) => {
                 if context == PatternContext::Assignment {
@@ -9915,8 +10016,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     /// rules before cover grammar established that it is a binding pattern.
     fn assignment_pattern_to_binding_pattern(
         &mut self,
-        pattern: BindingPattern,
-    ) -> Option<BindingPattern> {
+        pattern: BindingPattern<'id>,
+    ) -> Option<BindingPattern<'id>> {
         if self.report_stripped_paren_in_binding(pattern.node_id()) {
             return Some(pattern);
         }
@@ -9959,7 +10060,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(pattern)
     }
 
-    fn report_stripped_paren_in_binding(&mut self, node: NodeId) -> bool {
+    fn report_stripped_paren_in_binding(&mut self, node: NodeId<'id>) -> bool {
         if self.stripped_paren != Some(node) {
             return false;
         }
@@ -9976,7 +10077,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         true
     }
 
-    fn is_destructuring_pattern(&self, pattern: BindingPattern) -> bool {
+    fn is_destructuring_pattern(&self, pattern: BindingPattern<'id>) -> bool {
         match self.ast.binding_pattern_data(pattern) {
             BindingPatternData::ArrayPattern(_) | BindingPatternData::ObjectPattern(_) => true,
             BindingPatternData::AssignmentPattern(pattern) => {
@@ -9993,7 +10094,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn validate_no_cover_initialized_syntax(&mut self, expression: Expr) -> Option<()> {
+    fn validate_no_cover_initialized_syntax(&mut self, expression: Expr<'id>) -> Option<()> {
         match self.ast.expr_data(expression) {
             ExprData::ObjectExpression(object) => {
                 for id in object.properties(&self.ast).iter() {
@@ -10048,7 +10149,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(())
     }
 
-    fn is_cover_initialized_name(&self, expression: Expr) -> bool {
+    fn is_cover_initialized_name(&self, expression: Expr<'id>) -> bool {
         matches!(
             self.ast.expr_data(expression),
             ExprData::AssignmentExpression(assignment)
@@ -10069,7 +10170,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         );
     }
 
-    fn parse_array_expression(&mut self, in_cover: bool) -> Option<Expr> {
+    fn parse_array_expression(&mut self, in_cover: bool) -> Option<Expr<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBracket);
         let cover = self.parse_array_cover()?;
         let needs_validation = !in_cover
@@ -10081,7 +10182,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.array_cover_to_expression(cover, needs_validation)
     }
 
-    fn parse_object_expression(&mut self, in_cover: bool) -> Option<Expr> {
+    fn parse_object_expression(&mut self, in_cover: bool) -> Option<Expr<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBrace);
         let cover = self.parse_object_cover()?;
         let needs_validation = !in_cover
@@ -10113,7 +10214,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     //
     // SingleNameBinding[Yield, Await] :
     //   BindingIdentifier[?Yield, ?Await] Initializer[+In, ?Yield, ?Await]?
-    fn parse_array_cover(&mut self) -> Option<ArrayCover> {
+    fn parse_array_cover(&mut self) -> Option<ArrayCover<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBracket);
         let start = self.current_token.start();
         self.advance()?;
@@ -10127,9 +10228,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 && self.current_token.tag() != TokenTag::Eof
             {
                 if self.eat(TokenTag::Comma)? {
-                    self.scratch_cover
-                        .items
-                        .push(NodeId::from_raw_unchecked(u32::MAX));
+                    self.scratch_cover.items.push(None);
                     continue;
                 }
                 let argument = if self.eat(TokenTag::Spread)? {
@@ -10174,11 +10273,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             }
             end = self.current_token.end();
             self.advance()?;
-            let none = NodeId::from_raw_unchecked(u32::MAX);
             let elements =
                 self.ast
                     .add_sub_range(self.scratch_cover.items[checkpoint..].iter().map(|node| {
-                        (*node != none).then(|| unsafe { Argument::from_node_id_unchecked(*node) })
+                        node.map(|node| unsafe { Argument::from_node_id_unchecked(node) })
                     }));
             Some(ArrayCover {
                 elements,
@@ -10212,7 +10310,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     //
     // SingleNameBinding[Yield, Await] :
     //   BindingIdentifier[?Yield, ?Await] Initializer[+In, ?Yield, ?Await]?
-    fn parse_object_cover(&mut self) -> Option<ObjectCover> {
+    fn parse_object_cover(&mut self) -> Option<ObjectCover<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBrace);
         let start = self.current_token.start();
         self.advance()?;
@@ -10286,7 +10384,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn array_cover_to_expression(&mut self, cover: ArrayCover, validate: bool) -> Option<Expr> {
+    fn array_cover_to_expression(
+        &mut self,
+        cover: ArrayCover<'id>,
+        validate: bool,
+    ) -> Option<Expr<'id>> {
         let expression = self
             .ast
             .expr_array_expression(Span::new(cover.start, cover.end), cover.elements);
@@ -10296,7 +10398,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(expression)
     }
 
-    fn object_cover_to_expression(&mut self, cover: ObjectCover, validate: bool) -> Option<Expr> {
+    fn object_cover_to_expression(
+        &mut self,
+        cover: ObjectCover<'id>,
+        validate: bool,
+    ) -> Option<Expr<'id>> {
         let expression = self
             .ast
             .expr_object_expression(Span::new(cover.start, cover.end), cover.properties);
@@ -10314,7 +10420,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     //
     // CoverInitializedName[Yield, Await] :
     //   IdentifierReference[?Yield, ?Await] Initializer[+In, ?Yield, ?Await]
-    fn parse_cover_property(&mut self) -> Option<ObjectPropertyKind> {
+    fn parse_cover_property(&mut self) -> Option<ObjectPropertyKind<'id>> {
         let start = self.current_token.start();
         let mut async_function = false;
         let mut generator = false;
@@ -10528,12 +10634,12 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_object_method_property(
         &mut self,
         start: u32,
-        key: PropertyKey,
+        key: PropertyKey<'id>,
         computed: bool,
         kind: PropertyKind,
         async_function: bool,
         generator: bool,
-    ) -> Option<ObjectPropertyKind> {
+    ) -> Option<ObjectPropertyKind<'id>> {
         if generator {
             if kind == PropertyKind::Get {
                 self.report(
@@ -10619,7 +10725,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     // ComputedPropertyName[Yield, Await] :
     //   `[` AssignmentExpression[+In, ?Yield, ?Await] `]`
-    fn parse_class_element_key(&mut self) -> Option<PropertyKey> {
+    fn parse_class_element_key(&mut self) -> Option<PropertyKey<'id>> {
         let token = self.current_token;
         if token.tag() == TokenTag::LeftBracket {
             self.advance()?;
@@ -10671,7 +10777,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     // ComputedPropertyName[Yield, Await] :
     //   `[` AssignmentExpression[+In, ?Yield, ?Await] `]`
-    fn parse_property_key(&mut self, in_cover: bool) -> Option<PropertyKey> {
+    fn parse_property_key(&mut self, in_cover: bool) -> Option<PropertyKey<'id>> {
         let token = self.current_token;
         let token_tag = token.tag();
         if token_tag.is_identifier_like() {
@@ -10775,7 +10881,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     // OptionalChain[Yield, Await] :
     //   `?.` `[` Expression[+In, ?Yield, ?Await] `]`
     //   OptionalChain[?Yield, ?Await] `[` Expression[+In, ?Yield, ?Await] `]`
-    fn parse_computed_member_expression(&mut self, object: Expr, optional: bool) -> Option<Expr> {
+    fn parse_computed_member_expression(
+        &mut self,
+        object: Expr<'id>,
+        optional: bool,
+    ) -> Option<Expr<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBracket);
         let start = object.span(&self.ast).start;
         let open_bracket_span = self.current_token.span();
@@ -10811,7 +10921,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_static_member_expression(&mut self, object: Expr, optional: bool) -> Option<Expr> {
+    fn parse_static_member_expression(
+        &mut self,
+        object: Expr<'id>,
+        optional: bool,
+    ) -> Option<Expr<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Dot);
         self.advance()?;
         self.parse_member_property(object, optional)
@@ -10820,7 +10934,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     // Keep property and member-node construction together and expose the caller's
     // optional flag to node construction without a separate helper call.
     #[inline(always)]
-    fn parse_member_property(&mut self, object: Expr, optional: bool) -> Option<Expr> {
+    fn parse_member_property(&mut self, object: Expr<'id>, optional: bool) -> Option<Expr<'id>> {
         let start = object.span(&self.ast).start;
         let token = self.current_token;
         if !token.tag().is_identifier_like() && token.tag() != TokenTag::PrivateIdentifier {
@@ -10852,10 +10966,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn parse_call_expression(
         &mut self,
-        callee: Expr,
+        callee: Expr<'id>,
         optional: bool,
-        type_arguments: Option<TsTypeParameterInstantiation>,
-    ) -> Option<Expr> {
+        type_arguments: Option<TsTypeParameterInstantiation<'id>>,
+    ) -> Option<Expr<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftParen);
         let start = callee.span(&self.ast).start;
         let open_paren_span = self.current_token.span();
@@ -10888,9 +11002,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn cover_to_call_expression(
         &mut self,
-        cover: ParenthesizedCover,
-        callee: Expr,
-    ) -> Option<Expr> {
+        cover: ParenthesizedCover<'id>,
+        callee: Expr<'id>,
+    ) -> Option<Expr<'id>> {
         let arguments = (0..cover.elements.len())
             .map(|index| {
                 cover
@@ -10915,7 +11029,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_optional_chain(&mut self, left: Expr) -> Option<Expr> {
+    fn parse_optional_chain(&mut self, left: Expr<'id>) -> Option<Expr<'id>> {
         let start = left.span(&self.ast).start;
         self.advance()?;
         let mut expression = self.parse_optional_chain_element(left, true)?;
@@ -10968,7 +11082,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_optional_chain_element(&mut self, object: Expr, optional: bool) -> Option<Expr> {
+    fn parse_optional_chain_element(
+        &mut self,
+        object: Expr<'id>,
+        optional: bool,
+    ) -> Option<Expr<'id>> {
         let tag = self.current_token.tag();
         if tag.is_identifier_like() || tag == TokenTag::PrivateIdentifier {
             return self.parse_member_property(object, optional);
@@ -11023,7 +11141,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     //   `...` AssignmentExpression[+In, ?Yield, ?Await]
     //   ArgumentList[?Yield, ?Await] `,` AssignmentExpression[+In, ?Yield, ?Await]
     //   ArgumentList[?Yield, ?Await] `,` `...` AssignmentExpression[+In, ?Yield, ?Await]
-    fn parse_arguments(&mut self) -> Option<SubRange<Argument>> {
+    fn parse_arguments(&mut self) -> Option<SubRange<'id, Argument<'id>>> {
         let checkpoint = self.scratch_a.begin();
         let grammar_context = enter_grammar_context![&mut self.context, +In];
         let ts_context = self.ts_context;
@@ -11058,7 +11176,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_new_expression(&mut self) -> Option<Expr> {
+    fn parse_new_expression(&mut self) -> Option<Expr<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::New);
         let meta_token = self.current_token;
         let start = meta_token.start();
@@ -11165,7 +11283,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_import_expression(&mut self) -> Option<Expr> {
+    fn parse_import_expression(&mut self) -> Option<Expr<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Import);
         self.report_if_escaped_keyword(self.current_token);
         let import_name = self.parse_identifier_name()?;
@@ -11184,7 +11302,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn parse_import_meta_or_phase_import(&mut self, import_name: IdentifierName) -> Option<Expr> {
+    fn parse_import_meta_or_phase_import(
+        &mut self,
+        import_name: IdentifierName<'id>,
+    ) -> Option<Expr<'id>> {
         self.advance()?;
         let property = self.current_token;
         let (phase, sync) = match property.tag() {
@@ -11233,7 +11354,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         start: u32,
         phase: Option<ImportPhase>,
         sync: bool,
-    ) -> Option<Expr> {
+    ) -> Option<Expr<'id>> {
         if !self.expect(TokenTag::LeftParen, "Expected '(' after import", None) {
             return None;
         }
@@ -11274,7 +11395,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_new_target(&mut self, meta: IdentifierName) -> Option<Expr> {
+    fn parse_new_target(&mut self, meta: IdentifierName<'id>) -> Option<Expr<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Dot);
         self.advance()?;
         let property_token = self.current_token;
@@ -11290,7 +11411,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.parse_meta_property(meta)
     }
 
-    fn parse_meta_property(&mut self, meta: IdentifierName) -> Option<Expr> {
+    fn parse_meta_property(&mut self, meta: IdentifierName<'id>) -> Option<Expr<'id>> {
         if !self.current_token.tag().is_identifier_like() {
             self.report_expected(
                 self.current_token.span(),
@@ -11307,7 +11428,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_jsx_expression(&mut self) -> Option<Expr> {
+    fn parse_jsx_expression(&mut self) -> Option<Expr<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LessThan);
         let ts_context = self.ts_context;
         self.ts_context.insert(TsContext::ALLOW_ARROW_RETURN_TYPE);
@@ -11324,7 +11445,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.set_lexer_mode(LexerMode::Normal);
     }
 
-    fn parse_jsx_element(&mut self, context: JsxElementContext) -> Option<Expr> {
+    fn parse_jsx_element(&mut self, context: JsxElementContext) -> Option<Expr<'id>> {
         let start = self.current_token.start();
         self.enter_jsx_tag();
         if self
@@ -11357,7 +11478,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_jsx_opening_element(
         &mut self,
         context: JsxElementContext,
-    ) -> Option<JsxOpeningElement> {
+    ) -> Option<JsxOpeningElement<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LessThan);
         let start = self.current_token.start();
         self.advance()?;
@@ -11410,9 +11531,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn parse_jsx_closing_element(
         &mut self,
-        opening_name: JsxElementName,
+        opening_name: JsxElementName<'id>,
         context: JsxElementContext,
-    ) -> Option<JsxClosingElement> {
+    ) -> Option<JsxClosingElement<'id>> {
         if self.current_token.tag() != TokenTag::LessThan {
             self.report_expected(
                 self.current_token.span(),
@@ -11489,12 +11610,12 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn jsx_names_match(&self, a: JsxElementName, b: JsxElementName) -> bool {
+    fn jsx_names_match(&self, a: JsxElementName<'id>, b: JsxElementName<'id>) -> bool {
         use JsxElementNameData as Name;
         use JsxMemberExpressionObjectData as Object;
 
         let ast = &self.ast;
-        let same_name = |a: JsxIdentifier, b: JsxIdentifier| {
+        let same_name = |a: JsxIdentifier<'id>, b: JsxIdentifier<'id>| {
             ast.get_utf8(a.name(ast)) == ast.get_utf8(b.name(ast))
         };
 
@@ -11534,7 +11655,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn parse_jsx_fragment(&mut self, start: u32, context: JsxElementContext) -> Option<Expr> {
+    fn parse_jsx_fragment(&mut self, start: u32, context: JsxElementContext) -> Option<Expr<'id>> {
         self.advance()?;
         if self.current_token.tag() != TokenTag::GreaterThan {
             self.report_expected(
@@ -11596,7 +11717,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_jsx_children(&mut self) -> Option<SubRange<JsxChild>> {
+    fn parse_jsx_children(&mut self) -> Option<SubRange<'id, JsxChild<'id>>> {
         let checkpoint = self.scratch_b.begin();
         self.exit_jsx_tag();
         let result = (|| {
@@ -11643,7 +11764,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     // JSXChildExpression :
     //   AssignmentExpression
     //   `...` AssignmentExpression
-    fn parse_jsx_child_from_left_brace(&mut self) -> Option<JsxChild> {
+    fn parse_jsx_child_from_left_brace(&mut self) -> Option<JsxChild<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBrace);
         let start = self.current_token.start();
         self.advance()?;
@@ -11702,7 +11823,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(self.current_token.end())
     }
 
-    fn parse_jsx_element_name(&mut self) -> Option<JsxElementName> {
+    fn parse_jsx_element_name(&mut self) -> Option<JsxElementName<'id>> {
         let token = self.current_token;
         if token.tag() != TokenTag::JsxIdentifier {
             self.report_expected(
@@ -11782,7 +11903,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(element_name)
     }
 
-    fn parse_jsx_attributes(&mut self) -> Option<SubRange<JsxAttributeItem>> {
+    fn parse_jsx_attributes(&mut self) -> Option<SubRange<'id, JsxAttributeItem<'id>>> {
         let checkpoint = self.scratch_a.begin();
         let result = (|| {
             while matches!(
@@ -11798,7 +11919,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
-    fn parse_jsx_attribute(&mut self) -> Option<JsxAttributeItem> {
+    fn parse_jsx_attribute(&mut self) -> Option<JsxAttributeItem<'id>> {
         if self.current_token.tag() == TokenTag::LeftBrace {
             return self.parse_jsx_spread_attribute();
         }
@@ -11817,7 +11938,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )))
     }
 
-    fn parse_jsx_attribute_name(&mut self) -> Option<JsxAttributeName> {
+    fn parse_jsx_attribute_name(&mut self) -> Option<JsxAttributeName<'id>> {
         let token = self.current_token;
         let name = self.identifier_name(token);
         self.advance()?;
@@ -11851,7 +11972,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_jsx_attribute_value(&mut self) -> Option<JsxAttributeValue> {
+    fn parse_jsx_attribute_value(&mut self) -> Option<JsxAttributeValue<'id>> {
         match self.current_token.tag() {
             TokenTag::StringLiteral => Some(JsxAttributeValue::StringLiteral(
                 self.parse_string_literal()?,
@@ -11911,7 +12032,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_jsx_expression_container(
         &mut self,
         context: JsxExprContext,
-    ) -> Option<JsxExpressionContainer> {
+    ) -> Option<JsxExpressionContainer<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBrace);
         let start = self.current_token.start();
         if context == JsxExprContext::Tag {
@@ -11955,7 +12076,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     // JSXSpreadAttribute :
     //   `{` `...` AssignmentExpression `}`
-    fn parse_jsx_spread_attribute(&mut self) -> Option<JsxAttributeItem> {
+    fn parse_jsx_spread_attribute(&mut self) -> Option<JsxAttributeItem<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBrace);
         let start = self.current_token.start();
         self.exit_jsx_tag();
@@ -11988,7 +12109,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_await_expression(&mut self, start: u32) -> Option<Expr> {
+    fn parse_await_expression(&mut self, start: u32) -> Option<Expr<'id>> {
         let argument = self.parse_expr(Precedence::Prefix, ParseExpressionOpts::default())?;
         if self.current_token.tag() == TokenTag::Exponent {
             self.report(
@@ -12059,8 +12180,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn parse_type_argumented_call_or_instantiation(
         &mut self,
-        callee: Expr,
-    ) -> Option<Option<Expr>> {
+        callee: Expr<'id>,
+    ) -> Option<Option<Expr<'id>>> {
         let Some(type_arguments) = self.try_parse_type_arguments_in_expression()? else {
             return Some(None);
         };
@@ -12085,7 +12206,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn try_parse_type_arguments_in_expression(
         &mut self,
-    ) -> Option<Option<TsTypeParameterInstantiation>> {
+    ) -> Option<Option<TsTypeParameterInstantiation<'id>>> {
         if !is_angle_open(self.current_token.tag()) {
             return Some(None);
         }
@@ -12108,7 +12229,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(Some(type_arguments))
     }
 
-    fn parse_type_assertion(&mut self) -> Option<Expr> {
+    fn parse_type_assertion(&mut self) -> Option<Expr<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LessThan);
         let start = self.current_token.start();
         self.advance()?;
@@ -12128,7 +12249,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_as_or_satisfies_expression(&mut self, left: Expr, tag: TokenTag) -> Option<Expr> {
+    fn parse_as_or_satisfies_expression(
+        &mut self,
+        left: Expr<'id>,
+        tag: TokenTag,
+    ) -> Option<Expr<'id>> {
         debug_assert!(matches!(tag, TokenTag::As | TokenTag::Satisfies));
         self.advance()?;
         let type_annotation = self.parse_type()?;
@@ -12154,7 +12279,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         })
     }
 
-    fn parse_non_null_expression(&mut self, left: Expr) -> Option<Expr> {
+    fn parse_non_null_expression(&mut self, left: Expr<'id>) -> Option<Expr<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LogicalNot);
         let end = self.current_token.end();
         self.advance()?;
@@ -12168,7 +12293,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     //   `yield`
     //   `yield` [no LineTerminator here] AssignmentExpression[?In, +Yield, ?Await]
     //   `yield` [no LineTerminator here] `*` AssignmentExpression[?In, +Yield, ?Await]
-    fn parse_yield_expression(&mut self) -> Option<Expr> {
+    fn parse_yield_expression(&mut self) -> Option<Expr<'id>> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Yield);
         let start = self.current_token.start();
         self.advance()?;
@@ -12211,7 +12336,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_unary_expression(&mut self) -> Option<Expr> {
+    fn parse_unary_expression(&mut self) -> Option<Expr<'id>> {
         debug_assert!(self.current_token.tag().is_unary_operator());
         let token = self.current_token;
         self.advance()?;
@@ -12245,7 +12370,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_update_expression(&mut self, prefix: bool, left: Option<Expr>) -> Option<Expr> {
+    fn parse_update_expression(
+        &mut self,
+        prefix: bool,
+        left: Option<Expr<'id>>,
+    ) -> Option<Expr<'id>> {
         let token = self.current_token;
         self.advance()?;
         let argument = if prefix {
@@ -12289,7 +12418,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
-    fn parse_binary_expression(&mut self, left: Expr, tag: TokenTag) -> Option<Expr> {
+    fn parse_binary_expression(&mut self, left: Expr<'id>, tag: TokenTag) -> Option<Expr<'id>> {
         let start = left.span(&self.ast).start;
         let precedence = tag.precedence();
         self.advance()?;
@@ -12310,7 +12439,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_logical_expression(&mut self, left: Expr, tag: TokenTag) -> Option<Expr> {
+    fn parse_logical_expression(&mut self, left: Expr<'id>, tag: TokenTag) -> Option<Expr<'id>> {
         let start = left.span(&self.ast).start;
         let precedence = tag.precedence();
         self.advance()?;
@@ -12352,9 +12481,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_assignment_expression(
         &mut self,
         precedence: Precedence,
-        left: Expr,
+        left: Expr<'id>,
         tag: TokenTag,
-    ) -> Option<Expr> {
+    ) -> Option<Expr<'id>> {
         let start = left.span(&self.ast).start;
         let target = if tag == TokenTag::Assign {
             self.expression_to_assignment_target(left)?
@@ -12389,7 +12518,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     // ConditionalExpression[In, Yield, Await] :
     //   ShortCircuitExpression[?In, ?Yield, ?Await]
     //   ShortCircuitExpression[?In, ?Yield, ?Await] `?` AssignmentExpression[+In, ?Yield, ?Await] `:` AssignmentExpression[?In, ?Yield, ?Await]
-    fn parse_conditional_expression(&mut self, test: Expr) -> Option<Expr> {
+    fn parse_conditional_expression(&mut self, test: Expr<'id>) -> Option<Expr<'id>> {
         let start = test.span(&self.ast).start;
         debug_assert_eq!(self.current_token.tag(), TokenTag::Question);
         self.advance()?;
@@ -12418,7 +12547,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
-    fn parse_sequence_expression(&mut self, precedence: Precedence, left: Expr) -> Option<Expr> {
+    fn parse_sequence_expression(
+        &mut self,
+        precedence: Precedence,
+        left: Expr<'id>,
+    ) -> Option<Expr<'id>> {
         let start = left.span(&self.ast).start;
         let checkpoint = self.scratch_a.begin();
         self.scratch_a.append(left);
@@ -12442,8 +12575,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn expression_to_simple_assignment_target(
         &mut self,
-        expression: Expr,
-    ) -> Option<SimpleAssignmentTarget> {
+        expression: Expr<'id>,
+    ) -> Option<SimpleAssignmentTarget<'id>> {
         if !self.is_simple_assignment_target(expression) {
             self.report(
                 expression.span(&self.ast),
@@ -12487,7 +12620,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn is_simple_assignment_target(&self, expression: Expr) -> bool {
+    fn is_simple_assignment_target(&self, expression: Expr<'id>) -> bool {
         match self.ast.expr_data(expression) {
             ExprData::IdentifierReference(_) => true,
             ExprData::MemberExpression(member) => !member_expression_is_optional(member, &self.ast),
@@ -12510,7 +12643,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn unwrap_parens(&self, expression: Expr) -> Expr {
+    fn unwrap_parens(&self, expression: Expr<'id>) -> Expr<'id> {
         match self.ast.expr_data(expression) {
             ExprData::ParenthesizedExpression(parenthesized) => {
                 self.unwrap_parens(parenthesized.expression(&self.ast))
@@ -12519,7 +12652,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
     }
 
-    fn expression_to_assignment_target(&mut self, expression: Expr) -> Option<AssignmentTarget> {
+    fn expression_to_assignment_target(
+        &mut self,
+        expression: Expr<'id>,
+    ) -> Option<AssignmentTarget<'id>> {
         match self.ast.expr_data(expression) {
             ExprData::ArrayExpression(_) | ExprData::ObjectExpression(_) => {
                 let pattern = self.expression_to_assignment_pattern(expression)?;
@@ -12565,7 +12701,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     // Combine validation, token advancement and binding construction in the
     // caller, avoiding a helper call and another load of current_token.
     #[inline(always)]
-    fn parse_binding_identifier(&mut self) -> Option<BindingIdentifier> {
+    fn parse_binding_identifier(&mut self) -> Option<BindingIdentifier<'id>> {
         let token = self.current_token;
         self.validate_identifier(token, "a binding identifier");
         self.advance_without_escape_check()?;
@@ -12573,7 +12709,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(self.ast.binding_identifier(token.span(), name))
     }
 
-    fn parse_label_identifier(&mut self) -> Option<LabelIdentifier> {
+    fn parse_label_identifier(&mut self) -> Option<LabelIdentifier<'id>> {
         let token = self.current_token;
         self.validate_identifier(token, "a label");
         self.advance()?;
@@ -12878,7 +13014,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     }
 }
 
-fn member_expression_is_optional(member: MemberExpression, ast: &Ast<'_>) -> bool {
+fn member_expression_is_optional<'id>(member: MemberExpression<'id>, ast: &Ast<'_, 'id>) -> bool {
     if member.optional(ast) {
         return true;
     }
@@ -12893,9 +13029,9 @@ fn member_expression_is_optional(member: MemberExpression, ast: &Ast<'_>) -> boo
     }
 }
 
-fn is_import_expression_or_member_access_on_import_expression(
-    mut expression: Expr,
-    ast: &Ast<'_>,
+fn is_import_expression_or_member_access_on_import_expression<'id>(
+    mut expression: Expr<'id>,
+    ast: &Ast<'_, 'id>,
 ) -> bool {
     loop {
         expression = match ast.expr_data(expression) {
@@ -12909,7 +13045,7 @@ fn is_import_expression_or_member_access_on_import_expression(
 }
 
 #[inline]
-fn max_left_precedence(expression: Expr, ast: &Ast<'_>) -> Precedence {
+fn max_left_precedence<'id>(expression: Expr<'id>, ast: &Ast<'_, 'id>) -> Precedence {
     match ast.node_kind(expression.node_id()) {
         NodeKind::ArrowFunctionExpression | NodeKind::YieldExpression => Precedence::Comma,
         NodeKind::UpdateExpression
@@ -12927,10 +13063,10 @@ fn max_left_precedence(expression: Expr, ast: &Ast<'_>) -> Precedence {
 }
 
 #[inline]
-fn assertion_erasure_changes_binary_grouping(
-    mut expression: Expr,
+fn assertion_erasure_changes_binary_grouping<'id>(
+    mut expression: Expr<'id>,
     next_operator: TokenTag,
-    ast: &Ast<'_>,
+    ast: &Ast<'_, 'id>,
 ) -> bool {
     loop {
         expression = match ast.expr_data(expression) {
@@ -13250,10 +13386,9 @@ fn assignment_operator(tag: TokenTag) -> AssignmentOperator {
     }
 }
 
-fn strip_parenthesized_nodes(ast: &mut Ast<'_>, comments: &mut [Comment]) {
+fn strip_parenthesized_nodes<'id>(ast: &mut Ast<'_, 'id>, comments: &mut [Comment]) {
     let mut trailing_comment_index = 0;
-    for index in 0..ast.node_count() {
-        let node = NodeId::from_raw_unchecked(index as u32);
+    for node in ast.node_ids() {
         let replacement = match ast.kind_data(node) {
             NodeKindData::ParenthesizedExpression(parenthesized) => {
                 let mut inner = parenthesized.expression(ast);
@@ -13311,13 +13446,17 @@ mod tests {
     use super::*;
     use crate::TokenParserConfig;
 
-    fn parse_tokens<'a>(allocator: &'a Allocator, source: &'a str) -> ParseReturn<'a> {
+    fn parse_tokens<'id, 'a>(
+        allocator: &'a Allocator,
+        source: &'a str,
+        guard: swc_next_ecma_ast::AstGuard<'id>,
+    ) -> ParseReturn<'a, 'id> {
         let options = Options {
             lang: Lang::Ts,
             source_type: SourceType::Module,
             ..Options::default()
         };
-        Parser::init(allocator, source, options, TokenParserConfig).parse()
+        Parser::init(allocator, source, options, TokenParserConfig, guard).parse()
     }
 
     fn token_texts<'a>(source: &'a str, tokens: &[Token]) -> Vec<&'a str> {
@@ -13335,14 +13474,20 @@ mod tests {
                 preserve_parens,
                 ..Options::default()
             };
-            let parse =
-                |source| Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
-
-            let parsed = parse("(({a = 0}));");
+            fn parse<'a, 'id>(
+                allocator: &'a Allocator,
+                source: &'a str,
+                options: Options,
+                guard: swc_next_ecma_ast::AstGuard<'id>,
+            ) -> ParseReturn<'a, 'id> {
+                Parser::init(allocator, source, options, NoTokenParserConfig, guard).parse()
+            }
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let parsed = parse(&allocator, "(({a = 0}));", options, ast_guard);
             assert_eq!(parsed.diagnostics.len(), 1);
             assert_eq!(parsed.diagnostics[0].span, Span::new(3, 8));
-
-            let parsed = parse("(({a: ({b = 0}), c = 0}));");
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let parsed = parse(&allocator, "(({a: ({b = 0}), c = 0}));", options, ast_guard);
             assert_eq!(parsed.diagnostics.len(), 2);
         }
     }
@@ -13351,7 +13496,8 @@ mod tests {
     fn recovery_tokens() {
         let allocator = Allocator::new();
         let source = "return 1;\nconst after = 1;";
-        let parsed = parse_tokens(&allocator, source);
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let parsed = parse_tokens(&allocator, source, ast_guard);
         assert!(!parsed.diagnostics.is_empty());
         assert_eq!(
             token_texts(source, &parsed.tokens),
@@ -13360,7 +13506,8 @@ mod tests {
 
         let allocator = Allocator::new();
         let source = "const before = 1;\nconst text = 'unterminated";
-        let parsed = parse_tokens(&allocator, source);
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let parsed = parse_tokens(&allocator, source, ast_guard);
         assert!(!parsed.diagnostics.is_empty());
         assert_eq!(
             token_texts(source, &parsed.tokens),
@@ -13368,26 +13515,29 @@ mod tests {
         );
 
         let allocator = Allocator::new();
-        let parsed = parse_tokens(&allocator, "'unterminated");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let parsed = parse_tokens(&allocator, "'unterminated", ast_guard);
         assert!(!parsed.diagnostics.is_empty());
         assert!(parsed.tokens.is_empty());
 
         let allocator = Allocator::new();
-        let parsed = parse_tokens(&allocator, "");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let parsed = parse_tokens(&allocator, "", ast_guard);
         assert!(parsed.diagnostics.is_empty());
         assert!(parsed.tokens.is_empty());
     }
 
-    fn parse_typescript_declaration<'a>(
+    fn parse_typescript_declaration<'id, 'a>(
         allocator: &'a Allocator,
         source: &'a str,
-    ) -> (Ast<'a>, Decl) {
+        guard: swc_next_ecma_ast::AstGuard<'id>,
+    ) -> (Ast<'a, 'id>, Decl<'id>) {
         let options = Options {
             lang: Lang::Ts,
             source_type: SourceType::Module,
             ..Options::default()
         };
-        let parsed = Parser::init(allocator, source, options, NoTokenParserConfig).parse();
+        let parsed = Parser::init(allocator, source, options, NoTokenParserConfig, guard).parse();
         assert!(parsed.diagnostics.is_empty());
         let ast = parsed.ast;
         let body = ast.root_program().body(&ast);
@@ -13407,7 +13557,8 @@ mod tests {
     fn ambient_variables() {
         fn parse_variable(source: &str) -> (VariableKind, String) {
             let allocator = Allocator::new();
-            let (ast, declaration) = parse_typescript_declaration(&allocator, source);
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let (ast, declaration) = parse_typescript_declaration(&allocator, source, ast_guard);
             let variable = declaration.as_variable_declaration(&ast).unwrap();
             assert!(variable.declare(&ast));
             assert_eq!(variable.declarators(&ast).len(), 1);
@@ -13458,7 +13609,8 @@ mod tests {
     fn const_enums() {
         fn is_ambient(source: &str) -> bool {
             let allocator = Allocator::new();
-            let (ast, declaration) = parse_typescript_declaration(&allocator, source);
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let (ast, declaration) = parse_typescript_declaration(&allocator, source, ast_guard);
             let enumeration = declaration.as_ts_enum_declaration(&ast).unwrap();
             assert!(enumeration.is_const(&ast));
             assert_eq!(ast.get_utf8(enumeration.id(&ast).name(&ast)), "E");
@@ -13486,7 +13638,8 @@ mod tests {
     fn global_augmentations() {
         fn interface_name(source: &str) -> String {
             let allocator = Allocator::new();
-            let (ast, declaration) = parse_typescript_declaration(&allocator, source);
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let (ast, declaration) = parse_typescript_declaration(&allocator, source, ast_guard);
             let global = declaration.as_ts_global_declaration(&ast).unwrap();
             assert!(global.declare(&ast));
             assert_eq!(ast.get_utf8(global.id(&ast).name(&ast)), "global");
@@ -13516,7 +13669,8 @@ mod tests {
     fn named_declarations() {
         fn class_flags(source: &str) -> (bool, bool, usize) {
             let allocator = Allocator::new();
-            let (ast, declaration) = parse_typescript_declaration(&allocator, source);
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let (ast, declaration) = parse_typescript_declaration(&allocator, source, ast_guard);
             let class = declaration.as_class(&ast).unwrap();
             assert_eq!(class.class_type(&ast), ClassType::ClassDeclaration);
             assert_eq!(ast.get_utf8(class.id(&ast).unwrap().name(&ast)), "Foo");
@@ -13560,8 +13714,9 @@ mod tests {
         assert_eq!(flags, (false, true, 1));
 
         let allocator = Allocator::new();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, declaration) =
-            parse_typescript_declaration(&allocator, "declare function\nfoo(): void;");
+            parse_typescript_declaration(&allocator, "declare function\nfoo(): void;", ast_guard);
         let function = declaration.as_ts_function(&ast).unwrap();
         assert!(function.declare(&ast));
         assert_eq!(ast.get_utf8(function.id(&ast).unwrap().name(&ast)), "foo");
@@ -13571,7 +13726,7 @@ mod tests {
 
     #[test]
     fn ambient_function_recovery() {
-        fn function_name(ast: &Ast<'_>, statement: Stmt) -> String {
+        fn function_name<'id>(ast: &Ast<'_, 'id>, statement: Stmt<'id>) -> String {
             let function = statement
                 .as_declaration(ast)
                 .unwrap()
@@ -13587,7 +13742,9 @@ mod tests {
                 source_type: SourceType::Module,
                 ..Options::default()
             };
-            let parsed = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let parsed =
+                Parser::init(&allocator, source, options, NoTokenParserConfig, ast_guard).parse();
             assert_eq!(parsed.diagnostics.len(), 1);
             let ast = &parsed.ast;
             let body = ast.root_program().body(ast);
@@ -13628,8 +13785,15 @@ mod tests {
     fn template_raw_values() {
         fn values(source: &str) -> (String, Option<String>) {
             let allocator = Allocator::new();
-            let parsed =
-                Parser::init(&allocator, source, Options::default(), NoTokenParserConfig).parse();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let parsed = Parser::init(
+                &allocator,
+                source,
+                Options::default(),
+                NoTokenParserConfig,
+                ast_guard,
+            )
+            .parse();
             assert!(parsed.diagnostics.is_empty());
             let ast = &parsed.ast;
             let statement = ast.root_program().body(ast).get_node(ast, 0).unwrap();
@@ -13671,11 +13835,12 @@ mod tests {
 
     #[test]
     fn type_parameter_modifiers() {
-        fn parse_parameter<'a>(
+        fn parse_parameter<'id, 'a>(
             allocator: &'a Allocator,
             source: &'a str,
-        ) -> (Ast<'a>, TsTypeParameter) {
-            let (ast, declaration) = parse_typescript_declaration(allocator, source);
+            guard: swc_next_ecma_ast::AstGuard<'id>,
+        ) -> (Ast<'a, 'id>, TsTypeParameter<'id>) {
+            let (ast, declaration) = parse_typescript_declaration(allocator, source, guard);
             let alias = declaration.as_ts_type_alias_declaration(&ast).unwrap();
             let parameters = if let Some(parameters) = alias.type_parameters(&ast) {
                 parameters
@@ -13696,44 +13861,53 @@ mod tests {
                 lang: Lang::Ts,
                 ..Options::default()
             };
-            let parsed = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let parsed =
+                Parser::init(&allocator, source, options, NoTokenParserConfig, ast_guard).parse();
             !parsed.diagnostics.is_empty()
         }
 
         let allocator = Allocator::new();
-
-        let (ast, parameter) = parse_parameter(&allocator, "type F = <const T>(x:T) => T;");
-        assert!(parameter.r#const(&ast));
-        assert_eq!(ast.get_utf8(parameter.name(&ast).name(&ast)), "T");
-
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, parameter) =
-            parse_parameter(&allocator, "type F = <const /* note */ T>(x:T) => T;");
+            parse_parameter(&allocator, "type F = <const T>(x:T) => T;", ast_guard);
         assert!(parameter.r#const(&ast));
         assert_eq!(ast.get_utf8(parameter.name(&ast).name(&ast)), "T");
-
-        let (ast, parameter) = parse_parameter(&allocator, r"type F = <const \u0054>(x:T) => T;");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let (ast, parameter) = parse_parameter(
+            &allocator,
+            "type F = <const /* note */ T>(x:T) => T;",
+            ast_guard,
+        );
         assert!(parameter.r#const(&ast));
         assert_eq!(ast.get_utf8(parameter.name(&ast).name(&ast)), "T");
-
-        let (ast, parameter) = parse_parameter(&allocator, "type A<const T> = T;");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let (ast, parameter) =
+            parse_parameter(&allocator, r"type F = <const \u0054>(x:T) => T;", ast_guard);
         assert!(parameter.r#const(&ast));
         assert_eq!(ast.get_utf8(parameter.name(&ast).name(&ast)), "T");
-
-        let (ast, parameter) = parse_parameter(&allocator, "type A<out> = string;");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let (ast, parameter) = parse_parameter(&allocator, "type A<const T> = T;", ast_guard);
+        assert!(parameter.r#const(&ast));
+        assert_eq!(ast.get_utf8(parameter.name(&ast).name(&ast)), "T");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let (ast, parameter) = parse_parameter(&allocator, "type A<out> = string;", ast_guard);
         assert_eq!(ast.get_utf8(parameter.name(&ast).name(&ast)), "out");
         assert!(!parameter.out(&ast));
-
-        let (ast, parameter) = parse_parameter(&allocator, "type A<in T> = (x:T) => void;");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let (ast, parameter) =
+            parse_parameter(&allocator, "type A<in T> = (x:T) => void;", ast_guard);
         assert!(parameter.r#in(&ast));
         assert!(!parameter.out(&ast));
         assert_eq!(ast.get_utf8(parameter.name(&ast).name(&ast)), "T");
-
-        let (ast, parameter) = parse_parameter(&allocator, "type A<out T> = () => T;");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let (ast, parameter) = parse_parameter(&allocator, "type A<out T> = () => T;", ast_guard);
         assert!(parameter.out(&ast));
         assert!(!parameter.r#in(&ast));
         assert_eq!(ast.get_utf8(parameter.name(&ast).name(&ast)), "T");
-
-        let (ast, parameter) = parse_parameter(&allocator, "type A<in out T> = (x:T) => T;");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let (ast, parameter) =
+            parse_parameter(&allocator, "type A<in out T> = (x:T) => T;", ast_guard);
         assert!(parameter.r#in(&ast));
         assert!(parameter.out(&ast));
 
@@ -13756,7 +13930,7 @@ mod tests {
 
     #[test]
     fn infer_constraints() {
-        fn constraint(ast: &Ast<'_>) -> TsType {
+        fn constraint<'id>(ast: &Ast<'_, 'id>) -> TsType<'id> {
             let statement = ast.root_program().body(ast).get_node(ast, 0).unwrap();
             let declaration = statement.as_declaration(ast).unwrap();
             let alias = declaration.as_ts_type_alias_declaration(ast).unwrap();
@@ -13774,29 +13948,53 @@ mod tests {
                 lang,
                 ..Options::default()
             };
-            let parse = |source| {
-                let result = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+            fn parse<'a, 'id>(
+                allocator: &'a Allocator,
+                source: &'a str,
+                options: Options,
+                guard: swc_next_ecma_ast::AstGuard<'id>,
+            ) -> Ast<'a, 'id> {
+                let result =
+                    Parser::init(allocator, source, options, NoTokenParserConfig, guard).parse();
                 assert!(result.diagnostics.is_empty());
                 result.ast
-            };
-
-            let ast = parse("type T<A> = A extends infer U extends () => void ? U : never;");
+            }
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let ast = parse(
+                &allocator,
+                "type T<A> = A extends infer U extends () => void ? U : never;",
+                options,
+                ast_guard,
+            );
             let function = constraint(&ast).as_ts_function_type(&ast).unwrap();
             assert!(function.type_parameters(&ast).is_none());
-
-            let ast = parse("type T<A> = A extends infer U extends <V>() => V ? U : never;");
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let ast = parse(
+                &allocator,
+                "type T<A> = A extends infer U extends <V>() => V ? U : never;",
+                options,
+                ast_guard,
+            );
             let function = constraint(&ast).as_ts_function_type(&ast).unwrap();
             assert_eq!(
                 function.type_parameters(&ast).unwrap().params(&ast).len(),
                 1
             );
-
-            let ast = parse("type T<A> = A extends infer U extends new () => object ? U : never;");
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let ast = parse(
+                &allocator,
+                "type T<A> = A extends infer U extends new () => object ? U : never;",
+                options,
+                ast_guard,
+            );
             let constructor = constraint(&ast).as_ts_constructor_type(&ast).unwrap();
             assert!(!constructor.r#abstract(&ast));
-
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
             let ast = parse(
+                &allocator,
                 "type T<A> = A extends infer U extends abstract new () => object ? U : never;",
+                options,
+                ast_guard,
             );
             let constructor = constraint(&ast).as_ts_constructor_type(&ast).unwrap();
             assert!(constructor.r#abstract(&ast));
@@ -13811,7 +14009,9 @@ mod tests {
                 lang: Lang::Ts,
                 ..Options::default()
             };
-            let parsed = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let parsed =
+                Parser::init(&allocator, source, options, NoTokenParserConfig, ast_guard).parse();
             assert!(parsed.diagnostics.is_empty());
             let ast = &parsed.ast;
             let statement = ast.root_program().body(ast).get_node(ast, 0).unwrap();
@@ -13839,7 +14039,9 @@ mod tests {
                 lang: Lang::Ts,
                 ..Options::default()
             };
-            let parsed = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let parsed =
+                Parser::init(&allocator, source, options, NoTokenParserConfig, ast_guard).parse();
             !parsed.diagnostics.is_empty()
         }
 
@@ -13861,7 +14063,7 @@ mod tests {
         assert!(has_errors("type F = (x: unknown) => \\u0078\nis string;"));
     }
 
-    fn serialize_ast(ast: &Ast<'_>) -> Vec<u8> {
+    fn serialize_ast<'id>(ast: &Ast<'_, 'id>) -> Vec<u8> {
         use swc_next_ecma_ast::ffi::ast::{buffer_size, serialize_into};
         let mut buffer = vec![0; buffer_size(ast, &[])];
         serialize_into(ast, &[], &mut buffer, ast.source().encode_utf16().count());
@@ -13870,13 +14072,13 @@ mod tests {
 
     #[test]
     fn default_export_declarations() {
-        fn declaration(ast: &Ast<'_>) -> ExportDefaultDeclarationKindData {
+        fn declaration<'id>(ast: &Ast<'_, 'id>) -> ExportDefaultDeclarationKindData<'id> {
             let statement = ast.root_program().body(ast).get_node(ast, 0).unwrap();
             let export = statement.as_export_default_declaration(ast).unwrap();
             ast.export_default_declaration_kind_data(export.declaration(ast))
         }
 
-        fn exported_function(ast: &Ast<'_>) -> Function {
+        fn exported_function<'id>(ast: &Ast<'_, 'id>) -> Function<'id> {
             let ExportDefaultDeclarationKindData::Function(function) = declaration(ast) else {
                 panic!("expected a default-exported function declaration");
             };
@@ -13892,14 +14094,25 @@ mod tests {
                     preserve_parens,
                     ..Options::default()
                 };
-                let parse = |source| {
+                fn parse<'a, 'id>(
+                    allocator: &'a Allocator,
+                    source: &'a str,
+                    options: Options,
+                    guard: swc_next_ecma_ast::AstGuard<'id>,
+                ) -> Ast<'a, 'id> {
                     let result =
-                        Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+                        Parser::init(allocator, source, options, NoTokenParserConfig, guard)
+                            .parse();
                     assert!(result.diagnostics.is_empty());
                     result.ast
-                };
-
-                let ast = parse("export default\nasync function f() {}");
+                }
+                swc_next_ecma_ast::make_ast_guard!(ast_guard);
+                let ast = parse(
+                    &allocator,
+                    "export default\nasync function f() {}",
+                    options,
+                    ast_guard,
+                );
                 let function = exported_function(&ast);
                 assert_eq!(
                     function.function_type(&ast),
@@ -13908,8 +14121,13 @@ mod tests {
                 assert!(function.r#async(&ast));
                 assert!(!function.generator(&ast));
                 assert_eq!(ast.get_utf8(function.id(&ast).unwrap().name(&ast)), "f");
-
-                let ast = parse("export default /*\n*/ async function* () {}");
+                swc_next_ecma_ast::make_ast_guard!(ast_guard);
+                let ast = parse(
+                    &allocator,
+                    "export default /*\n*/ async function* () {}",
+                    options,
+                    ast_guard,
+                );
                 let function = exported_function(&ast);
                 assert_eq!(
                     function.function_type(&ast),
@@ -13918,9 +14136,12 @@ mod tests {
                 assert!(function.r#async(&ast));
                 assert!(function.generator(&ast));
                 assert!(function.id(&ast).is_none());
-
+                swc_next_ecma_ast::make_ast_guard!(ast_guard);
                 let ast = parse(
+                    &allocator,
                     "export default /* marker\n continued */ async function* f() {}\nexport { f };",
+                    options,
+                    ast_guard,
                 );
                 let function = exported_function(&ast);
                 assert_eq!(
@@ -13933,15 +14154,25 @@ mod tests {
                 assert_eq!(ast.root_program().body(&ast).len(), 2);
                 let export = ast.root_program().body(&ast).get_node(&ast, 1).unwrap();
                 assert!(export.as_export_named_declaration(&ast).is_some());
-
-                let ast = parse("export default async\nfunction f() {}");
+                swc_next_ecma_ast::make_ast_guard!(ast_guard);
+                let ast = parse(
+                    &allocator,
+                    "export default async\nfunction f() {}",
+                    options,
+                    ast_guard,
+                );
                 let ExportDefaultDeclarationKindData::Expr(expression) = declaration(&ast) else {
                     panic!("expected a default-exported expression");
                 };
                 assert!(expression.as_identifier_reference(&ast).is_some());
                 assert_eq!(ast.root_program().body(&ast).len(), 2);
-
-                let ast = parse("export default (async function f() {});");
+                swc_next_ecma_ast::make_ast_guard!(ast_guard);
+                let ast = parse(
+                    &allocator,
+                    "export default (async function f() {});",
+                    options,
+                    ast_guard,
+                );
                 assert!(matches!(
                     declaration(&ast),
                     ExportDefaultDeclarationKindData::Expr(_)
@@ -13953,17 +14184,17 @@ mod tests {
     #[test]
     fn formal_parameters() {
         fn parameter_kinds(source: &str) -> Vec<FormalParameterKind> {
-            struct Parameters<'ast, 'a> {
-                ast: &'ast Ast<'a>,
+            struct Parameters<'ast, 'a, 'id> {
+                ast: &'ast Ast<'a, 'id>,
                 kinds: Vec<FormalParameterKind>,
             }
 
-            impl<'a> Visit<'a> for Parameters<'_, 'a> {
-                fn ast(&self) -> &Ast<'a> {
+            impl<'id, 'a> Visit<'a, 'id> for Parameters<'_, 'a, 'id> {
+                fn ast(&self) -> &Ast<'a, 'id> {
                     self.ast
                 }
 
-                fn visit_formal_parameters(&mut self, parameters: FormalParameters) {
+                fn visit_formal_parameters(&mut self, parameters: FormalParameters<'id>) {
                     self.kinds.push(parameters.kind(self.ast));
                     parameters.visit_children_with(self);
                 }
@@ -13974,7 +14205,9 @@ mod tests {
                 source_type: SourceType::Script,
                 ..Options::default()
             };
-            let parsed = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let parsed =
+                Parser::init(&allocator, source, options, NoTokenParserConfig, ast_guard).parse();
             assert!(parsed.diagnostics.is_empty());
             let mut visitor = Parameters {
                 ast: &parsed.ast,
@@ -14030,7 +14263,9 @@ mod tests {
                 source_type: SourceType::Module,
                 ..Options::default()
             };
-            let result = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let result =
+                Parser::init(&allocator, source, options, NoTokenParserConfig, ast_guard).parse();
             assert!(result.diagnostics.is_empty());
             let ast = &result.ast;
             assert_eq!(ast.root_program().body(ast).len(), 1);
@@ -14092,7 +14327,8 @@ mod tests {
                 source_type: SourceType::Module,
                 ..Options::default()
             };
-            let ast = Parser::init(&allocator, source, options, NoTokenParserConfig)
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let ast = Parser::init(&allocator, source, options, NoTokenParserConfig, ast_guard)
                 .parse_expression_fragment(FragmentContext::TopLevel)
                 .unwrap();
             let element = ast.root_expression().as_jsx_element(&ast).unwrap();
@@ -14128,8 +14364,13 @@ mod tests {
 
     #[test]
     fn new_expression() {
-        fn parse<'a>(allocator: &'a Allocator, source: &'a str, options: Options) -> Ast<'a> {
-            Parser::init(allocator, source, options, NoTokenParserConfig)
+        fn parse<'id, 'a>(
+            allocator: &'a Allocator,
+            source: &'a str,
+            options: Options,
+            guard: swc_next_ecma_ast::AstGuard<'id>,
+        ) -> Ast<'a, 'id> {
+            Parser::init(allocator, source, options, NoTokenParserConfig, guard)
                 .parse_expression_fragment(FragmentContext::TopLevel)
                 .unwrap()
         }
@@ -14139,7 +14380,13 @@ mod tests {
             lang: Lang::Ts,
             ..Options::default()
         };
-        let ast = parse(&allocator, "new parent.components!.KeepAlive()", options);
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let ast = parse(
+            &allocator,
+            "new parent.components!.KeepAlive()",
+            options,
+            ast_guard,
+        );
         let expression = ast.root_expression().as_new_expression(&ast).unwrap();
         let callee = expression.callee(&ast).as_member_expression(&ast).unwrap();
         let property = callee.property(&ast).as_identifier_name(&ast).unwrap();
@@ -14154,8 +14401,8 @@ mod tests {
         let object = member.object(&ast).as_identifier_reference(&ast).unwrap();
         assert_eq!(ast.get_utf8(object.name(&ast)), "parent");
         assert!(expression.arguments(&ast).is_empty());
-
-        let ast = parse(&allocator, "new async(1)", options);
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let ast = parse(&allocator, "new async(1)", options, ast_guard);
         let expression = ast.root_expression().as_new_expression(&ast).unwrap();
         assert!(
             expression
@@ -14166,7 +14413,8 @@ mod tests {
         assert_eq!(expression.arguments(&ast).len(), 1);
 
         let source = "new async function*(){}.constructor(1)";
-        let ast = parse(&allocator, source, options);
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let ast = parse(&allocator, source, options, ast_guard);
         let expression = ast.root_expression().as_new_expression(&ast).unwrap();
         let member = expression.callee(&ast).as_member_expression(&ast).unwrap();
         let function = member.object(&ast).as_function(&ast).unwrap();
@@ -14178,9 +14426,19 @@ mod tests {
 
     #[test]
     fn class_heritage() {
-        fn parse<'a>(allocator: &'a Allocator, source: &'a str) -> (Ast<'a>, Expr) {
-            let result =
-                Parser::init(allocator, source, Options::default(), NoTokenParserConfig).parse();
+        fn parse<'id, 'a>(
+            allocator: &'a Allocator,
+            source: &'a str,
+            guard: swc_next_ecma_ast::AstGuard<'id>,
+        ) -> (Ast<'a, 'id>, Expr<'id>) {
+            let result = Parser::init(
+                allocator,
+                source,
+                Options::default(),
+                NoTokenParserConfig,
+                guard,
+            )
+            .parse();
             assert!(result.diagnostics.is_empty());
             let ast = result.ast;
             let statement = ast.root_program().body(&ast).get_node(&ast, 0).unwrap();
@@ -14197,15 +14455,17 @@ mod tests {
         }
 
         let allocator = Allocator::new();
-        let (ast, superclass) = parse(&allocator, "class C extends Base {}");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let (ast, superclass) = parse(&allocator, "class C extends Base {}", ast_guard);
         assert!(superclass.as_identifier_reference(&ast).is_some());
-
-        let (ast, superclass) = parse(&allocator, "class C extends async() {}");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let (ast, superclass) = parse(&allocator, "class C extends async() {}", ast_guard);
         let call = superclass.as_call_expression(&ast).unwrap();
         assert!(call.callee(&ast).as_identifier_reference(&ast).is_some());
 
         let source = "class C extends async function(){}.constructor {}";
-        let (ast, superclass) = parse(&allocator, source);
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let (ast, superclass) = parse(&allocator, source, ast_guard);
         let member = superclass.as_member_expression(&ast).unwrap();
         let property = member.property(&ast).as_identifier_name(&ast).unwrap();
         assert_eq!(ast.get_utf8(property.name(&ast)), "constructor");
@@ -14218,9 +14478,16 @@ mod tests {
     fn decorated_class_expression() {
         let allocator = Allocator::new();
         let source = "new @dec class {}(value)";
-        let ast = Parser::init(&allocator, source, Options::default(), NoTokenParserConfig)
-            .parse_expression_fragment(FragmentContext::TopLevel)
-            .unwrap();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let ast = Parser::init(
+            &allocator,
+            source,
+            Options::default(),
+            NoTokenParserConfig,
+            ast_guard,
+        )
+        .parse_expression_fragment(FragmentContext::TopLevel)
+        .unwrap();
         let expression = ast.root_expression().as_new_expression(&ast).unwrap();
         let class = expression.callee(&ast).as_class(&ast).unwrap();
         assert_eq!(class.class_type(&ast), ClassType::ClassExpression);
@@ -14236,7 +14503,9 @@ mod tests {
                 lang,
                 ..Options::default()
             };
-            let result = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let result =
+                Parser::init(&allocator, source, options, NoTokenParserConfig, ast_guard).parse();
             assert!(result.diagnostics.is_empty());
             let ast = &result.ast;
             let statement = ast.root_program().body(ast).get_node(ast, 0).unwrap();
@@ -14285,7 +14554,9 @@ mod tests {
             ..Options::default()
         };
         let source = "import 'x'\nassert ({});";
-        let result = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let result =
+            Parser::init(&allocator, source, options, NoTokenParserConfig, ast_guard).parse();
         assert!(result.diagnostics.is_empty());
         assert_eq!(result.ast.root_program().body(&result.ast).len(), 2);
     }
@@ -14298,14 +14569,21 @@ mod tests {
             source_type: SourceType::Script,
             ..Options::default()
         };
-        let result = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let result =
+            Parser::init(&allocator, source, options, NoTokenParserConfig, ast_guard).parse();
         assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
     }
 
     #[test]
     fn expression_fragment() {
-        fn parse<'a>(allocator: &'a Allocator, source: &'a str, options: Options) -> Ast<'a> {
-            Parser::init(allocator, source, options, NoTokenParserConfig)
+        fn parse<'id, 'a>(
+            allocator: &'a Allocator,
+            source: &'a str,
+            options: Options,
+            guard: swc_next_ecma_ast::AstGuard<'id>,
+        ) -> Ast<'a, 'id> {
+            Parser::init(allocator, source, options, NoTokenParserConfig, guard)
                 .parse_expression_fragment(FragmentContext::TopLevel)
                 .unwrap()
         }
@@ -14315,29 +14593,30 @@ mod tests {
             source_type: SourceType::Unambiguous,
             ..Options::default()
         };
-
-        let ast = parse(&allocator, "1 + 1", Options::default());
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let ast = parse(&allocator, "1 + 1", Options::default(), ast_guard);
         let root_expression = ast.expr_data(ast.root_expression());
         assert!(matches!(root_expression, ExprData::BinaryExpression(_)));
-
-        let ast = parse(&allocator, "await value", unambiguous);
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let ast = parse(&allocator, "await value", unambiguous, ast_guard);
         let root_expression = ast.expr_data(ast.root_expression());
         assert_eq!(ast.source_type(), SourceType::Module);
         assert!(matches!(root_expression, ExprData::AwaitExpression(_)));
-
-        let ast = parse(&allocator, "value", unambiguous);
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let ast = parse(&allocator, "value", unambiguous, ast_guard);
         assert_eq!(ast.source_type(), SourceType::Script);
     }
 
     #[test]
     fn unambiguous_commonjs_expression_fragments() {
-        fn parse<'a>(
+        fn parse<'id, 'a>(
             allocator: &'a Allocator,
             source: &'a str,
             lang: Lang,
             source_type: SourceType,
             context: FragmentContext,
-        ) -> Ast<'a> {
+            guard: swc_next_ecma_ast::AstGuard<'id>,
+        ) -> Ast<'a, 'id> {
             Parser::init(
                 allocator,
                 source,
@@ -14347,6 +14626,7 @@ mod tests {
                     ..Options::default()
                 },
                 NoTokenParserConfig,
+                guard,
             )
             .parse_expression_fragment(context)
             .unwrap()
@@ -14359,17 +14639,27 @@ mod tests {
             expected: SourceType,
         ) {
             let unambiguous_allocator = Allocator::new();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
             let unambiguous = parse(
                 &unambiguous_allocator,
                 source,
                 lang,
                 SourceType::Unambiguous,
                 context,
+                ast_guard,
             );
             assert_eq!(unambiguous.source_type(), expected, "{source}");
 
             let explicit_allocator = Allocator::new();
-            let explicit = parse(&explicit_allocator, source, lang, expected, context);
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let explicit = parse(
+                &explicit_allocator,
+                source,
+                lang,
+                expected,
+                context,
+                ast_guard,
+            );
             assert_eq!(
                 serialize_ast(&unambiguous),
                 serialize_ast(&explicit),
@@ -14410,6 +14700,7 @@ mod tests {
     fn disallow_unerasable_assertions() {
         fn parse_typescript_diagnostics(source: &str) -> Vec<Diagnostic<'static>> {
             let allocator = Allocator::new();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
             Parser::init(
                 &allocator,
                 source,
@@ -14418,6 +14709,7 @@ mod tests {
                     ..Options::default()
                 },
                 NoTokenParserConfig,
+                ast_guard,
             )
             .parse()
             .diagnostics
@@ -14461,6 +14753,7 @@ mod tests {
     fn await_using_context() {
         fn parse(source: &str, source_type: SourceType) -> Vec<Diagnostic<'static>> {
             let allocator = Allocator::new();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
             Parser::init(
                 &allocator,
                 source,
@@ -14469,22 +14762,19 @@ mod tests {
                     ..Options::default()
                 },
                 NoTokenParserConfig,
+                ast_guard,
             )
             .parse()
             .diagnostics
         }
 
         let script = SourceType::Script;
-
         let diagnostics = parse("await using in object;", script);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
-
         let diagnostics = parse("function f() { await using instanceof C; }", script);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
-
         let diagnostics = parse("async function f() { await using in object; }", script);
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
-
         let diagnostics = parse("await using in object;", SourceType::Module);
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
@@ -14492,6 +14782,7 @@ mod tests {
     #[test]
     fn private_name_early_errors() {
         let allocator = Allocator::new();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let result = Parser::init(
             &allocator,
             "class C { #x; m() { a + #x in object; } }",
@@ -14500,6 +14791,7 @@ mod tests {
                 ..Options::default()
             },
             NoTokenParserConfig,
+            ast_guard,
         )
         .parse();
 
@@ -14520,11 +14812,13 @@ mod tests {
                 lang,
                 ..Options::default()
             };
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
             let unambiguous_result = Parser::init(
                 &unambiguous_allocator,
                 source,
                 unambiguous_options,
                 NoTokenParserConfig,
+                ast_guard,
             )
             .parse();
             assert!(unambiguous_result.diagnostics.is_empty(),);
@@ -14536,11 +14830,13 @@ mod tests {
                 lang,
                 ..Options::default()
             };
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
             let explicit_result = Parser::init(
                 &explicit_allocator,
                 source,
                 explicit_options,
                 NoTokenParserConfig,
+                ast_guard,
             )
             .parse();
             assert!(explicit_result.diagnostics.is_empty(),);
@@ -14641,7 +14937,11 @@ mod tests {
         assert_unambiguous_source_type("await + 0; export {};", SourceType::Module);
         assert_unambiguous_source_type("foo(await 0);", SourceType::Module);
 
-        fn parse<'a>(allocator: &'a Allocator, source: &'a str) -> ParseReturn<'a> {
+        fn parse<'id, 'a>(
+            allocator: &'a Allocator,
+            source: &'a str,
+            guard: swc_next_ecma_ast::AstGuard<'id>,
+        ) -> ParseReturn<'a, 'id> {
             let parser = Parser::init(
                 allocator,
                 source,
@@ -14651,11 +14951,12 @@ mod tests {
                     ..Options::default()
                 },
                 NoTokenParserConfig,
+                guard,
             );
             parser.parse()
         }
 
-        fn first_function_body(ast: &Ast<'_>) -> FunctionBody {
+        fn first_function_body<'id>(ast: &Ast<'_, 'id>) -> FunctionBody<'id> {
             let statement = ast.root_program().body(ast).get_node(ast, 0).unwrap();
             let declaration = statement.as_declaration(ast).unwrap();
             let function = declaration.as_function(ast).unwrap();
@@ -14663,38 +14964,47 @@ mod tests {
         }
 
         let allocator = Allocator::new();
-        let result = parse(&allocator, "function f() { await value; }");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let result = parse(&allocator, "function f() { await value; }", ast_guard);
         assert_eq!(result.ast.source_type(), SourceType::Module);
         assert_eq!(result.diagnostics.len(), 1);
         assert_eq!(first_function_body(&result.ast).body(&result.ast).len(), 1);
-
-        let result = parse(&allocator, "function f() { yield value; }");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let result = parse(&allocator, "function f() { yield value; }", ast_guard);
         assert_eq!(result.ast.source_type(), SourceType::Module);
         assert_eq!(result.diagnostics.len(), 1);
         assert_eq!(first_function_body(&result.ast).body(&result.ast).len(), 1);
-
-        let result = parse(&allocator, "return 1; function f() { await value; }");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let result = parse(
+            &allocator,
+            "return 1; function f() { await value; }",
+            ast_guard,
+        );
         assert_eq!(result.ast.source_type(), SourceType::Module);
         assert!(!result.diagnostics.is_empty());
         assert_eq!(result.ast.root_program().body(&result.ast).len(), 2);
 
         let allocator = Allocator::new();
-        let result = parse(&allocator, "value + await \"unterminated");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let result = parse(&allocator, "value + await \"unterminated", ast_guard);
         assert_eq!(result.diagnostics.len(), 1, "{:#?}", result.diagnostics);
 
         let allocator = Allocator::new();
-        let result = parse(&allocator, "await\nimport value from 'value';");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let result = parse(&allocator, "await\nimport value from 'value';", ast_guard);
         assert_eq!(result.ast.source_type(), SourceType::Module);
         assert!(!result.diagnostics.is_empty());
 
         let allocator = Allocator::new();
-        let result = parse(&allocator, "value\n<!-- comment");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let result = parse(&allocator, "value\n<!-- comment", ast_guard);
         assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
         assert_eq!(result.ast.source_type(), SourceType::Script);
         assert_eq!(result.ast.root_program().body(&result.ast).len(), 1);
 
         let allocator = Allocator::new();
-        let result = parse(&allocator, "value\n<!-- comment\nexport {};");
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let result = parse(&allocator, "value\n<!-- comment\nexport {};", ast_guard);
         assert_eq!(result.ast.source_type(), SourceType::Module);
         assert_eq!(result.diagnostics.len(), 1, "{:#?}", result.diagnostics);
     }
@@ -14703,12 +15013,13 @@ mod tests {
     fn unambiguous_commonjs() {
         use crate::TokenParserConfig;
 
-        fn parse<'a>(
+        fn parse<'id, 'a>(
             allocator: &'a Allocator,
             source: &'a str,
             lang: Lang,
             source_type: SourceType,
-        ) -> ParseReturn<'a> {
+            guard: swc_next_ecma_ast::AstGuard<'id>,
+        ) -> ParseReturn<'a, 'id> {
             Parser::init(
                 allocator,
                 source,
@@ -14718,17 +15029,20 @@ mod tests {
                     ..Options::default()
                 },
                 NoTokenParserConfig,
+                guard,
             )
             .parse()
         }
 
         fn assert_resolves_as(source: &str, lang: Lang, expected: SourceType) {
             let unambiguous_allocator = Allocator::new();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
             let unambiguous = parse(
                 &unambiguous_allocator,
                 source,
                 lang,
                 SourceType::Unambiguous,
+                ast_guard,
             );
             assert!(
                 unambiguous.diagnostics.is_empty(),
@@ -14738,7 +15052,8 @@ mod tests {
             assert_eq!(unambiguous.ast.source_type(), expected, "{source}");
 
             let explicit_allocator = Allocator::new();
-            let explicit = parse(&explicit_allocator, source, lang, expected);
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let explicit = parse(&explicit_allocator, source, lang, expected, ast_guard);
             assert!(
                 explicit.diagnostics.is_empty(),
                 "{:#?}",
@@ -14752,13 +15067,15 @@ mod tests {
 
         fn assert_rejects_as_module(source: &str, lang: Lang) {
             let allocator = Allocator::new();
-            let result = parse(&allocator, source, lang, SourceType::Unambiguous);
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let result = parse(&allocator, source, lang, SourceType::Unambiguous, ast_guard);
             assert_eq!(result.ast.source_type(), SourceType::Module, "{source}");
             assert!(!result.diagnostics.is_empty(), "{source}");
         }
 
         fn assert_tokens_and_comments_match(source: &str) {
             let unambiguous_allocator = Allocator::new();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
             let unambiguous = Parser::init(
                 &unambiguous_allocator,
                 source,
@@ -14767,6 +15084,7 @@ mod tests {
                     ..Options::default()
                 },
                 TokenParserConfig,
+                ast_guard,
             )
             .parse();
             assert!(
@@ -14777,6 +15095,7 @@ mod tests {
             assert_eq!(unambiguous.ast.source_type(), SourceType::CommonJs);
 
             let explicit_allocator = Allocator::new();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
             let explicit = Parser::init(
                 &explicit_allocator,
                 source,
@@ -14785,6 +15104,7 @@ mod tests {
                     ..Options::default()
                 },
                 TokenParserConfig,
+                ast_guard,
             )
             .parse();
             assert!(
@@ -14873,11 +15193,13 @@ mod tests {
         assert_rejects_as_module("return await value;", Lang::Js);
 
         let allocator = Allocator::new();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let result = parse(
             &allocator,
             "return; export {}; return;",
             Lang::Js,
             SourceType::Unambiguous,
+            ast_guard,
         );
         assert_eq!(result.ast.source_type(), SourceType::Module);
         assert_eq!(result.diagnostics.len(), 2);
@@ -14895,13 +15217,14 @@ mod tests {
 
     #[test]
     fn fragment_context() {
-        fn parse_expr<'a>(
+        fn parse_expr<'id, 'a>(
             allocator: &'a Allocator,
             source: &'a str,
             options: Options,
             context: FragmentContext,
-        ) -> Result<Ast<'a>, Vec<Diagnostic<'a>>> {
-            let parser = Parser::init(allocator, source, options, NoTokenParserConfig);
+            guard: swc_next_ecma_ast::AstGuard<'id>,
+        ) -> Result<Ast<'a, 'id>, Vec<Diagnostic<'a>>> {
+            let parser = Parser::init(allocator, source, options, NoTokenParserConfig, guard);
             parser.parse_expression_fragment(context)
         }
 
@@ -14916,19 +15239,25 @@ mod tests {
             source_type: SourceType::Unambiguous,
             ..Options::default()
         };
-
-        let ast = parse_expr(&allocator, "await value", script, AsyncFunction).unwrap();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let ast = parse_expr(&allocator, "await value", script, AsyncFunction, ast_guard).unwrap();
         let root_expression = ast.expr_data(ast.root_expression());
         assert!(matches!(root_expression, ExprData::AwaitExpression(_)));
-
-        let ast = parse_expr(&allocator, "yield value", script, Generator).unwrap();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let ast = parse_expr(&allocator, "yield value", script, Generator, ast_guard).unwrap();
         let root_expression = ast.expr_data(ast.root_expression());
         assert!(matches!(root_expression, ExprData::YieldExpression(_)));
-
-        let result = parse_expr(&allocator, "await\n? import.meta : x", auto, TopLevel);
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let result = parse_expr(
+            &allocator,
+            "await\n? import.meta : x",
+            auto,
+            TopLevel,
+            ast_guard,
+        );
         assert!(result.is_err_and(|diagnostics| !diagnostics.is_empty()));
-
-        let ast = parse_expr(&allocator, "await\n{}", auto, TopLevel).unwrap();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let ast = parse_expr(&allocator, "await\n{}", auto, TopLevel, ast_guard).unwrap();
         assert_eq!(ast.source_type(), SourceType::Module);
         assert!(matches!(
             ast.expr_data(ast.root_expression()),
@@ -14975,7 +15304,9 @@ mod tests {
                 preserve_parens,
                 ..Options::default()
             };
-            let result = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let result =
+                Parser::init(&allocator, source, options, NoTokenParserConfig, ast_guard).parse();
 
             assert!(result.diagnostics.is_empty(), "{:#?}", result.diagnostics);
             result.ast.comments().to_vec()
@@ -15401,9 +15732,16 @@ mod tests {
     fn single_statement_function_expressions() {
         fn parse_js_diagnostics(source: &str) -> Vec<Diagnostic<'static>> {
             let allocator = Allocator::new();
-            Parser::init(&allocator, source, Options::default(), NoTokenParserConfig)
-                .parse()
-                .diagnostics
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            Parser::init(
+                &allocator,
+                source,
+                Options::default(),
+                NoTokenParserConfig,
+                ast_guard,
+            )
+            .parse()
+            .diagnostics
         }
 
         let diagnostics = parse_js_diagnostics("if (a) c(function* () {});");
@@ -15418,14 +15756,20 @@ mod tests {
 
     #[test]
     fn typed_arrow_context() {
-        fn parse<'a>(allocator: &'a Allocator, source: &'a str, options: Options) -> Ast<'a> {
-            let result = Parser::init(allocator, source, options, NoTokenParserConfig).parse();
+        fn parse<'id, 'a>(
+            allocator: &'a Allocator,
+            source: &'a str,
+            options: Options,
+            guard: swc_next_ecma_ast::AstGuard<'id>,
+        ) -> Ast<'a, 'id> {
+            let result =
+                Parser::init(allocator, source, options, NoTokenParserConfig, guard).parse();
             assert!(result.diagnostics.is_empty());
             assert_eq!(result.ast.root_program().body(&result.ast).len(), 1);
             result.ast
         }
 
-        fn conditional(ast: &Ast<'_>) -> ConditionalExpression {
+        fn conditional<'id>(ast: &Ast<'_, 'id>) -> ConditionalExpression<'id> {
             ast.root_program()
                 .body(ast)
                 .get_node(ast, 0)
@@ -15437,17 +15781,17 @@ mod tests {
                 .unwrap()
         }
 
-        fn assert_identifier(ast: &Ast<'_>, expression: Expr, expected: &str) {
+        fn assert_identifier<'id>(ast: &Ast<'_, 'id>, expression: Expr<'id>, expected: &str) {
             let identifier = expression.as_identifier_reference(ast).unwrap();
             assert_eq!(ast.get_utf8(identifier.name(ast)), expected);
         }
 
-        fn assert_parenthesized_a(ast: &Ast<'_>, expression: Expr) {
+        fn assert_parenthesized_a<'id>(ast: &Ast<'_, 'id>, expression: Expr<'id>) {
             let parenthesized = expression.as_parenthesized_expression(ast).unwrap();
             assert_identifier(ast, parenthesized.expression(ast), "a");
         }
 
-        fn assert_alternate(ast: &Ast<'_>, expression: ConditionalExpression) {
+        fn assert_alternate<'id>(ast: &Ast<'_, 'id>, expression: ConditionalExpression<'id>) {
             let arrow = expression
                 .alternate(ast)
                 .as_arrow_function_expression(ast)
@@ -15465,18 +15809,18 @@ mod tests {
             assert!(arrow.return_type(ast).is_none());
         }
 
-        fn return_types(ast: &Ast<'_>, expression: Expr) -> Vec<String> {
-            struct TypedArrows<'ast, 'a> {
-                ast: &'ast Ast<'a>,
+        fn return_types<'id>(ast: &Ast<'_, 'id>, expression: Expr<'id>) -> Vec<String> {
+            struct TypedArrows<'ast, 'a, 'id> {
+                ast: &'ast Ast<'a, 'id>,
                 return_types: Vec<String>,
             }
 
-            impl<'a> Visit<'a> for TypedArrows<'_, 'a> {
-                fn ast(&self) -> &Ast<'a> {
+            impl<'id, 'a> Visit<'a, 'id> for TypedArrows<'_, 'a, 'id> {
+                fn ast(&self) -> &Ast<'a, 'id> {
                     self.ast
                 }
 
-                fn visit_arrow_function_expression(&mut self, arrow: ArrowFunctionExpression) {
+                fn visit_arrow_function_expression(&mut self, arrow: ArrowFunctionExpression<'id>) {
                     if let Some(annotation) = arrow.return_type(self.ast) {
                         let ty = annotation
                             .type_annotation(self.ast)
@@ -15504,13 +15848,15 @@ mod tests {
         fn parse_boundary(source: &str, options: Options) -> Vec<String> {
             let allocator = Allocator::new();
             let plain_source = format!("cond ? {source} : undefined;");
-            let ast = parse(&allocator, &plain_source, options);
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let ast = parse(&allocator, &plain_source, options, ast_guard);
             let expression = conditional(&ast);
             assert_identifier(&ast, expression.alternate(&ast), "undefined");
             let plain_types = return_types(&ast, expression.consequent(&ast));
 
             let nested_source = format!("cond ? inner ? {source} : (a) : b => b;");
-            let ast = parse(&allocator, &nested_source, options);
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let ast = parse(&allocator, &nested_source, options, ast_guard);
             let expression = conditional(&ast);
             assert_alternate(&ast, expression);
             let inner = expression
@@ -15578,8 +15924,13 @@ mod tests {
         assert_eq!(types, ["Item"]);
 
         let allocator = Allocator::new();
-
-        let ast = parse(&allocator, "cond ? f((x): T => x) + (a) : b => b;", ts);
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let ast = parse(
+            &allocator,
+            "cond ? f((x): T => x) + (a) : b => b;",
+            ts,
+            ast_guard,
+        );
         let expression = conditional(&ast);
         assert_alternate(&ast, expression);
         let binary = expression
@@ -15587,8 +15938,8 @@ mod tests {
             .as_binary_expression(&ast)
             .unwrap();
         assert_parenthesized_a(&ast, binary.right(&ast));
-
-        let ast = parse(&allocator, "cond ? x = (a) : b => b;", ts);
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let ast = parse(&allocator, "cond ? x = (a) : b => b;", ts, ast_guard);
         let expression = conditional(&ast);
         assert_alternate(&ast, expression);
         let assignment = expression
@@ -15596,8 +15947,13 @@ mod tests {
             .as_assignment_expression(&ast)
             .unwrap();
         assert_parenthesized_a(&ast, assignment.right(&ast));
-
-        let ast = parse(&allocator, "cond ? inner ? yes : (a) : b => b;", ts);
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let ast = parse(
+            &allocator,
+            "cond ? inner ? yes : (a) : b => b;",
+            ts,
+            ast_guard,
+        );
         let expression = conditional(&ast);
         assert_alternate(&ast, expression);
         let inner = expression
@@ -15605,8 +15961,8 @@ mod tests {
             .as_conditional_expression(&ast)
             .unwrap();
         assert_parenthesized_a(&ast, inner.alternate(&ast));
-
-        let ast = parse(&allocator, "cond ? x => (a) : b => b;", ts);
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let ast = parse(&allocator, "cond ? x => (a) : b => b;", ts, ast_guard);
         let expression = conditional(&ast);
         assert_alternate(&ast, expression);
         let arrow = expression
@@ -15614,8 +15970,13 @@ mod tests {
             .as_arrow_function_expression(&ast)
             .unwrap();
         assert_parenthesized_a(&ast, arrow.body(&ast).as_expr(&ast).unwrap());
-
-        let ast = parse(&allocator, "function* f(){return c ? yield(a) : b=>b}", ts);
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let ast = parse(
+            &allocator,
+            "function* f(){return c ? yield(a) : b=>b}",
+            ts,
+            ast_guard,
+        );
         let declaration = ast
             .root_program()
             .body(&ast)

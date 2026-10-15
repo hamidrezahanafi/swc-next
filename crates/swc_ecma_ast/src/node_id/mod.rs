@@ -3,7 +3,8 @@ mod node;
 mod sub_range;
 
 pub(crate) use extra_data::ExtraData;
-pub use extra_data::{ExtraDataId, ExtraDataValue};
+pub use extra_data::ExtraDataValue;
+pub(crate) use extra_data::{ExtraDataId, RawSubRange};
 pub use node::*;
 pub use sub_range::*;
 

@@ -4,27 +4,27 @@ use swc_next_ecma_ast::{
 };
 
 #[derive(Clone, Copy)]
-pub(crate) enum Binaryish {
-    Binary(BinaryExpression),
-    Logical(LogicalExpression),
+pub(crate) enum Binaryish<'id> {
+    Binary(BinaryExpression<'id>),
+    Logical(LogicalExpression<'id>),
 }
 
-impl Binaryish {
-    pub(crate) fn left(self, ast: &Ast<'_>) -> Expr {
+impl<'id> Binaryish<'id> {
+    pub(crate) fn left(self, ast: &Ast<'_, 'id>) -> Expr<'id> {
         match self {
             Self::Binary(e) => e.left(ast),
             Self::Logical(e) => e.left(ast),
         }
     }
 
-    pub(crate) fn right(self, ast: &Ast<'_>) -> Expr {
+    pub(crate) fn right(self, ast: &Ast<'_, 'id>) -> Expr<'id> {
         match self {
             Self::Binary(e) => e.right(ast),
             Self::Logical(e) => e.right(ast),
         }
     }
 
-    pub(crate) fn operator(self, ast: &Ast<'_>) -> BinaryishOperator {
+    pub(crate) fn operator(self, ast: &Ast<'_, 'id>) -> BinaryishOperator {
         match self {
             Self::Binary(e) => BinaryishOperator::Binary(e.operator(ast)),
             Self::Logical(e) => BinaryishOperator::Logical(e.operator(ast)),
@@ -108,9 +108,9 @@ pub(crate) enum OperatorCode {
 // appear on the left spine of the other. Keeping the state on one reusable
 // arena-backed stack avoids overflowing the native stack for deeply nested ASTs.
 #[derive(Clone, Copy)]
-pub(crate) struct BinaryExprVisitor {
+pub(crate) struct BinaryExprVisitor<'id> {
     // Inputs
-    pub(crate) e: Binaryish,
+    pub(crate) e: Binaryish<'id>,
     pub(crate) level: Precedence,
     pub(crate) flags: bool,
     // Carry grouping context through the rightmost ungrouped operand.

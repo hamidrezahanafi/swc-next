@@ -6,41 +6,46 @@ use swc_next_ecma_ast::{
 
 use crate::context::TransformCtx;
 
-struct Insertion {
-    statement: Stmt,
-    anchor: Anchor,
+struct Insertion<'id> {
+    statement: Stmt<'id>,
+    anchor: Anchor<'id>,
 }
 
-pub(crate) enum Anchor {
+pub(crate) enum Anchor<'id> {
     First,
     // Last,
     // Before(Stmt),
-    After(Stmt),
+    After(Stmt<'id>),
 }
 
 #[derive(Default)]
-pub(crate) struct StatementInjector {
+pub(crate) struct StatementInjector<'id> {
     /// Container node id -> list of statements to be inserted.
-    stmts: FxHashMap<NodeId, Vec<Insertion>>,
+    stmts: FxHashMap<NodeId<'id>, Vec<Insertion<'id>>>,
     /// Container node id -> list of variable declarations to be inserted.
-    vars: FxHashMap<NodeId, Vec<BindingIdentifier>>,
+    vars: FxHashMap<NodeId<'id>, Vec<BindingIdentifier<'id>>>,
 }
 
-impl StatementInjector {
+impl<'id> StatementInjector<'id> {
     pub fn is_empty(&self) -> bool {
         self.stmts.values().all(|v| v.is_empty()) && self.vars.values().all(|v| v.is_empty())
     }
 }
 
-impl TransformCtx<'_, '_> {
-    pub fn inject_statement(&mut self, container_id: NodeId, statement: Stmt, anchor: Anchor) {
+impl<'id> TransformCtx<'_, '_, 'id> {
+    pub fn inject_statement(
+        &mut self,
+        container_id: NodeId<'id>,
+        statement: Stmt<'id>,
+        anchor: Anchor<'id>,
+    ) {
         let insertion = Insertion { statement, anchor };
         let injector = &mut self.state.statement_injector;
         let stmts = injector.stmts.entry(container_id).or_default();
         stmts.push(insertion);
     }
 
-    pub fn inject_variable(&mut self, container_id: NodeId, var: BindingIdentifier) {
+    pub fn inject_variable(&mut self, container_id: NodeId<'id>, var: BindingIdentifier<'id>) {
         // Retain the registered declaration identity, rather than rebuilding an
         // identifier from its name when the container is flushed.
         let vars = self
@@ -54,7 +59,7 @@ impl TransformCtx<'_, '_> {
         }
     }
 
-    pub fn inject_statements_to(&mut self, container_id: NodeId) {
+    pub fn inject_statements_to(&mut self, container_id: NodeId<'id>) {
         let insertions = self
             .state
             .statement_injector
@@ -103,8 +108,8 @@ impl TransformCtx<'_, '_> {
         };
         let mut first = Vec::new();
         // let mut last = Vec::new();
-        let mut before: FxHashMap<NodeId, Vec<Stmt>> = FxHashMap::default();
-        let mut after: FxHashMap<NodeId, Vec<Stmt>> = FxHashMap::default();
+        let mut before: FxHashMap<NodeId<'id>, Vec<Stmt<'id>>> = FxHashMap::default();
+        let mut after: FxHashMap<NodeId<'id>, Vec<Stmt<'id>>> = FxHashMap::default();
         for insertion in insertions {
             match insertion.anchor {
                 Anchor::First => first.push(insertion.statement),

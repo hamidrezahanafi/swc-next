@@ -19,19 +19,24 @@ pub trait Runner<C: Case> {
     fn run(case: &C) -> TestResult;
 }
 
-fn parse_case<'a, C: Case>(allocator: &'a Allocator, case: &'a C) -> Result<Ast<'a>, String> {
+fn parse_case<'id, 'a, C: Case>(
+    allocator: &'a Allocator,
+    case: &'a C,
+    guard: swc_next_ecma_ast::AstGuard<'id>,
+) -> Result<Ast<'a, 'id>, String> {
     let source = case.code();
     let source_type = case.source_type();
     let lang = case.lang();
-    parse(allocator, source, source_type, lang)
+    parse(allocator, source, source_type, lang, guard)
 }
 
-fn parse<'a>(
+fn parse<'id, 'a>(
     allocator: &'a Allocator,
     source: &'a str,
     source_type: SourceType,
     lang: Lang,
-) -> Result<Ast<'a>, String> {
+    guard: swc_next_ecma_ast::AstGuard<'id>,
+) -> Result<Ast<'a, 'id>, String> {
     parse_with_options(
         allocator,
         source,
@@ -40,15 +45,17 @@ fn parse<'a>(
             lang,
             ..Options::default()
         },
+        guard,
     )
 }
 
-fn parse_with_options<'a>(
+fn parse_with_options<'id, 'a>(
     allocator: &'a Allocator,
     source: &'a str,
     options: Options,
-) -> Result<Ast<'a>, String> {
-    let result = Parser::init(allocator, source, options, NoTokenParserConfig).parse();
+    guard: swc_next_ecma_ast::AstGuard<'id>,
+) -> Result<Ast<'a, 'id>, String> {
+    let result = Parser::init(allocator, source, options, NoTokenParserConfig, guard).parse();
     if let Some(diagnostic) = result.diagnostics.first() {
         return Err(format!(
             "parser: {} at {}..{}",

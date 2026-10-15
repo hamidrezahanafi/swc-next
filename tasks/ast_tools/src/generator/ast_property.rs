@@ -65,7 +65,7 @@ fn generate_property_for_struct(ast: &AstStruct, schema: &Schema) -> TokenStream
     );
 
     quote! {
-        impl #name {
+        impl<'id> #name<'id> {
             #field_getters
             #field_setters
         }
@@ -92,7 +92,7 @@ fn generate_inline_property_accessors(
         let read_expr = generate_inline_read(field_ty, schema, &member, &stored_field, byte_size);
         field_getters.extend(quote! {
             #[inline]
-            pub fn #getter_name<'a>(self, ast: &crate::Ast<'a>) -> #ret_ty {
+            pub fn #getter_name<'a>(self, ast: &crate::Ast<'a, 'id>) -> #ret_ty {
                 #read_expr
             }
         });
@@ -110,7 +110,7 @@ fn generate_inline_property_accessors(
         );
         field_setters.extend(quote! {
             #[inline]
-            pub fn #setter_name<'a>(self, ast: &mut crate::Ast<'a>, #field_name: #ret_ty) {
+            pub fn #setter_name<'a>(self, ast: &mut crate::Ast<'a, 'id>, #field_name: #ret_ty) {
                 #write_expr
             }
         });
@@ -125,9 +125,12 @@ fn generate_inline_read(
     stored_field: &syn::Ident,
     byte_size: usize,
 ) -> TokenStream {
+    if matches!(field_ty, AstType::SubRange(_)) {
+        return quote! { SubRange::from_raw(unsafe { ast.nodes.data_unchecked(self.0.raw()).#member.#stored_field }) };
+    }
     if direct_payload_field(field_ty, schema) {
         return quote! {
-            unsafe { ast.nodes.data_unchecked(self.0).#member.#stored_field }
+            unsafe { ast.nodes.data_unchecked(self.0.raw()).#member.#stored_field }
         };
     }
     let extract_expr = generate_extract_bits(member, stored_field, byte_size);
@@ -151,17 +154,17 @@ fn generate_extract_bits(
 ) -> TokenStream {
     if byte_size == std::mem::size_of::<u64>() {
         return quote! {
-            let raw = unsafe { ast.nodes.data_unchecked(self.0).#member.#stored_field };
+            let raw = unsafe { ast.nodes.data_unchecked(self.0.raw()).#member.#stored_field };
         };
     }
 
     if byte_size == 4 {
         quote! {
-            let raw = unsafe { ast.nodes.data_unchecked(self.0).#member.#stored_field };
+            let raw = unsafe { ast.nodes.data_unchecked(self.0.raw()).#member.#stored_field };
         }
     } else {
         quote! {
-            let raw = unsafe { ast.nodes.data_unchecked(self.0).#member.#stored_field as u32 };
+            let raw = unsafe { ast.nodes.data_unchecked(self.0.raw()).#member.#stored_field as u32 };
         }
     }
 }
@@ -176,13 +179,16 @@ fn generate_inline_write(
     schema: &Schema,
     invalidations: TokenStream,
 ) -> TokenStream {
+    if matches!(field_ty, AstType::SubRange(_)) {
+        return quote! { unsafe { ast.nodes.data_mut_unchecked(self.0.raw()).#member.#stored_field = #field_name.raw(); } };
+    }
     if direct_payload_field(field_ty, schema) {
         let change_guard = if invalidations.is_empty() {
             TokenStream::new()
         } else {
             assert!(matches!(field_ty, AstType::Primitive(primitive) if primitive.name == "f64"));
             quote! {
-                if unsafe { ast.nodes.data_unchecked(self.0).#member.#stored_field }.to_bits()
+                if unsafe { ast.nodes.data_unchecked(self.0.raw()).#member.#stored_field }.to_bits()
                     == #field_name.to_bits() {
                     return;
                 }
@@ -190,17 +196,17 @@ fn generate_inline_write(
         };
         return quote! {
             #change_guard
-            unsafe { ast.nodes.data_mut_unchecked(self.0).#member.#stored_field = #field_name; }
+            unsafe { ast.nodes.data_mut_unchecked(self.0.raw()).#member.#stored_field = #field_name; }
             #invalidations
         };
     }
     let insert_expr = if byte_size >= 4 {
         quote! {
-            unsafe { ast.nodes.data_mut_unchecked(self.0).#member.#stored_field = field_val; }
+            unsafe { ast.nodes.data_mut_unchecked(self.0.raw()).#member.#stored_field = field_val; }
         }
     } else {
         quote! {
-            unsafe { ast.nodes.data_mut_unchecked(self.0).#member.#stored_field = field_val as _; }
+            unsafe { ast.nodes.data_mut_unchecked(self.0.raw()).#member.#stored_field = field_val as _; }
         }
     };
     let change_guard = (!invalidations.is_empty()).then(|| {
@@ -250,7 +256,7 @@ fn generate_extra_data_property_accessors(
 
         field_getters.extend(quote! {
             #[inline]
-            pub fn #getter_name<'a>(self, ast: &crate::Ast<'a>) -> #field_ty {
+            pub fn #getter_name<'a>(self, ast: &crate::Ast<'a, 'id>) -> #field_ty {
                 #offset_expr
                 unsafe {
                     ExtraDataValue::from_extra_data(
@@ -272,7 +278,7 @@ fn generate_extra_data_property_accessors(
 
 fn generate_extra_data_offset(field_offset: usize, member: &syn::Ident) -> TokenStream {
     quote! {
-        let start = unsafe { ast.nodes.data_unchecked(self.0).#member.extra_data_start.index() };
+        let start = unsafe { ast.nodes.data_unchecked(self.0.raw()).#member.extra_data_start.index() };
         let offset = unsafe { start.unchecked_add(#field_offset) };
         debug_assert!(offset < ast.extra_data.len());
         let offset = ExtraDataId::from_usize_unchecked(offset);
@@ -292,7 +298,7 @@ fn generate_extra_data_setter(
     if invalidations.is_empty() {
         return quote! {
             #[inline]
-            pub fn #setter_name<'a>(self, ast: &mut crate::Ast<'a>, #field_name: #field_ty) {
+            pub fn #setter_name<'a>(self, ast: &mut crate::Ast<'a, 'id>, #field_name: #field_ty) {
                 #extra_offset
                 unsafe {
                     *ast.extra_data.as_mut_slice().get_unchecked_mut(offset.index()) =
@@ -304,7 +310,7 @@ fn generate_extra_data_setter(
 
     quote! {
         #[inline]
-        pub fn #setter_name<'a>(self, ast: &mut crate::Ast<'a>, #field_name: #field_ty) {
+        pub fn #setter_name<'a>(self, ast: &mut crate::Ast<'a, 'id>, #field_name: #field_ty) {
             let field_value = #field_name.into_extra_data();
             #extra_offset
             let previous = unsafe {
@@ -356,10 +362,10 @@ fn generate_property_for_enum(ast: &AstEnum, schema: &Schema) -> TokenStream {
             }
         };
         let kind_load = has_contextual_variants
-            .then(|| quote!(let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };));
+            .then(|| quote!(let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };));
         is_variant.extend(quote! {
             #[inline]
-            pub fn #is_fn_name(self, ast: &Ast<'_>) -> bool {
+            pub fn #is_fn_name(self, ast: &Ast<'_, 'id>) -> bool {
                 #kind_load
                 #kind_check
             }
@@ -367,6 +373,7 @@ fn generate_property_for_enum(ast: &AstEnum, schema: &Schema) -> TokenStream {
 
         let as_fn_name = format_ident!("as_{}", variant.name.to_case(Case::Snake));
         let variant_type = schema.types[variant.type_id.unwrap()].repr_ident(schema);
+        let variant_expr = schema.types[variant.type_id.unwrap()].expr_ident(schema);
         let classified_kinds: Vec<_> = node_kind_names
             .into_iter()
             .filter(|node_kind| classified_node_kinds.insert(node_kind.clone()))
@@ -379,10 +386,10 @@ fn generate_property_for_enum(ast: &AstEnum, schema: &Schema) -> TokenStream {
         };
         as_variant.extend(quote! {
             #[inline]
-            pub fn #as_fn_name(self, ast: &Ast<'_>) -> Option<#variant_type> {
-                let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+            pub fn #as_fn_name(self, ast: &Ast<'_, 'id>) -> Option<#variant_type> {
+                let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
                 if #classified_check {
-                    Some(#variant_type(self.0))
+                    Some(#variant_expr(self.0))
                 } else {
                     None
                 }
@@ -391,7 +398,7 @@ fn generate_property_for_enum(ast: &AstEnum, schema: &Schema) -> TokenStream {
     }
 
     quote! {
-        impl #name {
+        impl<'id> #name<'id> {
             #is_variant
             #as_variant
         }

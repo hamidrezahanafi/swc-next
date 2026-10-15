@@ -12,19 +12,23 @@ use super::constants::{
     resolve_constant_member,
 };
 
-pub(super) struct EnumCollector {
+pub(super) struct EnumCollector<'id> {
     collect_const_enum_uses: bool,
     remove_const_enums: bool,
-    assignment_target: Option<NodeId>,
-    enum_declarations: Vec<EnumDeclaration>,
-    removal_candidates: Vec<ConstEnumRemovalCandidate>,
-    const_bindings: ConstBindings,
+    assignment_target: Option<NodeId<'id>>,
+    enum_declarations: Vec<EnumDeclaration<'id>>,
+    removal_candidates: Vec<ConstEnumRemovalCandidate<'id>>,
+    const_bindings: ConstBindings<'id>,
     collect_const_bindings: bool,
-    inline_candidates: Vec<InlineCandidate>,
+    inline_candidates: Vec<InlineCandidate<'id>>,
 }
 
-impl EnumCollector {
-    pub(super) fn new(ast: &Ast<'_>, semantic: &Semantic<'_>, options: &TypeScriptOptions) -> Self {
+impl<'id> EnumCollector<'id> {
+    pub(super) fn new(
+        ast: &Ast<'_, 'id>,
+        semantic: &Semantic<'_, 'id>,
+        options: &TypeScriptOptions,
+    ) -> Self {
         let inline_const_enum_uses = !options.verbatim_module_syntax;
         let remove_const_enums = inline_const_enum_uses && !options.preserve_const_enums;
         let mut collect_const_bindings = false;
@@ -59,9 +63,9 @@ impl EnumCollector {
 
     pub(super) fn set_assignment_target(
         &mut self,
-        target: Option<NodeId>,
-        ast: &Ast<'_>,
-    ) -> Option<NodeId> {
+        target: Option<NodeId<'id>>,
+        ast: &Ast<'_, 'id>,
+    ) -> Option<NodeId<'id>> {
         if !self.collect_const_enum_uses {
             return None;
         }
@@ -83,11 +87,11 @@ impl EnumCollector {
 
     pub(super) fn record_enum_declaration(
         &mut self,
-        declaration: TsEnumDeclaration,
+        declaration: TsEnumDeclaration<'id>,
         ambient: bool,
-        deferred: Option<NodeId>,
-        ast: &Ast<'_>,
-        semantic: &Semantic<'_>,
+        deferred: Option<NodeId<'id>>,
+        ast: &Ast<'_, 'id>,
+        semantic: &Semantic<'_, 'id>,
     ) {
         let binding = declaration.id(ast);
         let Some(symbol) = semantic.symbol_of(binding.node_id()) else {
@@ -119,10 +123,10 @@ impl EnumCollector {
 
     pub(super) fn record_variable_declaration(
         &mut self,
-        declaration: VariableDeclaration,
-        deferred: Option<NodeId>,
-        ast: &Ast<'_>,
-        semantic: &Semantic<'_>,
+        declaration: VariableDeclaration<'id>,
+        deferred: Option<NodeId<'id>>,
+        ast: &Ast<'_, 'id>,
+        semantic: &Semantic<'_, 'id>,
     ) {
         if !self.collect_const_bindings || declaration.kind(ast) != VariableKind::Const {
             return;
@@ -156,9 +160,9 @@ impl EnumCollector {
 
     pub(super) fn record_member_expression(
         &mut self,
-        member: MemberExpression,
-        ast: &Ast<'_>,
-        semantic: &Semantic<'_>,
+        member: MemberExpression<'id>,
+        ast: &Ast<'_, 'id>,
+        semantic: &Semantic<'_, 'id>,
     ) {
         let Some((reference, member_symbol)) = self.enum_member(member, ast, semantic) else {
             return;
@@ -172,10 +176,10 @@ impl EnumCollector {
 
     fn enum_member(
         &self,
-        member: MemberExpression,
-        ast: &Ast<'_>,
-        semantic: &Semantic<'_>,
-    ) -> Option<(NodeId, SymbolId)> {
+        member: MemberExpression<'id>,
+        ast: &Ast<'_, 'id>,
+        semantic: &Semantic<'_, 'id>,
+    ) -> Option<(NodeId<'id>, SymbolId)> {
         if !self.collect_const_enum_uses
             || self.assignment_target == Some(member.node_id())
             || member.optional(ast)
@@ -195,31 +199,31 @@ impl EnumCollector {
     }
 }
 
-struct InlineCandidate {
-    expression: NodeId,
-    root_reference: NodeId,
+struct InlineCandidate<'id> {
+    expression: NodeId<'id>,
+    root_reference: NodeId<'id>,
     member: SymbolId,
 }
 
-struct ConstEnumRemovalCandidate {
+struct ConstEnumRemovalCandidate<'id> {
     symbol: SymbolId,
-    syntax: TsEnumDeclaration,
+    syntax: TsEnumDeclaration<'id>,
     primary: bool,
 }
 
 #[derive(Default)]
-pub(super) struct EnumAnalysis<'ast> {
-    member_values: FxHashMap<SymbolId, EnumMemberValue<'ast>>,
+pub(super) struct EnumAnalysis<'ast, 'id> {
+    member_values: FxHashMap<SymbolId, EnumMemberValue<'ast, 'id>>,
     removable: FxHashSet<SymbolId>,
-    inline_uses: FxHashMap<NodeId, TsEnumConstantValue<'ast>>,
+    inline_uses: FxHashMap<NodeId<'id>, TsEnumConstantValue<'ast, 'id>>,
 }
 
-impl<'ast> EnumAnalysis<'ast> {
+impl<'id, 'ast> EnumAnalysis<'ast, 'id> {
     pub(super) fn finish(
-        ast: &Ast<'ast>,
-        semantic: &Semantic<'ast>,
-        collector: &EnumCollector,
-    ) -> (Self, FxHashSet<NodeId>) {
+        ast: &Ast<'ast, 'id>,
+        semantic: &Semantic<'ast, 'id>,
+        collector: &EnumCollector<'id>,
+    ) -> (Self, FxHashSet<NodeId<'id>>) {
         let member_values = evaluate(
             ast,
             &collector.enum_declarations,
@@ -292,20 +296,20 @@ impl<'ast> EnumAnalysis<'ast> {
         self.removable.contains(&symbol)
     }
 
-    pub(super) fn inline_use(&self, node: NodeId) -> Option<TsEnumConstantValue<'ast>> {
+    pub(super) fn inline_use(&self, node: NodeId<'id>) -> Option<TsEnumConstantValue<'ast, 'id>> {
         self.inline_uses.get(&node).copied()
     }
 
-    pub(super) fn member_value(&self, member: SymbolId) -> EnumMemberValue<'ast> {
+    pub(super) fn member_value(&self, member: SymbolId) -> EnumMemberValue<'ast, 'id> {
         self.member_values.get(&member).copied().unwrap_or_default()
     }
 
     fn can_remove_const_enum(
-        candidate: &ConstEnumRemovalCandidate,
-        ast: &Ast<'_>,
-        semantic: &Semantic<'_>,
-        member_values: &FxHashMap<SymbolId, EnumMemberValue<'_>>,
-        safe_references: &FxHashSet<NodeId>,
+        candidate: &ConstEnumRemovalCandidate<'id>,
+        ast: &Ast<'_, 'id>,
+        semantic: &Semantic<'_, 'id>,
+        member_values: &FxHashMap<SymbolId, EnumMemberValue<'_, 'id>>,
+        safe_references: &FxHashSet<NodeId<'id>>,
     ) -> bool {
         let symbol = candidate.symbol;
         // Lowering erases every declaration of a removable symbol, so reject
@@ -330,10 +334,10 @@ impl<'ast> EnumAnalysis<'ast> {
     }
 
     fn all_members_constant(
-        declaration: TsEnumDeclaration,
-        ast: &Ast<'_>,
-        semantic: &Semantic<'_>,
-        member_values: &FxHashMap<SymbolId, EnumMemberValue<'_>>,
+        declaration: TsEnumDeclaration<'id>,
+        ast: &Ast<'_, 'id>,
+        semantic: &Semantic<'_, 'id>,
+        member_values: &FxHashMap<SymbolId, EnumMemberValue<'_, 'id>>,
     ) -> bool {
         declaration.body(ast).members(ast).iter().all(|member_id| {
             let member = ast.get_node_in_sub_range(member_id);
@@ -353,7 +357,11 @@ impl<'ast> EnumAnalysis<'ast> {
 // Check only expression forms supported by constant evaluation. A direct const
 // dependency enables the index for its transitive dependencies too, allowing the
 // existing collection walk to retain declarator handles without a second AST walk.
-fn may_evaluate_const_binding(ast: &Ast<'_>, semantic: &Semantic<'_>, expression: Expr) -> bool {
+fn may_evaluate_const_binding<'id>(
+    ast: &Ast<'_, 'id>,
+    semantic: &Semantic<'_, 'id>,
+    expression: Expr<'id>,
+) -> bool {
     let symbol = match ast.kind_data(expression.node_id()) {
         NodeKindData::IdentifierReference(identifier) => semantic
             .reference_of(identifier.node_id())

@@ -2,8 +2,12 @@
 #![allow(unused_variables)]
 use super::{AstPair, Compare, compare_value};
 use swc_next_ecma_ast::*;
-impl Compare for Program {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, Program<'right>> for Program<'left> {
+    fn compare(
+        self,
+        other: Program<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.directives(asts.left);
         let right = other.directives(asts.right);
         left.compare(right, asts)
@@ -19,108 +23,204 @@ impl Compare for Program {
         Ok(())
     }
 }
-impl Compare for Stmt {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, Stmt<'right>> for Stmt<'left> {
+    fn compare(
+        self,
+        other: Stmt<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for Decl {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, Decl<'right>> for Decl<'left> {
+    fn compare(
+        self,
+        other: Decl<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for Expr {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, Expr<'right>> for Expr<'left> {
+    fn compare(
+        self,
+        other: Expr<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for BindingPattern {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, BindingPattern<'right>> for BindingPattern<'left> {
+    fn compare(
+        self,
+        other: BindingPattern<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for AssignmentTarget {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, AssignmentTarget<'right>> for AssignmentTarget<'left> {
+    fn compare(
+        self,
+        other: AssignmentTarget<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for SimpleAssignmentTarget {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, SimpleAssignmentTarget<'right>>
+    for SimpleAssignmentTarget<'left>
+{
+    fn compare(
+        self,
+        other: SimpleAssignmentTarget<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for PropertyKey {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, PropertyKey<'right>> for PropertyKey<'left> {
+    fn compare(
+        self,
+        other: PropertyKey<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for ModuleExportName {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ModuleExportName<'right>> for ModuleExportName<'left> {
+    fn compare(
+        self,
+        other: ModuleExportName<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for Argument {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, Argument<'right>> for Argument<'left> {
+    fn compare(
+        self,
+        other: Argument<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for ObjectPropertyKind {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ObjectPropertyKind<'right>>
+    for ObjectPropertyKind<'left>
+{
+    fn compare(
+        self,
+        other: ObjectPropertyKind<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for ForStatementInit {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ForStatementInit<'right>> for ForStatementInit<'left> {
+    fn compare(
+        self,
+        other: ForStatementInit<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for ForStatementLeft {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ForStatementLeft<'right>> for ForStatementLeft<'left> {
+    fn compare(
+        self,
+        other: ForStatementLeft<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for ArrowFunctionBody {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ArrowFunctionBody<'right>> for ArrowFunctionBody<'left> {
+    fn compare(
+        self,
+        other: ArrowFunctionBody<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for FormalParameterItem {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, FormalParameterItem<'right>>
+    for FormalParameterItem<'left>
+{
+    fn compare(
+        self,
+        other: FormalParameterItem<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for FormalParameterPattern {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, FormalParameterPattern<'right>>
+    for FormalParameterPattern<'left>
+{
+    fn compare(
+        self,
+        other: FormalParameterPattern<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for ClassElement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ClassElement<'right>> for ClassElement<'left> {
+    fn compare(
+        self,
+        other: ClassElement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for ImportDeclarationSpecifier {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ImportDeclarationSpecifier<'right>>
+    for ImportDeclarationSpecifier<'left>
+{
+    fn compare(
+        self,
+        other: ImportDeclarationSpecifier<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for ExportDefaultDeclarationKind {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ExportDefaultDeclarationKind<'right>>
+    for ExportDefaultDeclarationKind<'left>
+{
+    fn compare(
+        self,
+        other: ExportDefaultDeclarationKind<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for Super {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, Super<'right>> for Super<'left> {
+    fn compare(
+        self,
+        other: Super<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for ThisExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ThisExpression<'right>> for ThisExpression<'left> {
+    fn compare(
+        self,
+        other: ThisExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for StringLiteral {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, StringLiteral<'right>> for StringLiteral<'left> {
+    fn compare(
+        self,
+        other: StringLiteral<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.value(asts.left);
         let right = other.value(asts.right);
         left.compare(right, asts)
@@ -128,8 +228,12 @@ impl Compare for StringLiteral {
         Ok(())
     }
 }
-impl Compare for NumericLiteral {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, NumericLiteral<'right>> for NumericLiteral<'left> {
+    fn compare(
+        self,
+        other: NumericLiteral<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.value(asts.left);
         let right = other.value(asts.right);
         left.compare(right, asts)
@@ -137,8 +241,12 @@ impl Compare for NumericLiteral {
         Ok(())
     }
 }
-impl Compare for BigIntLiteral {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, BigIntLiteral<'right>> for BigIntLiteral<'left> {
+    fn compare(
+        self,
+        other: BigIntLiteral<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.raw(asts.left);
         let right = other.raw(asts.right);
         super::compare_bigint(left, right, asts)
@@ -146,8 +254,12 @@ impl Compare for BigIntLiteral {
         Ok(())
     }
 }
-impl Compare for BooleanLiteral {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, BooleanLiteral<'right>> for BooleanLiteral<'left> {
+    fn compare(
+        self,
+        other: BooleanLiteral<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.value(asts.left);
         let right = other.value(asts.right);
         left.compare(right, asts)
@@ -155,13 +267,21 @@ impl Compare for BooleanLiteral {
         Ok(())
     }
 }
-impl Compare for NullLiteral {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, NullLiteral<'right>> for NullLiteral<'left> {
+    fn compare(
+        self,
+        other: NullLiteral<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for RegExpLiteral {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, RegExpLiteral<'right>> for RegExpLiteral<'left> {
+    fn compare(
+        self,
+        other: RegExpLiteral<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.pattern(asts.left);
         let right = other.pattern(asts.right);
         left.compare(right, asts)
@@ -173,8 +293,12 @@ impl Compare for RegExpLiteral {
         Ok(())
     }
 }
-impl Compare for TemplateLiteral {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TemplateLiteral<'right>> for TemplateLiteral<'left> {
+    fn compare(
+        self,
+        other: TemplateLiteral<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.quasis(asts.left);
         let right = other.quasis(asts.right);
         left.compare(right, asts)
@@ -186,8 +310,12 @@ impl Compare for TemplateLiteral {
         Ok(())
     }
 }
-impl Compare for TemplateElement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TemplateElement<'right>> for TemplateElement<'left> {
+    fn compare(
+        self,
+        other: TemplateElement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.cooked(asts.left);
         let right = other.cooked(asts.right);
         left.compare(right, asts)
@@ -207,8 +335,14 @@ impl Compare for TemplateElement {
         Ok(())
     }
 }
-impl Compare for IdentifierReference {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, IdentifierReference<'right>>
+    for IdentifierReference<'left>
+{
+    fn compare(
+        self,
+        other: IdentifierReference<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.name(asts.left);
         let right = other.name(asts.right);
         left.compare(right, asts)
@@ -216,8 +350,12 @@ impl Compare for IdentifierReference {
         Ok(())
     }
 }
-impl Compare for PrivateIdentifier {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, PrivateIdentifier<'right>> for PrivateIdentifier<'left> {
+    fn compare(
+        self,
+        other: PrivateIdentifier<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.name(asts.left);
         let right = other.name(asts.right);
         left.compare(right, asts)
@@ -225,8 +363,12 @@ impl Compare for PrivateIdentifier {
         Ok(())
     }
 }
-impl Compare for BindingIdentifier {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, BindingIdentifier<'right>> for BindingIdentifier<'left> {
+    fn compare(
+        self,
+        other: BindingIdentifier<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.name(asts.left);
         let right = other.name(asts.right);
         left.compare(right, asts)
@@ -234,8 +376,12 @@ impl Compare for BindingIdentifier {
         Ok(())
     }
 }
-impl Compare for IdentifierName {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, IdentifierName<'right>> for IdentifierName<'left> {
+    fn compare(
+        self,
+        other: IdentifierName<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.name(asts.left);
         let right = other.name(asts.right);
         left.compare(right, asts)
@@ -243,8 +389,12 @@ impl Compare for IdentifierName {
         Ok(())
     }
 }
-impl Compare for LabelIdentifier {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, LabelIdentifier<'right>> for LabelIdentifier<'left> {
+    fn compare(
+        self,
+        other: LabelIdentifier<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.name(asts.left);
         let right = other.name(asts.right);
         left.compare(right, asts)
@@ -252,8 +402,12 @@ impl Compare for LabelIdentifier {
         Ok(())
     }
 }
-impl Compare for AssignmentPattern {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, AssignmentPattern<'right>> for AssignmentPattern<'left> {
+    fn compare(
+        self,
+        other: AssignmentPattern<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.left(asts.left);
         let right = other.left(asts.right);
         left.compare(right, asts)
@@ -265,8 +419,14 @@ impl Compare for AssignmentPattern {
         Ok(())
     }
 }
-impl Compare for BindingRestElement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, BindingRestElement<'right>>
+    for BindingRestElement<'left>
+{
+    fn compare(
+        self,
+        other: BindingRestElement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.argument(asts.left);
         let right = other.argument(asts.right);
         left.compare(right, asts)
@@ -274,8 +434,12 @@ impl Compare for BindingRestElement {
         Ok(())
     }
 }
-impl Compare for ArrayPattern {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ArrayPattern<'right>> for ArrayPattern<'left> {
+    fn compare(
+        self,
+        other: ArrayPattern<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.elements(asts.left);
         let right = other.elements(asts.right);
         left.compare(right, asts)
@@ -287,8 +451,12 @@ impl Compare for ArrayPattern {
         Ok(())
     }
 }
-impl Compare for ObjectPattern {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ObjectPattern<'right>> for ObjectPattern<'left> {
+    fn compare(
+        self,
+        other: ObjectPattern<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.properties(asts.left);
         let right = other.properties(asts.right);
         left.compare(right, asts)
@@ -300,8 +468,12 @@ impl Compare for ObjectPattern {
         Ok(())
     }
 }
-impl Compare for BindingProperty {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, BindingProperty<'right>> for BindingProperty<'left> {
+    fn compare(
+        self,
+        other: BindingProperty<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.key(asts.left);
         let right = other.key(asts.right);
         left.compare(right, asts)
@@ -321,8 +493,12 @@ impl Compare for BindingProperty {
         Ok(())
     }
 }
-impl Compare for BinaryExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, BinaryExpression<'right>> for BinaryExpression<'left> {
+    fn compare(
+        self,
+        other: BinaryExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.left(asts.left);
         let right = other.left(asts.right);
         left.compare(right, asts)
@@ -338,8 +514,12 @@ impl Compare for BinaryExpression {
         Ok(())
     }
 }
-impl Compare for LogicalExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, LogicalExpression<'right>> for LogicalExpression<'left> {
+    fn compare(
+        self,
+        other: LogicalExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.left(asts.left);
         let right = other.left(asts.right);
         left.compare(right, asts)
@@ -355,8 +535,14 @@ impl Compare for LogicalExpression {
         Ok(())
     }
 }
-impl Compare for ConditionalExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ConditionalExpression<'right>>
+    for ConditionalExpression<'left>
+{
+    fn compare(
+        self,
+        other: ConditionalExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.test(asts.left);
         let right = other.test(asts.right);
         left.compare(right, asts)
@@ -372,8 +558,12 @@ impl Compare for ConditionalExpression {
         Ok(())
     }
 }
-impl Compare for UnaryExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, UnaryExpression<'right>> for UnaryExpression<'left> {
+    fn compare(
+        self,
+        other: UnaryExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.argument(asts.left);
         let right = other.argument(asts.right);
         left.compare(right, asts)
@@ -385,8 +575,12 @@ impl Compare for UnaryExpression {
         Ok(())
     }
 }
-impl Compare for UpdateExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, UpdateExpression<'right>> for UpdateExpression<'left> {
+    fn compare(
+        self,
+        other: UpdateExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.argument(asts.left);
         let right = other.argument(asts.right);
         left.compare(right, asts)
@@ -402,8 +596,14 @@ impl Compare for UpdateExpression {
         Ok(())
     }
 }
-impl Compare for AssignmentExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, AssignmentExpression<'right>>
+    for AssignmentExpression<'left>
+{
+    fn compare(
+        self,
+        other: AssignmentExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.left(asts.left);
         let right = other.left(asts.right);
         left.compare(right, asts)
@@ -419,8 +619,14 @@ impl Compare for AssignmentExpression {
         Ok(())
     }
 }
-impl Compare for VariableDeclaration {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, VariableDeclaration<'right>>
+    for VariableDeclaration<'left>
+{
+    fn compare(
+        self,
+        other: VariableDeclaration<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.kind(asts.left);
         let right = other.kind(asts.right);
         left.compare(right, asts)
@@ -436,8 +642,14 @@ impl Compare for VariableDeclaration {
         Ok(())
     }
 }
-impl Compare for VariableDeclarator {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, VariableDeclarator<'right>>
+    for VariableDeclarator<'left>
+{
+    fn compare(
+        self,
+        other: VariableDeclarator<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.id(asts.left);
         let right = other.id(asts.right);
         left.compare(right, asts)
@@ -457,8 +669,12 @@ impl Compare for VariableDeclarator {
         Ok(())
     }
 }
-impl Compare for IfStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, IfStatement<'right>> for IfStatement<'left> {
+    fn compare(
+        self,
+        other: IfStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.test(asts.left);
         let right = other.test(asts.right);
         left.compare(right, asts)
@@ -474,8 +690,12 @@ impl Compare for IfStatement {
         Ok(())
     }
 }
-impl Compare for SwitchStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, SwitchStatement<'right>> for SwitchStatement<'left> {
+    fn compare(
+        self,
+        other: SwitchStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.discriminant(asts.left);
         let right = other.discriminant(asts.right);
         left.compare(right, asts)
@@ -487,8 +707,12 @@ impl Compare for SwitchStatement {
         Ok(())
     }
 }
-impl Compare for SwitchCase {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, SwitchCase<'right>> for SwitchCase<'left> {
+    fn compare(
+        self,
+        other: SwitchCase<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.test(asts.left);
         let right = other.test(asts.right);
         left.compare(right, asts)
@@ -500,8 +724,12 @@ impl Compare for SwitchCase {
         Ok(())
     }
 }
-impl Compare for ForStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ForStatement<'right>> for ForStatement<'left> {
+    fn compare(
+        self,
+        other: ForStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.init(asts.left);
         let right = other.init(asts.right);
         left.compare(right, asts)
@@ -521,8 +749,12 @@ impl Compare for ForStatement {
         Ok(())
     }
 }
-impl Compare for ForInStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ForInStatement<'right>> for ForInStatement<'left> {
+    fn compare(
+        self,
+        other: ForInStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.left(asts.left);
         let right = other.left(asts.right);
         left.compare(right, asts)
@@ -538,8 +770,12 @@ impl Compare for ForInStatement {
         Ok(())
     }
 }
-impl Compare for ForOfStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ForOfStatement<'right>> for ForOfStatement<'left> {
+    fn compare(
+        self,
+        other: ForOfStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.left(asts.left);
         let right = other.left(asts.right);
         left.compare(right, asts)
@@ -559,8 +795,12 @@ impl Compare for ForOfStatement {
         Ok(())
     }
 }
-impl Compare for TryStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TryStatement<'right>> for TryStatement<'left> {
+    fn compare(
+        self,
+        other: TryStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.block(asts.left);
         let right = other.block(asts.right);
         left.compare(right, asts)
@@ -576,8 +816,12 @@ impl Compare for TryStatement {
         Ok(())
     }
 }
-impl Compare for CatchClause {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, CatchClause<'right>> for CatchClause<'left> {
+    fn compare(
+        self,
+        other: CatchClause<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.param(asts.left);
         let right = other.param(asts.right);
         left.compare(right, asts)
@@ -593,8 +837,12 @@ impl Compare for CatchClause {
         Ok(())
     }
 }
-impl Compare for BreakStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, BreakStatement<'right>> for BreakStatement<'left> {
+    fn compare(
+        self,
+        other: BreakStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.label(asts.left);
         let right = other.label(asts.right);
         left.compare(right, asts)
@@ -602,8 +850,12 @@ impl Compare for BreakStatement {
         Ok(())
     }
 }
-impl Compare for ContinueStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ContinueStatement<'right>> for ContinueStatement<'left> {
+    fn compare(
+        self,
+        other: ContinueStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.label(asts.left);
         let right = other.label(asts.right);
         left.compare(right, asts)
@@ -611,8 +863,12 @@ impl Compare for ContinueStatement {
         Ok(())
     }
 }
-impl Compare for LabeledStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, LabeledStatement<'right>> for LabeledStatement<'left> {
+    fn compare(
+        self,
+        other: LabeledStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.label(asts.left);
         let right = other.label(asts.right);
         left.compare(right, asts)
@@ -624,8 +880,14 @@ impl Compare for LabeledStatement {
         Ok(())
     }
 }
-impl Compare for ExpressionStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ExpressionStatement<'right>>
+    for ExpressionStatement<'left>
+{
+    fn compare(
+        self,
+        other: ExpressionStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expression(asts.left);
         let right = other.expression(asts.right);
         left.compare(right, asts)
@@ -633,8 +895,12 @@ impl Compare for ExpressionStatement {
         Ok(())
     }
 }
-impl Compare for ReturnStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ReturnStatement<'right>> for ReturnStatement<'left> {
+    fn compare(
+        self,
+        other: ReturnStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.argument(asts.left);
         let right = other.argument(asts.right);
         left.compare(right, asts)
@@ -642,8 +908,12 @@ impl Compare for ReturnStatement {
         Ok(())
     }
 }
-impl Compare for ThrowStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ThrowStatement<'right>> for ThrowStatement<'left> {
+    fn compare(
+        self,
+        other: ThrowStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.argument(asts.left);
         let right = other.argument(asts.right);
         left.compare(right, asts)
@@ -651,18 +921,30 @@ impl Compare for ThrowStatement {
         Ok(())
     }
 }
-impl Compare for DebuggerStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, DebuggerStatement<'right>> for DebuggerStatement<'left> {
+    fn compare(
+        self,
+        other: DebuggerStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for EmptyStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, EmptyStatement<'right>> for EmptyStatement<'left> {
+    fn compare(
+        self,
+        other: EmptyStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for Directive {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, Directive<'right>> for Directive<'left> {
+    fn compare(
+        self,
+        other: Directive<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expression(asts.left);
         let right = other.expression(asts.right);
         left.compare(right, asts)
@@ -674,8 +956,12 @@ impl Compare for Directive {
         Ok(())
     }
 }
-impl Compare for Decorator {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, Decorator<'right>> for Decorator<'left> {
+    fn compare(
+        self,
+        other: Decorator<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expression(asts.left);
         let right = other.expression(asts.right);
         left.compare(right, asts)
@@ -683,8 +969,12 @@ impl Compare for Decorator {
         Ok(())
     }
 }
-impl Compare for Class {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, Class<'right>> for Class<'left> {
+    fn compare(
+        self,
+        other: Class<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.class_type(asts.left);
         let right = other.class_type(asts.right);
         left.compare(right, asts)
@@ -728,8 +1018,12 @@ impl Compare for Class {
         Ok(())
     }
 }
-impl Compare for ClassBody {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ClassBody<'right>> for ClassBody<'left> {
+    fn compare(
+        self,
+        other: ClassBody<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.body(asts.left);
         let right = other.body(asts.right);
         left.compare(right, asts)
@@ -737,8 +1031,12 @@ impl Compare for ClassBody {
         Ok(())
     }
 }
-impl Compare for MethodDefinition {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, MethodDefinition<'right>> for MethodDefinition<'left> {
+    fn compare(
+        self,
+        other: MethodDefinition<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.decorators(asts.left);
         let right = other.decorators(asts.right);
         left.compare(right, asts)
@@ -782,8 +1080,14 @@ impl Compare for MethodDefinition {
         Ok(())
     }
 }
-impl Compare for PropertyDefinition {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, PropertyDefinition<'right>>
+    for PropertyDefinition<'left>
+{
+    fn compare(
+        self,
+        other: PropertyDefinition<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.decorators(asts.left);
         let right = other.decorators(asts.right);
         left.compare(right, asts)
@@ -843,8 +1147,12 @@ impl Compare for PropertyDefinition {
         Ok(())
     }
 }
-impl Compare for StaticBlock {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, StaticBlock<'right>> for StaticBlock<'left> {
+    fn compare(
+        self,
+        other: StaticBlock<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.body(asts.left);
         let right = other.body(asts.right);
         left.compare(right, asts)
@@ -852,8 +1160,12 @@ impl Compare for StaticBlock {
         Ok(())
     }
 }
-impl Compare for Function {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, Function<'right>> for Function<'left> {
+    fn compare(
+        self,
+        other: Function<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.function_type(asts.left);
         let right = other.function_type(asts.right);
         left.compare(right, asts)
@@ -893,8 +1205,12 @@ impl Compare for Function {
         Ok(())
     }
 }
-impl Compare for FunctionBody {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, FunctionBody<'right>> for FunctionBody<'left> {
+    fn compare(
+        self,
+        other: FunctionBody<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.directives(asts.left);
         let right = other.directives(asts.right);
         left.compare(right, asts)
@@ -906,8 +1222,12 @@ impl Compare for FunctionBody {
         Ok(())
     }
 }
-impl Compare for BlockStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, BlockStatement<'right>> for BlockStatement<'left> {
+    fn compare(
+        self,
+        other: BlockStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.body(asts.left);
         let right = other.body(asts.right);
         left.compare(right, asts)
@@ -915,8 +1235,12 @@ impl Compare for BlockStatement {
         Ok(())
     }
 }
-impl Compare for WhileStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, WhileStatement<'right>> for WhileStatement<'left> {
+    fn compare(
+        self,
+        other: WhileStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.test(asts.left);
         let right = other.test(asts.right);
         left.compare(right, asts)
@@ -928,8 +1252,12 @@ impl Compare for WhileStatement {
         Ok(())
     }
 }
-impl Compare for DoWhileStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, DoWhileStatement<'right>> for DoWhileStatement<'left> {
+    fn compare(
+        self,
+        other: DoWhileStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.body(asts.left);
         let right = other.body(asts.right);
         left.compare(right, asts)
@@ -941,8 +1269,12 @@ impl Compare for DoWhileStatement {
         Ok(())
     }
 }
-impl Compare for WithStatement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, WithStatement<'right>> for WithStatement<'left> {
+    fn compare(
+        self,
+        other: WithStatement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.object(asts.left);
         let right = other.object(asts.right);
         left.compare(right, asts)
@@ -954,8 +1286,12 @@ impl Compare for WithStatement {
         Ok(())
     }
 }
-impl Compare for FormalParameters {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, FormalParameters<'right>> for FormalParameters<'left> {
+    fn compare(
+        self,
+        other: FormalParameters<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.items(asts.left);
         let right = other.items(asts.right);
         left.compare(right, asts)
@@ -971,8 +1307,12 @@ impl Compare for FormalParameters {
         Ok(())
     }
 }
-impl Compare for FormalParameter {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, FormalParameter<'right>> for FormalParameter<'left> {
+    fn compare(
+        self,
+        other: FormalParameter<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.decorators(asts.left);
         let right = other.decorators(asts.right);
         left.compare(right, asts)
@@ -996,8 +1336,14 @@ impl Compare for FormalParameter {
         Ok(())
     }
 }
-impl Compare for FormalParameterRest {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, FormalParameterRest<'right>>
+    for FormalParameterRest<'left>
+{
+    fn compare(
+        self,
+        other: FormalParameterRest<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.decorators(asts.left);
         let right = other.decorators(asts.right);
         left.compare(right, asts)
@@ -1013,8 +1359,12 @@ impl Compare for FormalParameterRest {
         Ok(())
     }
 }
-impl Compare for ArrayExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ArrayExpression<'right>> for ArrayExpression<'left> {
+    fn compare(
+        self,
+        other: ArrayExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.elements(asts.left);
         let right = other.elements(asts.right);
         left.compare(right, asts)
@@ -1022,8 +1372,12 @@ impl Compare for ArrayExpression {
         Ok(())
     }
 }
-impl Compare for ObjectExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ObjectExpression<'right>> for ObjectExpression<'left> {
+    fn compare(
+        self,
+        other: ObjectExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.properties(asts.left);
         let right = other.properties(asts.right);
         left.compare(right, asts)
@@ -1031,8 +1385,12 @@ impl Compare for ObjectExpression {
         Ok(())
     }
 }
-impl Compare for SpreadElement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, SpreadElement<'right>> for SpreadElement<'left> {
+    fn compare(
+        self,
+        other: SpreadElement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.argument(asts.left);
         let right = other.argument(asts.right);
         left.compare(right, asts)
@@ -1040,8 +1398,12 @@ impl Compare for SpreadElement {
         Ok(())
     }
 }
-impl Compare for ObjectProperty {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ObjectProperty<'right>> for ObjectProperty<'left> {
+    fn compare(
+        self,
+        other: ObjectProperty<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.key(asts.left);
         let right = other.key(asts.right);
         left.compare(right, asts)
@@ -1069,8 +1431,14 @@ impl Compare for ObjectProperty {
         Ok(())
     }
 }
-impl Compare for ParenthesizedExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ParenthesizedExpression<'right>>
+    for ParenthesizedExpression<'left>
+{
+    fn compare(
+        self,
+        other: ParenthesizedExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expression(asts.left);
         let right = other.expression(asts.right);
         left.compare(right, asts)
@@ -1078,8 +1446,14 @@ impl Compare for ParenthesizedExpression {
         Ok(())
     }
 }
-impl Compare for ArrowFunctionExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ArrowFunctionExpression<'right>>
+    for ArrowFunctionExpression<'left>
+{
+    fn compare(
+        self,
+        other: ArrowFunctionExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expression(asts.left);
         let right = other.expression(asts.right);
         left.compare(right, asts)
@@ -1107,8 +1481,14 @@ impl Compare for ArrowFunctionExpression {
         Ok(())
     }
 }
-impl Compare for SequenceExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, SequenceExpression<'right>>
+    for SequenceExpression<'left>
+{
+    fn compare(
+        self,
+        other: SequenceExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expressions(asts.left);
         let right = other.expressions(asts.right);
         left.compare(right, asts)
@@ -1116,8 +1496,12 @@ impl Compare for SequenceExpression {
         Ok(())
     }
 }
-impl Compare for MemberExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, MemberExpression<'right>> for MemberExpression<'left> {
+    fn compare(
+        self,
+        other: MemberExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.object(asts.left);
         let right = other.object(asts.right);
         left.compare(right, asts)
@@ -1137,8 +1521,12 @@ impl Compare for MemberExpression {
         Ok(())
     }
 }
-impl Compare for CallExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, CallExpression<'right>> for CallExpression<'left> {
+    fn compare(
+        self,
+        other: CallExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.callee(asts.left);
         let right = other.callee(asts.right);
         left.compare(right, asts)
@@ -1158,8 +1546,12 @@ impl Compare for CallExpression {
         Ok(())
     }
 }
-impl Compare for ChainExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ChainExpression<'right>> for ChainExpression<'left> {
+    fn compare(
+        self,
+        other: ChainExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expression(asts.left);
         let right = other.expression(asts.right);
         left.compare(right, asts)
@@ -1167,8 +1559,14 @@ impl Compare for ChainExpression {
         Ok(())
     }
 }
-impl Compare for TaggedTemplateExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TaggedTemplateExpression<'right>>
+    for TaggedTemplateExpression<'left>
+{
+    fn compare(
+        self,
+        other: TaggedTemplateExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.tag(asts.left);
         let right = other.tag(asts.right);
         left.compare(right, asts)
@@ -1184,8 +1582,12 @@ impl Compare for TaggedTemplateExpression {
         Ok(())
     }
 }
-impl Compare for NewExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, NewExpression<'right>> for NewExpression<'left> {
+    fn compare(
+        self,
+        other: NewExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.callee(asts.left);
         let right = other.callee(asts.right);
         left.compare(right, asts)
@@ -1201,8 +1603,12 @@ impl Compare for NewExpression {
         Ok(())
     }
 }
-impl Compare for AwaitExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, AwaitExpression<'right>> for AwaitExpression<'left> {
+    fn compare(
+        self,
+        other: AwaitExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.argument(asts.left);
         let right = other.argument(asts.right);
         left.compare(right, asts)
@@ -1210,8 +1616,12 @@ impl Compare for AwaitExpression {
         Ok(())
     }
 }
-impl Compare for YieldExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, YieldExpression<'right>> for YieldExpression<'left> {
+    fn compare(
+        self,
+        other: YieldExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.argument(asts.left);
         let right = other.argument(asts.right);
         left.compare(right, asts)
@@ -1223,8 +1633,12 @@ impl Compare for YieldExpression {
         Ok(())
     }
 }
-impl Compare for MetaProperty {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, MetaProperty<'right>> for MetaProperty<'left> {
+    fn compare(
+        self,
+        other: MetaProperty<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.meta(asts.left);
         let right = other.meta(asts.right);
         left.compare(right, asts)
@@ -1236,8 +1650,12 @@ impl Compare for MetaProperty {
         Ok(())
     }
 }
-impl Compare for ImportExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ImportExpression<'right>> for ImportExpression<'left> {
+    fn compare(
+        self,
+        other: ImportExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.source(asts.left);
         let right = other.source(asts.right);
         left.compare(right, asts)
@@ -1257,8 +1675,12 @@ impl Compare for ImportExpression {
         Ok(())
     }
 }
-impl Compare for ImportDeclaration {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ImportDeclaration<'right>> for ImportDeclaration<'left> {
+    fn compare(
+        self,
+        other: ImportDeclaration<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.specifiers(asts.left);
         let right = other.specifiers(asts.right);
         left.compare(right, asts)
@@ -1282,8 +1704,12 @@ impl Compare for ImportDeclaration {
         Ok(())
     }
 }
-impl Compare for ImportSpecifier {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ImportSpecifier<'right>> for ImportSpecifier<'left> {
+    fn compare(
+        self,
+        other: ImportSpecifier<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.imported(asts.left);
         let right = other.imported(asts.right);
         left.compare(right, asts)
@@ -1299,8 +1725,14 @@ impl Compare for ImportSpecifier {
         Ok(())
     }
 }
-impl Compare for ImportDefaultSpecifier {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ImportDefaultSpecifier<'right>>
+    for ImportDefaultSpecifier<'left>
+{
+    fn compare(
+        self,
+        other: ImportDefaultSpecifier<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.local(asts.left);
         let right = other.local(asts.right);
         left.compare(right, asts)
@@ -1308,8 +1740,14 @@ impl Compare for ImportDefaultSpecifier {
         Ok(())
     }
 }
-impl Compare for ImportNamespaceSpecifier {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ImportNamespaceSpecifier<'right>>
+    for ImportNamespaceSpecifier<'left>
+{
+    fn compare(
+        self,
+        other: ImportNamespaceSpecifier<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.local(asts.left);
         let right = other.local(asts.right);
         left.compare(right, asts)
@@ -1317,8 +1755,12 @@ impl Compare for ImportNamespaceSpecifier {
         Ok(())
     }
 }
-impl Compare for ImportAttribute {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ImportAttribute<'right>> for ImportAttribute<'left> {
+    fn compare(
+        self,
+        other: ImportAttribute<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.key(asts.left);
         let right = other.key(asts.right);
         left.compare(right, asts)
@@ -1330,8 +1772,14 @@ impl Compare for ImportAttribute {
         Ok(())
     }
 }
-impl Compare for ExportNamedDeclaration {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ExportNamedDeclaration<'right>>
+    for ExportNamedDeclaration<'left>
+{
+    fn compare(
+        self,
+        other: ExportNamedDeclaration<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.declaration(asts.left);
         let right = other.declaration(asts.right);
         left.compare(right, asts)
@@ -1355,8 +1803,14 @@ impl Compare for ExportNamedDeclaration {
         Ok(())
     }
 }
-impl Compare for ExportDefaultDeclaration {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ExportDefaultDeclaration<'right>>
+    for ExportDefaultDeclaration<'left>
+{
+    fn compare(
+        self,
+        other: ExportDefaultDeclaration<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.declaration(asts.left);
         let right = other.declaration(asts.right);
         left.compare(right, asts)
@@ -1364,8 +1818,14 @@ impl Compare for ExportDefaultDeclaration {
         Ok(())
     }
 }
-impl Compare for ExportAllDeclaration {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ExportAllDeclaration<'right>>
+    for ExportAllDeclaration<'left>
+{
+    fn compare(
+        self,
+        other: ExportAllDeclaration<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.exported(asts.left);
         let right = other.exported(asts.right);
         left.compare(right, asts)
@@ -1385,8 +1845,12 @@ impl Compare for ExportAllDeclaration {
         Ok(())
     }
 }
-impl Compare for ExportSpecifier {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, ExportSpecifier<'right>> for ExportSpecifier<'left> {
+    fn compare(
+        self,
+        other: ExportSpecifier<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.local(asts.left);
         let right = other.local(asts.right);
         left.compare(right, asts)
@@ -1402,8 +1866,12 @@ impl Compare for ExportSpecifier {
         Ok(())
     }
 }
-impl Compare for Hashbang {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, Hashbang<'right>> for Hashbang<'left> {
+    fn compare(
+        self,
+        other: Hashbang<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.value(asts.left);
         let right = other.value(asts.right);
         left.compare(right, asts)
@@ -1411,73 +1879,137 @@ impl Compare for Hashbang {
         Ok(())
     }
 }
-impl Compare for TsType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsType<'right>> for TsType<'left> {
+    fn compare(
+        self,
+        other: TsType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for TsTypeName {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTypeName<'right>> for TsTypeName<'left> {
+    fn compare(
+        self,
+        other: TsTypeName<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for TsQualifiedNameLeft {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsQualifiedNameLeft<'right>>
+    for TsQualifiedNameLeft<'left>
+{
+    fn compare(
+        self,
+        other: TsQualifiedNameLeft<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for TsImportTypeQualifier {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsImportTypeQualifier<'right>>
+    for TsImportTypeQualifier<'left>
+{
+    fn compare(
+        self,
+        other: TsImportTypeQualifier<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for TsTypeQueryExprName {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTypeQueryExprName<'right>>
+    for TsTypeQueryExprName<'left>
+{
+    fn compare(
+        self,
+        other: TsTypeQueryExprName<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for TsLiteral {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsLiteral<'right>> for TsLiteral<'left> {
+    fn compare(
+        self,
+        other: TsLiteral<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for TsTupleElement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTupleElement<'right>> for TsTupleElement<'left> {
+    fn compare(
+        self,
+        other: TsTupleElement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for TsTypeElement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTypeElement<'right>> for TsTypeElement<'left> {
+    fn compare(
+        self,
+        other: TsTypeElement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for TsTypePredicateName {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTypePredicateName<'right>>
+    for TsTypePredicateName<'left>
+{
+    fn compare(
+        self,
+        other: TsTypePredicateName<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for TsEnumMemberName {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsEnumMemberName<'right>> for TsEnumMemberName<'left> {
+    fn compare(
+        self,
+        other: TsEnumMemberName<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for TsModuleName {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsModuleName<'right>> for TsModuleName<'left> {
+    fn compare(
+        self,
+        other: TsModuleName<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for TsModuleBody {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsModuleBody<'right>> for TsModuleBody<'left> {
+    fn compare(
+        self,
+        other: TsModuleBody<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for TsModuleReference {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsModuleReference<'right>> for TsModuleReference<'left> {
+    fn compare(
+        self,
+        other: TsModuleReference<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for TsFunction {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsFunction<'right>> for TsFunction<'left> {
+    fn compare(
+        self,
+        other: TsFunction<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.id(asts.left);
         let right = other.id(asts.right);
         left.compare(right, asts)
@@ -1513,8 +2045,14 @@ impl Compare for TsFunction {
         Ok(())
     }
 }
-impl Compare for TsMethodDefinition {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsMethodDefinition<'right>>
+    for TsMethodDefinition<'left>
+{
+    fn compare(
+        self,
+        other: TsMethodDefinition<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.decorators(asts.left);
         let right = other.decorators(asts.right);
         left.compare(right, asts)
@@ -1558,8 +2096,12 @@ impl Compare for TsMethodDefinition {
         Ok(())
     }
 }
-impl Compare for TsTypeAnnotation {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTypeAnnotation<'right>> for TsTypeAnnotation<'left> {
+    fn compare(
+        self,
+        other: TsTypeAnnotation<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.type_annotation(asts.left);
         let right = other.type_annotation(asts.right);
         left.compare(right, asts)
@@ -1567,78 +2109,142 @@ impl Compare for TsTypeAnnotation {
         Ok(())
     }
 }
-impl Compare for TsAnyKeyword {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsAnyKeyword<'right>> for TsAnyKeyword<'left> {
+    fn compare(
+        self,
+        other: TsAnyKeyword<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for TsUnknownKeyword {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsUnknownKeyword<'right>> for TsUnknownKeyword<'left> {
+    fn compare(
+        self,
+        other: TsUnknownKeyword<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for TsNeverKeyword {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsNeverKeyword<'right>> for TsNeverKeyword<'left> {
+    fn compare(
+        self,
+        other: TsNeverKeyword<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for TsVoidKeyword {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsVoidKeyword<'right>> for TsVoidKeyword<'left> {
+    fn compare(
+        self,
+        other: TsVoidKeyword<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for TsNullKeyword {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsNullKeyword<'right>> for TsNullKeyword<'left> {
+    fn compare(
+        self,
+        other: TsNullKeyword<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for TsUndefinedKeyword {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsUndefinedKeyword<'right>>
+    for TsUndefinedKeyword<'left>
+{
+    fn compare(
+        self,
+        other: TsUndefinedKeyword<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for TsStringKeyword {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsStringKeyword<'right>> for TsStringKeyword<'left> {
+    fn compare(
+        self,
+        other: TsStringKeyword<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for TsNumberKeyword {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsNumberKeyword<'right>> for TsNumberKeyword<'left> {
+    fn compare(
+        self,
+        other: TsNumberKeyword<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for TsBigIntKeyword {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsBigIntKeyword<'right>> for TsBigIntKeyword<'left> {
+    fn compare(
+        self,
+        other: TsBigIntKeyword<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for TsBooleanKeyword {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsBooleanKeyword<'right>> for TsBooleanKeyword<'left> {
+    fn compare(
+        self,
+        other: TsBooleanKeyword<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for TsSymbolKeyword {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsSymbolKeyword<'right>> for TsSymbolKeyword<'left> {
+    fn compare(
+        self,
+        other: TsSymbolKeyword<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for TsObjectKeyword {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsObjectKeyword<'right>> for TsObjectKeyword<'left> {
+    fn compare(
+        self,
+        other: TsObjectKeyword<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for TsIntrinsicKeyword {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsIntrinsicKeyword<'right>>
+    for TsIntrinsicKeyword<'left>
+{
+    fn compare(
+        self,
+        other: TsIntrinsicKeyword<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for TsThisType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsThisType<'right>> for TsThisType<'left> {
+    fn compare(
+        self,
+        other: TsThisType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for TsTypeReference {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTypeReference<'right>> for TsTypeReference<'left> {
+    fn compare(
+        self,
+        other: TsTypeReference<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.type_name(asts.left);
         let right = other.type_name(asts.right);
         left.compare(right, asts)
@@ -1650,8 +2256,12 @@ impl Compare for TsTypeReference {
         Ok(())
     }
 }
-impl Compare for TsQualifiedName {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsQualifiedName<'right>> for TsQualifiedName<'left> {
+    fn compare(
+        self,
+        other: TsQualifiedName<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.left(asts.left);
         let right = other.left(asts.right);
         left.compare(right, asts)
@@ -1663,8 +2273,12 @@ impl Compare for TsQualifiedName {
         Ok(())
     }
 }
-impl Compare for TsTypeQuery {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTypeQuery<'right>> for TsTypeQuery<'left> {
+    fn compare(
+        self,
+        other: TsTypeQuery<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expr_name(asts.left);
         let right = other.expr_name(asts.right);
         left.compare(right, asts)
@@ -1676,8 +2290,12 @@ impl Compare for TsTypeQuery {
         Ok(())
     }
 }
-impl Compare for TsImportType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsImportType<'right>> for TsImportType<'left> {
+    fn compare(
+        self,
+        other: TsImportType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.source(asts.left);
         let right = other.source(asts.right);
         left.compare(right, asts)
@@ -1697,8 +2315,12 @@ impl Compare for TsImportType {
         Ok(())
     }
 }
-impl Compare for TsTypeParameter {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTypeParameter<'right>> for TsTypeParameter<'left> {
+    fn compare(
+        self,
+        other: TsTypeParameter<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.name(asts.left);
         let right = other.name(asts.right);
         left.compare(right, asts)
@@ -1726,8 +2348,14 @@ impl Compare for TsTypeParameter {
         Ok(())
     }
 }
-impl Compare for TsTypeParameterDeclaration {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTypeParameterDeclaration<'right>>
+    for TsTypeParameterDeclaration<'left>
+{
+    fn compare(
+        self,
+        other: TsTypeParameterDeclaration<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.params(asts.left);
         let right = other.params(asts.right);
         left.compare(right, asts)
@@ -1735,8 +2363,14 @@ impl Compare for TsTypeParameterDeclaration {
         Ok(())
     }
 }
-impl Compare for TsTypeParameterInstantiation {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTypeParameterInstantiation<'right>>
+    for TsTypeParameterInstantiation<'left>
+{
+    fn compare(
+        self,
+        other: TsTypeParameterInstantiation<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.params(asts.left);
         let right = other.params(asts.right);
         left.compare(right, asts)
@@ -1744,8 +2378,12 @@ impl Compare for TsTypeParameterInstantiation {
         Ok(())
     }
 }
-impl Compare for TsLiteralType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsLiteralType<'right>> for TsLiteralType<'left> {
+    fn compare(
+        self,
+        other: TsLiteralType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.literal(asts.left);
         let right = other.literal(asts.right);
         left.compare(right, asts)
@@ -1753,8 +2391,14 @@ impl Compare for TsLiteralType {
         Ok(())
     }
 }
-impl Compare for TsTemplateLiteralType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTemplateLiteralType<'right>>
+    for TsTemplateLiteralType<'left>
+{
+    fn compare(
+        self,
+        other: TsTemplateLiteralType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.quasis(asts.left);
         let right = other.quasis(asts.right);
         left.compare(right, asts)
@@ -1766,8 +2410,12 @@ impl Compare for TsTemplateLiteralType {
         Ok(())
     }
 }
-impl Compare for TsArrayType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsArrayType<'right>> for TsArrayType<'left> {
+    fn compare(
+        self,
+        other: TsArrayType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.element_type(asts.left);
         let right = other.element_type(asts.right);
         left.compare(right, asts)
@@ -1775,8 +2423,14 @@ impl Compare for TsArrayType {
         Ok(())
     }
 }
-impl Compare for TsIndexedAccessType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsIndexedAccessType<'right>>
+    for TsIndexedAccessType<'left>
+{
+    fn compare(
+        self,
+        other: TsIndexedAccessType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.object_type(asts.left);
         let right = other.object_type(asts.right);
         left.compare(right, asts)
@@ -1788,8 +2442,12 @@ impl Compare for TsIndexedAccessType {
         Ok(())
     }
 }
-impl Compare for TsTupleType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTupleType<'right>> for TsTupleType<'left> {
+    fn compare(
+        self,
+        other: TsTupleType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.element_types(asts.left);
         let right = other.element_types(asts.right);
         left.compare(right, asts)
@@ -1797,8 +2455,14 @@ impl Compare for TsTupleType {
         Ok(())
     }
 }
-impl Compare for TsNamedTupleMember {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsNamedTupleMember<'right>>
+    for TsNamedTupleMember<'left>
+{
+    fn compare(
+        self,
+        other: TsNamedTupleMember<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.label(asts.left);
         let right = other.label(asts.right);
         left.compare(right, asts)
@@ -1814,8 +2478,12 @@ impl Compare for TsNamedTupleMember {
         Ok(())
     }
 }
-impl Compare for TsOptionalType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsOptionalType<'right>> for TsOptionalType<'left> {
+    fn compare(
+        self,
+        other: TsOptionalType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.type_annotation(asts.left);
         let right = other.type_annotation(asts.right);
         left.compare(right, asts)
@@ -1823,8 +2491,12 @@ impl Compare for TsOptionalType {
         Ok(())
     }
 }
-impl Compare for TsRestType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsRestType<'right>> for TsRestType<'left> {
+    fn compare(
+        self,
+        other: TsRestType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.type_annotation(asts.left);
         let right = other.type_annotation(asts.right);
         left.compare(right, asts)
@@ -1832,8 +2504,14 @@ impl Compare for TsRestType {
         Ok(())
     }
 }
-impl Compare for TsJsDocNullableType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsJsDocNullableType<'right>>
+    for TsJsDocNullableType<'left>
+{
+    fn compare(
+        self,
+        other: TsJsDocNullableType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.type_annotation(asts.left);
         let right = other.type_annotation(asts.right);
         left.compare(right, asts)
@@ -1845,8 +2523,14 @@ impl Compare for TsJsDocNullableType {
         Ok(())
     }
 }
-impl Compare for TsJsDocNonNullableType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsJsDocNonNullableType<'right>>
+    for TsJsDocNonNullableType<'left>
+{
+    fn compare(
+        self,
+        other: TsJsDocNonNullableType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.type_annotation(asts.left);
         let right = other.type_annotation(asts.right);
         left.compare(right, asts)
@@ -1858,13 +2542,23 @@ impl Compare for TsJsDocNonNullableType {
         Ok(())
     }
 }
-impl Compare for TsJsDocUnknownType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsJsDocUnknownType<'right>>
+    for TsJsDocUnknownType<'left>
+{
+    fn compare(
+        self,
+        other: TsJsDocUnknownType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for TsUnionType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsUnionType<'right>> for TsUnionType<'left> {
+    fn compare(
+        self,
+        other: TsUnionType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.types(asts.left);
         let right = other.types(asts.right);
         left.compare(right, asts)
@@ -1872,8 +2566,14 @@ impl Compare for TsUnionType {
         Ok(())
     }
 }
-impl Compare for TsIntersectionType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsIntersectionType<'right>>
+    for TsIntersectionType<'left>
+{
+    fn compare(
+        self,
+        other: TsIntersectionType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.types(asts.left);
         let right = other.types(asts.right);
         left.compare(right, asts)
@@ -1881,8 +2581,12 @@ impl Compare for TsIntersectionType {
         Ok(())
     }
 }
-impl Compare for TsConditionalType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsConditionalType<'right>> for TsConditionalType<'left> {
+    fn compare(
+        self,
+        other: TsConditionalType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.check_type(asts.left);
         let right = other.check_type(asts.right);
         left.compare(right, asts)
@@ -1902,8 +2606,12 @@ impl Compare for TsConditionalType {
         Ok(())
     }
 }
-impl Compare for TsInferType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsInferType<'right>> for TsInferType<'left> {
+    fn compare(
+        self,
+        other: TsInferType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.type_parameter(asts.left);
         let right = other.type_parameter(asts.right);
         left.compare(right, asts)
@@ -1911,8 +2619,12 @@ impl Compare for TsInferType {
         Ok(())
     }
 }
-impl Compare for TsTypeOperator {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTypeOperator<'right>> for TsTypeOperator<'left> {
+    fn compare(
+        self,
+        other: TsTypeOperator<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.operator(asts.left);
         let right = other.operator(asts.right);
         left.compare(right, asts)
@@ -1924,8 +2636,14 @@ impl Compare for TsTypeOperator {
         Ok(())
     }
 }
-impl Compare for TsParenthesizedType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsParenthesizedType<'right>>
+    for TsParenthesizedType<'left>
+{
+    fn compare(
+        self,
+        other: TsParenthesizedType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.type_annotation(asts.left);
         let right = other.type_annotation(asts.right);
         left.compare(right, asts)
@@ -1933,8 +2651,12 @@ impl Compare for TsParenthesizedType {
         Ok(())
     }
 }
-impl Compare for TsFunctionType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsFunctionType<'right>> for TsFunctionType<'left> {
+    fn compare(
+        self,
+        other: TsFunctionType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.type_parameters(asts.left);
         let right = other.type_parameters(asts.right);
         left.compare(right, asts)
@@ -1954,8 +2676,12 @@ impl Compare for TsFunctionType {
         Ok(())
     }
 }
-impl Compare for TsConstructorType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsConstructorType<'right>> for TsConstructorType<'left> {
+    fn compare(
+        self,
+        other: TsConstructorType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.type_parameters(asts.left);
         let right = other.type_parameters(asts.right);
         left.compare(right, asts)
@@ -1975,8 +2701,12 @@ impl Compare for TsConstructorType {
         Ok(())
     }
 }
-impl Compare for TsTypePredicate {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTypePredicate<'right>> for TsTypePredicate<'left> {
+    fn compare(
+        self,
+        other: TsTypePredicate<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.parameter_name(asts.left);
         let right = other.parameter_name(asts.right);
         left.compare(right, asts)
@@ -1992,8 +2722,12 @@ impl Compare for TsTypePredicate {
         Ok(())
     }
 }
-impl Compare for TsTypeLiteral {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTypeLiteral<'right>> for TsTypeLiteral<'left> {
+    fn compare(
+        self,
+        other: TsTypeLiteral<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.members(asts.left);
         let right = other.members(asts.right);
         left.compare(right, asts)
@@ -2001,8 +2735,12 @@ impl Compare for TsTypeLiteral {
         Ok(())
     }
 }
-impl Compare for TsMappedType {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsMappedType<'right>> for TsMappedType<'left> {
+    fn compare(
+        self,
+        other: TsMappedType<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.key(asts.left);
         let right = other.key(asts.right);
         left.compare(right, asts)
@@ -2030,8 +2768,14 @@ impl Compare for TsMappedType {
         Ok(())
     }
 }
-impl Compare for TsPropertySignature {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsPropertySignature<'right>>
+    for TsPropertySignature<'left>
+{
+    fn compare(
+        self,
+        other: TsPropertySignature<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.key(asts.left);
         let right = other.key(asts.right);
         left.compare(right, asts)
@@ -2055,8 +2799,12 @@ impl Compare for TsPropertySignature {
         Ok(())
     }
 }
-impl Compare for TsMethodSignature {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsMethodSignature<'right>> for TsMethodSignature<'left> {
+    fn compare(
+        self,
+        other: TsMethodSignature<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.key(asts.left);
         let right = other.key(asts.right);
         left.compare(right, asts)
@@ -2092,8 +2840,14 @@ impl Compare for TsMethodSignature {
         Ok(())
     }
 }
-impl Compare for TsCallSignatureDeclaration {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsCallSignatureDeclaration<'right>>
+    for TsCallSignatureDeclaration<'left>
+{
+    fn compare(
+        self,
+        other: TsCallSignatureDeclaration<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.type_parameters(asts.left);
         let right = other.type_parameters(asts.right);
         left.compare(right, asts)
@@ -2113,8 +2867,14 @@ impl Compare for TsCallSignatureDeclaration {
         Ok(())
     }
 }
-impl Compare for TsConstructSignatureDeclaration {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsConstructSignatureDeclaration<'right>>
+    for TsConstructSignatureDeclaration<'left>
+{
+    fn compare(
+        self,
+        other: TsConstructSignatureDeclaration<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.type_parameters(asts.left);
         let right = other.type_parameters(asts.right);
         left.compare(right, asts).map_err(|error| {
@@ -2135,8 +2895,12 @@ impl Compare for TsConstructSignatureDeclaration {
         Ok(())
     }
 }
-impl Compare for TsIndexSignature {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsIndexSignature<'right>> for TsIndexSignature<'left> {
+    fn compare(
+        self,
+        other: TsIndexSignature<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.parameters(asts.left);
         let right = other.parameters(asts.right);
         left.compare(right, asts)
@@ -2156,8 +2920,14 @@ impl Compare for TsIndexSignature {
         Ok(())
     }
 }
-impl Compare for TsTypeAliasDeclaration {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTypeAliasDeclaration<'right>>
+    for TsTypeAliasDeclaration<'left>
+{
+    fn compare(
+        self,
+        other: TsTypeAliasDeclaration<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.id(asts.left);
         let right = other.id(asts.right);
         left.compare(right, asts)
@@ -2177,8 +2947,14 @@ impl Compare for TsTypeAliasDeclaration {
         Ok(())
     }
 }
-impl Compare for TsInterfaceDeclaration {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsInterfaceDeclaration<'right>>
+    for TsInterfaceDeclaration<'left>
+{
+    fn compare(
+        self,
+        other: TsInterfaceDeclaration<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.id(asts.left);
         let right = other.id(asts.right);
         left.compare(right, asts)
@@ -2202,8 +2978,12 @@ impl Compare for TsInterfaceDeclaration {
         Ok(())
     }
 }
-impl Compare for TsInterfaceBody {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsInterfaceBody<'right>> for TsInterfaceBody<'left> {
+    fn compare(
+        self,
+        other: TsInterfaceBody<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.body(asts.left);
         let right = other.body(asts.right);
         left.compare(right, asts)
@@ -2211,8 +2991,14 @@ impl Compare for TsInterfaceBody {
         Ok(())
     }
 }
-impl Compare for TsInterfaceHeritage {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsInterfaceHeritage<'right>>
+    for TsInterfaceHeritage<'left>
+{
+    fn compare(
+        self,
+        other: TsInterfaceHeritage<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expression(asts.left);
         let right = other.expression(asts.right);
         left.compare(right, asts)
@@ -2224,8 +3010,12 @@ impl Compare for TsInterfaceHeritage {
         Ok(())
     }
 }
-impl Compare for TsClassImplements {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsClassImplements<'right>> for TsClassImplements<'left> {
+    fn compare(
+        self,
+        other: TsClassImplements<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expression(asts.left);
         let right = other.expression(asts.right);
         left.compare(right, asts)
@@ -2237,8 +3027,12 @@ impl Compare for TsClassImplements {
         Ok(())
     }
 }
-impl Compare for TsEnumDeclaration {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsEnumDeclaration<'right>> for TsEnumDeclaration<'left> {
+    fn compare(
+        self,
+        other: TsEnumDeclaration<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.id(asts.left);
         let right = other.id(asts.right);
         left.compare(right, asts)
@@ -2258,8 +3052,12 @@ impl Compare for TsEnumDeclaration {
         Ok(())
     }
 }
-impl Compare for TsEnumBody {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsEnumBody<'right>> for TsEnumBody<'left> {
+    fn compare(
+        self,
+        other: TsEnumBody<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.members(asts.left);
         let right = other.members(asts.right);
         left.compare(right, asts)
@@ -2267,8 +3065,12 @@ impl Compare for TsEnumBody {
         Ok(())
     }
 }
-impl Compare for TsEnumMember {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsEnumMember<'right>> for TsEnumMember<'left> {
+    fn compare(
+        self,
+        other: TsEnumMember<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.id(asts.left);
         let right = other.id(asts.right);
         left.compare(right, asts)
@@ -2284,8 +3086,14 @@ impl Compare for TsEnumMember {
         Ok(())
     }
 }
-impl Compare for TsModuleDeclaration {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsModuleDeclaration<'right>>
+    for TsModuleDeclaration<'left>
+{
+    fn compare(
+        self,
+        other: TsModuleDeclaration<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.id(asts.left);
         let right = other.id(asts.right);
         left.compare(right, asts)
@@ -2305,8 +3113,12 @@ impl Compare for TsModuleDeclaration {
         Ok(())
     }
 }
-impl Compare for TsModuleBlock {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsModuleBlock<'right>> for TsModuleBlock<'left> {
+    fn compare(
+        self,
+        other: TsModuleBlock<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.directives(asts.left);
         let right = other.directives(asts.right);
         left.compare(right, asts)
@@ -2318,8 +3130,14 @@ impl Compare for TsModuleBlock {
         Ok(())
     }
 }
-impl Compare for TsGlobalDeclaration {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsGlobalDeclaration<'right>>
+    for TsGlobalDeclaration<'left>
+{
+    fn compare(
+        self,
+        other: TsGlobalDeclaration<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.id(asts.left);
         let right = other.id(asts.right);
         left.compare(right, asts)
@@ -2335,8 +3153,14 @@ impl Compare for TsGlobalDeclaration {
         Ok(())
     }
 }
-impl Compare for TsParameterProperty {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsParameterProperty<'right>>
+    for TsParameterProperty<'left>
+{
+    fn compare(
+        self,
+        other: TsParameterProperty<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.decorators(asts.left);
         let right = other.decorators(asts.right);
         left.compare(right, asts)
@@ -2360,8 +3184,12 @@ impl Compare for TsParameterProperty {
         Ok(())
     }
 }
-impl Compare for TsThisParameter {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsThisParameter<'right>> for TsThisParameter<'left> {
+    fn compare(
+        self,
+        other: TsThisParameter<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.type_annotation(asts.left);
         let right = other.type_annotation(asts.right);
         left.compare(right, asts)
@@ -2369,8 +3197,12 @@ impl Compare for TsThisParameter {
         Ok(())
     }
 }
-impl Compare for TsAsExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsAsExpression<'right>> for TsAsExpression<'left> {
+    fn compare(
+        self,
+        other: TsAsExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expression(asts.left);
         let right = other.expression(asts.right);
         left.compare(right, asts)
@@ -2382,8 +3214,14 @@ impl Compare for TsAsExpression {
         Ok(())
     }
 }
-impl Compare for TsSatisfiesExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsSatisfiesExpression<'right>>
+    for TsSatisfiesExpression<'left>
+{
+    fn compare(
+        self,
+        other: TsSatisfiesExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expression(asts.left);
         let right = other.expression(asts.right);
         left.compare(right, asts)
@@ -2395,8 +3233,12 @@ impl Compare for TsSatisfiesExpression {
         Ok(())
     }
 }
-impl Compare for TsTypeAssertion {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsTypeAssertion<'right>> for TsTypeAssertion<'left> {
+    fn compare(
+        self,
+        other: TsTypeAssertion<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.type_annotation(asts.left);
         let right = other.type_annotation(asts.right);
         left.compare(right, asts)
@@ -2408,8 +3250,14 @@ impl Compare for TsTypeAssertion {
         Ok(())
     }
 }
-impl Compare for TsNonNullExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsNonNullExpression<'right>>
+    for TsNonNullExpression<'left>
+{
+    fn compare(
+        self,
+        other: TsNonNullExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expression(asts.left);
         let right = other.expression(asts.right);
         left.compare(right, asts)
@@ -2417,8 +3265,14 @@ impl Compare for TsNonNullExpression {
         Ok(())
     }
 }
-impl Compare for TsInstantiationExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsInstantiationExpression<'right>>
+    for TsInstantiationExpression<'left>
+{
+    fn compare(
+        self,
+        other: TsInstantiationExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expression(asts.left);
         let right = other.expression(asts.right);
         left.compare(right, asts)
@@ -2430,8 +3284,14 @@ impl Compare for TsInstantiationExpression {
         Ok(())
     }
 }
-impl Compare for TsExportAssignment {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsExportAssignment<'right>>
+    for TsExportAssignment<'left>
+{
+    fn compare(
+        self,
+        other: TsExportAssignment<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expression(asts.left);
         let right = other.expression(asts.right);
         left.compare(right, asts)
@@ -2439,8 +3299,14 @@ impl Compare for TsExportAssignment {
         Ok(())
     }
 }
-impl Compare for TsNamespaceExportDeclaration {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsNamespaceExportDeclaration<'right>>
+    for TsNamespaceExportDeclaration<'left>
+{
+    fn compare(
+        self,
+        other: TsNamespaceExportDeclaration<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.id(asts.left);
         let right = other.id(asts.right);
         left.compare(right, asts)
@@ -2448,8 +3314,14 @@ impl Compare for TsNamespaceExportDeclaration {
         Ok(())
     }
 }
-impl Compare for TsImportEqualsDeclaration {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsImportEqualsDeclaration<'right>>
+    for TsImportEqualsDeclaration<'left>
+{
+    fn compare(
+        self,
+        other: TsImportEqualsDeclaration<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.id(asts.left);
         let right = other.id(asts.right);
         left.compare(right, asts)
@@ -2465,8 +3337,14 @@ impl Compare for TsImportEqualsDeclaration {
         Ok(())
     }
 }
-impl Compare for TsExternalModuleReference {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsExternalModuleReference<'right>>
+    for TsExternalModuleReference<'left>
+{
+    fn compare(
+        self,
+        other: TsExternalModuleReference<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expression(asts.left);
         let right = other.expression(asts.right);
         left.compare(right, asts)
@@ -2474,8 +3352,14 @@ impl Compare for TsExternalModuleReference {
         Ok(())
     }
 }
-impl Compare for TsIndexSignatureParameter {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, TsIndexSignatureParameter<'right>>
+    for TsIndexSignatureParameter<'left>
+{
+    fn compare(
+        self,
+        other: TsIndexSignatureParameter<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.name(asts.left);
         let right = other.name(asts.right);
         left.compare(right, asts)
@@ -2487,43 +3371,77 @@ impl Compare for TsIndexSignatureParameter {
         Ok(())
     }
 }
-impl Compare for JsxElementName {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxElementName<'right>> for JsxElementName<'left> {
+    fn compare(
+        self,
+        other: JsxElementName<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for JsxMemberExpressionObject {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxMemberExpressionObject<'right>>
+    for JsxMemberExpressionObject<'left>
+{
+    fn compare(
+        self,
+        other: JsxMemberExpressionObject<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for JsxAttributeName {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxAttributeName<'right>> for JsxAttributeName<'left> {
+    fn compare(
+        self,
+        other: JsxAttributeName<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for JsxAttributeItem {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxAttributeItem<'right>> for JsxAttributeItem<'left> {
+    fn compare(
+        self,
+        other: JsxAttributeItem<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for JsxAttributeValue {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxAttributeValue<'right>> for JsxAttributeValue<'left> {
+    fn compare(
+        self,
+        other: JsxAttributeValue<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for JsxExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxExpression<'right>> for JsxExpression<'left> {
+    fn compare(
+        self,
+        other: JsxExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for JsxChild {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxChild<'right>> for JsxChild<'left> {
+    fn compare(
+        self,
+        other: JsxChild<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         asts.nodes(self.node_id(), other.node_id())
     }
 }
-impl Compare for JsxElement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxElement<'right>> for JsxElement<'left> {
+    fn compare(
+        self,
+        other: JsxElement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.opening_element(asts.left);
         let right = other.opening_element(asts.right);
         left.compare(right, asts)
@@ -2539,8 +3457,12 @@ impl Compare for JsxElement {
         Ok(())
     }
 }
-impl Compare for JsxOpeningElement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxOpeningElement<'right>> for JsxOpeningElement<'left> {
+    fn compare(
+        self,
+        other: JsxOpeningElement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.name(asts.left);
         let right = other.name(asts.right);
         left.compare(right, asts)
@@ -2560,8 +3482,12 @@ impl Compare for JsxOpeningElement {
         Ok(())
     }
 }
-impl Compare for JsxClosingElement {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxClosingElement<'right>> for JsxClosingElement<'left> {
+    fn compare(
+        self,
+        other: JsxClosingElement<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.name(asts.left);
         let right = other.name(asts.right);
         left.compare(right, asts)
@@ -2569,8 +3495,12 @@ impl Compare for JsxClosingElement {
         Ok(())
     }
 }
-impl Compare for JsxFragment {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxFragment<'right>> for JsxFragment<'left> {
+    fn compare(
+        self,
+        other: JsxFragment<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.opening_fragment(asts.left);
         let right = other.opening_fragment(asts.right);
         left.compare(right, asts)
@@ -2586,18 +3516,34 @@ impl Compare for JsxFragment {
         Ok(())
     }
 }
-impl Compare for JsxOpeningFragment {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxOpeningFragment<'right>>
+    for JsxOpeningFragment<'left>
+{
+    fn compare(
+        self,
+        other: JsxOpeningFragment<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for JsxClosingFragment {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxClosingFragment<'right>>
+    for JsxClosingFragment<'left>
+{
+    fn compare(
+        self,
+        other: JsxClosingFragment<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for JsxIdentifier {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxIdentifier<'right>> for JsxIdentifier<'left> {
+    fn compare(
+        self,
+        other: JsxIdentifier<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.name(asts.left);
         let right = other.name(asts.right);
         left.compare(right, asts)
@@ -2605,8 +3551,12 @@ impl Compare for JsxIdentifier {
         Ok(())
     }
 }
-impl Compare for JsxNamespacedName {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxNamespacedName<'right>> for JsxNamespacedName<'left> {
+    fn compare(
+        self,
+        other: JsxNamespacedName<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.namespace(asts.left);
         let right = other.namespace(asts.right);
         left.compare(right, asts)
@@ -2618,8 +3568,14 @@ impl Compare for JsxNamespacedName {
         Ok(())
     }
 }
-impl Compare for JsxMemberExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxMemberExpression<'right>>
+    for JsxMemberExpression<'left>
+{
+    fn compare(
+        self,
+        other: JsxMemberExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.object(asts.left);
         let right = other.object(asts.right);
         left.compare(right, asts)
@@ -2631,8 +3587,12 @@ impl Compare for JsxMemberExpression {
         Ok(())
     }
 }
-impl Compare for JsxAttribute {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxAttribute<'right>> for JsxAttribute<'left> {
+    fn compare(
+        self,
+        other: JsxAttribute<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.name(asts.left);
         let right = other.name(asts.right);
         left.compare(right, asts)
@@ -2644,8 +3604,14 @@ impl Compare for JsxAttribute {
         Ok(())
     }
 }
-impl Compare for JsxSpreadAttribute {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxSpreadAttribute<'right>>
+    for JsxSpreadAttribute<'left>
+{
+    fn compare(
+        self,
+        other: JsxSpreadAttribute<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.argument(asts.left);
         let right = other.argument(asts.right);
         left.compare(right, asts)
@@ -2653,8 +3619,14 @@ impl Compare for JsxSpreadAttribute {
         Ok(())
     }
 }
-impl Compare for JsxExpressionContainer {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxExpressionContainer<'right>>
+    for JsxExpressionContainer<'left>
+{
+    fn compare(
+        self,
+        other: JsxExpressionContainer<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expression(asts.left);
         let right = other.expression(asts.right);
         left.compare(right, asts)
@@ -2662,13 +3634,23 @@ impl Compare for JsxExpressionContainer {
         Ok(())
     }
 }
-impl Compare for JsxEmptyExpression {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxEmptyExpression<'right>>
+    for JsxEmptyExpression<'left>
+{
+    fn compare(
+        self,
+        other: JsxEmptyExpression<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         Ok(())
     }
 }
-impl Compare for JsxText {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxText<'right>> for JsxText<'left> {
+    fn compare(
+        self,
+        other: JsxText<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.value(asts.left);
         let right = other.value(asts.right);
         left.compare(right, asts)
@@ -2676,8 +3658,12 @@ impl Compare for JsxText {
         Ok(())
     }
 }
-impl Compare for JsxSpreadChild {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, JsxSpreadChild<'right>> for JsxSpreadChild<'left> {
+    fn compare(
+        self,
+        other: JsxSpreadChild<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = self.expression(asts.left);
         let right = other.expression(asts.right);
         left.compare(right, asts)
@@ -2704,10 +3690,10 @@ compare_value!(TsTypeOperatorKind);
 compare_value!(TsMappedTypeModifier);
 compare_value!(TsMethodSignatureKind);
 compare_value!(TsModuleDeclarationKind);
-pub(super) fn compare_nodes(
-    left: NodeKindData,
-    right: NodeKindData,
-    asts: &AstPair<'_, '_>,
+pub(super) fn compare_nodes<'left, 'right>(
+    left: NodeKindData<'left>,
+    right: NodeKindData<'right>,
+    asts: &AstPair<'_, '_, 'left, 'right>,
 ) -> Result<(), String> {
     match (left, right) {
         (NodeKindData::Program(left), NodeKindData::Program(right)) => left.compare(right, asts),

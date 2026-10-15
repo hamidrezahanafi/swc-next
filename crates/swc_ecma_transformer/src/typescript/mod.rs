@@ -10,10 +10,10 @@ pub use options::{JsxImportOptions, TypeScriptOptions};
 /// Applies only the TypeScript syntax transform.
 ///
 /// The caller is responsible for running any required normalization first.
-pub fn transform<'a>(
-    program: Program,
-    ast: &mut Ast<'a>,
-    semantic: &Semantic<'a>,
+pub fn transform<'id, 'a>(
+    program: Program<'id>,
+    ast: &mut Ast<'a, 'id>,
+    semantic: &Semantic<'a, 'id>,
     options: TypeScriptOptions,
 ) {
     if ast.lang() == Lang::Dts {

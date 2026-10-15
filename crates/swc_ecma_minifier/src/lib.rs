@@ -36,7 +36,7 @@ impl Minifier {
     /// # Panics
     ///
     /// Panics if compression is enabled and the AST root is not a program.
-    pub fn minify(ast: &mut Ast<'_>, options: MinifierOptions) {
+    pub fn minify<'id>(ast: &mut Ast<'_, 'id>, options: MinifierOptions) {
         if let Some(options) = options.compress {
             compress::compress(ast, options);
         }

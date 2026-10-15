@@ -25,13 +25,27 @@ fn expect_token_boundary(source: &str, expected: &str) {
             preserve_parens,
             ..ParseOptions::default()
         };
-        let original = Parser::init(&allocator, source, parse_options, NoTokenParserConfig).parse();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let original = Parser::init(
+            &allocator,
+            source,
+            parse_options,
+            NoTokenParserConfig,
+            ast_guard,
+        )
+        .parse();
         assert!(original.diagnostics.is_empty());
         let compact = print(&allocator, &original.ast, print_options.clone());
         assert_eq!(compact.code, expected);
-
-        let reparsed =
-            Parser::init(&allocator, compact.code, parse_options, NoTokenParserConfig).parse();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let reparsed = Parser::init(
+            &allocator,
+            compact.code,
+            parse_options,
+            NoTokenParserConfig,
+            ast_guard,
+        )
+        .parse();
         assert!(reparsed.diagnostics.is_empty());
         let original_pretty = print(&allocator, &original.ast, PrintOptions::default());
         let reparsed_pretty = print(&allocator, &reparsed.ast, PrintOptions::default());
@@ -46,11 +60,13 @@ fn expect_token_boundary_mapping(source: &str, expected: &[u8]) {
     use swc_next_ecma_parser::{NoTokenParserConfig, Options as ParseOptions, Parser};
 
     let allocator = Allocator::new();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
     let parsed = Parser::init(
         &allocator,
         source,
         ParseOptions::default(),
         NoTokenParserConfig,
+        ast_guard,
     )
     .parse();
     assert!(parsed.diagnostics.is_empty());
@@ -159,7 +175,15 @@ fn expect_empty_statement(source: &str, expected_minified: &str) {
             preserve_parens,
             ..ParseOptions::default()
         };
-        let original = Parser::init(&allocator, source, parse_options, NoTokenParserConfig).parse();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let original = Parser::init(
+            &allocator,
+            source,
+            parse_options,
+            NoTokenParserConfig,
+            ast_guard,
+        )
+        .parse();
         assert!(original.diagnostics.is_empty());
         let original_pretty = print(&allocator, &original.ast, PrintOptions::default());
 
@@ -169,12 +193,19 @@ fn expect_empty_statement(source: &str, expected_minified: &str) {
                 ..PrintOptions::default()
             };
             let printed = print(&allocator, &original.ast, print_options.clone());
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
             if minify {
                 assert_eq!(printed.code, expected_minified);
             }
 
-            let reparsed =
-                Parser::init(&allocator, printed.code, parse_options, NoTokenParserConfig).parse();
+            let reparsed = Parser::init(
+                &allocator,
+                printed.code,
+                parse_options,
+                NoTokenParserConfig,
+                ast_guard,
+            )
+            .parse();
             assert!(reparsed.diagnostics.is_empty());
             let ast = &reparsed.ast;
             let statement =
@@ -188,7 +219,7 @@ fn expect_empty_statement(source: &str, expected_minified: &str) {
     }
 }
 
-fn assert_empty_statement_body(ast: &Ast<'_>, statement: Stmt) {
+fn assert_empty_statement_body<'id>(ast: &Ast<'_, 'id>, statement: Stmt<'id>) {
     let body = match ast.stmt_data(statement) {
         StmtData::BlockStatement(block) => {
             ast.get_node_in_sub_range(block.body(ast).first().unwrap())
@@ -337,7 +368,8 @@ fn test_number_format() {
 #[test]
 fn numeric_literal_value_invalidates_raw() {
     let allocator = Allocator::new();
-    let mut ast = Ast::new("0x1", &allocator);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let mut ast = Ast::new("0x1", &allocator, ast_guard);
     let raw = ast.source_slice(0, 3);
     let expression = ast.expr_numeric_literal(DUMMY_SP, 1.0, Some(raw));
     let ExprData::NumericLiteral(literal) = ast.expr_data(expression) else {
@@ -364,7 +396,8 @@ fn numeric_literal_value_invalidates_raw() {
 #[test]
 fn numeric_literal_value_compares_float_bits() {
     let allocator = Allocator::new();
-    let mut ast = Ast::new("0", &allocator);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let mut ast = Ast::new("0", &allocator, ast_guard);
     let raw = ast.source_slice(0, 1);
     let expression = ast.expr_numeric_literal(DUMMY_SP, 0.0, Some(raw));
     let ExprData::NumericLiteral(literal) = ast.expr_data(expression) else {
@@ -462,7 +495,8 @@ fn synthesized_number_formats() {
 
 fn print_synthesized_number_subtraction(value: f64, options: PrintOptions) -> String {
     let allocator = Allocator::new();
-    let mut ast = Ast::new("", &allocator);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let mut ast = Ast::new("", &allocator, ast_guard);
     let name = ast.add_utf8("x");
     let left = ast.expr_identifier_reference(DUMMY_SP, name);
     let right = ast.expr_numeric_literal(DUMMY_SP, value, None);
@@ -540,7 +574,8 @@ fn synthesized_number_property_keys() {
 
 fn print_synthesized_number_property_key(key_value: f64, computed: bool, minify: bool) -> String {
     let allocator = Allocator::new();
-    let mut ast = Ast::new("", &allocator);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let mut ast = Ast::new("", &allocator, ast_guard);
     let key = ast.property_key_expr_numeric_literal(DUMMY_SP, key_value, None);
     let value = ast.expr_numeric_literal(DUMMY_SP, 0.0, None);
     let property = ast.object_property(
@@ -576,7 +611,8 @@ fn print_synthesized_number_property_key(key_value: f64, computed: bool, minify:
 fn synthesized_number_contexts() {
     fn print_unary(value: f64, options: PrintOptions) -> String {
         let allocator = Allocator::new();
-        let mut ast = Ast::new("", &allocator);
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let mut ast = Ast::new("", &allocator, ast_guard);
         let argument = ast.expr_numeric_literal(DUMMY_SP, value, None);
         let unary = ast.expr_unary_expression(DUMMY_SP, argument, UnaryOperator::Negate);
         let statement = ast.stmt_expression_statement(DUMMY_SP, unary);
@@ -607,7 +643,8 @@ fn synthesized_number_contexts() {
 
 fn print_negative_number_contexts(options: PrintOptions) -> String {
     let allocator = Allocator::new();
-    let mut ast = Ast::new("", &allocator);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let mut ast = Ast::new("", &allocator, ast_guard);
 
     let member_object = ast.expr_numeric_literal(DUMMY_SP, -2.0, None);
     let property_name = ast.add_utf8("toString");
@@ -793,13 +830,27 @@ fn expect_export_default_expression(
         preserve_parens,
         ..ParseOptions::default()
     };
-    let original = Parser::init(&allocator, source, parse_options, NoTokenParserConfig).parse();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let original = Parser::init(
+        &allocator,
+        source,
+        parse_options,
+        NoTokenParserConfig,
+        ast_guard,
+    )
+    .parse();
     assert!(original.diagnostics.is_empty());
     let printed = print(&allocator, &original.ast, print_options.clone());
     assert_eq!(printed.code, expected);
-
-    let reparsed =
-        Parser::init(&allocator, printed.code, parse_options, NoTokenParserConfig).parse();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let reparsed = Parser::init(
+        &allocator,
+        printed.code,
+        parse_options,
+        NoTokenParserConfig,
+        ast_guard,
+    )
+    .parse();
     assert!(reparsed.diagnostics.is_empty());
     let body = reparsed.ast.root_program().body(&reparsed.ast);
     assert_eq!(body.len(), 1);
@@ -936,7 +987,15 @@ fn expect_statement_body(source: &str, expected: &str) {
         preserve_parens: false,
         ..ParseOptions::default()
     };
-    let original = Parser::init(&allocator, source, parse_options, NoTokenParserConfig).parse();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let original = Parser::init(
+        &allocator,
+        source,
+        parse_options,
+        NoTokenParserConfig,
+        ast_guard,
+    )
+    .parse();
     assert!(original.diagnostics.is_empty());
     let print_options = PrintOptions {
         minify: true,
@@ -944,9 +1003,15 @@ fn expect_statement_body(source: &str, expected: &str) {
     };
     let compact = print(&allocator, &original.ast, print_options.clone());
     assert_eq!(compact.code, expected);
-
-    let reparsed =
-        Parser::init(&allocator, compact.code, parse_options, NoTokenParserConfig).parse();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let reparsed = Parser::init(
+        &allocator,
+        compact.code,
+        parse_options,
+        NoTokenParserConfig,
+        ast_guard,
+    )
+    .parse();
     assert!(reparsed.diagnostics.is_empty());
     let original_pretty = print(&allocator, &original.ast, PrintOptions::default());
     let reparsed_pretty = print(&allocator, &reparsed.ast, PrintOptions::default());

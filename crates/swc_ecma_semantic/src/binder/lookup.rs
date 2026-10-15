@@ -27,17 +27,17 @@ impl NameLookupQuery<'_> {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct LexicalLookup<'lookup, 'arena> {
-    pub(super) scopes: &'lookup [Scope],
-    pub(super) symbols: &'lookup [Symbol],
-    pub(super) declarations: &'lookup [Declaration],
+pub(super) struct LexicalLookup<'lookup, 'arena, 'id> {
+    pub(super) scopes: &'lookup [Scope<'id>],
+    pub(super) symbols: &'lookup [Symbol<'id>],
+    pub(super) declarations: &'lookup [Declaration<'id>],
     pub(super) scope_maps: &'lookup [ScopeMap<'arena>],
 }
 
-pub(super) struct TsNameLookup<'lookup, 'arena> {
+pub(super) struct TsNameLookup<'lookup, 'arena, 'id> {
     pub(super) source_exports: Option<&'lookup TsSourceExports<'arena>>,
-    pub(super) local_exports: &'lookup TsLocalExportMap<'arena>,
-    pub(super) environments: &'lookup TsMemberEnvironments<'arena>,
+    pub(super) local_exports: &'lookup TsLocalExportMap<'arena, 'id>,
+    pub(super) environments: &'lookup TsMemberEnvironments<'arena, 'id>,
     pub(super) views: &'lookup [TsMemberView],
     // Missing entries have no refinement; declaration flags remain the fallback.
     pub(super) import_alias_spaces: &'lookup [Option<TsResolvedAliasSpaces>],
@@ -109,11 +109,12 @@ impl NameLookupResult {
 
 #[inline(always)]
 pub(super) fn lookup_name_in_scopes<
+    'id,
     const INCLUDE_GLOBAL: bool,
     const PRECISE_IMPORT_ALIASES: bool,
 >(
-    lexical: LexicalLookup<'_, '_>,
-    ts: &TsNameLookup<'_, '_>,
+    lexical: LexicalLookup<'_, '_, 'id>,
+    ts: &TsNameLookup<'_, '_, 'id>,
     scope_views: Option<&TsScopeViewIndex<'_>>,
     query: NameLookupQuery<'_>,
     mut emit: impl FnMut(NameBinding),
@@ -141,12 +142,13 @@ pub(super) fn lookup_name_in_scopes<
 
 #[inline(always)]
 pub(super) fn lookup_name_with_ts_views<
+    'id,
     const INCLUDE_GLOBAL: bool,
     const PRECISE_IMPORT_ALIASES: bool,
     const MEMBER_VALUES: bool,
 >(
-    lexical: LexicalLookup<'_, '_>,
-    ts: &TsNameLookup<'_, '_>,
+    lexical: LexicalLookup<'_, '_, 'id>,
+    ts: &TsNameLookup<'_, '_, 'id>,
     scope_views: &TsScopeViewIndex<'_>,
     query: NameLookupQuery<'_>,
     emit: impl FnMut(NameBinding),
@@ -170,13 +172,14 @@ pub(super) fn lookup_name_with_ts_views<
 
 #[inline(always)]
 fn lookup_name_with_ts_views_policy<
+    'id,
     const INCLUDE_GLOBAL: bool,
     const PRECISE_IMPORT_ALIASES: bool,
     const MEMBER_VALUES: bool,
     const TS_LOOKUP: bool,
 >(
-    lexical: LexicalLookup<'_, '_>,
-    ts: &TsNameLookup<'_, '_>,
+    lexical: LexicalLookup<'_, '_, 'id>,
+    ts: &TsNameLookup<'_, '_, 'id>,
     scope_views: &TsScopeViewIndex<'_>,
     query: NameLookupQuery<'_>,
     mut emit: impl FnMut(NameBinding),
@@ -317,11 +320,12 @@ fn lookup_name_with_ts_views_policy<
 
 #[inline(always)]
 pub(super) fn lookup_lexical_name<
+    'id,
     const INCLUDE_GLOBAL: bool,
     const TS_LOOKUP: bool,
     const FILTER_BY_SPACE: bool,
 >(
-    lexical: LexicalLookup<'_, '_>,
+    lexical: LexicalLookup<'_, '_, 'id>,
     query: NameLookupQuery<'_>,
 ) -> NameResolution {
     let LexicalLookup {
@@ -358,8 +362,8 @@ pub(super) fn lookup_lexical_name<
 }
 
 #[inline(always)]
-pub(super) fn lookup_lexical_name_with_import_aliases<const INCLUDE_GLOBAL: bool>(
-    lexical: LexicalLookup<'_, '_>,
+pub(super) fn lookup_lexical_name_with_import_aliases<'id, const INCLUDE_GLOBAL: bool>(
+    lexical: LexicalLookup<'_, '_, 'id>,
     import_alias_spaces: &[Option<TsResolvedAliasSpaces>],
     query: NameLookupQuery<'_>,
     mut emit: impl FnMut(SymbolId),
@@ -406,8 +410,8 @@ pub(super) fn lookup_lexical_name_with_import_aliases<const INCLUDE_GLOBAL: bool
 // Signature queries inspect permitted declarations in a split body before
 // walking outward. Runtime parameter initializers never take this edge.
 #[inline(always)]
-fn lookup_scope_binding<const TS_LOOKUP: bool>(
-    lexical: LexicalLookup<'_, '_>,
+fn lookup_scope_binding<'id, const TS_LOOKUP: bool>(
+    lexical: LexicalLookup<'_, '_, 'id>,
     current: ScopeId,
     child: ScopeKind,
     query: NameLookupQuery<'_>,
@@ -515,8 +519,8 @@ fn binding_visible_from(child: ScopeKind, flags: SymbolFlags, space: ReferenceSp
 }
 
 #[inline]
-pub(super) fn symbol_visibility<const PRECISE_IMPORT_ALIASES: bool>(
-    symbols: &[Symbol],
+pub(super) fn symbol_visibility<'id, const PRECISE_IMPORT_ALIASES: bool>(
+    symbols: &[Symbol<'id>],
     import_alias_spaces: &[Option<TsResolvedAliasSpaces>],
     symbol: SymbolId,
     space: ReferenceSpace,
@@ -535,8 +539,8 @@ pub(super) fn symbol_visibility<const PRECISE_IMPORT_ALIASES: bool>(
 }
 
 #[inline]
-pub(super) fn precise_import_alias_spaces(
-    symbols: &[Symbol],
+pub(super) fn precise_import_alias_spaces<'id>(
+    symbols: &[Symbol<'id>],
     import_alias_spaces: &[Option<TsResolvedAliasSpaces>],
     symbol: SymbolId,
 ) -> Option<TsResolvedAliasSpaces> {

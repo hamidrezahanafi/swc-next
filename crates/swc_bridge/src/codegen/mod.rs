@@ -28,7 +28,8 @@ pub fn print_from_buffer(
     options: Option<CodegenOptions>,
 ) -> Result<CodegenOutput, DeserializeError> {
     let allocator = Allocator::default();
-    let tree = deserialize_from(buffer, &allocator)?;
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let tree = deserialize_from(buffer, &allocator, ast_guard)?;
     let result = print(&allocator, &tree, options.unwrap_or_default().into());
     Ok(CodegenOutput {
         code: result.code.into(),

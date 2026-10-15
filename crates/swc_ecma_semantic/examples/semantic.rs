@@ -22,16 +22,16 @@ struct Args {
     filename: String,
 }
 
-struct ScopesTextWriter<'a> {
-    ast: &'a Ast<'a>,
-    semantic: &'a Semantic<'a>,
+struct ScopesTextWriter<'a, 'id> {
+    ast: &'a Ast<'a, 'id>,
+    semantic: &'a Semantic<'a, 'id>,
     children: Vec<Vec<ScopeId>>,
     output: String,
     indent: usize,
 }
 
-impl<'a> ScopesTextWriter<'a> {
-    fn new(ast: &'a Ast<'a>, semantic: &'a Semantic<'a>) -> Self {
+impl<'id, 'a> ScopesTextWriter<'a, 'id> {
+    fn new(ast: &'a Ast<'a, 'id>, semantic: &'a Semantic<'a, 'id>) -> Self {
         let scope_count = semantic.iter_scopes().count();
         let mut children = vec![Vec::new(); scope_count];
 
@@ -88,7 +88,7 @@ impl<'a> ScopesTextWriter<'a> {
     }
 }
 
-fn format_scope_flags(scope: Scope) -> String {
+fn format_scope_flags<'id>(scope: Scope<'id>) -> String {
     let mut names = Vec::new();
 
     if scope.flags.strict {
@@ -164,8 +164,15 @@ fn main() -> Result<(), String> {
         preserve_parens: false,
         ..ParserOptions::default()
     };
-    let parse =
-        EcmaParser::init(&allocator, &source_text, parse_options, NoTokenParserConfig).parse();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let parse = EcmaParser::init(
+        &allocator,
+        &source_text,
+        parse_options,
+        NoTokenParserConfig,
+        ast_guard,
+    )
+    .parse();
     assert!(parse.diagnostics.is_empty());
 
     let semantic = analyze(

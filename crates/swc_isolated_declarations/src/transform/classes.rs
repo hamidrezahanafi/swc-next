@@ -13,12 +13,12 @@ use super::diagnostics::{
 use super::{DeclContext, Transformer};
 use crate::surface::{property_identity, unparenthesized};
 
-impl<'ast> Transformer<'_, 'ast> {
+impl<'id, 'ast> Transformer<'_, 'ast, 'id> {
     pub(super) fn transform_class(
         &mut self,
-        class: Class,
+        class: Class<'id>,
         context: DeclContext,
-        ast: &mut Ast<'ast>,
+        ast: &mut Ast<'ast, 'id>,
     ) {
         class.set_declare(ast, context.declare);
         class.set_decorators(ast, SubRange::empty());
@@ -308,7 +308,7 @@ impl<'ast> Transformer<'_, 'ast> {
         body.set_body(ast, elements);
     }
 
-    fn is_heritage_expression(&self, expression: Expr, ast: &Ast<'ast>) -> bool {
+    fn is_heritage_expression(&self, expression: Expr<'id>, ast: &Ast<'ast, 'id>) -> bool {
         match ast.expr_data(expression) {
             ExprData::IdentifierReference(_) => true,
             ExprData::MemberExpression(member) => {
@@ -324,7 +324,7 @@ impl<'ast> Transformer<'_, 'ast> {
         }
     }
 
-    fn transform_property(&mut self, property: PropertyDefinition, ast: &mut Ast<'ast>) {
+    fn transform_property(&mut self, property: PropertyDefinition<'id>, ast: &mut Ast<'ast, 'id>) {
         property.set_decorators(ast, SubRange::empty());
         property.set_declare(ast, false);
         property.set_definite(ast, false);
@@ -379,12 +379,12 @@ impl<'ast> Transformer<'_, 'ast> {
 
     fn private_method_property(
         &self,
-        key: PropertyKey,
+        key: PropertyKey<'id>,
         span: Span,
         computed: bool,
         is_static: bool,
-        ast: &mut Ast<'ast>,
-    ) -> ClassElement {
+        ast: &mut Ast<'ast, 'id>,
+    ) -> ClassElement<'id> {
         let property = ast.property_definition(
             span,
             SubRange::empty(),
@@ -405,7 +405,7 @@ impl<'ast> Transformer<'_, 'ast> {
         ClassElement::PropertyDefinition(property)
     }
 
-    fn private_key_marker(&self, ast: &mut Ast<'ast>) -> ClassElement {
+    fn private_key_marker(&self, ast: &mut Ast<'ast, 'id>) -> ClassElement<'id> {
         let span = Span::new(0, 0);
         let name = ast.add_utf8("private");
         let key = ast.property_key_expr_private_identifier(span, name);
@@ -431,10 +431,10 @@ impl<'ast> Transformer<'_, 'ast> {
 
     fn transform_constructor_parameters(
         &mut self,
-        params: FormalParameters,
+        params: FormalParameters<'id>,
         omit_signature: bool,
-        ast: &mut Ast<'ast>,
-    ) -> Vec<ClassElement> {
+        ast: &mut Ast<'ast, 'id>,
+    ) -> Vec<ClassElement<'id>> {
         let items = params.items(ast);
         // Infer the shared annotation before defaults change the call signature.
         for item in items.iter() {
@@ -518,11 +518,11 @@ impl<'ast> Transformer<'_, 'ast> {
 
     fn parameter_property_to_class_element(
         &self,
-        property: TsParameterProperty,
+        property: TsParameterProperty<'id>,
         optional: bool,
-        original_type: Option<TsTypeAnnotation>,
-        ast: &mut Ast<'ast>,
-    ) -> Option<ClassElement> {
+        original_type: Option<TsTypeAnnotation<'id>>,
+        ast: &mut Ast<'ast, 'id>,
+    ) -> Option<ClassElement<'id>> {
         let parameter = property.parameter(ast);
         let binding = parameter.pattern(ast).as_binding_identifier(ast)?;
         let accessibility = property.accessibility(ast);
@@ -562,9 +562,9 @@ impl<'ast> Transformer<'_, 'ast> {
 
     fn strip_private_accessor_parameters(
         &self,
-        params: FormalParameters,
+        params: FormalParameters<'id>,
         kind: MethodDefinitionKind,
-        ast: &mut Ast<'ast>,
+        ast: &mut Ast<'ast, 'id>,
     ) {
         params.set_rest(ast, None);
         if kind == MethodDefinitionKind::Get {

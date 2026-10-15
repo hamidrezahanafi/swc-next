@@ -27,11 +27,11 @@ impl TsModuleInstanceState {
     }
 }
 
-pub(super) fn ts_module_instance_state(
-    tree: &Ast<'_>,
-    declaration: TsModuleDeclaration,
-    outer_contexts: &[TsContainerContext],
-    module_states: &mut HashMap<NodeId, TsModuleInstanceMemo, FxBuildHasher>,
+pub(super) fn ts_module_instance_state<'id>(
+    tree: &Ast<'_, 'id>,
+    declaration: TsModuleDeclaration<'id>,
+    outer_contexts: &[TsContainerContext<'id>],
+    module_states: &mut HashMap<NodeId<'id>, TsModuleInstanceMemo, FxBuildHasher>,
 ) -> TsModuleInstanceState {
     // Keep the allocation across declarations, but never reuse answers from
     // another root: cycle results depend on the current traversal.
@@ -48,9 +48,9 @@ pub(super) fn ts_module_instance_state(
 /// needed while the module symbol itself is being bound. Local export
 /// specifiers search the current and enclosing module blocks, matching the
 /// binder's forward-reference behavior.
-struct TsModuleInstanceAnalyzer<'tree, 'ast, 'scratch> {
-    tree: &'tree Ast<'ast>,
-    module_states: &'scratch mut HashMap<NodeId, TsModuleInstanceMemo, FxBuildHasher>,
+struct TsModuleInstanceAnalyzer<'tree, 'ast, 'scratch, 'id> {
+    tree: &'tree Ast<'ast, 'id>,
+    module_states: &'scratch mut HashMap<NodeId<'id>, TsModuleInstanceMemo, FxBuildHasher>,
 }
 
 #[derive(Clone, Copy)]
@@ -59,12 +59,12 @@ pub(super) enum TsModuleInstanceMemo {
     Complete(TsModuleInstanceState),
 }
 
-impl TsModuleInstanceAnalyzer<'_, '_, '_> {
+impl<'id> TsModuleInstanceAnalyzer<'_, '_, '_, 'id> {
     fn module_in_contexts(
         &mut self,
-        declaration: TsModuleDeclaration,
-        contexts: &[TsContainerContext],
-        blocks: Option<&TsModuleBlockPath<'_>>,
+        declaration: TsModuleDeclaration<'id>,
+        contexts: &[TsContainerContext<'id>],
+        blocks: Option<&TsModuleBlockPath<'_, 'id>>,
     ) -> TsModuleInstanceState {
         let Some((context, remaining)) = contexts.split_first() else {
             return self.module(declaration, blocks);
@@ -81,8 +81,8 @@ impl TsModuleInstanceAnalyzer<'_, '_, '_> {
 
     fn module(
         &mut self,
-        declaration: TsModuleDeclaration,
-        blocks: Option<&TsModuleBlockPath<'_>>,
+        declaration: TsModuleDeclaration<'id>,
+        blocks: Option<&TsModuleBlockPath<'_, 'id>>,
     ) -> TsModuleInstanceState {
         let node = declaration.node_id();
         if let Some(state) = self.module_states.get(&node) {
@@ -108,8 +108,8 @@ impl TsModuleInstanceAnalyzer<'_, '_, '_> {
 
     fn module_body(
         &mut self,
-        body: NodeId,
-        blocks: Option<&TsModuleBlockPath<'_>>,
+        body: NodeId<'id>,
+        blocks: Option<&TsModuleBlockPath<'_, 'id>>,
     ) -> TsModuleInstanceState {
         match self.tree.kind_data(body) {
             NodeKindData::TsModuleBlock(block) => {
@@ -140,8 +140,8 @@ impl TsModuleInstanceAnalyzer<'_, '_, '_> {
 
     fn statement(
         &mut self,
-        node: NodeId,
-        blocks: Option<&TsModuleBlockPath<'_>>,
+        node: NodeId<'id>,
+        blocks: Option<&TsModuleBlockPath<'_, 'id>>,
     ) -> TsModuleInstanceState {
         match self.tree.kind_data(node) {
             NodeKindData::TsInterfaceDeclaration(_)
@@ -179,8 +179,8 @@ impl TsModuleInstanceAnalyzer<'_, '_, '_> {
 
     fn export_declaration(
         &mut self,
-        export: ExportNamedDeclaration,
-        blocks: Option<&TsModuleBlockPath<'_>>,
+        export: ExportNamedDeclaration<'id>,
+        blocks: Option<&TsModuleBlockPath<'_, 'id>>,
     ) -> TsModuleInstanceState {
         if let Some(declaration) = export.declaration(self.tree) {
             if matches!(
@@ -217,7 +217,7 @@ impl TsModuleInstanceAnalyzer<'_, '_, '_> {
     fn local_export_target(
         &mut self,
         name: &[u8],
-        blocks: Option<&TsModuleBlockPath<'_>>,
+        blocks: Option<&TsModuleBlockPath<'_, 'id>>,
     ) -> TsModuleInstanceState {
         let mut block = blocks;
         while let Some(path) = block {
@@ -246,9 +246,9 @@ impl TsModuleInstanceAnalyzer<'_, '_, '_> {
 
     fn named_statement_state(
         &mut self,
-        body: NodeId,
+        body: NodeId<'id>,
         name: &[u8],
-        blocks: Option<&TsModuleBlockPath<'_>>,
+        blocks: Option<&TsModuleBlockPath<'_, 'id>>,
     ) -> Option<TsModuleInstanceState> {
         let NodeKindData::TsModuleBlock(block) = self.tree.kind_data(body) else {
             return None;
@@ -262,9 +262,9 @@ impl TsModuleInstanceAnalyzer<'_, '_, '_> {
 
     fn named_statements_state(
         &mut self,
-        statements: impl Iterator<Item = NodeId>,
+        statements: impl Iterator<Item = NodeId<'id>>,
         name: &[u8],
-        blocks: Option<&TsModuleBlockPath<'_>>,
+        blocks: Option<&TsModuleBlockPath<'_, 'id>>,
     ) -> Option<TsModuleInstanceState> {
         let mut found = None;
         for statement in statements {
@@ -289,7 +289,7 @@ impl TsModuleInstanceAnalyzer<'_, '_, '_> {
         found
     }
 
-    fn exported_declaration(&self, node: NodeId) -> NodeId {
+    fn exported_declaration(&self, node: NodeId<'id>) -> NodeId<'id> {
         match self.tree.kind_data(node) {
             NodeKindData::ExportNamedDeclaration(export) => export
                 .declaration(self.tree)
@@ -311,14 +311,14 @@ impl TsModuleInstanceAnalyzer<'_, '_, '_> {
     }
 }
 
-struct TsModuleBlockPath<'a> {
-    node: NodeId,
-    parent: Option<&'a TsModuleBlockPath<'a>>,
+struct TsModuleBlockPath<'a, 'id> {
+    node: NodeId<'id>,
+    parent: Option<&'a TsModuleBlockPath<'a, 'id>>,
 }
 
 // Match TS7 NodeHasName for module instantiation. Deliberately inspect only
 // direct declaration names, not BoundNames or identifiers in type annotations.
-fn ts_module_statement_has_name(tree: &Ast<'_>, node: NodeId, name: &[u8]) -> bool {
+fn ts_module_statement_has_name<'id>(tree: &Ast<'_, 'id>, node: NodeId<'id>, name: &[u8]) -> bool {
     let identifier = match tree.kind_data(node) {
         NodeKindData::Function(function) => function.id(tree),
         NodeKindData::TsFunction(function) => function.id(tree),
@@ -346,7 +346,11 @@ fn ts_module_statement_has_name(tree: &Ast<'_>, node: NodeId, name: &[u8]) -> bo
     identifier.is_some_and(|identifier| tree.get_utf8(identifier.name(tree)).as_bytes() == name)
 }
 
-fn ts_module_declares_name(tree: &Ast<'_>, name: TsModuleName, expected: &[u8]) -> bool {
+fn ts_module_declares_name<'id>(
+    tree: &Ast<'_, 'id>,
+    name: TsModuleName<'id>,
+    expected: &[u8],
+) -> bool {
     match tree.ts_module_name_data(name) {
         TsModuleNameData::BindingIdentifier(identifier) => {
             tree.get_utf8(identifier.name(tree)).as_bytes() == expected

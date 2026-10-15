@@ -13,7 +13,8 @@ fn annex_b_if_bindings() {
     };
 
     let source = "if (condition) function f() { return f; }";
-    let (ast, semantic) = analyze_with_options(&allocator, source, script, checked);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_with_options(&allocator, source, script, checked, ast_guard);
     let name = symbol_named(&ast, &semantic, b"f");
     let scope = semantic.scope_of_symbol(name);
     assert!(
@@ -32,7 +33,8 @@ fn annex_b_if_bindings() {
     assert!(semantic.binding(ScopeId::ROOT, b"f").is_none());
 
     let source = "if (condition) function f(f) { return f; }";
-    let (ast, semantic) = analyze_with_options(&allocator, source, script, checked);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_with_options(&allocator, source, script, checked, ast_guard);
     let name = expression_name_symbol(&semantic, SymbolFlags::ANNEX_B_IF_FUNCTION);
     let parameter = reference_symbol(&ast, &semantic, b"f").unwrap();
     assert_ne!(name, parameter);
@@ -45,7 +47,8 @@ fn annex_b_if_bindings() {
     assert!(semantic.uses(name).is_empty());
 
     let source = "if (condition) function f() { var f; return f; }";
-    let (ast, semantic) = analyze_with_options(&allocator, source, script, checked);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_with_options(&allocator, source, script, checked, ast_guard);
     let name = expression_name_symbol(&semantic, SymbolFlags::ANNEX_B_IF_FUNCTION);
     let local = reference_symbol(&ast, &semantic, b"f").unwrap();
     assert_ne!(name, local);
@@ -71,7 +74,8 @@ fn expression_name_bindings() {
     };
 
     let source = "const f = function n(n) { return n; };";
-    let (ast, semantic) = analyze_with_options(&allocator, source, js, checked);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_with_options(&allocator, source, js, checked, ast_guard);
     let name = expression_name_symbol(&semantic, SymbolFlags::FUNCTION_EXPRESSION);
     let parameter = reference_symbol(&ast, &semantic, b"n").unwrap();
     assert_ne!(name, parameter);
@@ -89,7 +93,8 @@ fn expression_name_bindings() {
     assert_eq!(semantic.iter_scopes().count(), 3);
 
     let source = "const f = function n() { var n; return n; };";
-    let (ast, semantic) = analyze_with_options(&allocator, source, js, checked);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_with_options(&allocator, source, js, checked, ast_guard);
     let name = expression_name_symbol(&semantic, SymbolFlags::FUNCTION_EXPRESSION);
     let local = reference_symbol(&ast, &semantic, b"n").unwrap();
     assert_ne!(name, local);
@@ -105,7 +110,8 @@ fn expression_name_bindings() {
     );
 
     let source = "const f = function n() { let n; return n; };";
-    let (ast, semantic) = analyze_with_options(&allocator, source, js, checked);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_with_options(&allocator, source, js, checked, ast_guard);
     let name = expression_name_symbol(&semantic, SymbolFlags::FUNCTION_EXPRESSION);
     let local = reference_symbol(&ast, &semantic, b"n").unwrap();
     assert_ne!(name, local);
@@ -115,7 +121,8 @@ fn expression_name_bindings() {
     );
 
     let source = "const C = class Inner { self = Inner; };";
-    let (ast, semantic) = analyze_with_options(&allocator, source, js, checked);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_with_options(&allocator, source, js, checked, ast_guard);
     let name = expression_name_symbol(&semantic, SymbolFlags::CLASS_EXPRESSION);
     assert_eq!(
         semantic.scope(semantic.scope_of_symbol(name)).kind,
@@ -126,7 +133,7 @@ fn expression_name_bindings() {
     assert_eq!(semantic.iter_scopes().count(), 3);
 }
 
-fn expression_name_symbol(semantic: &Semantic<'_>, flag: SymbolFlags) -> SymbolId {
+fn expression_name_symbol<'id>(semantic: &Semantic<'_, 'id>, flag: SymbolFlags) -> SymbolId {
     let mut names = semantic
         .iter_symbols()
         .filter(|entry| entry.symbol.flags.contains(flag));
@@ -145,7 +152,8 @@ fn declarations_share_canonical_symbols() {
     };
 
     let source = "interface A {} interface B {} interface A {} interface A {}";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_script);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_script, ast_guard);
     let a = semantic.binding(ScopeId::ROOT, b"A").unwrap();
     let b = semantic.binding(ScopeId::ROOT, b"B").unwrap();
     let mut a_declarations = semantic.declaration_ids(a);
@@ -185,23 +193,28 @@ fn merged_type_parameters_share_identity() {
     let ts = ts_module_options();
 
     let source = "interface Box<T> { value: T } interface Box<T> { extra: T }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts, ast_guard);
     assert_merged_type_parameter(&ast, &semantic, b"T");
 
     let source = "class Box<T> { value!: T } interface Box<T> { extra: T }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts, ast_guard);
     assert_merged_type_parameter(&ast, &semantic, b"T");
 
     let source = "interface Box<T> { extra: T } class Box<T> { value!: T }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts, ast_guard);
     assert_merged_type_parameter(&ast, &semantic, b"T");
 
     let source = "namespace N { export interface Box<T> { value: T } } namespace N { export interface Box<T> { extra: T } }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts, ast_guard);
     assert_merged_type_parameter(&ast, &semantic, b"T");
 
     let source = "export {}; declare global { interface Box<T> { value: T } } declare global { interface Box<T> { extra: T } }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts, ast_guard);
     assert_merged_type_parameter(&ast, &semantic, b"T");
 }
 
@@ -215,7 +228,8 @@ fn merged_type_parameters_keep_occurrence_visibility() {
     };
 
     let source = "type U = number; interface Box<T> { value: T; outer: U } interface Box<T, U = string> { extra: T; inner: U }";
-    let (ast, semantic) = analyze_with_options(&allocator, source, ts, checked);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_with_options(&allocator, source, ts, checked, ast_guard);
     assert_merged_type_parameter(&ast, &semantic, b"T");
     let outer = semantic.binding(ScopeId::MODULE, b"U").unwrap();
     let references = reference_symbols(&ast, &semantic, b"U");
@@ -225,7 +239,8 @@ fn merged_type_parameters_keep_occurrence_visibility() {
 
     let source =
         "const T = 1; class Box<T> { T!: T; method() { return T; } } interface Box<T> { value: T }";
-    let (ast, semantic) = analyze_with_options(&allocator, source, ts, checked);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_with_options(&allocator, source, ts, checked, ast_guard);
     let outer = semantic.binding(ScopeId::MODULE, b"T").unwrap();
     let references = reference_symbols(&ast, &semantic, b"T");
     assert_eq!(references[0], references[2]);
@@ -234,7 +249,8 @@ fn merged_type_parameters_keep_occurrence_visibility() {
     assert_eq!(semantic.declarations(references[0].unwrap()).len(), 2);
 
     let source = "class Box<T> { constructor(public T: T) { const value = T; } } interface Box<T> { extra: T }";
-    let (ast, semantic) = analyze_with_options(&allocator, source, ts, checked);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_with_options(&allocator, source, ts, checked, ast_guard);
     let references = reference_symbols(&ast, &semantic, b"T");
     assert_eq!(references[0], references[2]);
     assert_ne!(references[0], references[1]);
@@ -255,19 +271,23 @@ fn unrelated_type_parameters_keep_distinct_identities() {
     let ts = ts_module_options();
 
     let source = "namespace N { interface Box<T> { value: T } } namespace N { interface Box<T> { extra: T } }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts, ast_guard);
     assert_distinct_type_parameters(&ast, &semantic, b"T");
 
     let source = "interface Box<T> { value: T } const C = class Box<T> { value!: T };";
-    let (ast, semantic) = analyze_source(&allocator, source, ts);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts, ast_guard);
     assert_distinct_type_parameters(&ast, &semantic, b"T");
 
     let source = "declare function f<T>(value: T): void; declare function f<T>(value: T, extra: number): void;";
-    let (ast, semantic) = analyze_source(&allocator, source, ts);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts, ast_guard);
     assert_distinct_type_parameters(&ast, &semantic, b"T");
 
     let source = "interface Box<T> { value: T } interface Box<T> { method<T>(value: T): void }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts, ast_guard);
     let references = reference_symbols(&ast, &semantic, b"T");
     assert_ne!(references[0], references[1]);
     assert_eq!(semantic.declarations(references[0].unwrap()).len(), 2);
@@ -275,7 +295,11 @@ fn unrelated_type_parameters_keep_distinct_identities() {
 }
 
 #[track_caller]
-fn assert_distinct_type_parameters(ast: &Ast<'_>, semantic: &Semantic<'_>, name: &[u8]) {
+fn assert_distinct_type_parameters<'id>(
+    ast: &Ast<'_, 'id>,
+    semantic: &Semantic<'_, 'id>,
+    name: &[u8],
+) {
     let references = reference_symbols(ast, semantic, name);
     assert_eq!(references.len(), 2);
     let first = references[0].unwrap();
@@ -296,22 +320,26 @@ fn default_type_parameters() {
 
     let source =
         "export default class C<T> { value!: T } export default interface I<T> { extra: T }";
-    let (ast, semantic) = analyze_with_options(&allocator, source, ts, checked);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_with_options(&allocator, source, ts, checked, ast_guard);
     assert_merged_type_parameter(&ast, &semantic, b"T");
 
     let source =
         "export default interface A<T> { value: T } export default interface B<T> { extra: T }";
-    let (ast, semantic) = analyze_with_options(&allocator, source, ts, checked);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_with_options(&allocator, source, ts, checked, ast_guard);
     assert_merged_type_parameter(&ast, &semantic, b"T");
 
     let source = "export default class<T> { value!: T } export default interface I<T> { extra: T } const ctor = I;";
-    let (ast, semantic) = analyze_with_options(&allocator, source, ts, checked);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_with_options(&allocator, source, ts, checked, ast_guard);
     assert_merged_type_parameter(&ast, &semantic, b"T");
     let symbol = reference_symbol(&ast, &semantic, b"I").unwrap();
     assert!(semantic.symbol(symbol).flags.contains(SymbolFlags::CLASS));
     assert_eq!(semantic.declarations(symbol).len(), 2);
 
     let source = "export default function f<T>(value: T) { return value; } export default interface I<T> { value: T }";
-    let (ast, semantic) = analyze_with_options(&allocator, source, ts, checked);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_with_options(&allocator, source, ts, checked, ast_guard);
     assert_distinct_type_parameters(&ast, &semantic, b"T");
 }

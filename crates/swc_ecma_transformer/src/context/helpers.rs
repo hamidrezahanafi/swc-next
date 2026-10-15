@@ -14,7 +14,7 @@ use swc_next_ecma_ast::{
 };
 use swc_next_ecma_semantic::SymbolFlags;
 
-impl TransformCtx<'_, '_> {
+impl<'id> TransformCtx<'_, '_, 'id> {
     /// Build a callee reference in `scope`, preparing its program-level binding
     /// and external declaration on first use. Later calls reuse that binding.
     /// The declaration stays cached until `inject_helpers` queues it.
@@ -24,7 +24,7 @@ impl TransformCtx<'_, '_> {
     /// _set_function_name              // SetFunctionName: default export
     /// _swc_helpers._to_property_key   // ToPropertyKey: namespace member
     /// ```
-    pub(crate) fn helper_callee(&mut self, helper: HelperKind, scope: ScopeId) -> Expr {
+    pub(crate) fn helper_callee(&mut self, helper: HelperKind, scope: ScopeId) -> Expr<'id> {
         let bound_identifier = match self.state.helpers.bound_identifier(helper) {
             Some(bound_identifier) => bound_identifier,
             None => {
@@ -52,7 +52,7 @@ impl TransformCtx<'_, '_> {
     /// ```js
     /// import * as _swc_helpers2 from "@swc/helpers";
     /// ```
-    fn prepare_helper(&mut self, helper: HelperKind) -> PreparedHelper {
+    fn prepare_helper(&mut self, helper: HelperKind) -> PreparedHelper<'id> {
         let base = match helper {
             HelperKind::SetFunctionName => "_set_function_name",
             HelperKind::ToPropertyKey => "_swc_helpers",
@@ -79,7 +79,7 @@ impl TransformCtx<'_, '_> {
     /// import _set_function_name from "@babel/runtime/helpers/setFunctionName";
     /// const C = _set_function_name(class {}, "C");
     /// ```
-    pub(crate) fn inject_helpers(&mut self, program: Program) {
+    pub(crate) fn inject_helpers(&mut self, program: Program<'id>) {
         let statements = self.state.helpers.take_statements();
         for statement in statements.into_iter().flatten() {
             self.inject_statement(program.node_id(), statement, Anchor::First);
@@ -96,10 +96,10 @@ impl TransformCtx<'_, '_> {
     /// ```
     pub(crate) fn call_set_function_name(
         &mut self,
-        target: Expr,
-        name: Expr,
+        target: Expr<'id>,
+        name: Expr<'id>,
         scope: ScopeId,
-    ) -> Expr {
+    ) -> Expr<'id> {
         let callee = self.helper_callee(HelperKind::SetFunctionName, scope);
         self.call(callee, [Argument::Expr(target), Argument::Expr(name)])
     }
@@ -111,7 +111,11 @@ impl TransformCtx<'_, '_> {
     /// ```js
     /// _swc_helpers._to_property_key(getKey())
     /// ```
-    pub(crate) fn call_to_property_key(&mut self, argument: Expr, scope: ScopeId) -> Expr {
+    pub(crate) fn call_to_property_key(
+        &mut self,
+        argument: Expr<'id>,
+        scope: ScopeId,
+    ) -> Expr<'id> {
         let callee = self.helper_callee(HelperKind::ToPropertyKey, scope);
         self.call(callee, [Argument::Expr(argument)])
     }
@@ -124,7 +128,11 @@ impl TransformCtx<'_, '_> {
     /// ```js
     /// require("@swc/helpers")
     /// ```
-    fn call<const N: usize>(&mut self, callee: Expr, arguments: [Argument; N]) -> Expr {
+    fn call<const N: usize>(
+        &mut self,
+        callee: Expr<'id>,
+        arguments: [Argument<'id>; N],
+    ) -> Expr<'id> {
         let arguments = self.ast.add_sub_range(arguments);
         Expr::CallExpression(
             self.add_node(|ast| ast.call_expression(DUMMY_SP, callee, None, arguments, false)),
@@ -140,10 +148,10 @@ impl TransformCtx<'_, '_> {
     /// ```
     fn external_member(
         &mut self,
-        namespace: BoundIdentifier,
+        namespace: BoundIdentifier<'id>,
         export: &str,
         scope: ScopeId,
-    ) -> Expr {
+    ) -> Expr<'id> {
         let object = Expr::IdentifierReference(namespace.reference_read(self, scope, DUMMY_SP));
         let property = self.ast.add_utf8(export);
         let property = PropertyKey::IdentifierName(
@@ -168,7 +176,7 @@ impl TransformCtx<'_, '_> {
     /// var _set_function_name = require("@babel/runtime/helpers/setFunctionName");
     /// var _swc_helpers = require("@swc/helpers");
     /// ```
-    fn external_import(&mut self, local: BoundIdentifier, helper: HelperKind) -> Stmt {
+    fn external_import(&mut self, local: BoundIdentifier<'id>, helper: HelperKind) -> Stmt<'id> {
         let source = match helper {
             HelperKind::SetFunctionName => "@babel/runtime/helpers/setFunctionName",
             HelperKind::ToPropertyKey => "@swc/helpers",
@@ -217,7 +225,7 @@ impl TransformCtx<'_, '_> {
     /// ```js
     /// var _swc_helpers = require("@swc/helpers");
     /// ```
-    fn helper_var(&mut self, binding: BindingIdentifier, init: Expr) -> Stmt {
+    fn helper_var(&mut self, binding: BindingIdentifier<'id>, init: Expr<'id>) -> Stmt<'id> {
         let declarator = self.add_node(|ast| {
             ast.variable_declarator(
                 DUMMY_SP,

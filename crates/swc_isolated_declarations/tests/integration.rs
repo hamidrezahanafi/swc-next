@@ -43,6 +43,7 @@ fn run_fixture(input: &Path, lang: Lang) {
         .map(|line| line.split_once(": ").unwrap().1);
 
     let allocator = Allocator::default();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
     let parse = Parser::init(
         &allocator,
         &source,
@@ -53,6 +54,7 @@ fn run_fixture(input: &Path, lang: Lang) {
             ..Options::default()
         },
         NoTokenParserConfig,
+        ast_guard,
     )
     .parse();
     assert!(

@@ -6,7 +6,10 @@ use swc_next_ecma_ast::{
 
 use super::*;
 
-pub(super) fn check_string_literal(builder: &mut SemanticBuilder<'_, '_>, literal: StringLiteral) {
+pub(super) fn check_string_literal<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    literal: StringLiteral<'id>,
+) {
     if builder.state.in_type_position() || !builder.state.scope.is_strict() {
         return;
     }
@@ -25,9 +28,9 @@ pub(super) fn check_string_literal(builder: &mut SemanticBuilder<'_, '_>, litera
     }
 }
 
-pub(super) fn check_numeric_literal(
-    builder: &mut SemanticBuilder<'_, '_>,
-    literal: NumericLiteral,
+pub(super) fn check_numeric_literal<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    literal: NumericLiteral<'id>,
 ) {
     if builder.state.in_type_position() || !builder.state.scope.is_strict() {
         return;
@@ -59,7 +62,10 @@ pub(super) fn check_numeric_literal(
     );
 }
 
-pub(super) fn check_reg_exp_literal(builder: &mut SemanticBuilder<'_, '_>, literal: RegExpLiteral) {
+pub(super) fn check_reg_exp_literal<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    literal: RegExpLiteral<'id>,
+) {
     let pattern = builder.ast.get_utf8(literal.pattern(builder.ast));
     let flags = builder.ast.get_utf8(literal.flags(builder.ast));
     let allocator = Allocator::new();
@@ -80,9 +86,9 @@ pub(super) fn check_reg_exp_literal(builder: &mut SemanticBuilder<'_, '_>, liter
     }
 }
 
-pub(super) fn check_identifier_reference(
-    builder: &mut SemanticBuilder<'_, '_>,
-    identifier: IdentifierReference,
+pub(super) fn check_identifier_reference<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    identifier: IdentifierReference<'id>,
     name: &[u8],
 ) {
     if builder.state.in_type_position() {
@@ -99,11 +105,11 @@ pub(super) fn check_identifier_reference(
     }
 }
 
-pub(super) fn check_binding_identifier<'traverse>(
-    builder: &mut SemanticBuilder<'traverse, '_>,
-    identifier: BindingIdentifier,
+pub(super) fn check_binding_identifier<'id, 'traverse>(
+    builder: &mut SemanticBuilder<'traverse, '_, 'id>,
+    identifier: BindingIdentifier<'id>,
     name: &'traverse [u8],
-) -> Option<PreparedDeclaration> {
+) -> Option<PreparedDeclaration<'id>> {
     let node_id = identifier.node_id();
     let flags = builder.state.symbols.pending.flags;
     if flags.is_empty() {
@@ -140,9 +146,9 @@ pub(super) fn check_binding_identifier<'traverse>(
     Some(prepared)
 }
 
-pub(super) fn check_label_identifier(
-    builder: &mut SemanticBuilder<'_, '_>,
-    identifier: LabelIdentifier,
+pub(super) fn check_label_identifier<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    identifier: LabelIdentifier<'id>,
 ) {
     let name = builder
         .ast
@@ -151,9 +157,9 @@ pub(super) fn check_label_identifier(
     builder.check_strict_reserved(name, identifier.node_id(), "a label");
 }
 
-impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
+impl<'id, 'traverse, 'a> SemanticBuilder<'traverse, 'a, 'id> {
     /// <https://tc39.es/ecma262/#sec-keywords-and-reserved-words>
-    fn check_strict_reserved(&mut self, name: &[u8], node: NodeId, as_what: &'static str) {
+    fn check_strict_reserved(&mut self, name: &[u8], node: NodeId<'id>, as_what: &'static str) {
         if !self.state.scope.is_strict() {
             return;
         }
@@ -187,7 +193,7 @@ fn is_eval_or_arguments(name: &[u8]) -> bool {
     matches!(name, b"eval" | b"arguments")
 }
 
-fn is_eval_or_arguments_reference(tree: &Ast<'_>, node: NodeId) -> bool {
+fn is_eval_or_arguments_reference<'id>(tree: &Ast<'_, 'id>, node: NodeId<'id>) -> bool {
     let NodeKindData::IdentifierReference(identifier) = tree.kind_data(node) else {
         return false;
     };
@@ -218,9 +224,9 @@ fn has_octal_escape(value: &[u8]) -> bool {
     false
 }
 
-pub(super) fn check_binary_expression(
-    builder: &mut SemanticBuilder<'_, '_>,
-    expression: BinaryExpression,
+pub(super) fn check_binary_expression<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    expression: BinaryExpression<'id>,
 ) {
     let left = expression.left(builder.ast).node_id();
     if expression.operator(builder.ast) == BinaryOperator::In
@@ -240,9 +246,9 @@ pub(super) fn check_binary_expression(
     }
 }
 
-pub(super) fn check_unary_expression(
-    builder: &mut SemanticBuilder<'_, '_>,
-    expression: UnaryExpression,
+pub(super) fn check_unary_expression<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    expression: UnaryExpression<'id>,
 ) {
     if expression.operator(builder.ast) != UnaryOperator::Delete {
         return;
@@ -276,9 +282,9 @@ pub(super) fn check_unary_expression(
     }
 }
 
-pub(super) fn check_update_expression(
-    builder: &mut SemanticBuilder<'_, '_>,
-    expression: UpdateExpression,
+pub(super) fn check_update_expression<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    expression: UpdateExpression<'id>,
 ) {
     if builder.state.scope.is_strict()
         && is_eval_or_arguments_reference(builder.ast, expression.argument(builder.ast).node_id())
@@ -291,18 +297,18 @@ pub(super) fn check_update_expression(
     }
 }
 
-pub(super) fn check_assignment_expression(
-    builder: &mut SemanticBuilder<'_, '_>,
-    expression: AssignmentExpression,
+pub(super) fn check_assignment_expression<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    expression: AssignmentExpression<'id>,
 ) {
     if builder.state.scope.is_strict() {
         builder.check_assign_target_eval_arguments(expression.left(builder.ast).node_id());
     }
 }
 
-pub(super) fn check_object_expression(
-    builder: &mut SemanticBuilder<'_, '_>,
-    object: ObjectExpression,
+pub(super) fn check_object_expression<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    object: ObjectExpression<'id>,
 ) {
     let mut first_proto = None;
     for property in object.properties(builder.ast).iter() {
@@ -346,9 +352,9 @@ pub(super) fn check_object_expression(
     }
 }
 
-pub(super) fn check_member_expression(
-    builder: &mut SemanticBuilder<'_, '_>,
-    expression: MemberExpression,
+pub(super) fn check_member_expression<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    expression: MemberExpression<'id>,
 ) {
     let object = expression.object(builder.ast).node_id();
     if builder.ast.node_kind(object) == NodeKind::Super && !is_super_property_valid(builder) {
@@ -391,7 +397,10 @@ pub(super) fn check_member_expression(
     }
 }
 
-pub(super) fn check_call_expression(builder: &mut SemanticBuilder<'_, '_>, call: CallExpression) {
+pub(super) fn check_call_expression<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    call: CallExpression<'id>,
+) {
     if builder.ast.node_kind(call.callee(builder.ast).node_id()) == NodeKind::Super {
         let message = "'super()' is only valid in a constructor of a derived class";
         match super_call_validity(builder) {
@@ -420,9 +429,9 @@ pub(super) fn check_call_expression(builder: &mut SemanticBuilder<'_, '_>, call:
     }
 }
 
-pub(super) fn check_await_expression(
-    builder: &mut SemanticBuilder<'_, '_>,
-    expression: AwaitExpression,
+pub(super) fn check_await_expression<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    expression: AwaitExpression<'id>,
 ) {
     let message = await_expression_error(builder);
     if let Some(message) = message {
@@ -434,9 +443,9 @@ pub(super) fn check_await_expression(
     }
 }
 
-pub(super) fn check_yield_expression(
-    builder: &mut SemanticBuilder<'_, '_>,
-    expression: YieldExpression,
+pub(super) fn check_yield_expression<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    expression: YieldExpression<'id>,
 ) {
     if let Some(message) = yield_expression_error(builder) {
         builder.report(
@@ -447,7 +456,10 @@ pub(super) fn check_yield_expression(
     }
 }
 
-pub(super) fn check_meta_property(builder: &mut SemanticBuilder<'_, '_>, property: MetaProperty) {
+pub(super) fn check_meta_property<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    property: MetaProperty<'id>,
+) {
     let meta_name = builder
         .ast
         .get_utf8(property.meta(builder.ast).name(builder.ast));
@@ -470,9 +482,9 @@ pub(super) fn check_meta_property(builder: &mut SemanticBuilder<'_, '_>, propert
     }
 }
 
-impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
+impl<'id, 'traverse, 'a> SemanticBuilder<'traverse, 'a, 'id> {
     /// Walks a destructuring assignment target to find `eval`/`arguments` references.
-    fn check_assign_target_eval_arguments(&mut self, node: NodeId) {
+    fn check_assign_target_eval_arguments(&mut self, node: NodeId<'id>) {
         match self.ast.kind_data(node) {
             NodeKindData::IdentifierReference(identifier) => {
                 if is_eval_or_arguments(self.ast.get_utf8(identifier.name(self.ast)).as_bytes()) {
@@ -517,7 +529,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     }
 }
 
-fn unwrap_parentheses(tree: &Ast<'_>, node: NodeId) -> NodeId {
+fn unwrap_parentheses<'id>(tree: &Ast<'_, 'id>, node: NodeId<'id>) -> NodeId<'id> {
     let mut current = node;
     let mut depth = 0u32;
     // The parser builds at most one parenthesis node per syntactic
@@ -532,7 +544,7 @@ fn unwrap_parentheses(tree: &Ast<'_>, node: NodeId) -> NodeId {
     }
 }
 
-fn await_expression_error(builder: &SemanticBuilder<'_, '_>) -> Option<&'static str> {
+fn await_expression_error<'id>(builder: &SemanticBuilder<'_, '_, 'id>) -> Option<&'static str> {
     const OUTSIDE_ASYNC: &str =
         "Await expressions are only allowed within async functions and at the top level of modules";
 
@@ -572,7 +584,7 @@ fn await_expression_error(builder: &SemanticBuilder<'_, '_>) -> Option<&'static 
     Some(OUTSIDE_ASYNC)
 }
 
-fn yield_expression_error(builder: &SemanticBuilder<'_, '_>) -> Option<&'static str> {
+fn yield_expression_error<'id>(builder: &SemanticBuilder<'_, '_, 'id>) -> Option<&'static str> {
     const OUTSIDE_GENERATOR: &str = "A yield expression is only allowed in a generator body";
 
     let mut child = builder.current_node()?;
@@ -604,9 +616,9 @@ fn yield_expression_error(builder: &SemanticBuilder<'_, '_>) -> Option<&'static 
     Some(OUTSIDE_GENERATOR)
 }
 
-pub(super) fn check_variable_declaration(
-    builder: &mut SemanticBuilder<'_, '_>,
-    declaration: VariableDeclaration,
+pub(super) fn check_variable_declaration<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    declaration: VariableDeclaration<'id>,
 ) {
     let kind = declaration.kind(builder.ast);
     if kind == VariableKind::AwaitUsing && is_inside_static_block(builder) {
@@ -632,9 +644,9 @@ pub(super) fn check_variable_declaration(
     }
 }
 
-pub(super) fn check_switch_statement(
-    builder: &mut SemanticBuilder<'_, '_>,
-    statement: SwitchStatement,
+pub(super) fn check_switch_statement<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    statement: SwitchStatement<'id>,
 ) {
     let mut first_default = None;
     for case in statement.cases(builder.ast).iter() {
@@ -659,9 +671,9 @@ pub(super) fn check_switch_statement(
     }
 }
 
-pub(super) fn check_for_in_statement(
-    builder: &mut SemanticBuilder<'_, '_>,
-    statement: ForInStatement,
+pub(super) fn check_for_in_statement<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    statement: ForInStatement<'id>,
 ) {
     let left = statement.left(builder.ast).node_id();
     builder.check_for_in_of_initializer(left, true);
@@ -670,9 +682,9 @@ pub(super) fn check_for_in_statement(
     }
 }
 
-pub(super) fn check_for_of_statement(
-    builder: &mut SemanticBuilder<'_, '_>,
-    statement: ForOfStatement,
+pub(super) fn check_for_of_statement<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    statement: ForOfStatement<'id>,
 ) {
     if statement.r#await(builder.ast) && !builder.ast.is_ts() && is_inside_static_block(builder) {
         builder.report(
@@ -688,9 +700,9 @@ pub(super) fn check_for_of_statement(
     }
 }
 
-pub(super) fn check_break_statement(
-    builder: &mut SemanticBuilder<'_, '_>,
-    statement: BreakStatement,
+pub(super) fn check_break_statement<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    statement: BreakStatement<'id>,
 ) {
     if let Some(label) = statement.label(builder.ast) {
         let name = builder.ast.get_utf8(label.name(builder.ast)).as_bytes();
@@ -727,9 +739,9 @@ pub(super) fn check_break_statement(
     }
 }
 
-pub(super) fn check_continue_statement(
-    builder: &mut SemanticBuilder<'_, '_>,
-    statement: ContinueStatement,
+pub(super) fn check_continue_statement<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    statement: ContinueStatement<'id>,
 ) {
     if let Some(label) = statement.label(builder.ast) {
         let name = builder.ast.get_utf8(label.name(builder.ast)).as_bytes();
@@ -784,9 +796,9 @@ pub(super) fn check_continue_statement(
     }
 }
 
-pub(super) fn check_labeled_statement(
-    builder: &mut SemanticBuilder<'_, '_>,
-    statement: LabeledStatement,
+pub(super) fn check_labeled_statement<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    statement: LabeledStatement<'id>,
 ) {
     let name = builder
         .ast
@@ -828,9 +840,9 @@ pub(super) fn check_labeled_statement(
     }
 }
 
-pub(super) fn check_with_statement(
-    builder: &mut SemanticBuilder<'_, '_>,
-    statement: WithStatement,
+pub(super) fn check_with_statement<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    statement: WithStatement<'id>,
 ) {
     if builder.state.scope.is_strict() {
         builder.report(
@@ -841,10 +853,10 @@ pub(super) fn check_with_statement(
     }
 }
 
-impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
+impl<'id, 'traverse, 'a> SemanticBuilder<'traverse, 'a, 'id> {
     /// 14.7.5.1 ForBinding must contain exactly one BoundName and, outside
     /// Annex B.3.5, may not have an Initializer.
-    fn check_for_in_of_initializer(&mut self, left: NodeId, is_for_in: bool) {
+    fn check_for_in_of_initializer(&mut self, left: NodeId<'id>, is_for_in: bool) {
         let NodeKindData::VariableDeclaration(declaration) = self.ast.kind_data(left) else {
             return;
         };
@@ -899,7 +911,7 @@ fn is_iteration(kind: NodeKind) -> bool {
     )
 }
 
-fn is_inside_breakable(builder: &SemanticBuilder<'_, '_>) -> bool {
+fn is_inside_breakable<'id>(builder: &SemanticBuilder<'_, '_, 'id>) -> bool {
     for ancestor in builder.ancestors() {
         let kind = builder.ast.node_kind(ancestor);
         if is_iteration(kind) || kind == NodeKind::SwitchStatement {
@@ -912,7 +924,7 @@ fn is_inside_breakable(builder: &SemanticBuilder<'_, '_>) -> bool {
     false
 }
 
-fn is_inside_iteration(builder: &SemanticBuilder<'_, '_>) -> bool {
+fn is_inside_iteration<'id>(builder: &SemanticBuilder<'_, '_, 'id>) -> bool {
     for ancestor in builder.ancestors() {
         let kind = builder.ast.node_kind(ancestor);
         if is_iteration(kind) {
@@ -932,7 +944,7 @@ enum LabelSearch {
     CrossedBoundary,
 }
 
-fn find_label(builder: &SemanticBuilder<'_, '_>, name: &[u8]) -> LabelSearch {
+fn find_label<'id>(builder: &SemanticBuilder<'_, '_, 'id>, name: &[u8]) -> LabelSearch {
     debug_assert!(!name.is_empty());
     let mut crossed_boundary = false;
     for ancestor in builder.ancestors() {
@@ -967,7 +979,10 @@ enum ContinueLabelSearch {
     NotIteration,
 }
 
-fn find_label_for_continue(builder: &SemanticBuilder<'_, '_>, name: &[u8]) -> ContinueLabelSearch {
+fn find_label_for_continue<'id>(
+    builder: &SemanticBuilder<'_, '_, 'id>,
+    name: &[u8],
+) -> ContinueLabelSearch {
     debug_assert!(!name.is_empty());
     let mut crossed_boundary = false;
     for ancestor in builder.ancestors() {
@@ -998,7 +1013,10 @@ fn find_label_for_continue(builder: &SemanticBuilder<'_, '_>, name: &[u8]) -> Co
     ContinueLabelSearch::NotFound
 }
 
-pub(super) fn check_function(builder: &mut SemanticBuilder<'_, '_>, function: Function) {
+pub(super) fn check_function<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    function: Function<'id>,
+) {
     if function.function_type(builder.ast) != FunctionType::FunctionDeclaration {
         return;
     }
@@ -1043,7 +1061,10 @@ pub(super) fn check_function(builder: &mut SemanticBuilder<'_, '_>, function: Fu
     }
 }
 
-pub(super) fn check_directive(builder: &mut SemanticBuilder<'_, '_>, directive: Directive) {
+pub(super) fn check_directive<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    directive: Directive<'id>,
+) {
     if builder.ast.get_utf8(directive.value(builder.ast)) != "use strict" {
         return;
     }
@@ -1079,7 +1100,10 @@ pub(super) fn check_directive(builder: &mut SemanticBuilder<'_, '_>, directive: 
     }
 }
 
-pub(super) fn check_class_body(builder: &mut SemanticBuilder<'_, '_>, body: ClassBody) {
+pub(super) fn check_class_body<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    body: ClassBody<'id>,
+) {
     let children = body.body(builder.ast);
     let mut first_constructor = None;
     for index in 0..children.len() {
@@ -1170,7 +1194,7 @@ enum PrivateElementKind {
 }
 
 /// Returns the StringValue of a class element's PrivateIdentifier key, if any.
-fn private_element_name<'a>(tree: &'a Ast<'_>, node: NodeId) -> Option<&'a [u8]> {
+fn private_element_name<'id, 'a>(tree: &'a Ast<'_, 'id>, node: NodeId<'id>) -> Option<&'a [u8]> {
     let key = match tree.kind_data(node) {
         NodeKindData::PropertyDefinition(property) => property.key(tree).node_id(),
         NodeKindData::MethodDefinition(method) => method.key(tree).node_id(),
@@ -1183,7 +1207,7 @@ fn private_element_name<'a>(tree: &'a Ast<'_>, node: NodeId) -> Option<&'a [u8]>
     Some(tree.get_utf8(identifier.name(tree)).as_bytes())
 }
 
-fn private_element_kind(tree: &Ast<'_>, node: NodeId) -> PrivateElementKind {
+fn private_element_kind<'id>(tree: &Ast<'_, 'id>, node: NodeId<'id>) -> PrivateElementKind {
     let kind = match tree.kind_data(node) {
         NodeKindData::MethodDefinition(method) => Some(method.kind(tree)),
         NodeKindData::TsMethodDefinition(method) => Some(method.kind(tree)),
@@ -1197,7 +1221,7 @@ fn private_element_kind(tree: &Ast<'_>, node: NodeId) -> PrivateElementKind {
     }
 }
 
-fn private_element_is_static(tree: &Ast<'_>, node: NodeId) -> bool {
+fn private_element_is_static<'id>(tree: &Ast<'_, 'id>, node: NodeId<'id>) -> bool {
     match tree.kind_data(node) {
         NodeKindData::PropertyDefinition(property) => property.r#static(tree),
         NodeKindData::MethodDefinition(method) => method.r#static(tree),
@@ -1208,7 +1232,7 @@ fn private_element_is_static(tree: &Ast<'_>, node: NodeId) -> bool {
 
 /// 15.7.7 AllPrivateIdentifiersValid. Walks ancestor ClassBody nodes,
 /// collecting PrivateBoundIdentifiers at each level.
-fn is_private_name_declared(builder: &SemanticBuilder<'_, '_>, name: &[u8]) -> bool {
+fn is_private_name_declared<'id>(builder: &SemanticBuilder<'_, '_, 'id>, name: &[u8]) -> bool {
     for ancestor in builder.ancestors() {
         let NodeKindData::ClassBody(body) = builder.ast.kind_data(ancestor) else {
             continue;
@@ -1232,7 +1256,7 @@ enum SuperCallValidity {
 
 /// `super()` is permitted only inside a constructor of a derived class.
 /// Arrow functions are transparent (Section 8.5.1); regular functions are opaque.
-fn super_call_validity(builder: &SemanticBuilder<'_, '_>) -> SuperCallValidity {
+fn super_call_validity<'id>(builder: &SemanticBuilder<'_, '_, 'id>) -> SuperCallValidity {
     let mut child = None;
     let mut ancestors = builder.ancestors();
     while let Some(ancestor) = ancestors.next() {
@@ -1277,7 +1301,7 @@ fn super_call_validity(builder: &SemanticBuilder<'_, '_>) -> SuperCallValidity {
 
 /// `super.property` is valid in class methods, object methods, field
 /// initializers, static blocks, and arrows inheriting from those contexts.
-fn is_super_property_valid(builder: &SemanticBuilder<'_, '_>) -> bool {
+fn is_super_property_valid<'id>(builder: &SemanticBuilder<'_, '_, 'id>) -> bool {
     let mut ancestors = builder.ancestors();
     while let Some(ancestor) = ancestors.next() {
         match builder.ast.node_kind(ancestor) {
@@ -1306,7 +1330,7 @@ fn is_super_property_valid(builder: &SemanticBuilder<'_, '_>) -> bool {
     false
 }
 
-fn is_new_target_available(builder: &SemanticBuilder<'_, '_>) -> bool {
+fn is_new_target_available<'id>(builder: &SemanticBuilder<'_, '_, 'id>) -> bool {
     for ancestor in builder.ancestors() {
         match builder.ast.node_kind(ancestor) {
             NodeKind::Function | NodeKind::StaticBlock | NodeKind::PropertyDefinition => {
@@ -1321,7 +1345,7 @@ fn is_new_target_available(builder: &SemanticBuilder<'_, '_>) -> bool {
 }
 
 // True when the nearest enclosing boundary is a static block.
-fn is_inside_static_block(builder: &SemanticBuilder<'_, '_>) -> bool {
+fn is_inside_static_block<'id>(builder: &SemanticBuilder<'_, '_, 'id>) -> bool {
     for ancestor in builder.ancestors() {
         match builder.ast.node_kind(ancestor) {
             NodeKind::StaticBlock => return true,
@@ -1334,7 +1358,7 @@ fn is_inside_static_block(builder: &SemanticBuilder<'_, '_>) -> bool {
 
 /// `arguments` is available inside regular functions but not in class field
 /// initializers or static blocks (arrow functions are transparent).
-fn is_arguments_available(builder: &SemanticBuilder<'_, '_>) -> bool {
+fn is_arguments_available<'id>(builder: &SemanticBuilder<'_, '_, 'id>) -> bool {
     let mut child = None;
     for ancestor in builder.ancestors() {
         match builder.ast.kind_data(ancestor) {
@@ -1356,13 +1380,13 @@ fn is_arguments_available(builder: &SemanticBuilder<'_, '_>) -> bool {
     true
 }
 
-pub(super) fn check_program(builder: &mut SemanticBuilder<'_, '_>) {
+pub(super) fn check_program<'id>(builder: &mut SemanticBuilder<'_, '_, 'id>) {
     builder.check_unresolved_exports();
 }
 
-pub(super) fn check_import_declaration(
-    builder: &mut SemanticBuilder<'_, '_>,
-    declaration: ImportDeclaration,
+pub(super) fn check_import_declaration<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    declaration: ImportDeclaration<'id>,
 ) {
     builder.check_import_export_position(
         declaration.node_id(),
@@ -1372,9 +1396,9 @@ pub(super) fn check_import_declaration(
     builder.check_duplicate_with_attributes(declaration.attributes(builder.ast));
 }
 
-pub(super) fn check_export_named_declaration(
-    builder: &mut SemanticBuilder<'_, '_>,
-    declaration: ExportNamedDeclaration,
+pub(super) fn check_export_named_declaration<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    declaration: ExportNamedDeclaration<'id>,
 ) {
     builder.check_import_export_position(
         declaration.node_id(),
@@ -1384,9 +1408,9 @@ pub(super) fn check_export_named_declaration(
     builder.check_duplicate_with_attributes(declaration.attributes(builder.ast));
 }
 
-pub(super) fn check_export_default_declaration(
-    builder: &mut SemanticBuilder<'_, '_>,
-    declaration: ExportDefaultDeclaration,
+pub(super) fn check_export_default_declaration<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    declaration: ExportDefaultDeclaration<'id>,
 ) {
     let export = declaration.declaration(builder.ast);
     if let ExportDefaultDeclarationKindData::Expr(expression) =
@@ -1402,9 +1426,9 @@ pub(super) fn check_export_default_declaration(
     builder.record_exported_name(b"default", declaration.node_id());
 }
 
-pub(super) fn check_export_all_declaration(
-    builder: &mut SemanticBuilder<'_, '_>,
-    declaration: ExportAllDeclaration,
+pub(super) fn check_export_all_declaration<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    declaration: ExportAllDeclaration<'id>,
 ) {
     builder.check_import_export_position(
         declaration.node_id(),
@@ -1418,9 +1442,9 @@ pub(super) fn check_export_all_declaration(
     builder.check_duplicate_with_attributes(declaration.attributes(builder.ast));
 }
 
-pub(super) fn check_export_specifier(
-    builder: &mut SemanticBuilder<'_, '_>,
-    specifier: ExportSpecifier,
+pub(super) fn check_export_specifier<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    specifier: ExportSpecifier<'id>,
 ) {
     let exported_name = module_export_name(builder.ast, specifier.exported(builder.ast).node_id());
     builder.record_exported_name(exported_name, specifier.node_id());
@@ -1441,7 +1465,7 @@ pub(super) fn check_export_specifier(
     }
 }
 
-impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
+impl<'id, 'traverse, 'a> SemanticBuilder<'traverse, 'a, 'id> {
     /// Post-traversal check that all local export specifiers refer to
     /// declared bindings.
     fn check_unresolved_exports(&mut self) {
@@ -1460,7 +1484,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
 
     fn check_import_export_position(
         &mut self,
-        node: NodeId,
+        node: NodeId<'id>,
         out_of_module_label: &'static str,
         top_level_label: &'static str,
     ) {
@@ -1485,7 +1509,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
 
     fn check_duplicate_with_attributes(
         &mut self,
-        attributes: swc_next_ecma_ast::SubRange<swc_next_ecma_ast::ImportAttribute>,
+        attributes: swc_next_ecma_ast::SubRange<'id, swc_next_ecma_ast::ImportAttribute<'id>>,
     ) {
         for index in 0..attributes.len() {
             let attribute = attributes
@@ -1525,7 +1549,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     }
 
     /// Records an exported name and reports a duplicate if one already exists.
-    fn record_exported_name(&mut self, name: &'traverse [u8], node: NodeId) {
+    fn record_exported_name(&mut self, name: &'traverse [u8], node: NodeId<'id>) {
         // TypeScript declarations can merge across the type and value namespaces. Duplicate
         // exports are therefore checker diagnostics rather than parser-level early errors.
         if self.ast.is_ts() {
@@ -1560,7 +1584,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     }
 }
 
-fn is_at_program_level(builder: &SemanticBuilder<'_, '_>) -> bool {
+fn is_at_program_level<'id>(builder: &SemanticBuilder<'_, '_, 'id>) -> bool {
     builder.parent().is_none_or(|parent| {
         matches!(
             builder.ast.node_kind(parent),
@@ -1569,7 +1593,7 @@ fn is_at_program_level(builder: &SemanticBuilder<'_, '_>) -> bool {
     })
 }
 
-fn import_attribute_name<'a>(tree: &'a Ast<'_>, key: NodeId) -> Option<&'a [u8]> {
+fn import_attribute_name<'id, 'a>(tree: &'a Ast<'_, 'id>, key: NodeId<'id>) -> Option<&'a [u8]> {
     match tree.kind_data(key) {
         NodeKindData::IdentifierName(identifier) => {
             Some(tree.get_utf8(identifier.name(tree)).as_bytes())

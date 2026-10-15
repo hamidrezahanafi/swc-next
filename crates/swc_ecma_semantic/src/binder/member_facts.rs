@@ -47,9 +47,9 @@ struct PropertyNames<'tree> {
     unknown: bool,
 }
 
-pub(super) struct TsMemberFactsLookup<'lookup, 'arena> {
-    pub(super) tracker: &'lookup SymbolTracker<'arena>,
-    pub(super) scopes: &'lookup [Scope],
+pub(super) struct TsMemberFactsLookup<'lookup, 'arena, 'id> {
+    pub(super) tracker: &'lookup SymbolTracker<'arena, 'id>,
+    pub(super) scopes: &'lookup [Scope<'id>],
     pub(super) scope_views: Option<&'lookup TsScopeViewIndex<'arena>>,
 }
 
@@ -80,11 +80,11 @@ impl<'tree> TsPropertyValues<'tree> {
 // Collect own exported property contributions, not inherited object properties.
 // Only syntax accepted by TS7's early or late member binding contributes.
 // Eligible names requiring types remain unknown, never proof of absence.
-pub(super) fn collect_ts_property_values<'tree>(
-    tree: &'tree Ast<'_>,
-    scopes: &[Scope],
-    assignments: &[(MemberExpression, TsExpandoBindingSite)],
-    lookup: &TsMemberFactsLookup<'_, '_>,
+pub(super) fn collect_ts_property_values<'id, 'tree>(
+    tree: &'tree Ast<'_, 'id>,
+    scopes: &[Scope<'id>],
+    assignments: &[(MemberExpression<'id>, TsExpandoBindingSite)],
+    lookup: &TsMemberFactsLookup<'_, '_, 'id>,
 ) -> TsPropertyValues<'tree> {
     let mut values = TsPropertyValues::default();
     for scope in scopes {
@@ -156,11 +156,11 @@ pub(super) fn collect_ts_property_values<'tree>(
     values
 }
 
-impl TsMemberFactsLookup<'_, '_> {
+impl<'id> TsMemberFactsLookup<'_, '_, 'id> {
     fn expando_receiver(
         &self,
-        tree: &Ast,
-        node: NodeId,
+        tree: &Ast<'_, 'id>,
+        node: NodeId<'id>,
         scope: Option<ScopeId>,
     ) -> Option<SymbolId> {
         let node = unwrap_parentheses(tree, node);
@@ -229,7 +229,10 @@ impl TsMemberFactsLookup<'_, '_> {
     }
 }
 
-pub(super) fn is_expando_assignment(tree: &Ast, mut member: MemberExpression) -> bool {
+pub(super) fn is_expando_assignment<'id>(
+    tree: &Ast<'_, 'id>,
+    mut member: MemberExpression<'id>,
+) -> bool {
     loop {
         let object = unwrap_parentheses(tree, member.object(tree).node_id());
         if member.optional(tree) {
@@ -246,10 +249,10 @@ pub(super) fn is_expando_assignment(tree: &Ast, mut member: MemberExpression) ->
 }
 
 impl TsExpandoBindingSite {
-    pub(super) fn new(
-        tree: &Ast,
-        scopes: &ScopeTracker<'_>,
-        ancestors: impl Iterator<Item = NodeId>,
+    pub(super) fn new<'id>(
+        tree: &Ast<'_, 'id>,
+        scopes: &ScopeTracker<'_, 'id>,
+        ancestors: impl Iterator<Item = NodeId<'id>>,
     ) -> Self {
         let mut block_node = None;
         for node in ancestors {
@@ -316,9 +319,9 @@ impl TsExpandoBindingSite {
 
 // Property facts own normalized names when the AST only stores a numeric value.
 // A known numeric key must neither disappear nor make unrelated names uncertain.
-fn property_name<'tree>(
-    tree: &'tree Ast<'_>,
-    node: NodeId,
+fn property_name<'id, 'tree>(
+    tree: &'tree Ast<'_, 'id>,
+    node: NodeId<'id>,
     computed: bool,
 ) -> Option<Cow<'tree, [u8]>> {
     if let Some(name) = text_member_name(tree, node, computed) {
@@ -350,7 +353,11 @@ fn property_name<'tree>(
     Some(Cow::Owned(name))
 }
 
-pub(super) fn text_member_name(tree: &Ast<'_>, node: NodeId, computed: bool) -> Option<AstWtf8> {
+pub(super) fn text_member_name<'id>(
+    tree: &Ast<'_, 'id>,
+    node: NodeId<'id>,
+    computed: bool,
+) -> Option<AstWtf8<'id>> {
     match tree.kind_data(node) {
         NodeKindData::IdentifierName(identifier) if !computed => Some(identifier.name(tree).into()),
         NodeKindData::StringLiteral(literal) => Some(literal.value(tree)),
@@ -367,7 +374,7 @@ pub(super) fn text_member_name(tree: &Ast<'_>, node: NodeId, computed: bool) -> 
     }
 }
 
-fn is_late_bindable_name(tree: &Ast<'_>, mut node: NodeId) -> bool {
+fn is_late_bindable_name<'id>(tree: &Ast<'_, 'id>, mut node: NodeId<'id>) -> bool {
     // Mirrors TS7 isLateBindableAST -> IsEntityNameExpression: identifiers
     // and dotted identifier paths qualify; their types remain outside this pass.
     loop {

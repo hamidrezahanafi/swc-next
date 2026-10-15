@@ -9,21 +9,21 @@ use swc_next_ecma_ast::{
 };
 use swc_next_ecma_semantic::Semantic;
 
-pub(super) struct AnalysisCollector<'visit, 'ast> {
-    ast: &'visit Ast<'ast>,
-    semantic: &'visit Semantic<'ast>,
-    pub(super) enums: EnumCollector,
+pub(super) struct AnalysisCollector<'visit, 'ast, 'id> {
+    ast: &'visit Ast<'ast, 'id>,
+    semantic: &'visit Semantic<'ast, 'id>,
+    pub(super) enums: EnumCollector<'id>,
     ambient: bool,
-    deferred: Option<NodeId>,
-    immediately_invoked: Option<NodeId>,
-    pub(super) modules: ModuleCollector,
-    pub(super) namespaces: NamespaceCollector,
+    deferred: Option<NodeId<'id>>,
+    immediately_invoked: Option<NodeId<'id>>,
+    pub(super) modules: ModuleCollector<'id>,
+    pub(super) namespaces: NamespaceCollector<'id>,
 }
 
-impl<'visit, 'ast> AnalysisCollector<'visit, 'ast> {
+impl<'id, 'visit, 'ast> AnalysisCollector<'visit, 'ast, 'id> {
     pub(super) fn new(
-        ast: &'visit Ast<'ast>,
-        semantic: &'visit Semantic<'ast>,
+        ast: &'visit Ast<'ast, 'id>,
+        semantic: &'visit Semantic<'ast, 'id>,
         options: &TypeScriptOptions,
     ) -> Self {
         Self {
@@ -39,18 +39,18 @@ impl<'visit, 'ast> AnalysisCollector<'visit, 'ast> {
     }
 }
 
-impl<'ast> Visit<'ast> for AnalysisCollector<'_, 'ast> {
-    fn ast(&self) -> &Ast<'ast> {
+impl<'id, 'ast> Visit<'ast, 'id> for AnalysisCollector<'_, 'ast, 'id> {
+    fn ast(&self) -> &Ast<'ast, 'id> {
         self.ast
     }
 
     // Runtime emission does not depend on expressions inside erased types.
     // Semantic reference flags already distinguish type uses from runtime uses.
-    fn visit_ts_type(&mut self, _node: TsType) {}
+    fn visit_ts_type(&mut self, _node: TsType<'id>) {}
 
-    fn visit_ts_interface_declaration(&mut self, _node: TsInterfaceDeclaration) {}
+    fn visit_ts_interface_declaration(&mut self, _node: TsInterfaceDeclaration<'id>) {}
 
-    fn visit_call_expression(&mut self, call: CallExpression) {
+    fn visit_call_expression(&mut self, call: CallExpression<'id>) {
         let mut callee = call.callee(self.ast);
         while let ExprData::ParenthesizedExpression(parenthesized) = self.ast.expr_data(callee) {
             callee = parenthesized.expression(self.ast);
@@ -61,7 +61,7 @@ impl<'ast> Visit<'ast> for AnalysisCollector<'_, 'ast> {
         self.immediately_invoked = previous;
     }
 
-    fn visit_function(&mut self, function: Function) {
+    fn visit_function(&mut self, function: Function<'id>) {
         let previous = self.deferred;
         if self.immediately_invoked != Some(function.node_id()) {
             self.deferred = Some(function.node_id());
@@ -70,7 +70,7 @@ impl<'ast> Visit<'ast> for AnalysisCollector<'_, 'ast> {
         self.deferred = previous;
     }
 
-    fn visit_arrow_function_expression(&mut self, function: ArrowFunctionExpression) {
+    fn visit_arrow_function_expression(&mut self, function: ArrowFunctionExpression<'id>) {
         let previous = self.deferred;
         if self.immediately_invoked != Some(function.node_id()) {
             self.deferred = Some(function.node_id());
@@ -79,7 +79,7 @@ impl<'ast> Visit<'ast> for AnalysisCollector<'_, 'ast> {
         self.deferred = previous;
     }
 
-    fn visit_method_definition(&mut self, method: MethodDefinition) {
+    fn visit_method_definition(&mut self, method: MethodDefinition<'id>) {
         method.decorators(self.ast).visit_with(self);
         // TypeScript's function-like boundary includes a method's computed name,
         // which is outside the Function node in our AST. This is only a constant
@@ -91,7 +91,7 @@ impl<'ast> Visit<'ast> for AnalysisCollector<'_, 'ast> {
         self.deferred = previous;
     }
 
-    fn visit_object_property(&mut self, property: ObjectProperty) {
+    fn visit_object_property(&mut self, property: ObjectProperty<'id>) {
         let previous = self.deferred;
         if property.method(self.ast) || property.kind(self.ast) != PropertyKind::Init {
             self.deferred = Some(property.node_id());
@@ -100,7 +100,7 @@ impl<'ast> Visit<'ast> for AnalysisCollector<'_, 'ast> {
         self.deferred = previous;
     }
 
-    fn visit_property_definition(&mut self, property: PropertyDefinition) {
+    fn visit_property_definition(&mut self, property: PropertyDefinition<'id>) {
         property.decorators(self.ast).visit_with(self);
         property.key(self.ast).visit_with(self);
         property.type_annotation(self.ast).visit_with(self);
@@ -114,7 +114,7 @@ impl<'ast> Visit<'ast> for AnalysisCollector<'_, 'ast> {
         }
     }
 
-    fn visit_simple_assignment_target(&mut self, target: SimpleAssignmentTarget) {
+    fn visit_simple_assignment_target(&mut self, target: SimpleAssignmentTarget<'id>) {
         let previous = self
             .enums
             .set_assignment_target(Some(target.node_id()), self.ast);
@@ -122,12 +122,12 @@ impl<'ast> Visit<'ast> for AnalysisCollector<'_, 'ast> {
         self.enums.set_assignment_target(previous, self.ast);
     }
 
-    fn visit_stmt(&mut self, statement: Stmt) {
+    fn visit_stmt(&mut self, statement: Stmt<'id>) {
         self.namespaces.record_statement(statement, self.ast);
         statement.visit_children_with(self);
     }
 
-    fn visit_ts_enum_declaration(&mut self, declaration: TsEnumDeclaration) {
+    fn visit_ts_enum_declaration(&mut self, declaration: TsEnumDeclaration<'id>) {
         self.enums.record_enum_declaration(
             declaration,
             self.ambient,
@@ -138,13 +138,13 @@ impl<'ast> Visit<'ast> for AnalysisCollector<'_, 'ast> {
         declaration.visit_children_with(self);
     }
 
-    fn visit_ts_import_equals_declaration(&mut self, declaration: TsImportEqualsDeclaration) {
+    fn visit_ts_import_equals_declaration(&mut self, declaration: TsImportEqualsDeclaration<'id>) {
         self.modules
             .record_import_equals(declaration, self.ast, self.semantic);
         declaration.visit_children_with(self);
     }
 
-    fn visit_ts_module_declaration(&mut self, declaration: TsModuleDeclaration) {
+    fn visit_ts_module_declaration(&mut self, declaration: TsModuleDeclaration<'id>) {
         self.namespaces.record_declaration(declaration);
         let ambient = self.ambient;
         self.ambient |= declaration.declare(self.ast);
@@ -152,14 +152,14 @@ impl<'ast> Visit<'ast> for AnalysisCollector<'_, 'ast> {
         self.ambient = ambient;
     }
 
-    fn visit_ts_global_declaration(&mut self, declaration: TsGlobalDeclaration) {
+    fn visit_ts_global_declaration(&mut self, declaration: TsGlobalDeclaration<'id>) {
         let ambient = self.ambient;
         self.ambient = true;
         declaration.visit_children_with(self);
         self.ambient = ambient;
     }
 
-    fn visit_unary_expression(&mut self, expression: UnaryExpression) {
+    fn visit_unary_expression(&mut self, expression: UnaryExpression<'id>) {
         let target = (expression.operator(self.ast) == swc_next_ecma_ast::UnaryOperator::Delete)
             .then(|| expression.argument(self.ast).node_id());
         let previous = self.enums.set_assignment_target(target, self.ast);
@@ -167,13 +167,13 @@ impl<'ast> Visit<'ast> for AnalysisCollector<'_, 'ast> {
         self.enums.set_assignment_target(previous, self.ast);
     }
 
-    fn visit_variable_declaration(&mut self, declaration: VariableDeclaration) {
+    fn visit_variable_declaration(&mut self, declaration: VariableDeclaration<'id>) {
         self.enums
             .record_variable_declaration(declaration, self.deferred, self.ast, self.semantic);
         declaration.visit_children_with(self);
     }
 
-    fn visit_member_expression(&mut self, member: MemberExpression) {
+    fn visit_member_expression(&mut self, member: MemberExpression<'id>) {
         self.enums
             .record_member_expression(member, self.ast, self.semantic);
         member.visit_children_with(self);

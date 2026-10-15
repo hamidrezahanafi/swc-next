@@ -12,6 +12,7 @@ version               = "0.2.4"
 shared_string_allocator = []
 
 [dependencies]
+generativity     = { workspace = true }
 oxc_index        = { workspace = true }
 unicode-id-start = { workspace = true }
 

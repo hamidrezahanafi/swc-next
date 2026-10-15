@@ -19,27 +19,27 @@ mod visit;
 use namespaces::NamespaceState;
 use statements::StatementExpansion;
 
-pub(super) struct TypeScriptLowerer<'visit, 'ast> {
-    ast: &'visit mut Ast<'ast>,
+pub(super) struct TypeScriptLowerer<'visit, 'ast, 'id> {
+    ast: &'visit mut Ast<'ast, 'id>,
     options: &'visit TypeScriptOptions,
-    analysis: TypeScriptAnalysis<'ast>,
-    semantic: &'visit Semantic<'ast>,
+    analysis: TypeScriptAnalysis<'ast, 'id>,
+    semantic: &'visit Semantic<'ast, 'id>,
     semantic_node_count: usize,
     comments: CommentState,
     runtime_binding_scopes: Vec<FxHashSet<SymbolId>>,
     enum_member_symbols: FxHashMap<SymbolId, FxHashSet<SymbolId>>,
-    namespaces: NamespaceState,
+    namespaces: NamespaceState<'id>,
     // Lazy index; None as a map value means unresolved or conflicting owners.
     source_name_owners: Option<FxHashMap<&'ast [u8], Option<SymbolId>>>,
     used_names: Option<UsedNameState<'ast>>,
 }
 
-impl<'visit, 'ast> TypeScriptLowerer<'visit, 'ast> {
+impl<'id, 'visit, 'ast> TypeScriptLowerer<'visit, 'ast, 'id> {
     pub(super) fn new(
         options: &'visit TypeScriptOptions,
-        analysis: TypeScriptAnalysis<'ast>,
-        ast: &'visit mut Ast<'ast>,
-        semantic: &'visit Semantic<'ast>,
+        analysis: TypeScriptAnalysis<'ast, 'id>,
+        ast: &'visit mut Ast<'ast, 'id>,
+        semantic: &'visit Semantic<'ast, 'id>,
     ) -> Self {
         let semantic_node_count = ast.node_count();
         Self {
@@ -57,7 +57,7 @@ impl<'visit, 'ast> TypeScriptLowerer<'visit, 'ast> {
         }
     }
 
-    pub(super) fn lower_program(mut self, program: Program) {
+    pub(super) fn lower_program(mut self, program: Program<'id>) {
         let body = program.body(self.ast());
         if let Some(body) = self.lower_statement_list(body) {
             program.set_body(self.ast(), body);
@@ -71,7 +71,7 @@ impl<'visit, 'ast> TypeScriptLowerer<'visit, 'ast> {
         self.comments.flush(self.ast);
     }
 
-    pub(super) fn ast_ref(&self) -> &Ast<'ast> {
+    pub(super) fn ast_ref(&self) -> &Ast<'ast, 'id> {
         self.ast
     }
 }

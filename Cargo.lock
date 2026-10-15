@@ -860,6 +860,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "generativity"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2c81fb5260e37854d09d5c87183309fd8c555b75289427884b25660bc87a85e"
+
+[[package]]
 name = "generator"
 version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2767,6 +2773,7 @@ dependencies = [
 name = "swc_next_ecma_ast"
 version = "0.2.4"
 dependencies = [
+ "generativity",
  "oxc_index",
  "swc_next_allocator",
  "swc_next_ast_macros",

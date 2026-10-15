@@ -3,9 +3,9 @@ use swc_next_ecma_ast::{FormalParameterPatternData, Lang, SourceType, TsParamete
 use super::*;
 use crate::binder::{TsImportAliasIssue, TsNamespaceExportAliasIssue};
 
-pub(super) fn check_method_definition(
-    builder: &mut SemanticBuilder<'_, '_>,
-    method: MethodDefinition,
+pub(super) fn check_method_definition<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    method: MethodDefinition<'id>,
 ) {
     if method.r#abstract(builder.ast) {
         builder.report(
@@ -16,7 +16,10 @@ pub(super) fn check_method_definition(
     }
 }
 
-pub(super) fn check_tuple_rest_type(builder: &mut SemanticBuilder<'_, '_>, rest: TsRestType) {
+pub(super) fn check_tuple_rest_type<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    rest: TsRestType<'id>,
+) {
     if let Some(member) = rest
         .type_annotation(builder.ast)
         .as_ts_named_tuple_member(builder.ast)
@@ -41,9 +44,9 @@ pub(super) fn check_tuple_rest_type(builder: &mut SemanticBuilder<'_, '_>, rest:
     }
 }
 
-pub(super) fn check_tuple_optional_type(
-    builder: &mut SemanticBuilder<'_, '_>,
-    optional: TsOptionalType,
+pub(super) fn check_tuple_optional_type<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    optional: TsOptionalType<'id>,
 ) {
     if let Some(parent) = builder.parent()
         && builder.ast.node_kind(parent) == NodeKind::TsNamedTupleMember
@@ -56,9 +59,9 @@ pub(super) fn check_tuple_optional_type(
     }
 }
 
-pub(super) fn check_ts_module_declaration(
-    builder: &mut SemanticBuilder<'_, '_>,
-    declaration: TsModuleDeclaration,
+pub(super) fn check_ts_module_declaration<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    declaration: TsModuleDeclaration<'id>,
 ) {
     let Some((node, message)) = ts_module_declaration_context_error(builder, declaration) else {
         return;
@@ -66,10 +69,10 @@ pub(super) fn check_ts_module_declaration(
     builder.report(builder.ast.span(node), message, ReportOptions::default());
 }
 
-fn ts_module_declaration_context_error(
-    builder: &SemanticBuilder<'_, '_>,
-    declaration: TsModuleDeclaration,
-) -> Option<(NodeId, &'static str)> {
+fn ts_module_declaration_context_error<'id>(
+    builder: &SemanticBuilder<'_, '_, 'id>,
+    declaration: TsModuleDeclaration<'id>,
+) -> Option<(NodeId<'id>, &'static str)> {
     let (parent, ancestors) = ts_module_element_context(builder)?;
     let parent_kind = builder.ast.node_kind(parent);
     let quoted = matches!(
@@ -96,9 +99,9 @@ fn ts_module_declaration_context_error(
     None
 }
 
-pub(super) fn check_ts_global_declaration(
-    builder: &mut SemanticBuilder<'_, '_>,
-    declaration: TsGlobalDeclaration,
+pub(super) fn check_ts_global_declaration<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    declaration: TsGlobalDeclaration<'id>,
 ) {
     if !declaration.declare(builder.ast) && !in_ts_syntactic_ambient_context(builder) {
         builder.report(
@@ -113,10 +116,10 @@ pub(super) fn check_ts_global_declaration(
     builder.report(builder.ast.span(node), message, ReportOptions::default());
 }
 
-fn ts_global_declaration_context_error(
-    builder: &SemanticBuilder<'_, '_>,
-    declaration: TsGlobalDeclaration,
-) -> Option<(NodeId, &'static str)> {
+fn ts_global_declaration_context_error<'id>(
+    builder: &SemanticBuilder<'_, '_, 'id>,
+    declaration: TsGlobalDeclaration<'id>,
+) -> Option<(NodeId<'id>, &'static str)> {
     let (parent, ancestors) = ts_module_element_context(builder)?;
     let parent_kind = builder.ast.node_kind(parent);
     if !is_ts_module_element_container(parent_kind) {
@@ -139,10 +142,10 @@ fn ts_global_declaration_context_error(
 /// direct body of a top-level ambient module in a Script.
 /// `parent` is the effective parent after skipping an export declaration wrapper,
 /// and `ancestors` starts immediately above it.
-fn is_ts_module_augmentation_external(
-    tree: &Ast<'_>,
-    parent: NodeId,
-    mut ancestors: impl Iterator<Item = NodeId>,
+fn is_ts_module_augmentation_external<'id>(
+    tree: &Ast<'_, 'id>,
+    parent: NodeId<'id>,
+    mut ancestors: impl Iterator<Item = NodeId<'id>>,
 ) -> bool {
     let external_module = matches!(
         tree.source_type(),
@@ -175,7 +178,7 @@ fn is_ts_module_augmentation_external(
     }
 }
 
-fn in_ts_syntactic_ambient_context(builder: &SemanticBuilder<'_, '_>) -> bool {
+fn in_ts_syntactic_ambient_context<'id>(builder: &SemanticBuilder<'_, '_, 'id>) -> bool {
     if builder.ast.lang() == Lang::Dts {
         return true;
     }
@@ -197,9 +200,9 @@ fn in_ts_syntactic_ambient_context(builder: &SemanticBuilder<'_, '_>) -> bool {
         })
 }
 
-fn ts_module_element_context<'b>(
-    builder: &'b SemanticBuilder<'_, '_>,
-) -> Option<(NodeId, impl Iterator<Item = NodeId> + 'b)> {
+fn ts_module_element_context<'id, 'b>(
+    builder: &'b SemanticBuilder<'_, '_, 'id>,
+) -> Option<(NodeId<'id>, impl Iterator<Item = NodeId<'id>> + 'b)> {
     let mut ancestors = builder.ancestors().skip(1);
     let mut parent = ancestors.next()?;
     if builder.ast.node_kind(parent) == NodeKind::ExportNamedDeclaration {
@@ -215,10 +218,10 @@ fn is_ts_module_element_container(kind: NodeKind) -> bool {
     )
 }
 
-pub(super) fn check_ts_alias_issues(
-    builder: &mut SemanticBuilder<'_, '_>,
-    export_alias_issues: impl IntoIterator<Item = TsNamespaceExportAliasIssue>,
-    import_alias_issues: impl IntoIterator<Item = TsImportAliasIssue>,
+pub(super) fn check_ts_alias_issues<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    export_alias_issues: impl IntoIterator<Item = TsNamespaceExportAliasIssue<'id>>,
+    import_alias_issues: impl IntoIterator<Item = TsImportAliasIssue<'id>>,
 ) {
     for issue in export_alias_issues {
         match issue {
@@ -248,44 +251,44 @@ pub(super) fn check_ts_alias_issues(
     }
 }
 
-fn check_ts_namespace_export_alias_missing(
-    builder: &mut SemanticBuilder<'_, '_>,
-    name: swc_next_ecma_ast::AstUtf8,
-    node: NodeId,
+fn check_ts_namespace_export_alias_missing<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    name: swc_next_ecma_ast::AstUtf8<'id>,
+    node: NodeId<'id>,
 ) {
     let name = builder.ast.get_utf8(name).as_bytes();
     builder.report_unresolved_export(builder.ast, name, node);
 }
 
-fn check_ts_namespace_export_alias_non_local(
-    builder: &mut SemanticBuilder<'_, '_>,
-    name: swc_next_ecma_ast::AstUtf8,
-    node: NodeId,
+fn check_ts_namespace_export_alias_non_local<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    name: swc_next_ecma_ast::AstUtf8<'id>,
+    node: NodeId<'id>,
 ) {
     let name = builder.ast.get_utf8(name).as_bytes();
     builder.report_non_local_export(builder.ast, name, node);
 }
 
-fn check_ts_namespace_export_alias_duplicate(
-    builder: &mut SemanticBuilder<'_, '_>,
-    node: NodeId,
-    previous: NodeId,
+fn check_ts_namespace_export_alias_duplicate<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    node: NodeId<'id>,
+    previous: NodeId<'id>,
 ) {
     check_ts_namespace_export_alias_conflict_with_kind(builder, node, previous, true);
 }
 
-fn check_ts_namespace_export_alias_conflict(
-    builder: &mut SemanticBuilder<'_, '_>,
-    node: NodeId,
-    previous: NodeId,
+fn check_ts_namespace_export_alias_conflict<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    node: NodeId<'id>,
+    previous: NodeId<'id>,
 ) {
     check_ts_namespace_export_alias_conflict_with_kind(builder, node, previous, false);
 }
 
-fn check_ts_namespace_export_alias_conflict_with_kind(
-    builder: &mut SemanticBuilder<'_, '_>,
-    node: NodeId,
-    previous: NodeId,
+fn check_ts_namespace_export_alias_conflict_with_kind<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    node: NodeId<'id>,
+    previous: NodeId<'id>,
     duplicate: bool,
 ) {
     let NodeKindData::ExportSpecifier(specifier) = builder.ast.kind_data(node) else {
@@ -296,9 +299,9 @@ fn check_ts_namespace_export_alias_conflict_with_kind(
     builder.report_ts_namespace_export_alias_conflict(builder.ast, name, node, previous, duplicate);
 }
 
-fn check_ts_import_alias_conflict(
-    builder: &mut SemanticBuilder<'_, '_>,
-    issue: crate::binder::TsImportAliasConflictIssue,
+fn check_ts_import_alias_conflict<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    issue: crate::binder::TsImportAliasConflictIssue<'id>,
 ) {
     let name = builder.ast.get_wtf8(issue.name).as_bytes();
     builder.report_redeclaration(
@@ -310,21 +313,21 @@ fn check_ts_import_alias_conflict(
     );
 }
 
-fn check_ts_import_alias_type_only_export(
-    builder: &mut SemanticBuilder<'_, '_>,
-    node: NodeId,
-    export: NodeId,
+fn check_ts_import_alias_type_only_export<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    node: NodeId<'id>,
+    export: NodeId<'id>,
 ) {
     builder.report_ts_import_alias_type_only_export(builder.ast, node, export);
 }
 
-impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
+impl<'id, 'traverse, 'a> SemanticBuilder<'traverse, 'a, 'id> {
     fn report_ts_namespace_export_alias_conflict(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast<'a, 'id>,
         name: &[u8],
-        node: NodeId,
-        previous: NodeId,
+        node: NodeId<'id>,
+        previous: NodeId<'id>,
         duplicate: bool,
     ) {
         let name = String::from_utf8_lossy(name);
@@ -354,9 +357,9 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
 
     fn report_ts_import_alias_type_only_export(
         &mut self,
-        tree: &Ast<'a>,
-        node: NodeId,
-        export: NodeId,
+        tree: &Ast<'a, 'id>,
+        node: NodeId<'id>,
+        export: NodeId<'id>,
     ) {
         let current_span = tree.span(node);
         let export_span = tree.span(export);
@@ -378,17 +381,17 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     }
 }
 
-pub(super) fn check_ts_export_assignment(
-    builder: &mut SemanticBuilder<'_, '_>,
-    assignment: TsExportAssignment,
+pub(super) fn check_ts_export_assignment<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    assignment: TsExportAssignment<'id>,
 ) {
     let expression = assignment.expression(builder.ast);
     check_ts_ambient_export_assignment_expression(builder, expression.node_id());
 }
 
-pub(super) fn check_ts_ambient_export_assignment_expression(
-    builder: &mut SemanticBuilder<'_, '_>,
-    expression: NodeId,
+pub(super) fn check_ts_ambient_export_assignment_expression<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    expression: NodeId<'id>,
 ) {
     if !builder.state.symbols.in_ambient_context()
         || is_ts_entity_name_expression(builder.ast, expression)
@@ -403,7 +406,7 @@ pub(super) fn check_ts_ambient_export_assignment_expression(
     );
 }
 
-fn is_ts_entity_name_expression(tree: &Ast<'_>, expression: NodeId) -> bool {
+fn is_ts_entity_name_expression<'id>(tree: &Ast<'_, 'id>, expression: NodeId<'id>) -> bool {
     let mut current = expression;
     loop {
         current = crate::ecmascript::unwrap_parentheses(tree, current);
@@ -426,7 +429,7 @@ fn is_ts_entity_name_expression(tree: &Ast<'_>, expression: NodeId) -> bool {
     }
 }
 
-fn is_export_assignment_container(builder: &SemanticBuilder<'_, '_>) -> bool {
+fn is_export_assignment_container<'id>(builder: &SemanticBuilder<'_, '_, 'id>) -> bool {
     let Some(parent) = builder.parent() else {
         return false;
     };
@@ -452,7 +455,7 @@ fn is_export_assignment_container(builder: &SemanticBuilder<'_, '_>) -> bool {
 /// Mirrors TypeScript's `isInTopLevelContext` test for contextual identifiers.
 /// The parser owns `[Await]` grammar errors; this checker only adds the external
 /// module rule, whose boundary depends on the surrounding runtime container.
-fn is_in_top_level_context(context: &SemanticBuilder<'_, '_>, node: NodeId) -> bool {
+fn is_in_top_level_context<'id>(context: &SemanticBuilder<'_, '_, 'id>, node: NodeId<'id>) -> bool {
     let tree = context.ast;
     for ancestor in context.ancestors().skip(1) {
         match tree.kind_data(ancestor) {
@@ -486,9 +489,9 @@ fn is_in_top_level_context(context: &SemanticBuilder<'_, '_>, node: NodeId) -> b
 
 #[cold]
 #[inline(never)]
-pub(super) fn check_contextual_await(
-    checker: &mut SemanticBuilder<'_, '_>,
-    node: NodeId,
+pub(super) fn check_contextual_await<'id>(
+    checker: &mut SemanticBuilder<'_, '_, 'id>,
+    node: NodeId<'id>,
     message: &'static str,
 ) {
     let context = &*checker;
@@ -502,10 +505,10 @@ pub(super) fn check_contextual_await(
     checker.report(context.ast.span(node), message, ReportOptions::default());
 }
 
-fn parameter_property_binding(
-    tree: &Ast<'_>,
-    property: TsParameterProperty,
-) -> Option<swc_next_ecma_ast::BindingIdentifier> {
+fn parameter_property_binding<'id>(
+    tree: &Ast<'_, 'id>,
+    property: TsParameterProperty<'id>,
+) -> Option<swc_next_ecma_ast::BindingIdentifier<'id>> {
     let parameter = property.parameter(tree);
     let pattern = parameter.pattern(tree);
     let FormalParameterPatternData::BindingIdentifier(identifier) =
@@ -516,9 +519,9 @@ fn parameter_property_binding(
     Some(identifier)
 }
 
-pub(super) fn check_parameter_property(
-    checker: &mut SemanticBuilder<'_, '_>,
-    property: TsParameterProperty,
+pub(super) fn check_parameter_property<'id>(
+    checker: &mut SemanticBuilder<'_, '_, 'id>,
+    property: TsParameterProperty<'id>,
 ) {
     let Some(binding) = parameter_property_binding(checker.ast, property) else {
         checker.report(

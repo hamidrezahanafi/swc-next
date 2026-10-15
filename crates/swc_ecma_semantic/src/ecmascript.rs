@@ -2,10 +2,10 @@ use swc_next_ecma_ast::{
     Ast, FormalParameterItemData, FormalParameters, NodeId, NodeKind, NodeKindData,
 };
 
-pub(crate) fn import_equals_reference_node(
-    tree: &Ast<'_>,
-    declaration: swc_next_ecma_ast::TsImportEqualsDeclaration,
-) -> Option<NodeId> {
+pub(crate) fn import_equals_reference_node<'id>(
+    tree: &Ast<'_, 'id>,
+    declaration: swc_next_ecma_ast::TsImportEqualsDeclaration<'id>,
+) -> Option<NodeId<'id>> {
     let target = declaration.module_reference(tree);
     let swc_next_ecma_ast::TsModuleReferenceData::TsTypeName(name) =
         tree.ts_module_reference_data(target)
@@ -19,7 +19,7 @@ pub(crate) fn import_equals_reference_node(
     Some(root)
 }
 
-pub(crate) fn unwrap_parentheses(tree: &Ast<'_>, mut node: NodeId) -> NodeId {
+pub(crate) fn unwrap_parentheses<'id>(tree: &Ast<'_, 'id>, mut node: NodeId<'id>) -> NodeId<'id> {
     while let NodeKindData::ParenthesizedExpression(parenthesized) = tree.kind_data(node) {
         node = parenthesized.expression(tree).node_id();
     }
@@ -31,10 +31,10 @@ pub(crate) fn unwrap_parentheses(tree: &Ast<'_>, mut node: NodeId) -> NodeId {
 /// The first expression contained in the parameter list, a default
 /// initializer or a computed property key. Plain destructuring without
 /// either contains no expression.
-pub(crate) fn find_parameter_expression(
-    tree: &Ast<'_>,
-    params: FormalParameters,
-) -> Option<NodeId> {
+pub(crate) fn find_parameter_expression<'id>(
+    tree: &Ast<'_, 'id>,
+    params: FormalParameters<'id>,
+) -> Option<NodeId<'id>> {
     for parameter in params.items(tree).iter() {
         let item = tree.get_node_in_sub_range(parameter);
         let parameter = match tree.formal_parameter_item_data(item) {
@@ -58,7 +58,10 @@ pub(crate) fn find_parameter_expression(
 ///
 /// The first expression contained in one binding pattern, see
 /// [`find_parameter_expression`]. Safe to call with `None`.
-pub(crate) fn find_pattern_expression(tree: &Ast<'_>, pattern: Option<NodeId>) -> Option<NodeId> {
+pub(crate) fn find_pattern_expression<'id>(
+    tree: &Ast<'_, 'id>,
+    pattern: Option<NodeId<'id>>,
+) -> Option<NodeId<'id>> {
     let pattern = pattern?;
     match tree.kind_data(pattern) {
         NodeKindData::AssignmentPattern(_) => Some(pattern),
@@ -97,10 +100,10 @@ pub(crate) fn find_pattern_expression(tree: &Ast<'_>, pattern: Option<NodeId>) -
 }
 
 /// <https://tc39.es/ecma262/#sec-static-semantics-issimpleparameterlist>
-pub(crate) fn find_non_simple_parameter(
-    tree: &Ast<'_>,
-    params: FormalParameters,
-) -> Option<NodeId> {
+pub(crate) fn find_non_simple_parameter<'id>(
+    tree: &Ast<'_, 'id>,
+    params: FormalParameters<'id>,
+) -> Option<NodeId<'id>> {
     if let Some(rest) = params.rest(tree) {
         return Some(rest.node_id());
     }

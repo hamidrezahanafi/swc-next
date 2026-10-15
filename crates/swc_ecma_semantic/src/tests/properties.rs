@@ -4,7 +4,15 @@ use super::*;
 fn abstract_method_syntax_check() {
     let allocator = Allocator::new();
     let source = "abstract class A { abstract m() {} }";
-    let parse = Parser::init(&allocator, source, ts_module_options(), NoTokenParserConfig).parse();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let parse = Parser::init(
+        &allocator,
+        source,
+        ts_module_options(),
+        NoTokenParserConfig,
+        ast_guard,
+    )
+    .parse();
     assert!(parse.diagnostics.is_empty());
     let ast = &parse.ast;
     let statement = ast.root_program().body(ast).get_node(ast, 0).unwrap();
@@ -37,6 +45,7 @@ fn abstract_method_syntax_check() {
 fn assert_static_alias_spaces(source: &str) {
     let allocator = Allocator::new();
     for check_syntax in [false, true] {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) = analyze_with_options(
             &allocator,
             source,
@@ -45,6 +54,7 @@ fn assert_static_alias_spaces(source: &str) {
                 check_syntax,
                 ..AnalyzeOptions::default()
             },
+            ast_guard,
         );
         let outer = semantic.binding(ScopeId::MODULE, b"A").unwrap();
         let alias = semantic
@@ -211,6 +221,7 @@ fn exported_static_alias_member_view() {
 fn assert_exported_static_alias_member_view(source: &str) {
     let allocator = Allocator::new();
     for check_syntax in [false, true] {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) = analyze_with_options(
             &allocator,
             source,
@@ -219,6 +230,7 @@ fn assert_exported_static_alias_member_view(source: &str) {
                 check_syntax,
                 ..AnalyzeOptions::default()
             },
+            ast_guard,
         );
         let outer = semantic.binding(ScopeId::MODULE, b"A").unwrap();
         let references = reference_symbols(&ast, &semantic, b"A");
@@ -237,6 +249,7 @@ fn static_alias_namespace_lookup() {
     let source = "export {};\nclass C { static x = 1; }\nnamespace C { export interface T {} }\nnamespace A { export interface T { outer: true } }\nnamespace N {\n    import A = C.x;\n    import B = A;\n    export const typed: B.T = { outer: true };\n    export const runtime = A;\n}\n";
     let allocator = Allocator::new();
     for check_syntax in [false, true] {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) = analyze_with_options(
             &allocator,
             source,
@@ -245,6 +258,7 @@ fn static_alias_namespace_lookup() {
                 check_syntax,
                 ..AnalyzeOptions::default()
             },
+            ast_guard,
         );
         let outer = semantic.binding(ScopeId::MODULE, b"A").unwrap();
         let root = semantic
@@ -277,6 +291,7 @@ fn static_values_preserve_type_contributions() {
 fn assert_static_values_preserve_type_contributions(source: &str) {
     let allocator = Allocator::new();
     for check_syntax in [false, true] {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) = analyze_with_options(
             &allocator,
             source,
@@ -285,6 +300,7 @@ fn assert_static_values_preserve_type_contributions(source: &str) {
                 check_syntax,
                 ..AnalyzeOptions::default()
             },
+            ast_guard,
         );
         let alias = symbol_named(&ast, &semantic, b"Alias");
         assert_eq!(
@@ -313,6 +329,7 @@ fn import_alias_value_shadowing() {
 fn assert_partial_property_alias(source: &str) {
     let allocator = Allocator::new();
     for check_syntax in [false, true] {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) = analyze_with_options(
             &allocator,
             source,
@@ -321,6 +338,7 @@ fn assert_partial_property_alias(source: &str) {
                 check_syntax,
                 ..AnalyzeOptions::default()
             },
+            ast_guard,
         );
         let alias = symbol_named(&ast, &semantic, b"Alias");
         let references = semantic
@@ -505,6 +523,7 @@ fn assert_unbound_expando(source: &str) {
                 preserve_parens,
                 ..ts_module_options()
             };
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
             let (ast, semantic) = analyze_with_options(
                 &allocator,
                 source,
@@ -513,6 +532,7 @@ fn assert_unbound_expando(source: &str) {
                     check_syntax,
                     ..AnalyzeOptions::default()
                 },
+                ast_guard,
             );
             let reference = semantic
                 .iter_references()
@@ -603,6 +623,7 @@ fn property_exports_exclude_inherited_values() {
     let allocator = Allocator::new();
     for check_syntax in [false, true] {
         let source = "export {}; class Base { static x = 1; } class C extends Base {} namespace C { export interface x { own: true; } } import Alias = C.x; const typed: Alias = { own: true };";
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) = analyze_with_options(
             &allocator,
             source,
@@ -611,6 +632,7 @@ fn property_exports_exclude_inherited_values() {
                 check_syntax,
                 ..AnalyzeOptions::default()
             },
+            ast_guard,
         );
         let alias = symbol_named(&ast, &semantic, b"Alias");
         assert_eq!(reference_symbol(&ast, &semantic, b"Alias"), Some(alias));
@@ -628,6 +650,7 @@ fn expando_receiver_identity() {
     let allocator = Allocator::new();
     for check_syntax in [false, true] {
         let source = "export {}; function C() {} namespace C { export interface x { own: true } } function write(C: { x: number }) { C.x = 1; } import Alias = C.x; const typed: Alias = { own: true };";
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) = analyze_with_options(
             &allocator,
             source,
@@ -636,6 +659,7 @@ fn expando_receiver_identity() {
                 check_syntax,
                 ..AnalyzeOptions::default()
             },
+            ast_guard,
         );
         let alias = symbol_named(&ast, &semantic, b"Alias");
         assert_eq!(reference_symbol(&ast, &semantic, b"Alias"), Some(alias));

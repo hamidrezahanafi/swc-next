@@ -45,19 +45,23 @@ use crate::{
     scope::{DecoratorSite, ScopeKind},
 };
 
-pub struct SemanticBuilder<'traverse, 'a> {
-    exported_names: FxHashMap<&'traverse [u8], NodeId>,
-    export_specifiers: Vec<ExportSpecifier>,
+pub struct SemanticBuilder<'traverse, 'a, 'id> {
+    exported_names: FxHashMap<&'traverse [u8], NodeId<'id>>,
+    export_specifiers: Vec<ExportSpecifier<'id>>,
     diagnostics: Vec<Diagnostic<'a>>,
-    state: SemanticContext<'a>,
-    ast: &'traverse Ast<'a>,
-    path: Vec<NodeId>,
+    state: SemanticContext<'a, 'id>,
+    ast: &'traverse Ast<'a, 'id>,
+    path: Vec<NodeId<'id>>,
     check_syntax: bool,
     in_ts_module_name: bool,
 }
 
-impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
-    pub fn new(ast: &'traverse Ast<'a>, check_syntax: bool, build_module_record: bool) -> Self {
+impl<'id, 'traverse, 'a> SemanticBuilder<'traverse, 'a, 'id> {
+    pub fn new(
+        ast: &'traverse Ast<'a, 'id>,
+        check_syntax: bool,
+        build_module_record: bool,
+    ) -> Self {
         Self {
             exported_names: FxHashMap::default(),
             export_specifiers: Vec::new(),
@@ -70,7 +74,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
         }
     }
 
-    pub fn finish(mut self) -> (Semantic<'a>, Vec<Diagnostic<'a>>) {
+    pub fn finish(mut self) -> (Semantic<'a, 'id>, Vec<Diagnostic<'a>>) {
         let check_syntax = self.check_syntax;
         let (export_alias_issues, import_alias_issues) = {
             let state = &mut self.state;
@@ -86,24 +90,24 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
         (semantic, self.diagnostics)
     }
 
-    fn enter_node(&mut self, node: NodeId) -> ReferenceFlags {
+    fn enter_node(&mut self, node: NodeId<'id>) -> ReferenceFlags {
         self.path.push(node);
         self.state.enter_node()
     }
 
-    fn parent(&self) -> Option<NodeId> {
+    fn parent(&self) -> Option<NodeId<'id>> {
         self.path.iter().rev().nth(1).copied()
     }
 
-    fn current_node(&self) -> Option<NodeId> {
+    fn current_node(&self) -> Option<NodeId<'id>> {
         self.path.last().copied()
     }
 
-    fn ancestors(&self) -> impl Iterator<Item = NodeId> + '_ {
+    fn ancestors(&self) -> impl Iterator<Item = NodeId<'id>> + '_ {
         self.path.iter().rev().copied()
     }
 
-    fn record_ts_expando_assignment(&mut self, node: swc_next_ecma_ast::AssignmentExpression) {
+    fn record_ts_expando_assignment(&mut self, node: swc_next_ecma_ast::AssignmentExpression<'id>) {
         self.state.symbols.record_ts_expando_assignment(
             self.ast,
             node,
@@ -113,7 +117,11 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     }
 
     #[inline]
-    fn record_identifier_reference(&mut self, node: IdentifierReference, flags: ReferenceFlags) {
+    fn record_identifier_reference(
+        &mut self,
+        node: IdentifierReference<'id>,
+        flags: ReferenceFlags,
+    ) {
         let state = &mut self.state;
         state
             .symbols
@@ -123,7 +131,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     #[inline]
     fn visit_with_reference_flags<T>(&mut self, node: T, flags: ReferenceFlags)
     where
-        T: VisitWith<'a, Self>,
+        T: VisitWith<'a, 'id, Self>,
     {
         let previous = self.state.replace_reference_flags(flags);
         node.visit_with(self);
@@ -152,7 +160,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
         }
     }
 
-    fn visit_assertion_type(&mut self, annotation: TsType) {
+    fn visit_assertion_type(&mut self, annotation: TsType<'id>) {
         let tree = self.ast;
         if let NodeKindData::TsTypeReference(reference) = tree.kind_data(annotation.node_id())
             && reference.type_arguments(tree).is_none()
@@ -168,7 +176,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     }
 
     #[inline]
-    fn visit_type_member_key(&mut self, key: PropertyKey, computed: bool) {
+    fn visit_type_member_key(&mut self, key: PropertyKey<'id>, computed: bool) {
         if computed {
             // A computed name on a type-only member still resolves a value
             // name (including a type-only import), but is never evaluated.
@@ -180,7 +188,7 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     }
 
     #[inline]
-    fn visit_erased_member_key(&mut self, key: PropertyKey, computed: bool, decorated: bool) {
+    fn visit_erased_member_key(&mut self, key: PropertyKey<'id>, computed: bool, decorated: bool) {
         if decorated {
             // Legacy decorators evaluate a computed key even when the member
             // declaration itself is erased.
@@ -192,8 +200,8 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
 
     fn visit_ts_heritage_expression(
         &mut self,
-        expression: Expr,
-        type_arguments: Option<TsTypeParameterInstantiation>,
+        expression: Expr<'id>,
+        type_arguments: Option<TsTypeParameterInstantiation<'id>>,
     ) {
         let space = if self.ast.node_kind(expression.node_id()) == NodeKind::MemberExpression {
             ReferenceSpace::Namespace
@@ -206,9 +214,9 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     }
 }
 
-impl SemanticBuilder<'_, '_> {
+impl<'id> SemanticBuilder<'_, '_, 'id> {
     #[inline(always)]
-    fn check(&mut self, node_data: NodeKindData) {
+    fn check(&mut self, node_data: NodeKindData<'id>) {
         match node_data {
             NodeKindData::Program(_) => js::check_program(self),
             NodeKindData::StringLiteral(node) => js::check_string_literal(self, node),
@@ -269,18 +277,18 @@ impl SemanticBuilder<'_, '_> {
     }
 }
 
-impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
-    fn ast(&self) -> &Ast<'a> {
+impl<'id, 'a> Visit<'a, 'id> for SemanticBuilder<'_, 'a, 'id> {
+    fn ast(&self) -> &Ast<'a, 'id> {
         self.ast
     }
 
     #[inline(always)]
-    fn enter_node(&mut self, node: NodeKindData) {
+    fn enter_node(&mut self, node: NodeKindData<'id>) {
         self.enter_node(node.node_id());
     }
 
     #[inline(always)]
-    fn leave_node(&mut self, node: NodeKindData) {
+    fn leave_node(&mut self, node: NodeKindData<'id>) {
         if self.check_syntax {
             self.check(node);
         }
@@ -289,7 +297,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_update_expression(&mut self, node: UpdateExpression) {
+    fn visit_update_expression(&mut self, node: UpdateExpression<'id>) {
         self.enter_node(node.node_id());
         let argument = node.argument(self.ast);
         let flags = self.assignment_reference_flags(true);
@@ -298,7 +306,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_assignment_expression(&mut self, node: AssignmentExpression) {
+    fn visit_assignment_expression(&mut self, node: AssignmentExpression<'id>) {
         self.enter_node(node.node_id());
         self.record_ts_expando_assignment(node);
         let left = node.left(self.ast);
@@ -310,7 +318,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_member_expression(&mut self, node: MemberExpression) {
+    fn visit_member_expression(&mut self, node: MemberExpression<'id>) {
         let node_flags = self.enter_node(node.node_id());
         // Assignment writes the property, not its base. Both the base and a
         // computed property are evaluated as reads.
@@ -321,14 +329,14 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_parenthesized_expression(&mut self, node: ParenthesizedExpression) {
+    fn visit_parenthesized_expression(&mut self, node: ParenthesizedExpression<'id>) {
         let node_flags = self.enter_node(node.node_id());
         self.visit_with_reference_flags(node.expression(self.ast), node_flags);
         self.leave_node(NodeKindData::ParenthesizedExpression(node));
     }
 
     #[inline]
-    fn visit_ts_as_expression(&mut self, node: TsAsExpression) {
+    fn visit_ts_as_expression(&mut self, node: TsAsExpression<'id>) {
         let node_flags = self.enter_node(node.node_id());
         self.visit_with_reference_flags(node.expression(self.ast), node_flags);
         self.visit_assertion_type(node.type_annotation(self.ast));
@@ -336,7 +344,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_satisfies_expression(&mut self, node: TsSatisfiesExpression) {
+    fn visit_ts_satisfies_expression(&mut self, node: TsSatisfiesExpression<'id>) {
         let node_flags = self.enter_node(node.node_id());
         self.visit_with_reference_flags(node.expression(self.ast), node_flags);
         node.type_annotation(self.ast).visit_with(self);
@@ -344,7 +352,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_type_assertion(&mut self, node: TsTypeAssertion) {
+    fn visit_ts_type_assertion(&mut self, node: TsTypeAssertion<'id>) {
         let node_flags = self.enter_node(node.node_id());
         self.visit_assertion_type(node.type_annotation(self.ast));
         self.visit_with_reference_flags(node.expression(self.ast), node_flags);
@@ -352,14 +360,14 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_non_null_expression(&mut self, node: TsNonNullExpression) {
+    fn visit_ts_non_null_expression(&mut self, node: TsNonNullExpression<'id>) {
         let node_flags = self.enter_node(node.node_id());
         self.visit_with_reference_flags(node.expression(self.ast), node_flags);
         self.leave_node(NodeKindData::TsNonNullExpression(node));
     }
 
     #[inline]
-    fn visit_unary_expression(&mut self, node: UnaryExpression) {
+    fn visit_unary_expression(&mut self, node: UnaryExpression<'id>) {
         self.enter_node(node.node_id());
         let argument = node.argument(self.ast);
         if node.operator(self.ast) == UnaryOperator::Delete {
@@ -374,21 +382,21 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     // These leaves have neither binding actions nor syntax checks. Consume
     // pending reference flags without adding an unused ancestry entry.
     #[inline]
-    fn visit_this_expression(&mut self, _node: ThisExpression) {
+    fn visit_this_expression(&mut self, _node: ThisExpression<'id>) {
         self.state.enter_node();
     }
 
     #[inline]
-    fn visit_boolean_literal(&mut self, _node: BooleanLiteral) {
+    fn visit_boolean_literal(&mut self, _node: BooleanLiteral<'id>) {
         self.state.enter_node();
     }
 
     #[inline]
-    fn visit_identifier_name(&mut self, _node: IdentifierName) {
+    fn visit_identifier_name(&mut self, _node: IdentifierName<'id>) {
         self.state.enter_node();
     }
 
-    fn visit_identifier_reference(&mut self, node: IdentifierReference) {
+    fn visit_identifier_reference(&mut self, node: IdentifierReference<'id>) {
         // This leaf has no children. Only syntax checks inspect its ancestry;
         // binding still consumes the pending reference flags in either mode.
         if self.check_syntax {
@@ -403,7 +411,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         }
     }
 
-    fn visit_binding_identifier(&mut self, node: BindingIdentifier) {
+    fn visit_binding_identifier(&mut self, node: BindingIdentifier<'id>) {
         self.enter_node(node.node_id());
         node.visit_children_with(self);
         let prepared = if self.check_syntax {
@@ -448,7 +456,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_assignment_pattern(&mut self, node: AssignmentPattern) {
+    fn visit_assignment_pattern(&mut self, node: AssignmentPattern<'id>) {
         let node_flags = self.enter_node(node.node_id());
         self.visit_with_reference_flags(node.left(self.ast), node_flags);
         node.right(self.ast).visit_with(self);
@@ -456,14 +464,14 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_binding_rest_element(&mut self, node: BindingRestElement) {
+    fn visit_binding_rest_element(&mut self, node: BindingRestElement<'id>) {
         let node_flags = self.enter_node(node.node_id());
         self.visit_with_reference_flags(node.argument(self.ast), node_flags);
         self.leave_node(NodeKindData::BindingRestElement(node));
     }
 
     #[inline]
-    fn visit_array_pattern(&mut self, node: ArrayPattern) {
+    fn visit_array_pattern(&mut self, node: ArrayPattern<'id>) {
         let node_flags = self.enter_node(node.node_id());
         for element in node.elements(self.ast).iter() {
             if let Some(element) = self.ast.get_node_in_sub_range(element) {
@@ -477,7 +485,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_object_pattern(&mut self, node: ObjectPattern) {
+    fn visit_object_pattern(&mut self, node: ObjectPattern<'id>) {
         let node_flags = self.enter_node(node.node_id());
         for property in node.properties(self.ast).iter() {
             let property = self.ast.get_node_in_sub_range(property);
@@ -490,14 +498,14 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_binding_property(&mut self, node: BindingProperty) {
+    fn visit_binding_property(&mut self, node: BindingProperty<'id>) {
         let node_flags = self.enter_node(node.node_id());
         node.key(self.ast).visit_with(self);
         self.visit_with_reference_flags(node.value(self.ast), node_flags);
         self.leave_node(NodeKindData::BindingProperty(node));
     }
 
-    fn visit_variable_declaration(&mut self, node: VariableDeclaration) {
+    fn visit_variable_declaration(&mut self, node: VariableDeclaration<'id>) {
         self.enter_node(node.node_id());
         let state = &mut self.state;
         state
@@ -508,7 +516,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::VariableDeclaration(node));
     }
 
-    fn visit_block_statement(&mut self, node: BlockStatement) {
+    fn visit_block_statement(&mut self, node: BlockStatement<'id>) {
         self.state.enter_block_statement(self.ast, node.node_id());
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -517,21 +525,21 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     /// Per section 14.12, the CaseBlock grammar permits at most one DefaultClause.
-    fn visit_switch_statement(&mut self, node: SwitchStatement) {
+    fn visit_switch_statement(&mut self, node: SwitchStatement<'id>) {
         self.enter_node(node.node_id());
         node.visit_children_with(self);
         self.leave_node(NodeKindData::SwitchStatement(node));
         self.state.exit_scope(node.node_id());
     }
 
-    fn visit_switch_case(&mut self, node: SwitchCase) {
+    fn visit_switch_case(&mut self, node: SwitchCase<'id>) {
         self.state.enter_switch_case(self.current_node());
         self.enter_node(node.node_id());
         node.visit_children_with(self);
         self.leave_node(NodeKindData::SwitchCase(node));
     }
 
-    fn visit_for_statement(&mut self, node: ForStatement) {
+    fn visit_for_statement(&mut self, node: ForStatement<'id>) {
         self.state.enter_for_statement(node.node_id());
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -540,7 +548,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     /// <https://tc39.es/ecma262/#sec-for-in-and-for-of-statements-static-semantics-early-errors>
-    fn visit_for_in_statement(&mut self, node: ForInStatement) {
+    fn visit_for_in_statement(&mut self, node: ForInStatement<'id>) {
         self.state.enter_for_in_statement(node.node_id());
         self.enter_node(node.node_id());
         let flags = self.assignment_reference_flags(false);
@@ -552,7 +560,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     /// <https://tc39.es/ecma262/#sec-for-in-and-for-of-statements-static-semantics-early-errors>
-    fn visit_for_of_statement(&mut self, node: ForOfStatement) {
+    fn visit_for_of_statement(&mut self, node: ForOfStatement<'id>) {
         self.state.enter_for_of_statement(node.node_id());
         self.enter_node(node.node_id());
         let flags = self.assignment_reference_flags(false);
@@ -563,7 +571,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.state.exit_scope(node.node_id());
     }
 
-    fn visit_catch_clause(&mut self, node: CatchClause) {
+    fn visit_catch_clause(&mut self, node: CatchClause<'id>) {
         self.state.enter_catch_clause(node.node_id());
         self.enter_node(node.node_id());
         let state = &mut self.state;
@@ -574,7 +582,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::CatchClause(node));
     }
 
-    fn visit_with_statement(&mut self, node: WithStatement) {
+    fn visit_with_statement(&mut self, node: WithStatement<'id>) {
         self.enter_node(node.node_id());
         node.object(self.ast).visit_with(self);
         self.state.enter_with_statement(node.node_id());
@@ -587,7 +595,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     ///
     /// "It is a Syntax Error if FunctionBodyContainsUseStrict is true and
     /// IsSimpleParameterList of FormalParameters is false."
-    fn visit_directive(&mut self, node: Directive) {
+    fn visit_directive(&mut self, node: Directive<'id>) {
         self.state.enter_directive(self.ast, node);
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -600,7 +608,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     //   IsLabelledFunction prevents labelled functions in if/iteration/with bodies.
     // https://tc39.es/ecma262/#sec-functiondeclarations-in-ifstatement-statement-clauses (B.3.3)
     //   Bare FunctionDeclaration in if/else is allowed in non-strict code only.
-    fn visit_function(&mut self, node: Function) {
+    fn visit_function(&mut self, node: Function<'id>) {
         let annex_b_if_body = is_annex_b_if_function(self.ast, self.current_node(), node);
         self.state.enter_function(self.ast, node);
         self.enter_node(node.node_id());
@@ -614,7 +622,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.state.exit_scope(node.node_id());
     }
 
-    fn visit_ts_function(&mut self, node: TsFunction) {
+    fn visit_ts_function(&mut self, node: TsFunction<'id>) {
         self.state.enter_ts_function(node.node_id());
         self.enter_node(node.node_id());
         let state = &mut self.state;
@@ -627,7 +635,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::TsFunction(node));
     }
 
-    fn visit_arrow_function_expression(&mut self, node: ArrowFunctionExpression) {
+    fn visit_arrow_function_expression(&mut self, node: ArrowFunctionExpression<'id>) {
         self.state.enter_arrow_function_expression(self.ast, node);
         let export_state = self.state.symbols.enter_arrow_function_expression();
         self.enter_node(node.node_id());
@@ -639,7 +647,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::ArrowFunctionExpression(node));
     }
 
-    fn visit_ts_this_parameter(&mut self, node: TsThisParameter) {
+    fn visit_ts_this_parameter(&mut self, node: TsThisParameter<'id>) {
         self.enter_node(node.node_id());
         // The receiver annotation has the same lookup rules as parameter annotations,
         // although it is stored on the signature and creates no runtime binding.
@@ -651,7 +659,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::TsThisParameter(node));
     }
 
-    fn visit_formal_parameters(&mut self, node: FormalParameters) {
+    fn visit_formal_parameters(&mut self, node: FormalParameters<'id>) {
         self.enter_node(node.node_id());
         if node.items(self.ast).is_empty() && node.rest(self.ast).is_none() {
             // The function body no longer belongs to the direct export declaration.
@@ -676,7 +684,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::FormalParameters(node));
     }
 
-    fn visit_function_body(&mut self, node: FunctionBody) {
+    fn visit_function_body(&mut self, node: FunctionBody<'id>) {
         let parent = self.current_node();
         self.state.enter_function_body(self.ast, node, parent);
         self.enter_node(node.node_id());
@@ -685,7 +693,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::FunctionBody(node));
     }
 
-    fn visit_class(&mut self, node: Class) {
+    fn visit_class(&mut self, node: Class<'id>) {
         self.state.enter_class(node);
         self.enter_node(node.node_id());
         let state = &mut self.state;
@@ -702,7 +710,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     /// `PrototypePropertyNameList` may contain only one `constructor`.
     /// `PrivateBoundIdentifiers` may contain no duplicate entries, except
     /// one getter/setter pair with matching staticness.
-    fn visit_class_body(&mut self, node: ClassBody) {
+    fn visit_class_body(&mut self, node: ClassBody<'id>) {
         self.enter_node(node.node_id());
         self.state.symbols.enter_class_body();
         node.visit_children_with(self);
@@ -710,7 +718,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_property_definition(&mut self, node: PropertyDefinition) {
+    fn visit_property_definition(&mut self, node: PropertyDefinition<'id>) {
         self.enter_node(node.node_id());
         let decorators = node.decorators(self.ast);
         decorators.visit_with(self);
@@ -727,7 +735,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_method_definition(&mut self, node: TsMethodDefinition) {
+    fn visit_ts_method_definition(&mut self, node: TsMethodDefinition<'id>) {
         self.enter_node(node.node_id());
         let decorators = node.decorators(self.ast);
         decorators.visit_with(self);
@@ -740,7 +748,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::TsMethodDefinition(node));
     }
 
-    fn visit_static_block(&mut self, node: StaticBlock) {
+    fn visit_static_block(&mut self, node: StaticBlock<'id>) {
         self.state.enter_static_block(node.node_id());
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -748,7 +756,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::StaticBlock(node));
     }
 
-    fn visit_decorator(&mut self, node: Decorator) {
+    fn visit_decorator(&mut self, node: Decorator<'id>) {
         // TS resolves members and parameters at the class, skipping method
         // locals. Only a class declaration's own decorators skip the class;
         // class expressions retain their type parameters and name environment.
@@ -769,7 +777,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_class_implements(&mut self, node: TsClassImplements) {
+    fn visit_ts_class_implements(&mut self, node: TsClassImplements<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         self.visit_ts_heritage_expression(node.expression(self.ast), node.type_arguments(self.ast));
@@ -778,7 +786,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     // https://tc39.es/ecma262/#sec-static-semantics-early-errors
-    fn visit_import_declaration(&mut self, node: ImportDeclaration) {
+    fn visit_import_declaration(&mut self, node: ImportDeclaration<'id>) {
         self.enter_node(node.node_id());
         let state = &mut self.state;
         state
@@ -789,7 +797,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::ImportDeclaration(node));
     }
 
-    fn visit_import_specifier(&mut self, node: ImportSpecifier) {
+    fn visit_import_specifier(&mut self, node: ImportSpecifier<'id>) {
         self.enter_node(node.node_id());
         self.state.symbols.enter_import_specifier(self.ast, node);
         node.visit_children_with(self);
@@ -797,7 +805,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::ImportSpecifier(node));
     }
 
-    fn visit_ts_import_equals_declaration(&mut self, node: TsImportEqualsDeclaration) {
+    fn visit_ts_import_equals_declaration(&mut self, node: TsImportEqualsDeclaration<'id>) {
         self.enter_node(node.node_id());
         let import_kind = node.import_kind(self.ast);
         let state = &mut self.state;
@@ -817,7 +825,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::TsImportEqualsDeclaration(node));
     }
 
-    fn visit_export_named_declaration(&mut self, node: ExportNamedDeclaration) {
+    fn visit_export_named_declaration(&mut self, node: ExportNamedDeclaration<'id>) {
         self.enter_node(node.node_id());
         self.state
             .symbols
@@ -827,7 +835,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::ExportNamedDeclaration(node));
     }
 
-    fn visit_export_default_declaration(&mut self, node: ExportDefaultDeclaration) {
+    fn visit_export_default_declaration(&mut self, node: ExportDefaultDeclaration<'id>) {
         self.enter_node(node.node_id());
         if !self.state.in_ts_namespace() {
             self.state.module_record.add_default_export(self.ast, node);
@@ -845,7 +853,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::ExportDefaultDeclaration(node));
     }
 
-    fn visit_export_all_declaration(&mut self, node: ExportAllDeclaration) {
+    fn visit_export_all_declaration(&mut self, node: ExportAllDeclaration<'id>) {
         self.enter_node(node.node_id());
         if !self.state.in_ts_namespace() {
             self.state.module_record.add_export_all(self.ast, node);
@@ -855,7 +863,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_export_specifier(&mut self, node: ExportSpecifier) {
+    fn visit_export_specifier(&mut self, node: ExportSpecifier<'id>) {
         self.enter_node(node.node_id());
         let declaration = self.parent().and_then(|parent| {
             let NodeKindData::ExportNamedDeclaration(declaration) = self.ast.kind_data(parent)
@@ -895,7 +903,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_export_assignment(&mut self, node: TsExportAssignment) {
+    fn visit_ts_export_assignment(&mut self, node: TsExportAssignment<'id>) {
         self.enter_node(node.node_id());
         let expression = node.expression(self.ast);
         let space = export_expression_space(self.ast, expression.node_id());
@@ -904,7 +912,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::TsExportAssignment(node));
     }
 
-    fn visit_ts_enum_declaration(&mut self, node: TsEnumDeclaration) {
+    fn visit_ts_enum_declaration(&mut self, node: TsEnumDeclaration<'id>) {
         self.enter_node(node.node_id());
         let state = &mut self.state;
         state
@@ -924,7 +932,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::TsEnumDeclaration(node));
     }
 
-    fn visit_ts_enum_body(&mut self, node: TsEnumBody) {
+    fn visit_ts_enum_body(&mut self, node: TsEnumBody<'id>) {
         self.state.enter_ts_enum_body(node.node_id());
         self.enter_node(node.node_id());
         let state = &mut self.state;
@@ -934,7 +942,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::TsEnumBody(node));
     }
 
-    fn visit_ts_enum_member(&mut self, node: TsEnumMember) {
+    fn visit_ts_enum_member(&mut self, node: TsEnumMember<'id>) {
         self.enter_node(node.node_id());
         let state = &mut self.state;
         let prepared = state
@@ -952,7 +960,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::TsEnumMember(node));
     }
 
-    fn visit_ts_module_declaration(&mut self, node: TsModuleDeclaration) {
+    fn visit_ts_module_declaration(&mut self, node: TsModuleDeclaration<'id>) {
         self.enter_node(node.node_id());
         let state = &mut self.state;
         state
@@ -974,7 +982,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::TsModuleDeclaration(node));
     }
 
-    fn visit_ts_module_block(&mut self, node: TsModuleBlock) {
+    fn visit_ts_module_block(&mut self, node: TsModuleBlock<'id>) {
         self.state.enter_ts_module_block(node.node_id());
         self.enter_node(node.node_id());
         let state = &mut self.state;
@@ -984,7 +992,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::TsModuleBlock(node));
     }
 
-    fn visit_ts_global_declaration(&mut self, node: TsGlobalDeclaration) {
+    fn visit_ts_global_declaration(&mut self, node: TsGlobalDeclaration<'id>) {
         self.enter_node(node.node_id());
         self.state
             .symbols
@@ -994,7 +1002,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::TsGlobalDeclaration(node));
     }
 
-    fn visit_ts_namespace_export_declaration(&mut self, node: TsNamespaceExportDeclaration) {
+    fn visit_ts_namespace_export_declaration(&mut self, node: TsNamespaceExportDeclaration<'id>) {
         self.enter_node(node.node_id());
         if self.state.symbols.in_unsupported_ts_external_module() {
             self.leave_node(NodeKindData::TsNamespaceExportDeclaration(node));
@@ -1008,7 +1016,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::TsNamespaceExportDeclaration(node));
     }
 
-    fn visit_ts_type_alias_declaration(&mut self, node: TsTypeAliasDeclaration) {
+    fn visit_ts_type_alias_declaration(&mut self, node: TsTypeAliasDeclaration<'id>) {
         self.state.enter_ts_type_alias_declaration(node.node_id());
         self.enter_node(node.node_id());
         let state = &mut self.state;
@@ -1021,7 +1029,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::TsTypeAliasDeclaration(node));
     }
 
-    fn visit_ts_interface_declaration(&mut self, node: TsInterfaceDeclaration) {
+    fn visit_ts_interface_declaration(&mut self, node: TsInterfaceDeclaration<'id>) {
         self.state.enter_ts_interface_declaration(node.node_id());
         self.enter_node(node.node_id());
         let state = &mut self.state;
@@ -1035,7 +1043,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_interface_heritage(&mut self, node: TsInterfaceHeritage) {
+    fn visit_ts_interface_heritage(&mut self, node: TsInterfaceHeritage<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         self.visit_ts_heritage_expression(node.expression(self.ast), node.type_arguments(self.ast));
@@ -1044,7 +1052,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_interface_body(&mut self, node: TsInterfaceBody) {
+    fn visit_ts_interface_body(&mut self, node: TsInterfaceBody<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1053,7 +1061,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_type_annotation(&mut self, node: TsTypeAnnotation) {
+    fn visit_ts_type_annotation(&mut self, node: TsTypeAnnotation<'id>) {
         let signature_return = self.current_node().is_some_and(|parent| {
             matches!(
                 self.ast.node_kind(parent),
@@ -1083,7 +1091,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_type_reference(&mut self, node: TsTypeReference) {
+    fn visit_ts_type_reference(&mut self, node: TsTypeReference<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1092,7 +1100,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_qualified_name(&mut self, node: TsQualifiedName) {
+    fn visit_ts_qualified_name(&mut self, node: TsQualifiedName<'id>) {
         if self.in_ts_module_name {
             self.enter_node(node.node_id());
             node.visit_children_with(self);
@@ -1115,7 +1123,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_type_query(&mut self, node: TsTypeQuery) {
+    fn visit_ts_type_query(&mut self, node: TsTypeQuery<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         let flags = self.flags_with_space(ReferenceSpace::Typeof);
@@ -1126,7 +1134,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_import_type(&mut self, node: TsImportType) {
+    fn visit_ts_import_type(&mut self, node: TsImportType<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1135,7 +1143,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_type_parameter(&mut self, node: TsTypeParameter) {
+    fn visit_ts_type_parameter(&mut self, node: TsTypeParameter<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         let parent = self.parent();
@@ -1166,7 +1174,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_type_parameter_declaration(&mut self, node: TsTypeParameterDeclaration) {
+    fn visit_ts_type_parameter_declaration(&mut self, node: TsTypeParameterDeclaration<'id>) {
         let type_position = self.state.enter_type_position();
         self.state
             .scope
@@ -1179,7 +1187,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_type_parameter_instantiation(&mut self, node: TsTypeParameterInstantiation) {
+    fn visit_ts_type_parameter_instantiation(&mut self, node: TsTypeParameterInstantiation<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1188,7 +1196,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_literal_type(&mut self, node: TsLiteralType) {
+    fn visit_ts_literal_type(&mut self, node: TsLiteralType<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1197,7 +1205,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_template_literal_type(&mut self, node: TsTemplateLiteralType) {
+    fn visit_ts_template_literal_type(&mut self, node: TsTemplateLiteralType<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1206,7 +1214,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_array_type(&mut self, node: TsArrayType) {
+    fn visit_ts_array_type(&mut self, node: TsArrayType<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1215,7 +1223,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_indexed_access_type(&mut self, node: TsIndexedAccessType) {
+    fn visit_ts_indexed_access_type(&mut self, node: TsIndexedAccessType<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1224,7 +1232,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_tuple_type(&mut self, node: TsTupleType) {
+    fn visit_ts_tuple_type(&mut self, node: TsTupleType<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1233,7 +1241,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_named_tuple_member(&mut self, node: TsNamedTupleMember) {
+    fn visit_ts_named_tuple_member(&mut self, node: TsNamedTupleMember<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1242,7 +1250,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_optional_type(&mut self, node: TsOptionalType) {
+    fn visit_ts_optional_type(&mut self, node: TsOptionalType<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         if self.check_syntax {
@@ -1254,7 +1262,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_rest_type(&mut self, node: TsRestType) {
+    fn visit_ts_rest_type(&mut self, node: TsRestType<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         if self.check_syntax {
@@ -1266,7 +1274,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_js_doc_nullable_type(&mut self, node: TsJsDocNullableType) {
+    fn visit_ts_js_doc_nullable_type(&mut self, node: TsJsDocNullableType<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1275,7 +1283,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_js_doc_non_nullable_type(&mut self, node: TsJsDocNonNullableType) {
+    fn visit_ts_js_doc_non_nullable_type(&mut self, node: TsJsDocNonNullableType<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1284,7 +1292,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_js_doc_unknown_type(&mut self, node: TsJsDocUnknownType) {
+    fn visit_ts_js_doc_unknown_type(&mut self, node: TsJsDocUnknownType<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1293,7 +1301,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_union_type(&mut self, node: TsUnionType) {
+    fn visit_ts_union_type(&mut self, node: TsUnionType<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1302,7 +1310,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_intersection_type(&mut self, node: TsIntersectionType) {
+    fn visit_ts_intersection_type(&mut self, node: TsIntersectionType<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1311,7 +1319,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_infer_type(&mut self, node: TsInferType) {
+    fn visit_ts_infer_type(&mut self, node: TsInferType<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1320,7 +1328,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_type_operator(&mut self, node: TsTypeOperator) {
+    fn visit_ts_type_operator(&mut self, node: TsTypeOperator<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1329,7 +1337,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_parenthesized_type(&mut self, node: TsParenthesizedType) {
+    fn visit_ts_parenthesized_type(&mut self, node: TsParenthesizedType<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1338,7 +1346,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_type_literal(&mut self, node: TsTypeLiteral) {
+    fn visit_ts_type_literal(&mut self, node: TsTypeLiteral<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.visit_children_with(self);
@@ -1347,7 +1355,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_ts_property_signature(&mut self, node: TsPropertySignature) {
+    fn visit_ts_property_signature(&mut self, node: TsPropertySignature<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         self.visit_type_member_key(node.key(self.ast), node.computed(self.ast));
@@ -1356,7 +1364,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.state.exit_type_position(type_position);
     }
 
-    fn visit_ts_type_predicate(&mut self, node: TsTypePredicate) {
+    fn visit_ts_type_predicate(&mut self, node: TsTypePredicate<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         let state = &mut self.state;
@@ -1368,7 +1376,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.state.exit_type_position(type_position);
     }
 
-    fn visit_ts_conditional_type(&mut self, node: TsConditionalType) {
+    fn visit_ts_conditional_type(&mut self, node: TsConditionalType<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         node.check_type(self.ast).visit_with(self);
@@ -1386,7 +1394,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.state.exit_type_position(type_position);
     }
 
-    fn visit_ts_function_type(&mut self, node: TsFunctionType) {
+    fn visit_ts_function_type(&mut self, node: TsFunctionType<'id>) {
         self.state.enter_ts_function_type(node.node_id());
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
@@ -1399,7 +1407,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.state.exit_type_position(type_position);
     }
 
-    fn visit_ts_constructor_type(&mut self, node: TsConstructorType) {
+    fn visit_ts_constructor_type(&mut self, node: TsConstructorType<'id>) {
         self.state.enter_ts_constructor_type(node.node_id());
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
@@ -1412,7 +1420,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.state.exit_type_position(type_position);
     }
 
-    fn visit_ts_mapped_type(&mut self, node: TsMappedType) {
+    fn visit_ts_mapped_type(&mut self, node: TsMappedType<'id>) {
         self.state.enter_ts_mapped_type(node.node_id());
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
@@ -1428,7 +1436,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.state.exit_type_position(type_position);
     }
 
-    fn visit_ts_method_signature(&mut self, node: TsMethodSignature) {
+    fn visit_ts_method_signature(&mut self, node: TsMethodSignature<'id>) {
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
         self.visit_type_member_key(node.key(self.ast), node.computed(self.ast));
@@ -1445,7 +1453,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.state.exit_type_position(type_position);
     }
 
-    fn visit_ts_call_signature_declaration(&mut self, node: TsCallSignatureDeclaration) {
+    fn visit_ts_call_signature_declaration(&mut self, node: TsCallSignatureDeclaration<'id>) {
         self.state
             .enter_ts_call_signature_declaration(node.node_id());
         let type_position = self.state.enter_type_position();
@@ -1461,7 +1469,10 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.state.exit_type_position(type_position);
     }
 
-    fn visit_ts_construct_signature_declaration(&mut self, node: TsConstructSignatureDeclaration) {
+    fn visit_ts_construct_signature_declaration(
+        &mut self,
+        node: TsConstructSignatureDeclaration<'id>,
+    ) {
         self.state
             .enter_ts_construct_signature_declaration(node.node_id());
         let type_position = self.state.enter_type_position();
@@ -1477,7 +1488,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.state.exit_type_position(type_position);
     }
 
-    fn visit_ts_index_signature(&mut self, node: TsIndexSignature) {
+    fn visit_ts_index_signature(&mut self, node: TsIndexSignature<'id>) {
         self.state.enter_ts_index_signature(node.node_id());
         let type_position = self.state.enter_type_position();
         self.enter_node(node.node_id());
@@ -1491,16 +1502,16 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 
     #[inline]
-    fn visit_jsx_identifier(&mut self, _node: JsxIdentifier) {
+    fn visit_jsx_identifier(&mut self, _node: JsxIdentifier<'id>) {
         self.state.enter_node();
     }
 
     #[inline]
-    fn visit_jsx_text(&mut self, _node: JsxText) {
+    fn visit_jsx_text(&mut self, _node: JsxText<'id>) {
         self.state.enter_node();
     }
 
-    fn visit_jsx_fragment(&mut self, node: swc_next_ecma_ast::JsxFragment) {
+    fn visit_jsx_fragment(&mut self, node: swc_next_ecma_ast::JsxFragment<'id>) {
         self.enter_node(node.node_id());
         self.state
             .symbols
@@ -1509,7 +1520,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::JsxFragment(node));
     }
 
-    fn visit_jsx_opening_element(&mut self, node: JsxOpeningElement) {
+    fn visit_jsx_opening_element(&mut self, node: JsxOpeningElement<'id>) {
         self.enter_node(node.node_id());
         let state = &mut self.state;
         state.symbols.record_jsx_usage(state.scope.current, false);
@@ -1520,7 +1531,7 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
         self.leave_node(NodeKindData::JsxOpeningElement(node));
     }
 
-    fn visit_jsx_closing_element(&mut self, node: JsxClosingElement) {
+    fn visit_jsx_closing_element(&mut self, node: JsxClosingElement<'id>) {
         self.enter_node(node.node_id());
         let state = &mut self.state;
         state
@@ -1531,7 +1542,11 @@ impl<'a> Visit<'a> for SemanticBuilder<'_, 'a> {
     }
 }
 
-fn is_annex_b_if_function(tree: &Ast<'_>, parent: Option<NodeId>, function: Function) -> bool {
+fn is_annex_b_if_function<'id>(
+    tree: &Ast<'_, 'id>,
+    parent: Option<NodeId<'id>>,
+    function: Function<'id>,
+) -> bool {
     if function.function_type(tree) != FunctionType::FunctionDeclaration {
         return false;
     }
@@ -1548,7 +1563,7 @@ fn is_annex_b_if_function(tree: &Ast<'_>, parent: Option<NodeId>, function: Func
             .is_some_and(|alternate| alternate.node_id() == function)
 }
 
-fn export_expression_space(tree: &Ast<'_>, expression: NodeId) -> ReferenceSpace {
+fn export_expression_space<'id>(tree: &Ast<'_, 'id>, expression: NodeId<'id>) -> ReferenceSpace {
     let expression = crate::ecmascript::unwrap_parentheses(tree, expression);
     if tree.node_kind(expression) == NodeKind::IdentifierReference {
         ReferenceSpace::Any
@@ -1559,7 +1574,7 @@ fn export_expression_space(tree: &Ast<'_>, expression: NodeId) -> ReferenceSpace
 
 /// Extracts the name from a ModuleExportName: an IdentifierName,
 /// IdentifierReference, or StringLiteral.
-fn module_export_name<'b>(tree: &'b Ast<'_>, node: NodeId) -> &'b [u8] {
+fn module_export_name<'id, 'b>(tree: &'b Ast<'_, 'id>, node: NodeId<'id>) -> &'b [u8] {
     match tree.kind_data(node) {
         NodeKindData::IdentifierName(identifier) => tree.get_utf8(identifier.name(tree)).as_bytes(),
         NodeKindData::IdentifierReference(identifier) => {
@@ -1586,13 +1601,13 @@ impl Default for ReportOptions<'_> {
     }
 }
 
-impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
-    fn report_unresolved_export(&mut self, tree: &Ast<'a>, name: &[u8], node: NodeId) {
+impl<'id, 'traverse, 'a> SemanticBuilder<'traverse, 'a, 'id> {
+    fn report_unresolved_export(&mut self, tree: &Ast<'a, 'id>, name: &[u8], node: NodeId<'id>) {
         let message = self.unresolved_export_message(name);
         self.report(tree.span(node), message, ReportOptions::default());
     }
 
-    fn report_non_local_export(&mut self, tree: &Ast<'a>, name: &[u8], node: NodeId) {
+    fn report_non_local_export(&mut self, tree: &Ast<'a, 'id>, name: &[u8], node: NodeId<'id>) {
         let message = self.fmt(format_args!(
             "Cannot export '{}'. Only local declarations can be exported from a module",
             String::from_utf8_lossy(name)
@@ -1610,10 +1625,10 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     #[cold]
     fn report_redeclaration(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast<'a, 'id>,
         name: &[u8],
-        node: NodeId,
-        existing_node: NodeId,
+        node: NodeId<'id>,
+        existing_node: NodeId<'id>,
         existing_flags: SymbolFlags,
     ) {
         let name = String::from_utf8_lossy(name);

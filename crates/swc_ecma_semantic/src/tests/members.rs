@@ -7,21 +7,24 @@ fn namespace_merging() {
 
     let source =
         "namespace N { export const first = 1; } namespace N { export const second = first; }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert_eq!(
         reference_symbol(&ast, &semantic, b"first"),
         Some(symbol_named(&ast, &semantic, b"first"))
     );
 
     let source = "namespace Root.Child { export const first = 1; } namespace Root.Child { export const second = first; }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert_eq!(
         reference_symbol(&ast, &semantic, b"first"),
         Some(symbol_named(&ast, &semantic, b"first"))
     );
 
     let source = "namespace A { export const x = 1 } namespace A.B { export const y = x } namespace A.B.C { export const z = x + y }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let x_references = reference_symbols(&ast, &semantic, b"x");
     let y_references = reference_symbols(&ast, &semantic, b"y");
     assert_eq!(x_references.len(), 2);
@@ -31,14 +34,16 @@ fn namespace_merging() {
 
     let source =
         "function F() {} namespace F { export const x = 1 } namespace F { export const y = x }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert_eq!(
         reference_symbol(&ast, &semantic, b"x"),
         Some(symbol_named(&ast, &semantic, b"x"))
     );
 
     let source = "class C {} namespace C { export const x = 1 } namespace C { export const y = x }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert_eq!(
         reference_symbol(&ast, &semantic, b"x"),
         Some(symbol_named(&ast, &semantic, b"x"))
@@ -46,7 +51,8 @@ fn namespace_merging() {
 
     let source =
         "enum E { A } namespace E { export const x = 1 } namespace E { export const y = x }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert_eq!(
         reference_symbol(&ast, &semantic, b"x"),
         Some(symbol_named(&ast, &semantic, b"x"))
@@ -59,33 +65,39 @@ fn namespace_instantiation() {
     let ts_module = ts_module_options();
 
     let source = "namespace N { export const enum E { A } } const value = N.E.A";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let namespace = symbol_named(&ast, &semantic, b"N");
     assert_ts_module_state(&semantic, namespace, TsModuleState::ConstEnumOnly);
     assert_eq!(reference_symbol(&ast, &semantic, b"N"), Some(namespace));
 
     let source = "namespace A { export const x = 1 } namespace N { export import y = A.x } const value = N.y";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let namespace = symbol_named(&ast, &semantic, b"N");
     assert_ts_module_state(&semantic, namespace, TsModuleState::Instantiated);
 
     let source = "namespace N { export const enum E { A } } namespace N { export const value = 1 }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let namespace = symbol_named(&ast, &semantic, b"N");
     assert_ts_module_state(&semantic, namespace, TsModuleState::Instantiated);
 
     let source = "namespace N { export { E }; const enum E { A } } const value = N.E.A";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let namespace = symbol_named(&ast, &semantic, b"N");
     assert_ts_module_state(&semantic, namespace, TsModuleState::ConstEnumOnly);
 
     let source = "interface T {} namespace N { export { T } }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let namespace = symbol_named(&ast, &semantic, b"N");
     assert_ts_module_state(&semantic, namespace, TsModuleState::NonInstantiated);
 
     let source = "declare namespace Outer { namespace A { const X: number; namespace B { export { Sibling } } const bad: typeof B } namespace Sibling { export { X } } interface X {} }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let outer = symbol_named(&ast, &semantic, b"Outer");
     let a = semantic.ts_namespace_member(outer, b"A").unwrap();
     let b = semantic.ts_namespace_member(a, b"B").unwrap();
@@ -93,7 +105,8 @@ fn namespace_instantiation() {
     assert_eq!(reference_symbol(&ast, &semantic, b"B"), None);
 
     let source = "export default interface T {} namespace N { export { T } }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let namespace = symbol_named(&ast, &semantic, b"N");
     assert_ts_module_state(&semantic, namespace, TsModuleState::NonInstantiated);
 }
@@ -102,6 +115,7 @@ fn namespace_instantiation() {
 fn assert_namespace_type_export_does_not_shadow(source: &str) {
     let allocator = Allocator::new();
     for check_syntax in [false, true] {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) = analyze_with_options(
             &allocator,
             source,
@@ -110,6 +124,7 @@ fn assert_namespace_type_export_does_not_shadow(source: &str) {
                 check_syntax,
                 ..AnalyzeOptions::default()
             },
+            ast_guard,
         );
         let outer = semantic.binding(ScopeId::MODULE, b"Inner").unwrap();
         let container = symbol_named(&ast, &semantic, b"Outer");
@@ -148,6 +163,7 @@ fn global_export_aliases() {
     let allocator = Allocator::new();
     for check_syntax in [false, true] {
         let source = "export as namespace Foo; export declare const Foo: number; export type Value = typeof Foo;";
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) = analyze_with_options(
             &allocator,
             source,
@@ -156,6 +172,7 @@ fn global_export_aliases() {
                 check_syntax,
                 build_module_record: true,
             },
+            ast_guard,
         );
         let local = semantic.binding(ScopeId::MODULE, b"Foo").unwrap();
         let mut globals = semantic
@@ -190,6 +207,7 @@ fn global_export_aliases() {
         );
 
         let source = "export as namespace Global; export declare const value: number;";
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (_, semantic) = analyze_with_options(
             &allocator,
             source,
@@ -198,6 +216,7 @@ fn global_export_aliases() {
                 check_syntax,
                 ..AnalyzeOptions::default()
             },
+            ast_guard,
         );
         assert_eq!(
             semantic
@@ -222,15 +241,18 @@ fn ambient_namespace_merging() {
 
     let source =
         "declare namespace N { const x: number } declare namespace N { const y: typeof x }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert!(reference_symbol(&ast, &semantic, b"x").is_some());
 
     let source = "namespace N { const x: number } namespace N { const y: typeof x }";
-    let (ast, semantic) = analyze_source(&allocator, source, dts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, dts_module, ast_guard);
     assert!(reference_symbol(&ast, &semantic, b"x").is_some());
 
     let source = "declare namespace N { const hidden: number; export const shown: number } declare namespace N { const use: typeof hidden }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert!(reference_symbol(&ast, &semantic, b"hidden").is_some());
 }
 
@@ -241,7 +263,8 @@ fn namespace_lexical_visibility() {
 
     let source =
         "namespace N { export const x = 1 } namespace N { const x = 2; export const y = x }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let local_x = reference_symbol(&ast, &semantic, b"x").unwrap();
     let namespace = symbol_named(&ast, &semantic, b"N");
     let exported_x = semantic.ts_namespace_member(namespace, b"x").unwrap();
@@ -254,7 +277,8 @@ fn namespace_lexical_visibility() {
     );
 
     let source = "namespace N { export interface X { exported: true } } namespace N { interface X { local: true } export const X = 1; type T = X }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let local_x = reference_symbol(&ast, &semantic, b"X").unwrap();
     let namespace = symbol_named(&ast, &semantic, b"N");
     let exported_x = semantic.ts_namespace_member(namespace, b"X").unwrap();
@@ -276,7 +300,8 @@ fn namespace_lexical_visibility() {
     }
 
     let source = "namespace N { export const X = 1; interface X { local: true } type T = X }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let local_x = reference_symbol(&ast, &semantic, b"X").unwrap();
     let namespace = symbol_named(&ast, &semantic, b"N");
     let exported_x = semantic.ts_namespace_member(namespace, b"X").unwrap();
@@ -300,7 +325,8 @@ fn namespace_lexical_visibility() {
     );
 
     let source = "namespace N { export interface X {} } namespace N { const X = 1; type T = X }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let x = reference_symbol(&ast, &semantic, b"X").unwrap();
     assert!(semantic.symbol(x).flags.in_type_space());
 
@@ -313,21 +339,25 @@ fn namespace_lexical_visibility() {
     assert!(!has_syntax_diagnostics(&allocator, source, ts_module));
 
     let source = "namespace N { const hidden = 1 } namespace N { export const visible = hidden }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert!(reference_symbol(&ast, &semantic, b"hidden").is_none());
 
     let source =
         "declare namespace N { interface Box<T> {} } declare namespace N { type Invalid = T }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert!(reference_symbol(&ast, &semantic, b"T").is_none());
 
     let source = "declare namespace N { namespace Target { interface Type {} } export import PublicAlias = Target; import PrivateAlias = Target; } declare namespace N { interface UsesPublic extends PublicAlias.Type {} type UsesPrivate = PrivateAlias }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert!(reference_symbol(&ast, &semantic, b"PublicAlias").is_some());
     assert!(reference_symbol(&ast, &semantic, b"PrivateAlias").is_none());
 
     let source = "namespace AliasSpace { interface OnlyType {} export type Public = OnlyType } namespace AliasSpace { export type Good = Public; export const bad = Public }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let public_references = semantic
         .iter_references()
         .filter(|entry| ast.get_utf8(entry.reference.name).as_bytes() == b"Public")
@@ -341,12 +371,14 @@ fn namespace_lexical_visibility() {
     }));
 
     let source = "namespace A { export const x = 2 } namespace A.B {} namespace A { const x = 1; namespace B { export const y = x } }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let x = reference_symbol(&ast, &semantic, b"x").unwrap();
     assert!(!semantic.symbol(x).flags.contains(SymbolFlags::EXPORTED));
 
     let source = "namespace A { export const x = 2 } namespace A { const x = 1; namespace B { export const y = x } } namespace A.B {}";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let x = reference_symbol(&ast, &semantic, b"x").unwrap();
     assert!(!semantic.symbol(x).flags.contains(SymbolFlags::EXPORTED));
 }
@@ -357,11 +389,13 @@ fn ambient_external_modules_are_lexical_only() {
     let ts_module = ts_module_options();
 
     let source = "declare module 'foo' { const x: number; const y: typeof x }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert!(reference_symbol(&ast, &semantic, b"x").is_some());
 
     let source = "declare module 'foo' { export const x: number } declare module 'foo' { export const y: typeof x }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert!(reference_symbol(&ast, &semantic, b"x").is_none());
     assert!(
         semantic
@@ -370,7 +404,8 @@ fn ambient_external_modules_are_lexical_only() {
     );
 
     let source = "declare module 'foo' { export as namespace Umd }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert!(
         semantic
             .iter_symbols()
@@ -424,7 +459,8 @@ fn global_augmentation_recovery() {
     };
 
     let source = "export const value = 0; global { global { let copy: typeof value; } }";
-    let (ast, checked) = analyze_syntax_source(&allocator, source, ts_unambiguous);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, checked) = analyze_syntax_source(&allocator, source, ts_unambiguous, ast_guard);
     assert_eq!(ast.source_type(), SourceType::Module);
     assert_eq!(checked.diagnostics.len(), 3);
     let outer = source.find("global").unwrap() as u32;
@@ -452,7 +488,8 @@ fn global_augmentation_recovery() {
     assert!(!reference.flags.is_write());
 
     let source = "export {}; declare global { global {} }";
-    let (ast, checked) = analyze_syntax_source(&allocator, source, ts_unambiguous);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, checked) = analyze_syntax_source(&allocator, source, ts_unambiguous, ast_guard);
     assert_eq!(ast.source_type(), SourceType::Module);
     assert_eq!(checked.diagnostics.len(), 1);
 }
@@ -463,7 +500,8 @@ fn global_augmentation_merging() {
     let ts_module = ts_module_options();
 
     let source = "export {}; declare global { const x: number } declare global { const y: typeof x } const z: typeof x = y";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let x_references = reference_symbols(&ast, &semantic, b"x");
     assert_eq!(x_references.len(), 2);
     assert!(x_references.iter().all(Option::is_some));
@@ -485,7 +523,8 @@ fn enum_merging() {
     };
 
     let source = "enum Outer { A = (() => { enum Inner { X }; return 0; })(), B = 1, C = B }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let outer = symbol_named(&ast, &semantic, b"Outer");
     let inner = symbol_named(&ast, &semantic, b"Inner");
     let b = semantic.ts_enum_member(outer, b"B").unwrap();
@@ -496,33 +535,40 @@ fn enum_merging() {
     assert!(semantic.ts_enum_member(inner, b"C").is_none());
 
     let source = "enum E { A = 1 } enum E { B = A }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert!(reference_symbol(&ast, &semantic, b"A").is_some());
 
     let source = "enum E { ['value'] = 1, Other = value }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert!(reference_symbol(&ast, &semantic, b"value").is_some());
 
     let source = "enum E { A = 1 } namespace E { export const B = A }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert!(reference_symbol(&ast, &semantic, b"A").is_none());
 
     let source = "namespace E { export const B = 1 } enum E { A = B }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     assert!(reference_symbol(&ast, &semantic, b"B").is_none());
 
     let source = "namespace E { export namespace A {} } enum E { A }";
-    let _ = analyze_with_options(&allocator, source, ts_module, syntax_check);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let _ = analyze_with_options(&allocator, source, ts_module, syntax_check, ast_guard);
 
     let source = "enum E { A } namespace E { export namespace A { export interface X {} } } namespace E { export type T = A.X }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let namespace = symbol_named(&ast, &semantic, b"E");
     let namespace_a = semantic.ts_namespace_member(namespace, b"A").unwrap();
     assert_eq!(semantic.ts_enum_member(namespace, b"A"), Some(namespace_a));
     assert_eq!(reference_symbol(&ast, &semantic, b"A"), Some(namespace_a));
 
     let source = "const A = 0; type A = string; enum E { A } namespace E { export namespace A { export interface X {} } } namespace E { const value = A; type Type = A; type Qualified = A.X }";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let namespace = symbol_named(&ast, &semantic, b"E");
     let namespace_a = semantic.ts_namespace_member(namespace, b"A").unwrap();
     let references = reference_symbols(&ast, &semantic, b"A");
@@ -546,11 +592,13 @@ fn contextual_await() {
     };
 
     let source = "enum E{await=1,A=await}";
-    let (ast, semantic) = analyze_with_options(&allocator, source, ts_module, syntax);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_with_options(&allocator, source, ts_module, syntax, ast_guard);
     assert!(reference_symbol(&ast, &semantic, b"await").is_some());
 
     let source = "namespace N{export let await=1,x=await}";
-    let (ast, semantic) = analyze_with_options(&allocator, source, ts_module, syntax);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_with_options(&allocator, source, ts_module, syntax, ast_guard);
     assert!(reference_symbol(&ast, &semantic, b"await").is_some());
 }
 

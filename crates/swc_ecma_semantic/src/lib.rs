@@ -78,17 +78,17 @@ pub struct JsxUsage {
 /// containing scopes, uses, and name lookup without rebuilding
 /// indexes outside the arena-backed model.
 #[derive(Debug)]
-pub struct Semantic<'a> {
+pub struct Semantic<'a, 'id> {
     /// Every scope, indexed by [`ScopeId`].
-    scopes: ScopeTree<'a>,
+    scopes: ScopeTree<'a, 'id>,
     jsx_usages: ArenaVec<'a, JsxUsage>,
     /// Every symbol, in declaration order, indexed by [`SymbolId`].
-    symbols: ArenaVec<'a, Symbol>,
+    symbols: ArenaVec<'a, Symbol<'id>>,
     /// Every reference, in source order, indexed by [`ReferenceId`].
-    references: ArenaVec<'a, Reference>,
+    references: ArenaVec<'a, Reference<'id>>,
     reference_candidates: binder::ReferenceCandidates<'a>,
     /// Every declaration in source order, indexed by [`DeclarationId`].
-    declarations: ArenaVec<'a, Declaration>,
+    declarations: ArenaVec<'a, Declaration<'id>>,
     /// Additional declaration ids for redeclared symbols, in source order.
     redeclarations: Redeclarations<'a>,
 
@@ -100,8 +100,8 @@ pub struct Semantic<'a> {
     /// Each node records one binding, reference, or created scope identity.
     node_semantic: ArenaVec<'a, NodeSemanticId>,
 
-    module_record: ModuleRecord<'a>,
-    ts_members: TsMemberIndex<'a>,
+    module_record: ModuleRecord<'a, 'id>,
+    ts_members: TsMemberIndex<'a, 'id>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -138,7 +138,7 @@ impl NodeSemanticId {
     }
 }
 
-impl<'a> Semantic<'a> {
+impl<'id, 'a> Semantic<'a, 'id> {
     /// JSX usage in traversal order, coalescing adjacent sites in one scope.
     /// Intrinsic tags are included; a fragment also requires an element factory.
     pub fn jsx_usages(&self) -> &[JsxUsage] {
@@ -146,48 +146,48 @@ impl<'a> Semantic<'a> {
     }
 
     /// The symbol with the given id.
-    pub fn symbol(&self, id: SymbolId) -> Symbol {
+    pub fn symbol(&self, id: SymbolId) -> Symbol<'id> {
         self.symbols[id.index()]
     }
 
     /// The reference with the given id.
-    pub fn reference(&self, id: ReferenceId) -> Reference {
+    pub fn reference(&self, id: ReferenceId) -> Reference<'id> {
         self.references[id.index()]
     }
 
     /// The declaration with the given id.
-    pub fn declaration(&self, id: DeclarationId) -> Declaration {
+    pub fn declaration(&self, id: DeclarationId) -> Declaration<'id> {
         self.declarations[id.index()]
     }
 
     /// The source text module's export occurrences and resolved targets.
     /// Empty unless [`AnalyzeOptions::build_module_record`] was enabled.
-    pub fn module_record(&self) -> &ModuleRecord<'a> {
+    pub fn module_record(&self) -> &ModuleRecord<'a, 'id> {
         &self.module_record
     }
 
     /// The scope with the given id.
-    pub fn scope(&self, id: ScopeId) -> scope::Scope {
+    pub fn scope(&self, id: ScopeId) -> scope::Scope<'id> {
         self.scopes.get(id)
     }
 
     /// The symbol declared at `node`, or `None` when the node is not a
     /// binding or member declaration site. Source-module and anonymous default
     /// export symbols are queried through the TypeScript export APIs.
-    pub fn symbol_of(&self, node: NodeId) -> Option<SymbolId> {
+    pub fn symbol_of(&self, node: NodeId<'id>) -> Option<SymbolId> {
         self.node_semantic[node.index()].symbol()
     }
 
     /// The reference recorded at `node`, or `None` when the node is
     /// not a reference site.
-    pub fn reference_of(&self, node: NodeId) -> Option<ReferenceId> {
+    pub fn reference_of(&self, node: NodeId<'id>) -> Option<ReferenceId> {
         self.node_semantic[node.index()].reference()
     }
 
     /// The scope created by the given node, or `None` if the node is not a
     /// scope-creating site. If a node creates multiple scopes, returns the
     /// last one created (for example, the program's source-type wrapper).
-    pub fn scope_of(&self, node: NodeId) -> Option<ScopeId> {
+    pub fn scope_of(&self, node: NodeId<'id>) -> Option<ScopeId> {
         self.node_semantic[node.index()].scope()
     }
 
@@ -235,8 +235,8 @@ impl<'a> Semantic<'a> {
     /// `ast` must be the tree analyzed to produce this model.
     pub fn import_equals_reference(
         &self,
-        ast: &Ast<'_>,
-        declaration: swc_next_ecma_ast::TsImportEqualsDeclaration,
+        ast: &Ast<'_, 'id>,
+        declaration: swc_next_ecma_ast::TsImportEqualsDeclaration<'id>,
     ) -> Option<ReferenceId> {
         let node = ecmascript::import_equals_reference_node(ast, declaration)?;
         self.reference_of(node)
@@ -270,7 +270,7 @@ impl<'a> Semantic<'a> {
     pub fn declarations(
         &self,
         id: SymbolId,
-    ) -> impl ExactSizeIterator<Item = Declaration> + DoubleEndedIterator + '_ {
+    ) -> impl ExactSizeIterator<Item = Declaration<'id>> + DoubleEndedIterator + '_ {
         self.declaration_ids(id)
             .map(|declaration_id| self.declaration(declaration_id))
     }
@@ -310,7 +310,7 @@ impl<'a> Semantic<'a> {
     /// `ast` must be the tree analyzed to produce this model.
     pub fn reference_value_targets<'s>(
         &'s self,
-        ast: &'s Ast<'_>,
+        ast: &'s Ast<'_, 'id>,
         id: ReferenceId,
     ) -> impl Iterator<Item = NameResolution> + 's {
         let reference = self.reference(id);
@@ -487,7 +487,7 @@ impl<'a> Semantic<'a> {
     }
 
     /// Iterates every `(id, scope)` pair in creation order.
-    pub fn iter_scopes(&self) -> ScopeIterator<'_> {
+    pub fn iter_scopes(&self) -> ScopeIterator<'_, 'id> {
         ScopeIterator {
             list: &self.scopes.list,
             index: 0,
@@ -495,7 +495,7 @@ impl<'a> Semantic<'a> {
     }
 
     /// Iterates every `(id, symbol)` pair in declaration order.
-    pub fn iter_symbols(&self) -> SymbolIterator<'_> {
+    pub fn iter_symbols(&self) -> SymbolIterator<'_, 'id> {
         SymbolIterator {
             symbols: &self.symbols,
             index: 0,
@@ -503,7 +503,7 @@ impl<'a> Semantic<'a> {
     }
 
     /// Iterates every `(id, reference)` pair in source order.
-    pub fn iter_references(&self) -> ReferenceIterator<'_> {
+    pub fn iter_references(&self) -> ReferenceIterator<'_, 'id> {
         ReferenceIterator {
             references: &self.references,
             node_semantic: &self.node_semantic,
@@ -512,7 +512,7 @@ impl<'a> Semantic<'a> {
     }
 
     /// Iterates every `(id, declaration)` pair in source order.
-    pub fn iter_declarations(&self) -> DeclarationIterator<'_> {
+    pub fn iter_declarations(&self) -> DeclarationIterator<'_, 'id> {
         DeclarationIterator {
             declarations: &self.declarations,
             index: 0,
@@ -521,27 +521,27 @@ impl<'a> Semantic<'a> {
 }
 
 /// A `(id, scope)` pair yielded by [`Semantic::iter_scopes`].
-pub struct ScopeEntry {
+pub struct ScopeEntry<'id> {
     pub id: ScopeId,
-    pub scope: scope::Scope,
+    pub scope: scope::Scope<'id>,
 }
 
 /// A `(id, symbol)` pair yielded by [`Semantic::iter_symbols`].
-pub struct SymbolEntry {
+pub struct SymbolEntry<'id> {
     pub id: SymbolId,
-    pub symbol: Symbol,
+    pub symbol: Symbol<'id>,
 }
 
 /// A `(id, reference)` pair yielded by [`Semantic::iter_references`].
-pub struct ReferenceEntry {
+pub struct ReferenceEntry<'id> {
     pub id: ReferenceId,
-    pub reference: Reference,
+    pub reference: Reference<'id>,
 }
 
 /// A `(id, declaration)` pair yielded by [`Semantic::iter_declarations`].
-pub struct DeclarationEntry {
+pub struct DeclarationEntry<'id> {
     pub id: DeclarationId,
-    pub declaration: Declaration,
+    pub declaration: Declaration<'id>,
 }
 
 /// Declaration ids for one symbol, in source order.
@@ -578,13 +578,13 @@ impl ExactSizeIterator for DeclarationIdIterator<'_> {
 
 impl std::iter::FusedIterator for DeclarationIdIterator<'_> {}
 
-pub struct ScopeIterator<'a> {
-    list: &'a [scope::Scope],
+pub struct ScopeIterator<'a, 'id> {
+    list: &'a [scope::Scope<'id>],
     index: u32,
 }
 
-impl Iterator for ScopeIterator<'_> {
-    type Item = ScopeEntry;
+impl<'id> Iterator for ScopeIterator<'_, 'id> {
+    type Item = ScopeEntry<'id>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -617,13 +617,13 @@ impl Iterator for BindingIterator<'_> {
     }
 }
 
-pub struct SymbolIterator<'a> {
-    symbols: &'a [Symbol],
+pub struct SymbolIterator<'a, 'id> {
+    symbols: &'a [Symbol<'id>],
     index: u32,
 }
 
-impl Iterator for SymbolIterator<'_> {
-    type Item = SymbolEntry;
+impl<'id> Iterator for SymbolIterator<'_, 'id> {
+    type Item = SymbolEntry<'id>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.index as usize;
@@ -636,19 +636,19 @@ impl Iterator for SymbolIterator<'_> {
     }
 }
 
-pub struct ReferenceIterator<'a> {
-    references: &'a [Reference],
+pub struct ReferenceIterator<'a, 'id> {
+    references: &'a [Reference<'id>],
     node_semantic: &'a [NodeSemanticId],
     index: u32,
 }
 
-pub struct DeclarationIterator<'a> {
-    declarations: &'a [Declaration],
+pub struct DeclarationIterator<'a, 'id> {
+    declarations: &'a [Declaration<'id>],
     index: u32,
 }
 
-impl Iterator for ReferenceIterator<'_> {
-    type Item = ReferenceEntry;
+impl<'id> Iterator for ReferenceIterator<'_, 'id> {
+    type Item = ReferenceEntry<'id>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -666,8 +666,8 @@ impl Iterator for ReferenceIterator<'_> {
     }
 }
 
-impl Iterator for DeclarationIterator<'_> {
-    type Item = DeclarationEntry;
+impl<'id> Iterator for DeclarationIterator<'_, 'id> {
+    type Item = DeclarationEntry<'id>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.index as usize;
@@ -681,8 +681,8 @@ impl Iterator for DeclarationIterator<'_> {
 }
 
 /// Semantic analysis output and any requested scope-dependent early errors.
-pub struct SemanticReturn<'a> {
-    pub semantic: Semantic<'a>,
+pub struct SemanticReturn<'a, 'id> {
+    pub semantic: Semantic<'a, 'id>,
     pub diagnostics: Vec<Diagnostic<'a>>,
 }
 
@@ -706,7 +706,7 @@ pub struct AnalyzeOptions {
 /// the tree's arena, so the result is valid as long as the tree is alive.
 /// When [`AnalyzeOptions::build_module_record`] is disabled, the returned
 /// module record is empty.
-pub fn analyze<'a>(ast: &Ast<'a>, options: AnalyzeOptions) -> SemanticReturn<'a> {
+pub fn analyze<'id, 'a>(ast: &Ast<'a, 'id>, options: AnalyzeOptions) -> SemanticReturn<'a, 'id> {
     let root = ast.root_program();
     let mut visitor = SemanticBuilder::new(ast, options.check_syntax, options.build_module_record);
     root.visit_with(&mut visitor);

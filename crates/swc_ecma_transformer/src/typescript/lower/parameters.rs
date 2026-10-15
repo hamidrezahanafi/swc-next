@@ -8,13 +8,13 @@ use swc_next_ecma_ast::{
 use super::TypeScriptLowerer;
 
 #[derive(Clone, Copy)]
-struct ParameterProperty {
-    name: AstUtf8,
+struct ParameterProperty<'id> {
+    name: AstUtf8<'id>,
     span: swc_next_ecma_ast::Span,
 }
 
-impl TypeScriptLowerer<'_, '_> {
-    pub(super) fn lower_parameter_properties(&mut self, class: Class) {
+impl<'id> TypeScriptLowerer<'_, '_, 'id> {
+    pub(super) fn lower_parameter_properties(&mut self, class: Class<'id>) {
         let body = class.body(self.ast_ref());
         let constructor = body.body(self.ast_ref()).iter().find_map(|element_id| {
             let element = self.ast_ref().get_node_in_sub_range(element_id);
@@ -24,7 +24,6 @@ impl TypeScriptLowerer<'_, '_> {
         let Some(constructor) = constructor else {
             return;
         };
-
         let function = constructor.value(self.ast_ref());
         let properties = self.convert_parameter_properties(function);
         if properties.is_empty() {
@@ -40,7 +39,10 @@ impl TypeScriptLowerer<'_, '_> {
         }
     }
 
-    fn convert_parameter_properties(&mut self, function: Function) -> Vec<ParameterProperty> {
+    fn convert_parameter_properties(
+        &mut self,
+        function: Function<'id>,
+    ) -> Vec<ParameterProperty<'id>> {
         let parameters = function.params(self.ast_ref());
         let items = parameters.items(self.ast_ref());
         let mut properties = Vec::new();
@@ -50,7 +52,6 @@ impl TypeScriptLowerer<'_, '_> {
             let Some(parameter_property) = item.as_ts_parameter_property(self.ast_ref()) else {
                 continue;
             };
-
             let parameter = parameter_property.parameter(self.ast_ref());
             let decorators = parameter_property.decorators(self.ast_ref());
             if !decorators.is_empty() {
@@ -89,8 +90,8 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn prepend_parameter_property_fields(
         &mut self,
-        body: swc_next_ecma_ast::ClassBody,
-        properties: &[ParameterProperty],
+        body: swc_next_ecma_ast::ClassBody<'id>,
+        properties: &[ParameterProperty<'id>],
     ) {
         let elements = body.body(self.ast_ref());
         let mut lowered = Vec::with_capacity(properties.len() + elements.len());
@@ -107,8 +108,8 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn prepend_parameter_property_assignments(
         &mut self,
-        body: FunctionBody,
-        properties: &[ParameterProperty],
+        body: FunctionBody<'id>,
+        properties: &[ParameterProperty<'id>],
     ) {
         let statements = body.body(self.ast_ref());
         let mut lowered = Vec::with_capacity(properties.len() + statements.len());
@@ -125,10 +126,10 @@ impl TypeScriptLowerer<'_, '_> {
 }
 
 /// Reserve the public instance field before other class fields initialize.
-fn parameter_property_field(
-    ast: &mut Ast<'_>,
-    property: ParameterProperty,
-) -> swc_next_ecma_ast::ClassElement {
+fn parameter_property_field<'id>(
+    ast: &mut Ast<'_, 'id>,
+    property: ParameterProperty<'id>,
+) -> swc_next_ecma_ast::ClassElement<'id> {
     let key = ast.identifier_name(property.span, property.name);
     ast.class_element_property_definition(
         DUMMY_SP,
@@ -149,7 +150,7 @@ fn parameter_property_field(
     )
 }
 
-fn make_assignment(ast: &mut Ast<'_>, property: ParameterProperty) -> Expr {
+fn make_assignment<'id>(ast: &mut Ast<'_, 'id>, property: ParameterProperty<'id>) -> Expr<'id> {
     let object = ast.expr_this_expression(DUMMY_SP);
     let key = ast.identifier_name(property.span, property.name);
     let member = ast.member_expression(
@@ -168,16 +169,16 @@ fn make_assignment(ast: &mut Ast<'_>, property: ParameterProperty) -> Expr {
 /// Keep parameter reads in the constructor's lexical environment. Direct
 /// super statements can inline them; other sites call a lazily emitted arrow
 /// defined in that environment, so nested bindings cannot capture the reads.
-struct SuperInjector<'lower, 'visit, 'ast> {
-    lowerer: &'lower mut TypeScriptLowerer<'visit, 'ast>,
-    properties: &'lower [ParameterProperty],
-    initializer: Option<AstUtf8>,
+struct SuperInjector<'lower, 'visit, 'ast, 'id> {
+    lowerer: &'lower mut TypeScriptLowerer<'visit, 'ast, 'id>,
+    properties: &'lower [ParameterProperty<'id>],
+    initializer: Option<AstUtf8<'id>>,
 }
 
-impl<'lower, 'visit, 'ast> SuperInjector<'lower, 'visit, 'ast> {
+impl<'id, 'lower, 'visit, 'ast> SuperInjector<'lower, 'visit, 'ast, 'id> {
     fn new(
-        lowerer: &'lower mut TypeScriptLowerer<'visit, 'ast>,
-        properties: &'lower [ParameterProperty],
+        lowerer: &'lower mut TypeScriptLowerer<'visit, 'ast, 'id>,
+        properties: &'lower [ParameterProperty<'id>],
     ) -> Self {
         Self {
             lowerer,
@@ -186,7 +187,7 @@ impl<'lower, 'visit, 'ast> SuperInjector<'lower, 'visit, 'ast> {
         }
     }
 
-    fn inject(mut self, body: FunctionBody) {
+    fn inject(mut self, body: FunctionBody<'id>) {
         let statements = body.body(self.ast());
         for id in statements.iter() {
             let statement = self.ast().get_node_in_sub_range(id);
@@ -216,13 +217,13 @@ impl<'lower, 'visit, 'ast> SuperInjector<'lower, 'visit, 'ast> {
         }
     }
 
-    fn is_super_call(&mut self, expression: Expr) -> bool {
+    fn is_super_call(&mut self, expression: Expr<'id>) -> bool {
         expression
             .as_call_expression(self.ast())
             .is_some_and(|call| call.callee(self.ast()).is_super(self.ast()))
     }
 
-    fn finish_super_sequence(&mut self, mut expressions: Vec<Expr>) -> Expr {
+    fn finish_super_sequence(&mut self, mut expressions: Vec<Expr<'id>>) -> Expr<'id> {
         // SuperCall binds and returns the same object, including a replacement
         // object returned by the base constructor.
         expressions.push(self.ast().expr_this_expression(DUMMY_SP));
@@ -230,7 +231,7 @@ impl<'lower, 'visit, 'ast> SuperInjector<'lower, 'visit, 'ast> {
         self.ast().expr_sequence_expression(DUMMY_SP, expressions)
     }
 
-    fn inject_after_super(&mut self, expression: Expr) -> Expr {
+    fn inject_after_super(&mut self, expression: Expr<'id>) -> Expr<'id> {
         let name = match self.initializer {
             Some(name) => name,
             None => {
@@ -246,7 +247,7 @@ impl<'lower, 'visit, 'ast> SuperInjector<'lower, 'visit, 'ast> {
         self.finish_super_sequence(vec![expression, call])
     }
 
-    fn prepend_initializer(&mut self, body: FunctionBody, name: AstUtf8) {
+    fn prepend_initializer(&mut self, body: FunctionBody<'id>, name: AstUtf8<'id>) {
         let mut assignments = Vec::with_capacity(self.properties.len());
         for &property in self.properties {
             assignments.push(make_assignment(self.lowerer.ast(), property));
@@ -295,22 +296,22 @@ impl<'lower, 'visit, 'ast> SuperInjector<'lower, 'visit, 'ast> {
     }
 }
 
-impl<'ast> VisitMut<'ast> for SuperInjector<'_, '_, 'ast> {
-    fn ast(&mut self) -> &mut Ast<'ast> {
+impl<'id, 'ast> VisitMut<'ast, 'id> for SuperInjector<'_, '_, 'ast, 'id> {
+    fn ast(&mut self) -> &mut Ast<'ast, 'id> {
         self.lowerer.ast()
     }
 
-    fn visit_mut_expr(&mut self, expression: Expr) -> Option<Expr> {
+    fn visit_mut_expr(&mut self, expression: Expr<'id>) -> Option<Expr<'id>> {
         expression.visit_mut_children_with(self);
         self.is_super_call(expression)
             .then(|| self.inject_after_super(expression))
     }
 
-    fn visit_mut_function(&mut self, _function: Function) -> Option<Function> {
+    fn visit_mut_function(&mut self, _function: Function<'id>) -> Option<Function<'id>> {
         None
     }
 
-    fn visit_mut_class(&mut self, class: Class) -> Option<Class> {
+    fn visit_mut_class(&mut self, class: Class<'id>) -> Option<Class<'id>> {
         super::lexical_env::visit_class_outer_expressions(class, self);
         None
     }

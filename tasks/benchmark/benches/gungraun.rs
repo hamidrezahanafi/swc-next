@@ -35,7 +35,6 @@ const CAL_COM_TSX: &str = include_str!("../files/cal.com.tsx");
 const ASTRO_CONFIG: &str = include_str!("../files/astro-config.ts");
 const EFFECT_SCHEMA_AST: &str = include_str!("../files/effect-schema-ast.ts");
 const HONO_TYPES: &str = include_str!("../files/hono-types.ts");
-
 #[library_benchmark]
 #[bench::angular(ANGULAR, Lang::Js)]
 #[bench::backbone(BACKBONE, Lang::Js)]
@@ -51,6 +50,7 @@ const HONO_TYPES: &str = include_str!("../files/hono-types.ts");
 fn bench_parser(source: &str, lang: Lang) {
     let source = black_box(source);
     let allocator = Allocator::new();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
     black_box(
         Parser::init(
             &allocator,
@@ -60,13 +60,42 @@ fn bench_parser(source: &str, lang: Lang) {
                 ..Options::default()
             },
             NoTokenParserConfig,
+            ast_guard,
         )
         .parse(),
     );
 }
 
-fn setup_program(source: &'static str, lang: Lang) -> Ast<'static> {
+// Benchmark setup must return a concrete type. Keep the erased brand private
+// and introduce a fresh brand whenever the fixture is accessed. Handles cannot
+// escape the higher-ranked callback, so fixtures cannot exchange strings.
+struct ProgramFixture(Ast<'static, 'static>);
+
+impl ProgramFixture {
+    fn new<'id>(ast: Ast<'static, 'id>) -> Self {
+        // SAFETY: Only the phantom pool brand changes. The erased AST remains
+        // private and is only exposed through a freshly branded callback.
+        Self(unsafe { std::mem::transmute::<Ast<'static, 'id>, Ast<'static, 'static>>(ast) })
+    }
+
+    fn with<R>(self, f: impl for<'id> FnOnce(Ast<'id, 'id>) -> R) -> R {
+        fn bind<'id, R>(
+            fixture: ProgramFixture,
+            _guard: swc_next_ecma_ast::AstGuard<'id>,
+            f: impl FnOnce(Ast<'id, 'id>) -> R,
+        ) -> R {
+            // SAFETY: The callback receives a fresh invariant brand for this
+            // pool, and its result cannot contain any handles with that brand.
+            f(unsafe { std::mem::transmute::<Ast<'static, 'static>, Ast<'id, 'id>>(fixture.0) })
+        }
+        swc_next_ecma_ast::make_ast_guard!(guard);
+        bind(self, guard, f)
+    }
+}
+
+fn setup_program(source: &'static str, lang: Lang) -> ProgramFixture {
     let allocator = Box::leak(Box::new(Allocator::new()));
+    swc_next_ecma_ast::make_ast_guard!(guard);
     let result = Parser::init(
         allocator,
         source,
@@ -75,62 +104,97 @@ fn setup_program(source: &'static str, lang: Lang) -> Ast<'static> {
             ..Options::default()
         },
         NoTokenParserConfig,
+        guard,
     )
     .parse();
     assert!(result.diagnostics.is_empty());
-    result.ast
+    ProgramFixture::new(result.ast)
 }
 
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
-fn bench_analyze(ast: Ast<'static>) {
-    black_box(analyze(&ast, AnalyzeOptions::default()));
+fn bench_analyze(fixture: ProgramFixture) {
+    fixture.with(|ast| {
+        black_box(analyze(&ast, AnalyzeOptions::default()));
+    });
 }
 
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
-fn bench_syntax_check(ast: Ast<'static>) {
-    black_box(analyze(
-        &ast,
-        AnalyzeOptions {
-            check_syntax: true,
-            ..AnalyzeOptions::default()
-        },
-    ));
+fn bench_syntax_check(fixture: ProgramFixture) {
+    fixture.with(|ast| {
+        black_box(analyze(
+            &ast,
+            AnalyzeOptions {
+                check_syntax: true,
+                ..AnalyzeOptions::default()
+            },
+        ));
+    });
 }
 
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
-fn bench_resolver(ast: Ast<'static>) {
-    black_box(resolve_names(&ast));
+fn bench_resolver(fixture: ProgramFixture) {
+    fixture.with(|ast| {
+        black_box(resolve_names(&ast));
+    });
 }
 
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
-fn bench_codegen(ast: Ast<'static>) {
-    black_box(print(ast.allocator(), &ast, CodegenOptions::default()));
+fn bench_codegen(fixture: ProgramFixture) {
+    fixture.with(|ast| {
+        black_box(print(ast.allocator(), &ast, CodegenOptions::default()));
+    });
 }
 
-type TransformInput = (Ast<'static>, Semantic<'static>, TransformerOptions);
-
+type TransformData<'id> = (Ast<'id, 'id>, Semantic<'id, 'id>, TransformerOptions);
+struct TransformInput(TransformData<'static>);
+impl TransformInput {
+    fn with<R>(self, f: impl for<'id> FnOnce(TransformData<'id>) -> R) -> R {
+        fn bind<'id, R>(
+            input: TransformInput,
+            _guard: swc_next_ecma_ast::AstGuard<'id>,
+            f: impl FnOnce(TransformData<'id>) -> R,
+        ) -> R {
+            // SAFETY: Setup packages an AST and its own semantic model. Only
+            // their phantom brand changes, and the callback cannot export it.
+            f(
+                unsafe {
+                    std::mem::transmute::<TransformData<'static>, TransformData<'id>>(input.0)
+                },
+            )
+        }
+        swc_next_ecma_ast::make_ast_guard!(guard);
+        bind(self, guard, f)
+    }
+}
 fn setup_transform(source: &'static str, lang: Lang) -> TransformInput {
-    let mut ast = setup_program(source, lang);
-    Normalizer::normalize_runtime(ast.root_program(), &mut ast);
-    let options = TransformerOptions {
-        typescript: Some(TypeScriptOptions::default()),
-        es2022: ES2022Options {
-            static_blocks: true,
-        },
-        proposal: ProposalOptions {
-            prevent_extensions: true,
-        },
-        ..TransformerOptions::default()
-    };
-    let semantic = analyze(&ast, AnalyzeOptions::default()).semantic;
-    (ast, semantic, options)
+    setup_program(source, lang).with(|mut ast| {
+        Normalizer::normalize_runtime(ast.root_program(), &mut ast);
+        let options = TransformerOptions {
+            typescript: Some(TypeScriptOptions::default()),
+            es2022: ES2022Options {
+                static_blocks: true,
+            },
+            proposal: ProposalOptions {
+                prevent_extensions: true,
+            },
+            ..TransformerOptions::default()
+        };
+        let semantic = analyze(&ast, AnalyzeOptions::default()).semantic;
+        // SAFETY: Both models refer to this pool. The erased pair remains private
+        // and is only accessed by TransformInput::with with one fresh brand.
+        TransformInput(unsafe {
+            std::mem::transmute::<TransformData<'_>, TransformData<'static>>((
+                ast, semantic, options,
+            ))
+        })
+    })
 }
 
 #[library_benchmark]
@@ -148,9 +212,10 @@ fn setup_transform(source: &'static str, lang: Lang) -> TransformInput {
 #[bench::effect_schema_ast(setup_transform(EFFECT_SCHEMA_AST, Lang::Ts))]
 #[bench::hono_types(setup_transform(HONO_TYPES, Lang::Ts))]
 fn bench_transform(input: TransformInput) {
-    let (mut ast, semantic, options) = black_box(input);
-    let result = Transformer::transform(&mut ast, semantic, options);
-    black_box((ast, result));
+    black_box(input).with(|(mut ast, semantic, options)| {
+        let result = Transformer::transform(&mut ast, semantic, options);
+        black_box((ast, result));
+    });
 }
 
 fn type_strip_options(lang: Lang) -> Options {
@@ -174,90 +239,96 @@ fn bench_type_strip(source: &str, options: Options) {
     black_box(strip_types(black_box(source), black_box(options)));
 }
 
-struct VisitCounter<'visit, 'ast> {
-    ast: &'visit Ast<'ast>,
+struct VisitCounter<'visit, 'ast, 'id> {
+    ast: &'visit Ast<'ast, 'id>,
     count: usize,
 }
 
-impl<'ast> Visit<'ast> for VisitCounter<'_, 'ast> {
-    fn ast(&self) -> &Ast<'ast> {
+impl<'id, 'ast> Visit<'ast, 'id> for VisitCounter<'_, 'ast, 'id> {
+    fn ast(&self) -> &Ast<'ast, 'id> {
         self.ast
     }
 
-    fn visit_identifier_reference(&mut self, _node: IdentifierReference) {
+    fn visit_identifier_reference(&mut self, _node: IdentifierReference<'id>) {
         self.count += 1;
     }
 
-    fn visit_private_identifier(&mut self, _node: PrivateIdentifier) {
+    fn visit_private_identifier(&mut self, _node: PrivateIdentifier<'id>) {
         self.count += 1;
     }
 
-    fn visit_binding_identifier(&mut self, _node: BindingIdentifier) {
+    fn visit_binding_identifier(&mut self, _node: BindingIdentifier<'id>) {
         self.count += 1;
     }
 
-    fn visit_identifier_name(&mut self, _node: IdentifierName) {
+    fn visit_identifier_name(&mut self, _node: IdentifierName<'id>) {
         self.count += 1;
     }
 
-    fn visit_label_identifier(&mut self, _node: LabelIdentifier) {
+    fn visit_label_identifier(&mut self, _node: LabelIdentifier<'id>) {
         self.count += 1;
     }
 }
 
-struct VisitMutCounter<'visit, 'ast> {
-    ast: &'visit mut Ast<'ast>,
+struct VisitMutCounter<'visit, 'ast, 'id> {
+    ast: &'visit mut Ast<'ast, 'id>,
     count: usize,
 }
 
-impl<'ast> VisitMut<'ast> for VisitMutCounter<'_, 'ast> {
-    fn ast(&mut self) -> &mut Ast<'ast> {
+impl<'id, 'ast> VisitMut<'ast, 'id> for VisitMutCounter<'_, 'ast, 'id> {
+    fn ast(&mut self) -> &mut Ast<'ast, 'id> {
         self.ast
     }
 
     fn visit_mut_identifier_reference(
         &mut self,
-        _node: IdentifierReference,
-    ) -> Option<IdentifierReference> {
+        _node: IdentifierReference<'id>,
+    ) -> Option<IdentifierReference<'id>> {
         self.count += 1;
         None
     }
 
     fn visit_mut_private_identifier(
         &mut self,
-        _node: PrivateIdentifier,
-    ) -> Option<PrivateIdentifier> {
+        _node: PrivateIdentifier<'id>,
+    ) -> Option<PrivateIdentifier<'id>> {
         self.count += 1;
         None
     }
 
     fn visit_mut_binding_identifier(
         &mut self,
-        _node: BindingIdentifier,
-    ) -> Option<BindingIdentifier> {
+        _node: BindingIdentifier<'id>,
+    ) -> Option<BindingIdentifier<'id>> {
         self.count += 1;
         None
     }
 
-    fn visit_mut_identifier_name(&mut self, _node: IdentifierName) -> Option<IdentifierName> {
+    fn visit_mut_identifier_name(
+        &mut self,
+        _node: IdentifierName<'id>,
+    ) -> Option<IdentifierName<'id>> {
         self.count += 1;
         None
     }
 
-    fn visit_mut_label_identifier(&mut self, _node: LabelIdentifier) -> Option<LabelIdentifier> {
+    fn visit_mut_label_identifier(
+        &mut self,
+        _node: LabelIdentifier<'id>,
+    ) -> Option<LabelIdentifier<'id>> {
         self.count += 1;
         None
     }
 
     fn visit_mut_ts_type_annotation(
         &mut self,
-        _node: TsTypeAnnotation,
-    ) -> Option<TsTypeAnnotation> {
+        _node: TsTypeAnnotation<'id>,
+    ) -> Option<TsTypeAnnotation<'id>> {
         self.count += 1;
         None
     }
 
-    fn visit_mut_decorator(&mut self, _node: Decorator) -> Option<Decorator> {
+    fn visit_mut_decorator(&mut self, _node: Decorator<'id>) -> Option<Decorator<'id>> {
         self.count += 1;
         None
     }
@@ -267,36 +338,44 @@ struct TraverseCounter {
     count: usize,
 }
 
-impl<'ast> Traverse<'ast> for TraverseCounter {
+impl<'id, 'ast> Traverse<'ast, 'id> for TraverseCounter {
     fn enter_identifier_reference(
         &mut self,
-        _node: IdentifierReference,
-        _ctx: &mut TraverseCtx<'_, 'ast>,
+        _node: IdentifierReference<'id>,
+        _ctx: &mut TraverseCtx<'_, 'ast, 'id>,
     ) {
         self.count += 1;
     }
 
     fn enter_private_identifier(
         &mut self,
-        _node: PrivateIdentifier,
-        _ctx: &mut TraverseCtx<'_, 'ast>,
+        _node: PrivateIdentifier<'id>,
+        _ctx: &mut TraverseCtx<'_, 'ast, 'id>,
     ) {
         self.count += 1;
     }
 
     fn enter_binding_identifier(
         &mut self,
-        _node: BindingIdentifier,
-        _ctx: &mut TraverseCtx<'_, 'ast>,
+        _node: BindingIdentifier<'id>,
+        _ctx: &mut TraverseCtx<'_, 'ast, 'id>,
     ) {
         self.count += 1;
     }
 
-    fn enter_identifier_name(&mut self, _node: IdentifierName, _ctx: &mut TraverseCtx<'_, 'ast>) {
+    fn enter_identifier_name(
+        &mut self,
+        _node: IdentifierName<'id>,
+        _ctx: &mut TraverseCtx<'_, 'ast, 'id>,
+    ) {
         self.count += 1;
     }
 
-    fn enter_label_identifier(&mut self, _node: LabelIdentifier, _ctx: &mut TraverseCtx<'_, 'ast>) {
+    fn enter_label_identifier(
+        &mut self,
+        _node: LabelIdentifier<'id>,
+        _ctx: &mut TraverseCtx<'_, 'ast, 'id>,
+    ) {
         self.count += 1;
     }
 }
@@ -304,37 +383,43 @@ impl<'ast> Traverse<'ast> for TraverseCounter {
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
-fn bench_visit(ast: Ast<'static>) {
-    let program = ast.root_program();
-    let mut counter = VisitCounter {
-        ast: &ast,
-        count: 0,
-    };
-    program.visit_with(&mut counter);
-    black_box(counter.count);
+fn bench_visit(fixture: ProgramFixture) {
+    fixture.with(|ast| {
+        let program = ast.root_program();
+        let mut counter = VisitCounter {
+            ast: &ast,
+            count: 0,
+        };
+        program.visit_with(&mut counter);
+        black_box(counter.count);
+    });
 }
 
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
-fn bench_visit_mut(mut ast: Ast<'static>) {
-    let program = ast.root_program();
-    let mut counter = VisitMutCounter {
-        ast: &mut ast,
-        count: 0,
-    };
-    program.visit_mut_with(&mut counter);
-    black_box(counter.count);
+fn bench_visit_mut(fixture: ProgramFixture) {
+    fixture.with(|mut ast| {
+        let program = ast.root_program();
+        let mut counter = VisitMutCounter {
+            ast: &mut ast,
+            count: 0,
+        };
+        program.visit_mut_with(&mut counter);
+        black_box(counter.count);
+    });
 }
 
 #[library_benchmark]
 #[bench::typescript(setup_program(TYPESCRIPT, Lang::Js))]
 #[bench::cal_com_tsx(setup_program(CAL_COM_TSX, Lang::Tsx))]
-fn bench_traverse(ast: Ast<'static>) {
-    let program = ast.root_program();
-    let mut counter = TraverseCounter { count: 0 };
-    program.traverse_with(&mut counter, &mut TraverseCtx::new(&ast, ()));
-    black_box(counter.count);
+fn bench_traverse(fixture: ProgramFixture) {
+    fixture.with(|ast| {
+        let program = ast.root_program();
+        let mut counter = TraverseCounter { count: 0 };
+        program.traverse_with(&mut counter, &mut TraverseCtx::new(&ast, ()));
+        black_box(counter.count);
+    });
 }
 
 library_benchmark_group!(name = parser, benchmarks = bench_parser);

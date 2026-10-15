@@ -25,13 +25,16 @@ use super::{
 };
 use crate::scope::{Scope, ScopeTracker};
 
-impl<'a> SymbolTracker<'a> {
+impl<'id, 'a> SymbolTracker<'a, 'id> {
     pub(crate) fn resolve_ts_aliases(
         &mut self,
-        tree: &Ast<'a>,
-        scopes: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        scopes: &ScopeTracker<'a, 'id>,
         check_syntax: bool,
-    ) -> (Vec<TsNamespaceExportAliasIssue>, Vec<TsImportAliasIssue>) {
+    ) -> (
+        Vec<TsNamespaceExportAliasIssue<'id>>,
+        Vec<TsImportAliasIssue<'id>>,
+    ) {
         self.resolve_ts_namespace_export_aliases(tree, scopes);
         let export_issues = if check_syntax {
             self.check_ts_namespace_export_aliases(tree, scopes)
@@ -44,7 +47,11 @@ impl<'a> SymbolTracker<'a> {
 
     #[cold]
     #[inline(never)]
-    fn resolve_ts_namespace_export_aliases(&mut self, tree: &Ast<'a>, scopes: &ScopeTracker<'a>) {
+    fn resolve_ts_namespace_export_aliases(
+        &mut self,
+        tree: &Ast<'a, 'id>,
+        scopes: &ScopeTracker<'a, 'id>,
+    ) {
         if self.pending_ts_namespace_export_aliases.is_empty() {
             return;
         }
@@ -80,9 +87,9 @@ impl<'a> SymbolTracker<'a> {
 
     fn check_ts_namespace_export_aliases(
         &self,
-        tree: &Ast<'a>,
-        scopes: &ScopeTracker<'a>,
-    ) -> Vec<TsNamespaceExportAliasIssue> {
+        tree: &Ast<'a, 'id>,
+        scopes: &ScopeTracker<'a, 'id>,
+    ) -> Vec<TsNamespaceExportAliasIssue<'id>> {
         if self.pending_ts_namespace_export_aliases.is_empty() {
             return Vec::new();
         }
@@ -163,10 +170,10 @@ impl<'a> SymbolTracker<'a> {
 
     fn resolve_ts_import_aliases(
         &mut self,
-        tree: &Ast<'a>,
-        scopes: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        scopes: &ScopeTracker<'a, 'id>,
         check_conflicts: bool,
-    ) -> Vec<TsImportAliasIssue> {
+    ) -> Vec<TsImportAliasIssue<'id>> {
         if self.ts_import_alias_targets.is_empty() {
             return Vec::new();
         }
@@ -267,31 +274,31 @@ impl<'a> SymbolTracker<'a> {
 }
 
 #[derive(Clone, Copy)]
-enum TsExportAliasState<'a> {
+enum TsExportAliasState<'a, 'id> {
     Pending,
     Resolving,
-    Resolved(TsResolvedExportAliasTarget<'a>),
+    Resolved(TsResolvedExportAliasTarget<'a, 'id>),
     Missing,
     NonLocal,
 }
 
 // Construction state is separate from the final public alias entries. A
 // pending candidate suspends lookup instead of exposing an outer namesake.
-struct TsExportAliasResolver<'tracker, 'a> {
-    tracker: &'tracker SymbolTracker<'a>,
-    tree: &'tracker Ast<'a>,
-    scopes: &'tracker [Scope],
+struct TsExportAliasResolver<'tracker, 'a, 'id> {
+    tracker: &'tracker SymbolTracker<'a, 'id>,
+    tree: &'tracker Ast<'a, 'id>,
+    scopes: &'tracker [Scope<'id>],
     scope_views: Option<&'tracker TsScopeViewIndex<'a>>,
-    indices: Option<HashMap<NodeId, usize, FxBuildHasher>>,
-    states: Vec<TsExportAliasState<'a>>,
-    member_targets: HashMap<NodeId, &'a TsExportMember<'a>, FxBuildHasher>,
+    indices: Option<HashMap<NodeId<'id>, usize, FxBuildHasher>>,
+    states: Vec<TsExportAliasState<'a, 'id>>,
+    member_targets: HashMap<NodeId<'id>, &'a TsExportMember<'a, 'id>, FxBuildHasher>,
 }
 
-impl<'tracker, 'a> TsExportAliasResolver<'tracker, 'a> {
+impl<'id, 'tracker, 'a> TsExportAliasResolver<'tracker, 'a, 'id> {
     fn new(
-        tracker: &'tracker SymbolTracker<'a>,
-        tree: &'tracker Ast<'a>,
-        scopes: &'tracker [Scope],
+        tracker: &'tracker SymbolTracker<'a, 'id>,
+        tree: &'tracker Ast<'a, 'id>,
+        scopes: &'tracker [Scope<'id>],
         scope_views: Option<&'tracker TsScopeViewIndex<'a>>,
     ) -> Self {
         let aliases = &tracker.pending_ts_namespace_export_aliases;
@@ -306,7 +313,7 @@ impl<'tracker, 'a> TsExportAliasResolver<'tracker, 'a> {
         }
     }
 
-    fn resolve(mut self) -> Vec<TsExportAliasState<'a>> {
+    fn resolve(mut self) -> Vec<TsExportAliasState<'a, 'id>> {
         let mut pending = Vec::new();
         for root in 0..self.states.len() {
             if self.tracker.pending_ts_namespace_export_aliases[root]
@@ -365,7 +372,7 @@ impl<'tracker, 'a> TsExportAliasResolver<'tracker, 'a> {
     fn lookup_target(
         &mut self,
         index: usize,
-    ) -> ControlFlow<usize, TsNamespaceExportAliasLookup<'a>> {
+    ) -> ControlFlow<usize, TsNamespaceExportAliasLookup<'a, 'id>> {
         let alias = self.tracker.pending_ts_namespace_export_aliases[index];
         let reference = self.tracker.references[alias.local_reference.index()];
         // Export specifiers select a name across all declaration spaces.
@@ -457,8 +464,8 @@ impl<'tracker, 'a> TsExportAliasResolver<'tracker, 'a> {
     fn resolve_member_target(
         &mut self,
         direct: Option<SymbolId>,
-        node: NodeId,
-    ) -> ControlFlow<usize, TsNamespaceExportAliasLookup<'a>> {
+        node: NodeId<'id>,
+    ) -> ControlFlow<usize, TsNamespaceExportAliasLookup<'a, 'id>> {
         let indices = self.indices.get_or_insert_with(|| {
             let aliases = &self.tracker.pending_ts_namespace_export_aliases;
             let mut indices = HashMap::with_capacity_and_hasher(aliases.len(), FxBuildHasher);
@@ -516,10 +523,10 @@ impl<'tracker, 'a> TsExportAliasResolver<'tracker, 'a> {
     }
 }
 
-struct TsImportAliasSpaceGraph<'a> {
+struct TsImportAliasSpaceGraph<'a, 'id> {
     // Target resolution is shared by graph construction, diagnostics, and
     // contribution finalization. Propagation changes spaces, not these targets.
-    targets: Vec<Option<TsResolvedImportTarget<'a>>>,
+    targets: Vec<Option<TsResolvedImportTarget<'a, 'id>>>,
     public: Vec<TsResolvedAliasSpaces>,
     // Empty until syntax diagnostics request the narrower conflict view.
     // A conflict lookup always has at least one internal alias.
@@ -527,31 +534,31 @@ struct TsImportAliasSpaceGraph<'a> {
 }
 
 #[derive(Clone, Copy)]
-struct TsImportAliasInfo {
-    target: TsImportAliasTarget,
+struct TsImportAliasInfo<'id> {
+    target: TsImportAliasTarget<'id>,
     index: usize,
 }
 
 // Keep the original target for member fallback even when it cannot serve as
 // a namespace prefix. Namespace classification has its own cached result.
 #[derive(Clone, Copy)]
-enum TsImportTargetResolution<'a> {
+enum TsImportTargetResolution<'a, 'id> {
     Resolving,
     Resolved {
-        target: Option<TsResolvedImportTarget<'a>>,
-        namespace: TsNamespaceTargetResolution<'a>,
+        target: Option<TsResolvedImportTarget<'a, 'id>>,
+        namespace: TsNamespaceTargetResolution<'a, 'id>,
     },
 }
 
 #[derive(Clone, Copy)]
-enum TsNamespaceTargetResolution<'a> {
-    Resolved(TsResolvedImportTarget<'a>),
+enum TsNamespaceTargetResolution<'a, 'id> {
+    Resolved(TsResolvedImportTarget<'a, 'id>),
     Unknown,
     NotNamespace,
 }
 
-impl<'a> TsNamespaceTargetResolution<'a> {
-    fn target(self) -> Option<TsResolvedImportTarget<'a>> {
+impl<'id, 'a> TsNamespaceTargetResolution<'a, 'id> {
+    fn target(self) -> Option<TsResolvedImportTarget<'a, 'id>> {
         match self {
             Self::Resolved(target) => Some(target),
             Self::Unknown | Self::NotNamespace => None,
@@ -563,22 +570,22 @@ impl<'a> TsNamespaceTargetResolution<'a> {
 /// The resolver is deliberately ephemeral: public member storage remains split
 /// between direct members and export aliases, while this view combines their
 /// declaration spaces and preserves type-only provenance for diagnostics.
-struct TsImportAliasResolver<'tracker, 'a> {
-    tracker: &'tracker SymbolTracker<'a>,
-    tree: &'tracker Ast<'a>,
-    scopes: &'tracker [Scope],
+struct TsImportAliasResolver<'tracker, 'a, 'id> {
+    tracker: &'tracker SymbolTracker<'a, 'id>,
+    tree: &'tracker Ast<'a, 'id>,
+    scopes: &'tracker [Scope<'id>],
     scope_views: Option<&'tracker TsScopeViewIndex<'a>>,
-    aliases: HashMap<SymbolId, TsImportAliasInfo, FxBuildHasher>,
-    alias_targets: Vec<Option<TsImportTargetResolution<'a>>>,
+    aliases: HashMap<SymbolId, TsImportAliasInfo<'id>, FxBuildHasher>,
+    alias_targets: Vec<Option<TsImportTargetResolution<'a, 'id>>>,
     property_values: TsPropertyValues<'tracker>,
-    space_graph: TsImportAliasSpaceGraph<'a>,
+    space_graph: TsImportAliasSpaceGraph<'a, 'id>,
 }
 
-impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
+impl<'id, 'tracker, 'a> TsImportAliasResolver<'tracker, 'a, 'id> {
     fn new(
-        tracker: &'tracker SymbolTracker<'a>,
-        tree: &'tracker Ast<'a>,
-        scopes: &'tracker [Scope],
+        tracker: &'tracker SymbolTracker<'a, 'id>,
+        tree: &'tracker Ast<'a, 'id>,
+        scopes: &'tracker [Scope<'id>],
         scope_views: Option<&'tracker TsScopeViewIndex<'a>>,
     ) -> Self {
         let mut aliases =
@@ -654,7 +661,7 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
 
     fn resolved_target_conflict_spaces(
         &mut self,
-        target: TsResolvedImportTarget<'a>,
+        target: TsResolvedImportTarget<'a, 'id>,
     ) -> TsResolvedAliasSpaces {
         target.conflict_symbols().fold(
             target.non_symbol_spaces().declaration_spaces(),
@@ -782,7 +789,7 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
         }
     }
 
-    fn compute_space_graph(&mut self) -> TsImportAliasSpaceGraph<'a> {
+    fn compute_space_graph(&mut self) -> TsImportAliasSpaceGraph<'a, 'id> {
         let mut public = vec![TsResolvedAliasSpaces::empty(); self.aliases.len()];
         for (&symbol, alias) in &self.aliases {
             public[alias.index] = self.non_import_spaces(symbol);
@@ -813,8 +820,8 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
 
     fn resolve_target(
         &mut self,
-        target: TsImportAliasTarget,
-    ) -> Option<TsResolvedImportTarget<'a>> {
+        target: TsImportAliasTarget<'id>,
+    ) -> Option<TsResolvedImportTarget<'a, 'id>> {
         let mut pending = Vec::new();
         loop {
             let current = pending
@@ -856,7 +863,7 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
     fn record_target_resolution(
         &mut self,
         symbol: SymbolId,
-        resolution: TsImportTargetResolution<'a>,
+        resolution: TsImportTargetResolution<'a, 'id>,
     ) {
         // Reuse the alias graph's dense indices. Allocate only when a lookup
         // first suspends on an alias dependency.
@@ -872,8 +879,8 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
     // a suspended lookup preserves candidate order and shadowing semantics.
     fn try_resolve_target(
         &self,
-        target: TsImportAliasTarget,
-    ) -> ControlFlow<SymbolId, Option<TsResolvedImportTarget<'a>>> {
+        target: TsImportAliasTarget<'id>,
+    ) -> ControlFlow<SymbolId, Option<TsResolvedImportTarget<'a, 'id>>> {
         let TsModuleReferenceData::TsTypeName(name) = self
             .tree
             .ts_module_reference_data(target.declaration.module_reference(self.tree))
@@ -887,8 +894,8 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
     fn resolve_type_name(
         &self,
         scope: ScopeId,
-        name: TsTypeName,
-    ) -> ControlFlow<SymbolId, Option<TsResolvedImportTarget<'a>>> {
+        name: TsTypeName<'id>,
+    ) -> ControlFlow<SymbolId, Option<TsResolvedImportTarget<'a, 'id>>> {
         // An unqualified import-equals target must provide namespace
         // meaning. For a qualified target, only its final member may instead
         // contribute value or type meaning.
@@ -931,8 +938,8 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
     fn resolve_qualified_name_left(
         &self,
         scope: ScopeId,
-        left: TsQualifiedNameLeft,
-    ) -> ControlFlow<SymbolId, Option<TsResolvedImportTarget<'a>>> {
+        left: TsQualifiedNameLeft<'id>,
+    ) -> ControlFlow<SymbolId, Option<TsResolvedImportTarget<'a, 'id>>> {
         match self.tree.ts_qualified_name_left_data(left) {
             TsQualifiedNameLeftData::IdentifierReference(identifier) => {
                 let name = self.tree.get_utf8(identifier.name(self.tree)).as_bytes();
@@ -965,10 +972,10 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
     // takes precedence; alias exports are fallback paths, not merged members.
     fn qualified_member(
         &self,
-        target: TsResolvedImportTarget<'a>,
+        target: TsResolvedImportTarget<'a, 'id>,
         name: &[u8],
         namespace: bool,
-    ) -> ControlFlow<SymbolId, Option<TsResolvedImportTarget<'a>>> {
+    ) -> ControlFlow<SymbolId, Option<TsResolvedImportTarget<'a, 'id>>> {
         let mut pending = vec![(target.public_contributions(), target.type_only_export)];
         let mut seen = HashSet::with_hasher(FxBuildHasher);
         while let Some((contributions, inherited)) = pending.last_mut() {
@@ -1018,7 +1025,11 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
         ControlFlow::Continue(None)
     }
 
-    fn public_member(&self, owner: SymbolId, name: &[u8]) -> Option<TsResolvedImportTarget<'a>> {
+    fn public_member(
+        &self,
+        owner: SymbolId,
+        name: &[u8],
+    ) -> Option<TsResolvedImportTarget<'a, 'id>> {
         let target = self.tracker.ts_public_member(owner, name);
         let value = self.property_values.get(owner, name);
         match (target, value) {
@@ -1037,7 +1048,7 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
         &self,
         scope: ScopeId,
         name: &[u8],
-    ) -> ControlFlow<SymbolId, Option<TsResolvedImportTarget<'a>>> {
+    ) -> ControlFlow<SymbolId, Option<TsResolvedImportTarget<'a, 'id>>> {
         let hash = self.tracker.scope_maps[ScopeId::ROOT.index()]
             .hasher()
             .hash_one(name);
@@ -1100,8 +1111,8 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
 
     fn resolve_namespace_target(
         &self,
-        mut target: TsResolvedImportTarget<'a>,
-    ) -> ControlFlow<SymbolId, TsNamespaceTargetResolution<'a>> {
+        mut target: TsResolvedImportTarget<'a, 'id>,
+    ) -> ControlFlow<SymbolId, TsNamespaceTargetResolution<'a, 'id>> {
         // Like TS7 resolveEntityName, follow aliases until the selected owner
         // itself has namespace meaning. Once it does, keep its public exports
         // intact: an alias can still supply members absent from that namespace.
@@ -1146,7 +1157,7 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
     fn resolve_namespace_meaning(
         &self,
         symbol: SymbolId,
-    ) -> ControlFlow<SymbolId, TsNamespaceTargetResolution<'a>> {
+    ) -> ControlFlow<SymbolId, TsNamespaceTargetResolution<'a, 'id>> {
         let flags = self.tracker.symbols[symbol.index()].flags;
         if flags.in_namespace_space() {
             return ControlFlow::Continue(TsNamespaceTargetResolution::Resolved(
@@ -1187,7 +1198,7 @@ impl<'tracker, 'a> TsImportAliasResolver<'tracker, 'a> {
 
     fn may_have_runtime_value_target(
         &mut self,
-        target: TsResolvedImportTarget<'a>,
+        target: TsResolvedImportTarget<'a, 'id>,
         spaces: TsResolvedAliasSpaces,
     ) -> bool {
         if !spaces.may_have_value() || target.type_only_export.is_some() {

@@ -57,11 +57,11 @@ fn generate_clone_in_for_struct(ast: &AstStruct, _schema: &Schema) -> TokenStrea
 
     let fn_name = safe_ident(&ast.name.to_case(Case::Snake));
     let clone_in = quote! {
-        impl<'a> CloneIn<'a> for #name {
-            type Cloned = #name;
+        impl<'a, 'id> CloneIn<'a, 'id> for #name<'id> {
+            type Cloned = #name<'id>;
 
             #[inline]
-            fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+            fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
                 #fields_clone_in
                 ast.#fn_name( #(#fields_params),* )
             }
@@ -81,7 +81,7 @@ fn generate_clone_in_for_enum(ast: &AstEnum, schema: &Schema) -> TokenStream {
     for variant in ast.variants.iter() {
         let variant_ident = format_ident!("{}", variant.name);
         let variant_type_id = variant.type_id.unwrap();
-        let variant_type = schema.types[variant_type_id].repr_ident(schema);
+        let variant_type = schema.types[variant_type_id].expr_ident(schema);
         let mut node_kind_names: Vec<_> = concrete_node_kinds(variant_type_id, schema)
             .into_iter()
             .filter(|node_kind| seen_node_kinds.insert(node_kind.clone()))
@@ -138,12 +138,12 @@ fn generate_clone_in_for_enum(ast: &AstEnum, schema: &Schema) -> TokenStream {
     }
 
     let node_id_getter = quote! {
-        impl<'a> CloneIn<'a> for #name {
-            type Cloned = #name;
+        impl<'a, 'id> CloneIn<'a, 'id> for #name<'id> {
+            type Cloned = #name<'id>;
 
             #[inline]
-            fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-                let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+            fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+                let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
                 match kind {
                     #arms
                     _ => unsafe { std::hint::unreachable_unchecked() },

@@ -22,17 +22,17 @@ mod namespaces;
 pub(super) use constants::{EnumMemberValue, TsEnumConstantValue};
 
 #[derive(Default)]
-pub(super) struct TypeScriptAnalysis<'ast> {
-    enums: EnumAnalysis<'ast>,
-    modules: ModuleAnalysis,
-    namespaces: NamespaceAnalysis,
+pub(super) struct TypeScriptAnalysis<'ast, 'id> {
+    enums: EnumAnalysis<'ast, 'id>,
+    modules: ModuleAnalysis<'id>,
+    namespaces: NamespaceAnalysis<'id>,
 }
 
-impl<'ast> TypeScriptAnalysis<'ast> {
+impl<'id, 'ast> TypeScriptAnalysis<'ast, 'id> {
     pub(super) fn analyze(
-        program: Program,
-        ast: &Ast<'ast>,
-        semantic: &Semantic<'ast>,
+        program: Program<'id>,
+        ast: &Ast<'ast, 'id>,
+        semantic: &Semantic<'ast, 'id>,
         options: &TypeScriptOptions,
     ) -> Self {
         let implicit_usage = jsx::dependencies(program, ast, semantic, &options.jsx);
@@ -62,15 +62,14 @@ impl<'ast> TypeScriptAnalysis<'ast> {
     // Keep collector storage out of the path that only erases types.
     #[inline(never)]
     fn build_runtime_plan(
-        program: Program,
-        ast: &Ast<'ast>,
-        semantic: &Semantic<'ast>,
+        program: Program<'id>,
+        ast: &Ast<'ast, 'id>,
+        semantic: &Semantic<'ast, 'id>,
         options: &TypeScriptOptions,
         implicit_usage: FxHashSet<SymbolId>,
     ) -> Self {
         let mut collector = AnalysisCollector::new(ast, semantic, options);
         program.visit_with(&mut collector);
-
         let (enums, inlined_references) = EnumAnalysis::finish(ast, semantic, &collector.enums);
         collector.modules.apply_enum_policy(semantic, &enums);
         let modules = ModuleAnalysis::finish(
@@ -94,12 +93,12 @@ impl<'ast> TypeScriptAnalysis<'ast> {
         }
     }
 
-    pub(super) fn value_is_erased(&self, symbol: SymbolId, semantic: &Semantic<'_>) -> bool {
+    pub(super) fn value_is_erased(&self, symbol: SymbolId, semantic: &Semantic<'_, 'id>) -> bool {
         let target = semantic.ts_import_alias_target(symbol).unwrap_or(symbol);
         self.enums.is_removable(target)
     }
 
-    pub(super) fn import_equals_is_erased(&self, node: NodeId) -> bool {
+    pub(super) fn import_equals_is_erased(&self, node: NodeId<'id>) -> bool {
         self.modules.import_equals_is_erased(node)
     }
 
@@ -107,15 +106,18 @@ impl<'ast> TypeScriptAnalysis<'ast> {
         self.enums.is_removable(symbol)
     }
 
-    pub(super) fn inline_const_enum_use(&self, node: NodeId) -> Option<TsEnumConstantValue<'ast>> {
+    pub(super) fn inline_const_enum_use(
+        &self,
+        node: NodeId<'id>,
+    ) -> Option<TsEnumConstantValue<'ast, 'id>> {
         self.enums.inline_use(node)
     }
 
-    pub(super) fn enum_member_value(&self, member: SymbolId) -> EnumMemberValue<'ast> {
+    pub(super) fn enum_member_value(&self, member: SymbolId) -> EnumMemberValue<'ast, 'id> {
         self.enums.member_value(member)
     }
 
-    pub(super) fn namespace_is_instantiated(&self, declaration: NodeId) -> bool {
+    pub(super) fn namespace_is_instantiated(&self, declaration: NodeId<'id>) -> bool {
         self.namespaces.is_instantiated(declaration)
     }
 
@@ -123,7 +125,7 @@ impl<'ast> TypeScriptAnalysis<'ast> {
         self.namespaces.has_merged_runtime_bindings()
     }
 
-    pub(super) fn has_runtime_usage(&self, symbol: SymbolId, semantic: &Semantic<'_>) -> bool {
+    pub(super) fn has_runtime_usage(&self, symbol: SymbolId, semantic: &Semantic<'_, 'id>) -> bool {
         self.modules.has_runtime_usage(symbol, semantic)
     }
 }

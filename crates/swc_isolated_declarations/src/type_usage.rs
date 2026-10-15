@@ -117,9 +117,9 @@ enum Source {
 ///
 /// References use semantic `SymbolId` identities to preserve shadowing and merged
 /// declarations without rebuilding name resolution.
-pub(crate) struct TypeUsageAnalyzer<'visit, 'ast> {
-    ast: &'visit Ast<'ast>,
-    semantic: &'visit Semantic<'ast>,
+pub(crate) struct TypeUsageAnalyzer<'visit, 'ast, 'id> {
+    ast: &'visit Ast<'ast, 'id>,
+    semantic: &'visit Semantic<'ast, 'id>,
     edges: FxHashMap<SymbolKey, Vec<SymbolKey>>,
     pending_edges: Vec<SymbolKey>,
     roots: Vec<SymbolKey>,
@@ -128,16 +128,20 @@ pub(crate) struct TypeUsageAnalyzer<'visit, 'ast> {
     diagnostics: Vec<(Source, Diagnostic<'static>)>,
     returns: Vec<(Span, Span)>,
     erased_function_names: Vec<SymbolId>,
-    surface: DeclarationSurface,
+    surface: DeclarationSurface<'id>,
     context: DeclContext,
-    accessor_types: FxHashMap<NodeId, AccessorType>,
+    accessor_types: FxHashMap<NodeId<'id>, AccessorType<'id>>,
 }
 
-impl<'visit, 'ast> TypeUsageAnalyzer<'visit, 'ast> {
+impl<'id, 'visit, 'ast> TypeUsageAnalyzer<'visit, 'ast, 'id> {
     pub(crate) fn analyze(
-        ast: &'visit Ast<'ast>,
-        semantic: &'visit Semantic<'ast>,
-    ) -> (UsedSymbols, Vec<Diagnostic<'static>>, DeclarationSurface) {
+        ast: &'visit Ast<'ast, 'id>,
+        semantic: &'visit Semantic<'ast, 'id>,
+    ) -> (
+        UsedSymbols,
+        Vec<Diagnostic<'static>>,
+        DeclarationSurface<'id>,
+    ) {
         let mut analyzer = Self {
             ast,
             semantic,
@@ -157,7 +161,13 @@ impl<'visit, 'ast> TypeUsageAnalyzer<'visit, 'ast> {
         analyzer.finish()
     }
 
-    fn finish(self) -> (UsedSymbols, Vec<Diagnostic<'static>>, DeclarationSurface) {
+    fn finish(
+        self,
+    ) -> (
+        UsedSymbols,
+        Vec<Diagnostic<'static>>,
+        DeclarationSurface<'id>,
+    ) {
         let mut queue = SymbolQueue::default();
         queue.extend(self.roots);
 
@@ -194,7 +204,7 @@ impl<'visit, 'ast> TypeUsageAnalyzer<'visit, 'ast> {
         (used, diagnostics, self.surface)
     }
 
-    fn add_reference(&mut self, node: NodeId) {
+    fn add_reference(&mut self, node: NodeId<'id>) {
         let semantic = self.semantic;
         let Some(id) = semantic.reference_of(node) else {
             return;
@@ -246,7 +256,7 @@ impl<'visit, 'ast> TypeUsageAnalyzer<'visit, 'ast> {
         }
     }
 
-    fn declaration_key(&self, node: impl AstNode, usage: SymbolUsage) -> Option<SymbolKey> {
+    fn declaration_key(&self, node: impl AstNode<'id>, usage: SymbolUsage) -> Option<SymbolKey> {
         let symbol = self.semantic.symbol_of(node.node_id())?;
         Some(SymbolKey::new(symbol, usage))
     }
@@ -285,7 +295,7 @@ impl<'visit, 'ast> TypeUsageAnalyzer<'visit, 'ast> {
 
     fn with_declaration(
         &mut self,
-        binding: impl AstNode,
+        binding: impl AstNode<'id>,
         usage: SymbolUsage,
         visit: impl FnOnce(&mut Self),
     ) {
@@ -297,7 +307,7 @@ impl<'visit, 'ast> TypeUsageAnalyzer<'visit, 'ast> {
         self.with_source(Source::Symbol(key), visit);
     }
 
-    fn visit_declaration_statement(&mut self, statement: Stmt) {
+    fn visit_declaration_statement(&mut self, statement: Stmt<'id>) {
         if self
             .surface
             .hidden_implementations
@@ -323,7 +333,7 @@ impl<'visit, 'ast> TypeUsageAnalyzer<'visit, 'ast> {
         }
     }
 
-    fn visit_function_signature(&mut self, function: Function) {
+    fn visit_function_signature(&mut self, function: Function<'id>) {
         function.type_parameters(self.ast).visit_with(self);
         function.this_param(self.ast).visit_with(self);
         function.params(self.ast).visit_with(self);
@@ -340,14 +350,14 @@ impl<'visit, 'ast> TypeUsageAnalyzer<'visit, 'ast> {
     // Check body-local bindings while walking the original declaration surface.
     // Bindings inside the returned expression (e.g. a generic function's type
     // parameters) survive; nested inferred returns add their own erased body.
-    fn visit_return_expression(&mut self, body: FunctionBody, expression: Expr) {
+    fn visit_return_expression(&mut self, body: FunctionBody<'id>, expression: Expr<'id>) {
         self.returns
             .push((body.span(self.ast), expression.span(self.ast)));
         self.visit_inferred_expression(expression, false);
         self.returns.pop();
     }
 
-    fn visit_export_expression(&mut self, expression: Expr) {
+    fn visit_export_expression(&mut self, expression: Expr<'id>) {
         match export_expression(expression, self.ast) {
             ExportExpression::Reference(reference) => self.add_reference(reference.node_id()),
             ExportExpression::Class(class) => class.visit_with(self),
@@ -357,7 +367,7 @@ impl<'visit, 'ast> TypeUsageAnalyzer<'visit, 'ast> {
         }
     }
 
-    fn visit_inferred_expression(&mut self, expression: Expr, is_const: bool) {
+    fn visit_inferred_expression(&mut self, expression: Expr<'id>, is_const: bool) {
         match inferred_type(expression, is_const, self.ast, self.semantic, &self.surface) {
             InferredType::Annotation(annotation) | InferredType::OptionalParameter(annotation) => {
                 annotation.visit_with(self)
@@ -426,7 +436,7 @@ impl<'visit, 'ast> TypeUsageAnalyzer<'visit, 'ast> {
         }
     }
 
-    fn visit_inferred_function_signature(&mut self, function: Function) {
+    fn visit_inferred_function_signature(&mut self, function: Function<'id>) {
         let Some(binding) = function.id(self.ast) else {
             self.visit_function_signature(function);
             return;
@@ -441,7 +451,7 @@ impl<'visit, 'ast> TypeUsageAnalyzer<'visit, 'ast> {
         self.erased_function_names.pop();
     }
 
-    fn visit_accessor_type(&mut self, selected: AccessorType) {
+    fn visit_accessor_type(&mut self, selected: AccessorType<'id>) {
         match selected {
             AccessorType::Annotation(annotation) => annotation.visit_with(self),
             AccessorType::Inferred(function) => {
@@ -452,14 +462,14 @@ impl<'visit, 'ast> TypeUsageAnalyzer<'visit, 'ast> {
         }
     }
 
-    fn visit_ts_function_signature(&mut self, function: TsFunction) {
+    fn visit_ts_function_signature(&mut self, function: TsFunction<'id>) {
         function.type_parameters(self.ast).visit_with(self);
         function.this_param(self.ast).visit_with(self);
         function.params(self.ast).visit_with(self);
         function.return_type(self.ast).visit_with(self);
     }
 
-    fn visit_variable_declarator(&mut self, declarator: VariableDeclarator) {
+    fn visit_variable_declarator(&mut self, declarator: VariableDeclarator<'id>) {
         let pattern = declarator.id(self.ast);
         match self.ast.binding_pattern_data(pattern) {
             BindingPatternData::BindingIdentifier(binding) => {
@@ -475,11 +485,11 @@ impl<'visit, 'ast> TypeUsageAnalyzer<'visit, 'ast> {
         }
     }
 
-    fn computed_key_is_declaration_safe(&self, key: PropertyKey) -> bool {
+    fn computed_key_is_declaration_safe(&self, key: PropertyKey<'id>) -> bool {
         supported_computed_key(key, self.ast, self.semantic)
     }
 
-    fn property_key_is_private(key: PropertyKey, ast: &Ast<'_>) -> bool {
+    fn property_key_is_private(key: PropertyKey<'id>, ast: &Ast<'_, 'id>) -> bool {
         matches!(
             ast.property_key_data(key),
             PropertyKeyData::Expr(expression)
@@ -488,12 +498,12 @@ impl<'visit, 'ast> TypeUsageAnalyzer<'visit, 'ast> {
     }
 }
 
-impl<'ast> Visit<'ast> for TypeUsageAnalyzer<'_, 'ast> {
-    fn ast(&self) -> &Ast<'ast> {
+impl<'id, 'ast> Visit<'ast, 'id> for TypeUsageAnalyzer<'_, 'ast, 'id> {
+    fn ast(&self) -> &Ast<'ast, 'id> {
         self.ast
     }
 
-    fn visit_program(&mut self, program: Program) {
+    fn visit_program(&mut self, program: Program<'id>) {
         self.surface
             .record_statement_overloads(program.body(self.ast), self.ast, self.semantic);
         for statement in program.body(self.ast).iter() {
@@ -502,7 +512,7 @@ impl<'ast> Visit<'ast> for TypeUsageAnalyzer<'_, 'ast> {
         }
     }
 
-    fn visit_decl(&mut self, declaration: Decl) {
+    fn visit_decl(&mut self, declaration: Decl<'id>) {
         match self.ast.decl_data(declaration) {
             DeclData::VariableDeclaration(declaration) => {
                 for declarator in declaration.declarators(self.ast).iter() {
@@ -579,7 +589,7 @@ impl<'ast> Visit<'ast> for TypeUsageAnalyzer<'_, 'ast> {
         }
     }
 
-    fn visit_export_named_declaration(&mut self, declaration: ExportNamedDeclaration) {
+    fn visit_export_named_declaration(&mut self, declaration: ExportNamedDeclaration<'id>) {
         if declaration.source(self.ast).is_some() {
             return;
         }
@@ -589,7 +599,7 @@ impl<'ast> Visit<'ast> for TypeUsageAnalyzer<'_, 'ast> {
         });
     }
 
-    fn visit_export_default_declaration(&mut self, declaration: ExportDefaultDeclaration) {
+    fn visit_export_default_declaration(&mut self, declaration: ExportDefaultDeclaration<'id>) {
         self.with_scope_source(|analyzer| {
             let declaration = declaration.declaration(analyzer.ast);
             if let ExportDefaultDeclarationKindData::Expr(expression) = analyzer
@@ -603,17 +613,17 @@ impl<'ast> Visit<'ast> for TypeUsageAnalyzer<'_, 'ast> {
         });
     }
 
-    fn visit_export_specifier(&mut self, specifier: ExportSpecifier) {
+    fn visit_export_specifier(&mut self, specifier: ExportSpecifier<'id>) {
         self.add_reference(specifier.local(self.ast).node_id());
     }
 
-    fn visit_ts_export_assignment(&mut self, declaration: TsExportAssignment) {
+    fn visit_ts_export_assignment(&mut self, declaration: TsExportAssignment<'id>) {
         self.with_scope_source(|analyzer| {
             analyzer.visit_export_expression(declaration.expression(analyzer.ast));
         });
     }
 
-    fn visit_ts_module_declaration(&mut self, declaration: TsModuleDeclaration) {
+    fn visit_ts_module_declaration(&mut self, declaration: TsModuleDeclaration<'id>) {
         let context = self.context.namespace(declaration, self.ast);
         let previous_context = replace(&mut self.context, context);
         let id = declaration.id(self.ast);
@@ -636,7 +646,7 @@ impl<'ast> Visit<'ast> for TypeUsageAnalyzer<'_, 'ast> {
         self.context = previous_context;
     }
 
-    fn visit_ts_module_block(&mut self, block: TsModuleBlock) {
+    fn visit_ts_module_block(&mut self, block: TsModuleBlock<'id>) {
         self.surface
             .record_statement_overloads(block.body(self.ast), self.ast, self.semantic);
         for statement in block.body(self.ast).iter() {
@@ -645,7 +655,7 @@ impl<'ast> Visit<'ast> for TypeUsageAnalyzer<'_, 'ast> {
         }
     }
 
-    fn visit_ts_global_declaration(&mut self, declaration: TsGlobalDeclaration) {
+    fn visit_ts_global_declaration(&mut self, declaration: TsGlobalDeclaration<'id>) {
         let previous = replace(&mut self.context, DeclContext::AMBIENT_MODULE);
         self.with_source(Source::Root, |analyzer| {
             declaration.body(analyzer.ast).visit_with(analyzer);
@@ -653,19 +663,19 @@ impl<'ast> Visit<'ast> for TypeUsageAnalyzer<'_, 'ast> {
         self.context = previous;
     }
 
-    fn visit_identifier_reference(&mut self, reference: IdentifierReference) {
+    fn visit_identifier_reference(&mut self, reference: IdentifierReference<'id>) {
         self.add_reference(reference.node_id());
     }
 
-    fn visit_function(&mut self, function: Function) {
+    fn visit_function(&mut self, function: Function<'id>) {
         self.visit_function_signature(function);
     }
 
-    fn visit_ts_function(&mut self, function: TsFunction) {
+    fn visit_ts_function(&mut self, function: TsFunction<'id>) {
         self.visit_ts_function_signature(function);
     }
 
-    fn visit_arrow_function_expression(&mut self, function: ArrowFunctionExpression) {
+    fn visit_arrow_function_expression(&mut self, function: ArrowFunctionExpression<'id>) {
         function.type_parameters(self.ast).visit_with(self);
         function.params(self.ast).visit_with(self);
         if let Some(annotation) = function.return_type(self.ast) {
@@ -686,7 +696,7 @@ impl<'ast> Visit<'ast> for TypeUsageAnalyzer<'_, 'ast> {
         }
     }
 
-    fn visit_class(&mut self, class: Class) {
+    fn visit_class(&mut self, class: Class<'id>) {
         self.surface
             .record_class_overloads(class, self.ast, self.semantic);
         let elements = class
@@ -714,7 +724,7 @@ impl<'ast> Visit<'ast> for TypeUsageAnalyzer<'_, 'ast> {
         class.body(self.ast).visit_with(self);
     }
 
-    fn visit_formal_parameter(&mut self, parameter: FormalParameter) {
+    fn visit_formal_parameter(&mut self, parameter: FormalParameter<'id>) {
         self.surface
             .record_annotation(parameter, self.ast, self.semantic);
         parameter.pattern(self.ast).visit_with(self);
@@ -725,16 +735,16 @@ impl<'ast> Visit<'ast> for TypeUsageAnalyzer<'_, 'ast> {
         }
     }
 
-    fn visit_formal_parameter_rest(&mut self, parameter: FormalParameterRest) {
+    fn visit_formal_parameter_rest(&mut self, parameter: FormalParameterRest<'id>) {
         parameter.argument(self.ast).visit_with(self);
         parameter.type_annotation(self.ast).visit_with(self);
     }
 
-    fn visit_ts_parameter_property(&mut self, property: TsParameterProperty) {
+    fn visit_ts_parameter_property(&mut self, property: TsParameterProperty<'id>) {
         property.parameter(self.ast).visit_with(self);
     }
 
-    fn visit_property_definition(&mut self, property: PropertyDefinition) {
+    fn visit_property_definition(&mut self, property: PropertyDefinition<'id>) {
         if Self::property_key_is_private(property.key(self.ast), self.ast) {
             return;
         }
@@ -753,7 +763,7 @@ impl<'ast> Visit<'ast> for TypeUsageAnalyzer<'_, 'ast> {
         }
     }
 
-    fn visit_method_definition(&mut self, method: MethodDefinition) {
+    fn visit_method_definition(&mut self, method: MethodDefinition<'id>) {
         let hidden = self
             .surface
             .hidden_implementations
@@ -794,7 +804,7 @@ impl<'ast> Visit<'ast> for TypeUsageAnalyzer<'_, 'ast> {
         }
     }
 
-    fn visit_ts_method_definition(&mut self, method: TsMethodDefinition) {
+    fn visit_ts_method_definition(&mut self, method: TsMethodDefinition<'id>) {
         if Self::property_key_is_private(method.key(self.ast), self.ast) {
             return;
         }
@@ -814,11 +824,11 @@ impl<'ast> Visit<'ast> for TypeUsageAnalyzer<'_, 'ast> {
         }
     }
 
-    fn visit_assignment_pattern(&mut self, pattern: AssignmentPattern) {
+    fn visit_assignment_pattern(&mut self, pattern: AssignmentPattern<'id>) {
         pattern.left(self.ast).visit_with(self);
     }
 
-    fn visit_object_property(&mut self, property: ObjectProperty) {
+    fn visit_object_property(&mut self, property: ObjectProperty<'id>) {
         if !property.computed(self.ast)
             || self.computed_key_is_declaration_safe(property.key(self.ast))
         {
@@ -827,7 +837,7 @@ impl<'ast> Visit<'ast> for TypeUsageAnalyzer<'_, 'ast> {
         property.value(self.ast).visit_with(self);
     }
 
-    fn visit_static_block(&mut self, _block: StaticBlock) {}
+    fn visit_static_block(&mut self, _block: StaticBlock<'id>) {}
 }
 
 #[cfg(test)]
@@ -856,7 +866,9 @@ mod tests {
             comments: CommentMode::Flat,
             ..Options::default()
         };
-        let parsed = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let parsed =
+            Parser::init(&allocator, source, options, NoTokenParserConfig, ast_guard).parse();
         assert!(parsed.diagnostics.is_empty());
         let mut ast = parsed.ast;
         let result = analyze(
@@ -887,7 +899,9 @@ mod tests {
             source_type: SourceType::Module,
             ..Options::default()
         };
-        let parsed = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let parsed =
+            Parser::init(&allocator, source, options, NoTokenParserConfig, ast_guard).parse();
         assert!(parsed.diagnostics.is_empty());
         let ast = parsed.ast;
         let semantic = analyze(&ast, AnalyzeOptions::default()).semantic;

@@ -4,10 +4,10 @@ use rustc_hash::FxHashSet;
 use swc_next_ecma_ast::{Ast, Program, SymbolId};
 use swc_next_ecma_semantic::{ReferenceSpace, Semantic};
 
-pub(super) fn dependencies(
-    program: Program,
-    ast: &Ast<'_>,
-    semantic: &Semantic<'_>,
+pub(super) fn dependencies<'id>(
+    program: Program<'id>,
+    ast: &Ast<'_, 'id>,
+    semantic: &Semantic<'_, 'id>,
     options: &JsxImportOptions,
 ) -> FxHashSet<SymbolId> {
     let mut dependencies = FxHashSet::default();

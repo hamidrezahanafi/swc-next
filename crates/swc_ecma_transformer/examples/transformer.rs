@@ -32,6 +32,7 @@ fn main() -> Result<(), String> {
         .map_err(|error| format!("Failed to read '{}': {error}", path.display()))?;
     let lang = Lang::from_path(&args.filename);
     let allocator = Allocator::new();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
     let parsed = EcmaParser::init(
         &allocator,
         &source,
@@ -41,6 +42,7 @@ fn main() -> Result<(), String> {
             ..ParserOptions::default()
         },
         NoTokenParserConfig,
+        ast_guard,
     )
     .parse();
     report_diagnostics(path, &parsed.diagnostics)?;

@@ -31,9 +31,9 @@ See the [Flattening AST design](docs/FlatteningAST.md) and other documents.
 
 ## Soundness
 
-The current Rust AST API has known soundness issues:
+AST node IDs, typed nodes, strings, lists, and list slots carry an invariant lifetime brand tying them to their owning `Ast`. Each AST consumes a fresh guard from `make_ast_guard!`, including ASTs sharing an allocator. Safe Rust APIs reject handles from other ASTs at compile time. Truncation and unchecked construction require the caller to preserve handle validity.
 
-- Node IDs and typed handles are not tied to their owning `Ast`. Using a handle with a different AST can access unrelated nodes or cause undefined behavior through unchecked access, even through safe APIs.
+The FFI deserializer still needs complete validation of node payloads, child IDs, list bounds, and string encodings before accepting arbitrary buffers through a safe API. Lifetime branding establishes ownership but does not validate serialized contents.
 
 ## Compatibility
 

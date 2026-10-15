@@ -29,22 +29,22 @@ pub(crate) use keys::{
 };
 
 #[derive(Clone, Copy)]
-struct ParameterType {
-    annotation: TsType,
+struct ParameterType<'id> {
+    annotation: TsType<'id>,
     optional: bool,
 }
 
 #[derive(Default)]
-pub(crate) struct DeclarationSurface {
-    annotations: FxHashMap<SymbolId, ParameterType>,
-    pub(crate) hidden_implementations: FxHashSet<NodeId>,
+pub(crate) struct DeclarationSurface<'id> {
+    annotations: FxHashMap<SymbolId, ParameterType<'id>>,
+    pub(crate) hidden_implementations: FxHashSet<NodeId<'id>>,
 }
-impl DeclarationSurface {
+impl<'id> DeclarationSurface<'id> {
     pub(crate) fn record_annotation(
         &mut self,
-        parameter: FormalParameter,
-        ast: &Ast<'_>,
-        semantic: &Semantic<'_>,
+        parameter: FormalParameter<'id>,
+        ast: &Ast<'_, 'id>,
+        semantic: &Semantic<'_, 'id>,
     ) {
         if let FormalParameterPatternData::BindingIdentifier(binding) =
             ast.formal_parameter_pattern_data(parameter.pattern(ast))
@@ -95,7 +95,11 @@ impl DeclContext {
         retain_all: true,
         ambient: true,
     };
-    pub(crate) fn namespace(self, module: TsModuleDeclaration, ast: &Ast<'_>) -> Self {
+    pub(crate) fn namespace<'id>(
+        self,
+        module: TsModuleDeclaration<'id>,
+        ast: &Ast<'_, 'id>,
+    ) -> Self {
         if self.ambient
             || module.declare(ast)
             || matches!(
@@ -111,7 +115,10 @@ impl DeclContext {
 }
 
 /// The lexical binding that owns a namespace, including dotted declarations.
-pub(crate) fn namespace_binding(name: TsModuleName, ast: &Ast<'_>) -> Option<BindingIdentifier> {
+pub(crate) fn namespace_binding<'id>(
+    name: TsModuleName<'id>,
+    ast: &Ast<'_, 'id>,
+) -> Option<BindingIdentifier<'id>> {
     let mut qualified = match ast.ts_module_name_data(name) {
         TsModuleNameData::BindingIdentifier(binding) => return Some(binding),
         TsModuleNameData::StringLiteral(_) => return None,

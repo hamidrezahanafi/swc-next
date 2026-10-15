@@ -12,7 +12,8 @@ use swc_next_ecma_semantic::{AnalyzeOptions, Semantic, analyze};
 
 pub fn run(src: &'static str) {
     let allocator = Allocator::new();
-    let (ast, tokens) = run_parse(src, &allocator);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, tokens) = run_parse(src, &allocator, ast_guard);
     let semantic = run_semantic(&ast);
     let semicolons = run_collect_semicolons(&ast, &tokens);
     let idents = run_scan_dependencies(&ast);
@@ -20,7 +21,11 @@ pub fn run(src: &'static str) {
 }
 
 #[inline(never)]
-fn run_parse<'a>(src: &'a str, allocator: &'a Allocator) -> (Ast<'a>, ArenaVec<'a, Token>) {
+fn run_parse<'id, 'a>(
+    src: &'a str,
+    allocator: &'a Allocator,
+    guard: swc_next_ecma_ast::AstGuard<'id>,
+) -> (Ast<'a, 'id>, ArenaVec<'a, Token>) {
     let result = Parser::init(
         allocator,
         src,
@@ -29,6 +34,7 @@ fn run_parse<'a>(src: &'a str, allocator: &'a Allocator) -> (Ast<'a>, ArenaVec<'
             ..Options::default()
         },
         TokenParserConfig,
+        guard,
     )
     .parse();
     assert!(result.diagnostics.is_empty());
@@ -36,7 +42,7 @@ fn run_parse<'a>(src: &'a str, allocator: &'a Allocator) -> (Ast<'a>, ArenaVec<'
 }
 
 #[inline(never)]
-fn run_semantic<'a>(ast: &Ast<'a>) -> Semantic<'a> {
+fn run_semantic<'id, 'a>(ast: &Ast<'a, 'id>) -> Semantic<'a, 'id> {
     analyze(
         ast,
         AnalyzeOptions {
@@ -48,7 +54,7 @@ fn run_semantic<'a>(ast: &Ast<'a>) -> Semantic<'a> {
 }
 
 #[inline(never)]
-fn run_scan_dependencies(ast: &Ast<'_>) -> Vec<AstUtf8> {
+fn run_scan_dependencies<'id>(ast: &Ast<'_, 'id>) -> Vec<AstUtf8<'id>> {
     let mut parser = JavascriptParser {
         ast,
         idents: Vec::new(),
@@ -58,7 +64,7 @@ fn run_scan_dependencies(ast: &Ast<'_>) -> Vec<AstUtf8> {
 }
 
 #[inline(never)]
-fn run_collect_semicolons(ast: &Ast<'_>, tokens: &[Token]) -> FxHashSet<u32> {
+fn run_collect_semicolons<'id>(ast: &Ast<'_, 'id>, tokens: &[Token]) -> FxHashSet<u32> {
     let mut semicolons = FxHashSet::default();
     InsertedSemicolons {
         ast,
@@ -69,13 +75,13 @@ fn run_collect_semicolons(ast: &Ast<'_>, tokens: &[Token]) -> FxHashSet<u32> {
     semicolons
 }
 
-struct InsertedSemicolons<'visit, 'ast, 'tokens> {
-    ast: &'visit Ast<'ast>,
+struct InsertedSemicolons<'visit, 'ast, 'tokens, 'id> {
+    ast: &'visit Ast<'ast, 'id>,
     semicolons: &'visit mut FxHashSet<u32>,
     tokens: &'tokens [Token],
 }
 
-impl InsertedSemicolons<'_, '_, '_> {
+impl<'id> InsertedSemicolons<'_, '_, '_, 'id> {
     /// Find the token starting at this span.
     #[inline]
     fn curr_token(&self, span: Span) -> Option<usize> {
@@ -129,77 +135,77 @@ impl InsertedSemicolons<'_, '_, '_> {
     }
 }
 
-impl<'ast> Visit<'ast> for InsertedSemicolons<'_, 'ast, '_> {
-    fn ast(&self) -> &Ast<'ast> {
+impl<'id, 'ast> Visit<'ast, 'id> for InsertedSemicolons<'_, 'ast, '_, 'id> {
+    fn ast(&self) -> &Ast<'ast, 'id> {
         self.ast
     }
 
-    fn visit_expression_statement(&mut self, node: ExpressionStatement) {
+    fn visit_expression_statement(&mut self, node: ExpressionStatement<'id>) {
         self.post_semi(node.span(self.ast));
         node.visit_children_with(self);
     }
 
-    fn visit_variable_declaration(&mut self, node: VariableDeclaration) {
+    fn visit_variable_declaration(&mut self, node: VariableDeclaration<'id>) {
         self.post_semi(node.span(self.ast));
         node.visit_children_with(self);
     }
 
-    fn visit_update_expression(&mut self, node: UpdateExpression) {
+    fn visit_update_expression(&mut self, node: UpdateExpression<'id>) {
         self.semi(node.span(self.ast));
         node.visit_children_with(self);
     }
 
-    fn visit_continue_statement(&mut self, node: ContinueStatement) {
+    fn visit_continue_statement(&mut self, node: ContinueStatement<'id>) {
         self.post_semi(node.span(self.ast));
         node.visit_children_with(self);
     }
 
-    fn visit_break_statement(&mut self, node: BreakStatement) {
+    fn visit_break_statement(&mut self, node: BreakStatement<'id>) {
         self.post_semi(node.span(self.ast));
         node.visit_children_with(self);
     }
 
-    fn visit_return_statement(&mut self, node: ReturnStatement) {
+    fn visit_return_statement(&mut self, node: ReturnStatement<'id>) {
         self.post_semi(node.span(self.ast));
         node.visit_children_with(self);
     }
 
-    fn visit_throw_statement(&mut self, node: ThrowStatement) {
+    fn visit_throw_statement(&mut self, node: ThrowStatement<'id>) {
         self.post_semi(node.span(self.ast));
         node.visit_children_with(self);
     }
 
-    fn visit_yield_expression(&mut self, node: YieldExpression) {
+    fn visit_yield_expression(&mut self, node: YieldExpression<'id>) {
         self.post_semi(node.span(self.ast));
         node.visit_children_with(self);
     }
 
-    fn visit_import_declaration(&mut self, node: ImportDeclaration) {
+    fn visit_import_declaration(&mut self, node: ImportDeclaration<'id>) {
         self.post_semi(node.span(self.ast));
         node.visit_children_with(self);
     }
 
-    fn visit_export_named_declaration(&mut self, node: ExportNamedDeclaration) {
+    fn visit_export_named_declaration(&mut self, node: ExportNamedDeclaration<'id>) {
         self.post_semi(node.span(self.ast));
         node.visit_children_with(self);
     }
 
-    fn visit_export_default_declaration(&mut self, node: ExportDefaultDeclaration) {
+    fn visit_export_default_declaration(&mut self, node: ExportDefaultDeclaration<'id>) {
         self.post_semi(node.span(self.ast));
         node.visit_children_with(self);
     }
 
-    fn visit_export_all_declaration(&mut self, node: ExportAllDeclaration) {
+    fn visit_export_all_declaration(&mut self, node: ExportAllDeclaration<'id>) {
         self.post_semi(node.span(self.ast));
         node.visit_children_with(self);
     }
 
-    fn visit_debugger_statement(&mut self, node: DebuggerStatement) {
+    fn visit_debugger_statement(&mut self, node: DebuggerStatement<'id>) {
         self.post_semi(node.span(self.ast));
         node.visit_children_with(self);
     }
 
-    fn visit_class_element(&mut self, node: ClassElement) {
+    fn visit_class_element(&mut self, node: ClassElement<'id>) {
         if let ClassElementData::PropertyDefinition(property) = self.ast.class_element_data(node) {
             self.post_semi(property.span(self.ast));
         }
@@ -207,25 +213,25 @@ impl<'ast> Visit<'ast> for InsertedSemicolons<'_, 'ast, '_> {
     }
 }
 
-struct JavascriptParser<'visit, 'ast> {
-    ast: &'visit Ast<'ast>,
-    idents: Vec<AstUtf8>,
+struct JavascriptParser<'visit, 'ast, 'id> {
+    ast: &'visit Ast<'ast, 'id>,
+    idents: Vec<AstUtf8<'id>>,
 }
 
-impl<'ast> Visit<'ast> for JavascriptParser<'_, 'ast> {
-    fn ast(&self) -> &Ast<'ast> {
+impl<'id, 'ast> Visit<'ast, 'id> for JavascriptParser<'_, 'ast, 'id> {
+    fn ast(&self) -> &Ast<'ast, 'id> {
         self.ast
     }
 
-    fn visit_identifier_reference(&mut self, node: IdentifierReference) {
+    fn visit_identifier_reference(&mut self, node: IdentifierReference<'id>) {
         self.idents.push(node.name(self.ast));
     }
 
-    fn visit_binding_identifier(&mut self, node: BindingIdentifier) {
+    fn visit_binding_identifier(&mut self, node: BindingIdentifier<'id>) {
         self.idents.push(node.name(self.ast));
     }
 
-    fn visit_label_identifier(&mut self, node: LabelIdentifier) {
+    fn visit_label_identifier(&mut self, node: LabelIdentifier<'id>) {
         self.idents.push(node.name(self.ast));
     }
 }

@@ -4,12 +4,12 @@ use swc_next_ecma_ast::{
     SimpleAssignmentTarget, SubRange, VisitMut, VisitMutWith,
 };
 
-impl TypeScriptLowerer<'_, '_> {
+impl<'id> TypeScriptLowerer<'_, '_, 'id> {
     pub(super) fn lower_class_elements(
         &mut self,
-        elements: SubRange<ClassElement>,
-    ) -> Option<SubRange<ClassElement>> {
-        let mut lowered: Option<Vec<ClassElement>> = None;
+        elements: SubRange<'id, ClassElement<'id>>,
+    ) -> Option<SubRange<'id, ClassElement<'id>>> {
+        let mut lowered: Option<Vec<ClassElement<'id>>> = None;
         for (index, element_id) in elements.iter().enumerate() {
             let element = self.ast().get_node_in_sub_range(element_id);
             let drop = element.is_ts_method_definition(self.ast())
@@ -46,9 +46,9 @@ impl TypeScriptLowerer<'_, '_> {
 
     pub(super) fn unwrap_expression(
         &mut self,
-        expression: Expr,
+        expression: Expr<'id>,
         removed_span: swc_next_ecma_ast::Span,
-    ) -> Expr {
+    ) -> Expr<'id> {
         let replacement = expression.visit_mut_with(self).unwrap_or(expression);
         let replacement_span = replacement.span(self.ast_ref());
         if !self.ast_ref().comments().is_empty() {
@@ -59,8 +59,8 @@ impl TypeScriptLowerer<'_, '_> {
 
     pub(super) fn expression_to_assignment_target(
         &self,
-        expression: Expr,
-    ) -> SimpleAssignmentTarget {
+        expression: Expr<'id>,
+    ) -> SimpleAssignmentTarget<'id> {
         match self.ast_ref().expr_data(expression) {
             ExprData::IdentifierReference(identifier) => {
                 SimpleAssignmentTarget::IdentifierReference(identifier)
@@ -73,7 +73,10 @@ impl TypeScriptLowerer<'_, '_> {
     }
 }
 
-pub(super) fn update_binding_property_shorthand(ast: &mut Ast<'_>, property: BindingProperty) {
+pub(super) fn update_binding_property_shorthand<'id>(
+    ast: &mut Ast<'_, 'id>,
+    property: BindingProperty<'id>,
+) {
     if !property.shorthand(ast) {
         return;
     }

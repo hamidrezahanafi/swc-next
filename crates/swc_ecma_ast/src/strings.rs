@@ -1,3 +1,6 @@
+use std::marker::PhantomData;
+
+use generativity::Id;
 use swc_next_allocator::{
     Allocator, hash_map::HashMap as ArenaHashMap, vec::Vec as ArenaVec, wtf8::Wtf8,
 };
@@ -5,15 +8,14 @@ use swc_next_allocator::{
 macro_rules! define_ast_string {
     ($name:ident) => {
         #[repr(C)]
-        #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
-        pub struct $name {
+        #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+        pub struct $name<'id> {
             pub(crate) start: u32,
             pub(crate) end: u32,
+            brand: PhantomData<fn(&'id ()) -> &'id ()>,
         }
 
-        impl $name {
-            pub const EMPTY: Self = Self { start: 0, end: 0 };
-
+        impl<'id> $name<'id> {
             #[inline]
             pub const fn len(self) -> u32 {
                 debug_assert!(self.end >= self.start);
@@ -30,6 +32,7 @@ macro_rules! define_ast_string {
                 Self {
                     start: raw as u32,
                     end: (raw >> 32) as u32,
+                    brand: PhantomData,
                 }
             }
 
@@ -44,27 +47,30 @@ macro_rules! define_ast_string {
 define_ast_string!(AstUtf8);
 define_ast_string!(AstWtf8);
 
-impl From<AstUtf8> for AstWtf8 {
+impl<'id> From<AstUtf8<'id>> for AstWtf8<'id> {
     #[inline]
-    fn from(value: AstUtf8) -> Self {
+    fn from(value: AstUtf8<'id>) -> Self {
         Self {
             start: value.start,
             end: value.end,
+            brand: PhantomData,
         }
     }
 }
 
-pub(crate) struct StringPool<'a> {
+pub(crate) struct StringPool<'a, 'id> {
+    _brand: Id<'id>,
     allocator: &'a Allocator,
     pub(crate) source: &'a str,
     extra: ArenaVec<'a, u8>,
     dedup: ArenaHashMap<'a, ArenaVec<'a, u8>, (u32, u32)>,
 }
 
-impl<'a> StringPool<'a> {
-    pub fn new_in(allocator: &'a Allocator, source: &'a str) -> Self {
+impl<'a, 'id> StringPool<'a, 'id> {
+    pub fn new_in(allocator: &'a Allocator, source: &'a str, brand: Id<'id>) -> Self {
         assert!(source.len() <= u32::MAX as usize);
         Self {
+            _brand: brand,
             source,
             allocator,
             extra: ArenaVec::new_in(allocator),
@@ -73,13 +79,13 @@ impl<'a> StringPool<'a> {
     }
 
     #[inline]
-    pub fn get_utf8(&self, id: AstUtf8) -> &'a str {
+    pub fn get_utf8(&self, id: AstUtf8<'id>) -> &'a str {
         // SAFETY: `AstUtf8` is guaranteed to reference valid UTF-8.
         unsafe { std::str::from_utf8_unchecked(self.get_bytes(id.start, id.end)) }
     }
 
     #[inline]
-    pub fn get_wtf8(&self, id: AstWtf8) -> &'a Wtf8 {
+    pub fn get_wtf8(&self, id: AstWtf8<'id>) -> &'a Wtf8 {
         // SAFETY: `AstWtf8` is guaranteed to reference valid WTF-8.
         unsafe { Wtf8::from_bytes_unchecked(self.get_bytes(id.start, id.end)) }
     }
@@ -120,33 +126,47 @@ impl<'a> StringPool<'a> {
     }
 
     /// Returns a slice of the source string corresponding to the given start and end offsets.
-    /// Actually this function should be unsafe because it does not check if the offsets are valid.
-    /// So external crates should be better not use this function directly.
+    /// Panics if the offsets do not bound a UTF-8 source slice.
     #[inline]
-    pub fn source_slice(&self, start: u32, end: u32) -> AstUtf8 {
-        debug_assert!(self.source.get(start as usize..end as usize).is_some());
-        AstUtf8 { start, end }
+    pub fn source_slice(&self, start: u32, end: u32) -> AstUtf8<'id> {
+        assert!(self.source.get(start as usize..end as usize).is_some());
+        AstUtf8 {
+            start,
+            end,
+            brand: PhantomData,
+        }
     }
 
     /// Returns a slice of the source string corresponding to the given start and end offsets.
-    /// Actually this function should be unsafe because it does not check if the offsets are valid.
-    /// So external crates should be better not use this function directly.
+    /// Panics if the offsets do not bound a UTF-8 source slice.
     #[inline]
-    pub fn source_slice_wtf8(&self, start: u32, end: u32) -> AstWtf8 {
-        debug_assert!(self.source.get(start as usize..end as usize).is_some());
-        AstWtf8 { start, end }
+    pub fn source_slice_wtf8(&self, start: u32, end: u32) -> AstWtf8<'id> {
+        assert!(self.source.get(start as usize..end as usize).is_some());
+        AstWtf8 {
+            start,
+            end,
+            brand: PhantomData,
+        }
     }
 
     #[inline]
-    pub fn add_utf8(&mut self, text: &str) -> AstUtf8 {
+    pub fn add_utf8(&mut self, text: &str) -> AstUtf8<'id> {
         let (start, end) = self.add_bytes(text.as_bytes());
-        AstUtf8 { start, end }
+        AstUtf8 {
+            start,
+            end,
+            brand: PhantomData,
+        }
     }
 
     #[inline]
-    pub fn add_wtf8(&mut self, text: &Wtf8) -> AstWtf8 {
+    pub fn add_wtf8(&mut self, text: &Wtf8) -> AstWtf8<'id> {
         let (start, end) = self.add_bytes(text.as_bytes());
-        AstWtf8 { start, end }
+        AstWtf8 {
+            start,
+            end,
+            brand: PhantomData,
+        }
     }
 
     fn add_bytes(&mut self, text: &[u8]) -> (u32, u32) {
@@ -181,10 +201,53 @@ mod tests {
     use crate::Ast;
 
     #[test]
+    fn string_handles() {
+        let allocator = Allocator::new();
+        crate::make_ast_guard!(guard);
+        let mut ast = Ast::new("é", &allocator, guard);
+
+        let source = ast.source_slice(0, 2);
+        assert_eq!(ast.get_utf8(source), "é");
+        assert_eq!(ast.get_wtf8(source.into()).as_bytes(), "é".as_bytes());
+        assert_eq!(std::mem::size_of_val(&source), 8);
+
+        let value = ast.add_utf8("value");
+        let duplicate = ast.add_utf8("value");
+        assert_eq!(value, duplicate);
+
+        let raw = ast.add_utf8("1");
+        let literal = ast.numeric_literal(crate::DUMMY_SP, 1.0, Some(raw));
+        assert_eq!(literal.raw(&ast), Some(raw));
+        literal.set_raw(&mut ast, Some(value));
+        assert_eq!(literal.raw(&ast), Some(value));
+
+        let strings = ast.add_sub_range([value]);
+        assert_eq!(strings.get_node(&ast, 0), Some(value));
+        assert!(ast.get_utf8(ast.empty_utf8()).is_empty());
+        assert!(ast.get_wtf8(ast.empty_wtf8()).is_empty());
+    }
+
+    #[test]
+    fn source_boundaries() {
+        let allocator = Allocator::new();
+        crate::make_ast_guard!(guard);
+        let ast = Ast::new("é", &allocator, guard);
+
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ast.source_slice(1, 2)));
+        assert!(result.is_err());
+
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ast.source_slice_wtf8(0, 1)));
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn string_lifetimes() {
         let allocator = Allocator::new();
         let (source, first, large, last, surrogate) = {
-            let mut ast = Ast::new("source", &allocator);
+            crate::make_ast_guard!(ast_guard);
+            let mut ast = Ast::new("source", &allocator, ast_guard);
             let source = ast.get_utf8(ast.source_slice(0, 6));
             let first = ast.add_utf8("first");
             let first = ast.get_utf8(first);

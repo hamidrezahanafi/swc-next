@@ -40,7 +40,8 @@ fn main() -> Result<(), String> {
         preserve_parens: args.preserve_parens,
         ..Options::default()
     };
-    let ret = EcmaParser::init(&allocator, source, options, TokenParserConfig).parse();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let ret = EcmaParser::init(&allocator, source, options, TokenParserConfig, ast_guard).parse();
 
     for diagnostic in &ret.diagnostics {
         eprintln!(

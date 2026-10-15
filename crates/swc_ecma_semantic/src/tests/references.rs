@@ -2,12 +2,13 @@ use super::*;
 
 #[test]
 fn contextual_expression_recovery() {
-    fn analyze_recovered_source<'a>(
+    fn analyze_recovered_source<'id, 'a>(
         allocator: &'a Allocator,
         source: &'a str,
         options: Options,
-    ) -> (Ast<'a>, Semantic<'a>) {
-        let parsed = Parser::init(allocator, source, options, NoTokenParserConfig).parse();
+        guard: swc_next_ecma_ast::AstGuard<'id>,
+    ) -> (Ast<'a, 'id>, Semantic<'a, 'id>) {
+        let parsed = Parser::init(allocator, source, options, NoTokenParserConfig, guard).parse();
         assert_eq!(parsed.diagnostics.len(), 1);
         let ast = parsed.ast;
         let result = analyze(&ast, AnalyzeOptions::default());
@@ -24,25 +25,29 @@ fn contextual_expression_recovery() {
     };
 
     let source = "const value = 1; function read() { await value; } read();";
-    let (ast, semantic) = analyze_recovered_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_recovered_source(&allocator, source, ts_module, ast_guard);
     assert_eq!(
         reference_symbol(&ast, &semantic, b"value"),
         Some(symbol_named(&ast, &semantic, b"value"))
     );
 
     let source = "const value = 1; function read() { yield value; } read();";
-    let (ast, semantic) = analyze_recovered_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_recovered_source(&allocator, source, ts_module, ast_guard);
     assert_eq!(
         reference_symbol(&ast, &semantic, b"value"),
         Some(symbol_named(&ast, &semantic, b"value"))
     );
 
     let source = "function read() { await value; }";
-    let (_, semantic) = analyze_recovered_source(&allocator, source, js_script);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (_, semantic) = analyze_recovered_source(&allocator, source, js_script, ast_guard);
     assert_eq!(semantic.iter_references().count(), 1);
 
     let source = "function read() { yield value; }";
-    let (_, semantic) = analyze_recovered_source(&allocator, source, js_script);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (_, semantic) = analyze_recovered_source(&allocator, source, js_script, ast_guard);
     assert_eq!(semantic.iter_references().count(), 1);
 
     let valid = has_syntax_diagnostics(
@@ -83,28 +88,33 @@ fn access_flags_follow_reference_syntax() {
     };
 
     let source = "let value; value;";
-    let (_, semantic) = analyze_source(&allocator, source, js_script);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (_, semantic) = analyze_source(&allocator, source, js_script, ast_guard);
     let reference = semantic.iter_references().next().unwrap().reference;
     assert!(reference.flags.is_read_only());
 
     let source = "let value; value = 1;";
-    let (_, semantic) = analyze_source(&allocator, source, js_script);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (_, semantic) = analyze_source(&allocator, source, js_script, ast_guard);
     let reference = semantic.iter_references().next().unwrap().reference;
     assert!(reference.flags.is_write_only());
 
     let source = "let value; value++;";
-    let (_, semantic) = analyze_source(&allocator, source, js_script);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (_, semantic) = analyze_source(&allocator, source, js_script, ast_guard);
     let reference = semantic.iter_references().next().unwrap().reference;
     assert!(reference.flags.is_read_write());
 
     let source = "let value; delete value;";
-    let (_, semantic) = analyze_source(&allocator, source, js_script);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (_, semantic) = analyze_source(&allocator, source, js_script, ast_guard);
     let reference = semantic.iter_references().next().unwrap().reference;
     assert!(!reference.flags.is_read());
     assert!(!reference.flags.is_write());
 
     let source = "import type { T } from 'mod'; type U = T;";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let symbol = semantic
         .iter_symbols()
         .find(|entry| ast.get_wtf8(entry.symbol.name).as_bytes() == b"T")
@@ -121,7 +131,8 @@ fn access_flags_follow_reference_syntax() {
     assert!(!reference.flags.is_read());
 
     let source = "import type { T } from 'mod'; T;";
-    let (ast, semantic) = analyze_source(&allocator, source, ts_module);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) = analyze_source(&allocator, source, ts_module, ast_guard);
     let reference = semantic
         .iter_references()
         .find(|entry| ast.get_utf8(entry.reference.name).as_bytes() == b"T")
@@ -201,8 +212,9 @@ fn known_reference_targets() {
 fn assert_const_assertion_references(source: &str, count: usize) {
     let allocator = Allocator::new();
     let check = |options| {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) =
-            analyze_with_options(&allocator, source, ts_module_options(), options);
+            analyze_with_options(&allocator, source, ts_module_options(), options, ast_guard);
         let references = semantic.iter_references().collect::<Vec<_>>();
         assert_eq!(references.len(), count);
         for entry in references {
@@ -245,8 +257,9 @@ fn assert_export_reference(source: &str, value: Option<&str>, read: bool) {
                     check_syntax,
                     build_module_record,
                 };
+                swc_next_ecma_ast::make_ast_guard!(ast_guard);
                 let (ast, semantic) =
-                    analyze_with_options(&allocator, source, parser_options, options);
+                    analyze_with_options(&allocator, source, parser_options, options, ast_guard);
                 let entry = semantic
                     .iter_references()
                     .find(|entry| ast.get_utf8(entry.reference.name) == "X")
@@ -382,8 +395,9 @@ fn assert_alias_value_reference(source: &str, value: bool, read: bool) {
             check_syntax,
             ..AnalyzeOptions::default()
         };
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) =
-            analyze_with_options(&allocator, source, ts_module_options(), options);
+            analyze_with_options(&allocator, source, ts_module_options(), options, ast_guard);
         let alias = symbol_named(&ast, &semantic, b"Alias");
         let entry = semantic
             .iter_references()
@@ -445,6 +459,7 @@ fn alias_value_references() {
 fn assert_jsx_value_roots(source: &str, names: &[&[u8]]) {
     let allocator = Allocator::new();
     for check_syntax in [false, true] {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) = analyze_with_options(
             &allocator,
             source,
@@ -456,6 +471,7 @@ fn assert_jsx_value_roots(source: &str, names: &[&[u8]]) {
                 check_syntax,
                 ..AnalyzeOptions::default()
             },
+            ast_guard,
         );
         let references = semantic
             .iter_references()

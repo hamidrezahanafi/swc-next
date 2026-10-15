@@ -15,29 +15,29 @@ use crate::surface::{
     InferredType, first_template_quasi, inferred_type, return_expression, unparenthesized,
 };
 
-impl<'ast> Transformer<'_, 'ast> {
+impl<'id, 'ast> Transformer<'_, 'ast, 'id> {
     pub(super) fn infer_type_from_expr(
         &mut self,
-        expression: Expr,
-        ast: &mut Ast<'ast>,
-    ) -> Option<TsType> {
+        expression: Expr<'id>,
+        ast: &mut Ast<'ast, 'id>,
+    ) -> Option<TsType<'id>> {
         self.emit_inferred_type(expression, false, ast)
     }
 
     pub(super) fn infer_const_type(
         &mut self,
-        expression: Expr,
-        ast: &mut Ast<'ast>,
-    ) -> Option<TsType> {
+        expression: Expr<'id>,
+        ast: &mut Ast<'ast, 'id>,
+    ) -> Option<TsType<'id>> {
         self.emit_inferred_type(expression, true, ast)
     }
 
     fn emit_inferred_type(
         &mut self,
-        expression: Expr,
+        expression: Expr<'id>,
         is_const: bool,
-        ast: &mut Ast<'ast>,
-    ) -> Option<TsType> {
+        ast: &mut Ast<'ast, 'id>,
+    ) -> Option<TsType<'id>> {
         let span = expression.span(ast);
         let ty = match inferred_type(expression, is_const, ast, self.semantic, &self.surface) {
             InferredType::Annotation(annotation) => annotation,
@@ -110,7 +110,11 @@ impl<'ast> Transformer<'_, 'ast> {
         Some(ty)
     }
 
-    fn infer_const_array_type(&mut self, array: ArrayExpression, ast: &mut Ast<'ast>) -> TsType {
+    fn infer_const_array_type(
+        &mut self,
+        array: ArrayExpression<'id>,
+        ast: &mut Ast<'ast, 'id>,
+    ) -> TsType<'id> {
         let span = array.span(ast);
         let elements = array.elements(ast);
         let mut element_types = Vec::with_capacity(elements.len());
@@ -147,9 +151,9 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn infer_function_return_type(
         &mut self,
-        function: Function,
-        ast: &mut Ast<'ast>,
-    ) -> Option<TsTypeAnnotation> {
+        function: Function<'id>,
+        ast: &mut Ast<'ast, 'id>,
+    ) -> Option<TsTypeAnnotation<'id>> {
         let body = function.body(ast);
         let expression = return_expression(body, ast)?;
         let ty = self.infer_type_from_expr(expression, ast)?;
@@ -158,9 +162,9 @@ impl<'ast> Transformer<'_, 'ast> {
 
     fn infer_arrow_return_type(
         &mut self,
-        function: ArrowFunctionExpression,
-        ast: &mut Ast<'ast>,
-    ) -> Option<TsTypeAnnotation> {
+        function: ArrowFunctionExpression<'id>,
+        ast: &mut Ast<'ast, 'id>,
+    ) -> Option<TsTypeAnnotation<'id>> {
         if let Some(return_type) = function.return_type(ast) {
             return Some(return_type);
         }
@@ -180,7 +184,11 @@ impl<'ast> Transformer<'_, 'ast> {
         }
     }
 
-    pub(super) fn is_literal_initializer(&self, expression: Expr, ast: &Ast<'ast>) -> bool {
+    pub(super) fn is_literal_initializer(
+        &self,
+        expression: Expr<'id>,
+        ast: &Ast<'ast, 'id>,
+    ) -> bool {
         let expression = unparenthesized(expression, ast);
         match ast.expr_data(expression) {
             ExprData::StringLiteral(_)
@@ -203,9 +211,9 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn normalize_literal_initializer(
         &self,
-        expression: Expr,
-        ast: &mut Ast<'ast>,
-    ) -> Expr {
+        expression: Expr<'id>,
+        ast: &mut Ast<'ast, 'id>,
+    ) -> Expr<'id> {
         let expression = unparenthesized(expression, ast);
         match ast.expr_data(expression) {
             ExprData::UnaryExpression(unary) => {

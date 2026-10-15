@@ -12,17 +12,17 @@ fn assert_parameter_assignment(code: &str) {
             })
             .unwrap()
             .id;
-        struct Assignments<'s, 'ast> {
-            ast: &'s Ast<'ast>,
-            semantic: &'s Semantic<'ast>,
+        struct Assignments<'s, 'ast, 'id> {
+            ast: &'s Ast<'ast, 'id>,
+            semantic: &'s Semantic<'ast, 'id>,
             parameter: SymbolId,
             count: usize,
         }
-        impl<'ast> Visit<'ast> for Assignments<'_, 'ast> {
-            fn ast(&self) -> &Ast<'ast> {
+        impl<'id, 'ast> Visit<'ast, 'id> for Assignments<'_, 'ast, 'id> {
+            fn ast(&self) -> &Ast<'ast, 'id> {
                 self.ast
             }
-            fn visit_assignment_expression(&mut self, assignment: AssignmentExpression) {
+            fn visit_assignment_expression(&mut self, assignment: AssignmentExpression<'id>) {
                 if let Some(reference) =
                     assignment.right(self.ast).as_identifier_reference(self.ast)
                     && self.ast.get_utf8(reference.name(self.ast)) == "x"

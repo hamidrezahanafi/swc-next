@@ -15,13 +15,13 @@ use super::diagnostics::{
 };
 use crate::surface::{object_accessors, supported_object_key};
 
-impl<'ast> Transformer<'_, 'ast> {
+impl<'id, 'ast> Transformer<'_, 'ast, 'id> {
     pub(super) fn infer_object_type(
         &mut self,
-        object: ObjectExpression,
+        object: ObjectExpression<'id>,
         is_const: bool,
-        ast: &mut Ast<'ast>,
-    ) -> TsType {
+        ast: &mut Ast<'ast, 'id>,
+    ) -> TsType<'id> {
         let span = object.span(ast);
         let properties = object.properties(ast);
         let mut accessor_annotations = object_accessors(object, ast, self.semantic)

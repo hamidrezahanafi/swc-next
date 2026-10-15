@@ -15,12 +15,12 @@ use crate::{
 };
 use swc_next_ecma_semantic::scope::{ScopeFlags, ScopeKind};
 
-pub(crate) struct StaticBlocks {
+pub(crate) struct StaticBlocks<'id> {
     prevent_extensions: bool,
-    class_calls: Vec<(NodeId, Expr)>,
+    class_calls: Vec<(NodeId<'id>, Expr<'id>)>,
 }
 
-impl StaticBlocks {
+impl<'id> StaticBlocks<'id> {
     pub(crate) fn new(prevent_extensions: bool) -> Self {
         Self {
             prevent_extensions,
@@ -28,7 +28,11 @@ impl StaticBlocks {
         }
     }
 
-    pub(super) fn enter_class_body(&mut self, body: ClassBody, ctx: &mut TransformCtx<'_, '_>) {
+    pub(super) fn enter_class_body(
+        &mut self,
+        body: ClassBody<'id>,
+        ctx: &mut TransformCtx<'_, '_, 'id>,
+    ) {
         let class = match ctx
             .ast()
             .kind_data(ctx.parent().expect("class body parent"))
@@ -86,9 +90,9 @@ impl StaticBlocks {
 
     pub(super) fn exit_class(
         &mut self,
-        class: Class,
-        ctx: &mut TransformCtx<'_, '_>,
-    ) -> TraverseAction<Expr> {
+        class: Class<'id>,
+        ctx: &mut TransformCtx<'_, '_, 'id>,
+    ) -> TraverseAction<Expr<'id>> {
         if self
             .class_calls
             .last()
@@ -115,13 +119,13 @@ impl StaticBlocks {
 
 /// Fold blocks before fields into their initializers. Capture trailing blocks
 /// in the last static field and call the closure after class evaluation.
-fn transform_supporting_non_extensible_class(
-    class: Class,
-    name: Option<InferredName>,
-    layout: &ClassLayout,
+fn transform_supporting_non_extensible_class<'id>(
+    class: Class<'id>,
+    name: Option<InferredName<'id>>,
+    layout: &ClassLayout<'id>,
     names: &mut UsedNameState<'_>,
-    ctx: &mut TransformCtx<'_, '_>,
-) -> Option<Expr> {
+    ctx: &mut TransformCtx<'_, '_, 'id>,
+) -> Option<Expr<'id>> {
     let body = class.body(ctx.ast());
     let scope = ctx.current_scope();
     let is_expression = class.class_type(ctx.ast()) == ClassType::ClassExpression;
@@ -227,12 +231,12 @@ fn transform_supporting_non_extensible_class(
     Some(call_generated_after_class(binding, ctx))
 }
 
-fn materialize_block(
-    block: StaticBlock,
+fn materialize_block<'id>(
+    block: StaticBlock<'id>,
     first: bool,
     parent: ScopeId,
-    ctx: &mut TransformCtx<'_, '_>,
-) -> Expr {
+    ctx: &mut TransformCtx<'_, '_, 'id>,
+) -> Expr<'id> {
     if let Some(expression) = single_expression_statement(block.body(ctx.ast()), ctx.ast()) {
         inline_static_block_expression(block.node_id(), parent, ctx);
         return expression;
@@ -251,10 +255,10 @@ fn materialize_block(
     ctx.inherits_comments(expression, block)
 }
 
-fn create_trailing_arrow(
+fn create_trailing_arrow<'id>(
     parent: ScopeId,
-    ctx: &mut TransformCtx<'_, '_>,
-) -> (ArrowFunctionExpression, ScopeId) {
+    ctx: &mut TransformCtx<'_, '_, 'id>,
+) -> (ArrowFunctionExpression<'id>, ScopeId) {
     let arrow = ctx.add_node(|ast| {
         let body = ast.function_body(DUMMY_SP, SubRange::empty(), SubRange::empty());
         let params = ast.formal_parameters(
@@ -287,12 +291,12 @@ fn create_trailing_arrow(
     (arrow, scope)
 }
 
-fn block_to_arrow(
-    block: StaticBlock,
+fn block_to_arrow<'id>(
+    block: StaticBlock<'id>,
     completion: bool,
     parent: ScopeId,
-    ctx: &mut TransformCtx<'_, '_>,
-) -> Expr {
+    ctx: &mut TransformCtx<'_, '_, 'id>,
+) -> Expr<'id> {
     let scope = ctx
         .semantic()
         .scope_of(block.node_id())
@@ -317,7 +321,10 @@ fn block_to_arrow(
     ctx.inherits_comments(arrow, block)
 }
 
-fn sequence_or_single(expressions: Vec<Expr>, ctx: &mut TransformCtx<'_, '_>) -> Expr {
+fn sequence_or_single<'id>(
+    expressions: Vec<Expr<'id>>,
+    ctx: &mut TransformCtx<'_, '_, 'id>,
+) -> Expr<'id> {
     debug_assert!(!expressions.is_empty());
     if expressions.len() == 1 {
         return expressions[0];
@@ -326,10 +333,10 @@ fn sequence_or_single(expressions: Vec<Expr>, ctx: &mut TransformCtx<'_, '_>) ->
     Expr::SequenceExpression(ctx.add_node(|ast| ast.sequence_expression(DUMMY_SP, items)))
 }
 
-fn prepend_to_initializer(
-    property: PropertyDefinition,
-    mut expressions: Vec<Expr>,
-    ctx: &mut TransformCtx<'_, '_>,
+fn prepend_to_initializer<'id>(
+    property: PropertyDefinition<'id>,
+    mut expressions: Vec<Expr<'id>>,
+    ctx: &mut TransformCtx<'_, '_, 'id>,
 ) {
     let scope = ctx.current_scope();
     if let Some(value) = property.value(ctx.ast()) {
@@ -362,12 +369,12 @@ fn prepend_to_initializer(
     }
 }
 
-fn set_function_name(
-    target: Expr,
-    name: InferredName,
+fn set_function_name<'id>(
+    target: Expr<'id>,
+    name: InferredName<'id>,
     scope: ScopeId,
-    ctx: &mut TransformCtx<'_, '_>,
-) -> Expr {
+    ctx: &mut TransformCtx<'_, '_, 'id>,
+) -> Expr<'id> {
     let name = match name {
         InferredName::String(name) => Expr::StringLiteral(
             ctx.add_node(|ast| ast.string_literal(DUMMY_SP, name, ast.empty_utf8())),
@@ -378,11 +385,11 @@ fn set_function_name(
     ctx.call_set_function_name(target, name, scope)
 }
 
-fn prepare_inferred_name(
-    name: InferredName,
+fn prepare_inferred_name<'id>(
+    name: InferredName<'id>,
     scope: ScopeId,
-    ctx: &mut TransformCtx<'_, '_>,
-) -> InferredName {
+    ctx: &mut TransformCtx<'_, '_, 'id>,
+) -> InferredName<'id> {
     let InferredName::Computed {
         parent,
         key,
@@ -405,12 +412,12 @@ fn prepare_inferred_name(
     ))
 }
 
-fn private_field(
-    key: PropertyKey,
-    value: Expr,
+fn private_field<'id>(
+    key: PropertyKey<'id>,
+    value: Expr<'id>,
     span: Span,
-    ctx: &mut TransformCtx<'_, '_>,
-) -> ClassElement {
+    ctx: &mut TransformCtx<'_, '_, 'id>,
+) -> ClassElement<'id> {
     ClassElement::PropertyDefinition(ctx.add_node(|ast| {
         ast.property_definition(
             span,
@@ -432,11 +439,11 @@ fn private_field(
     }))
 }
 
-fn inferred_name(
-    class: Class,
-    ancestors: impl IntoIterator<Item = NodeId>,
-    ctx: &mut TransformCtx<'_, '_>,
-) -> Option<InferredName> {
+fn inferred_name<'id>(
+    class: Class<'id>,
+    ancestors: impl IntoIterator<Item = NodeId<'id>>,
+    ctx: &mut TransformCtx<'_, '_, 'id>,
+) -> Option<InferredName<'id>> {
     if class.id(ctx.ast()).is_some() {
         return None;
     }
@@ -532,7 +539,10 @@ fn inferred_name(
     None
 }
 
-fn property_key_name(key: PropertyKey, ctx: &mut TransformCtx<'_, '_>) -> Option<InferredName> {
+fn property_key_name<'id>(
+    key: PropertyKey<'id>,
+    ctx: &mut TransformCtx<'_, '_, 'id>,
+) -> Option<InferredName<'id>> {
     if let Some(literal) = key
         .as_expr(ctx.ast())
         .and_then(|expr| expr.as_string_literal(ctx.ast()))
@@ -582,7 +592,10 @@ fn property_key_name(key: PropertyKey, ctx: &mut TransformCtx<'_, '_>) -> Option
     None
 }
 
-fn assignment_target_name(target: AssignmentTarget, ast: &Ast<'_>) -> Option<InferredName> {
+fn assignment_target_name<'id>(
+    target: AssignmentTarget<'id>,
+    ast: &Ast<'_, 'id>,
+) -> Option<InferredName<'id>> {
     let target = target.as_simple_assignment_target(ast)?;
     target
         .as_identifier_reference(ast)
@@ -590,24 +603,24 @@ fn assignment_target_name(target: AssignmentTarget, ast: &Ast<'_>) -> Option<Inf
 }
 
 #[derive(Clone, Copy)]
-enum InferredName {
-    String(AstWtf8),
-    Expr(Expr),
+enum InferredName<'id> {
+    String(AstWtf8<'id>),
+    Expr(Expr<'id>),
     Computed {
-        parent: NodeId,
-        key: Expr,
+        parent: NodeId<'id>,
+        key: Expr<'id>,
         /// Evaluation scope of the original key, separate from the generated name read.
         key_scope: ScopeId,
     },
 }
 
-fn inferred_property_key_name(
-    key: PropertyKey,
+fn inferred_property_key_name<'id>(
+    key: PropertyKey<'id>,
     computed: bool,
-    parent: NodeId,
+    parent: NodeId<'id>,
     key_scope: ScopeId,
-    ctx: &mut TransformCtx<'_, '_>,
-) -> Option<InferredName> {
+    ctx: &mut TransformCtx<'_, '_, 'id>,
+) -> Option<InferredName<'id>> {
     property_key_name(key, ctx).or_else(|| {
         computed
             .then(|| key.as_expr(ctx.ast()))
@@ -620,7 +633,7 @@ fn inferred_property_key_name(
     })
 }
 
-fn anonymous_function_or_class(value: Expr, ast: &Ast<'_>) -> bool {
+fn anonymous_function_or_class<'id>(value: Expr<'id>, ast: &Ast<'_, 'id>) -> bool {
     match ast.kind_data(value.node_id()) {
         NodeKindData::Function(function) => function.id(ast).is_none(),
         NodeKindData::ArrowFunctionExpression(_) => true,
@@ -647,7 +660,10 @@ fn anonymous_function_or_class(value: Expr, ast: &Ast<'_>) -> bool {
     }
 }
 
-fn static_property(element: ClassElement, ast: &Ast<'_>) -> Option<PropertyDefinition> {
+fn static_property<'id>(
+    element: ClassElement<'id>,
+    ast: &Ast<'_, 'id>,
+) -> Option<PropertyDefinition<'id>> {
     element.as_property_definition(ast).filter(|property| {
         property.r#static(ast) && !property.declare(ast) && !property.r#abstract(ast)
     })
@@ -661,10 +677,10 @@ fn static_property(element: ClassElement, ast: &Ast<'_>) -> Option<PropertyDefin
 ///
 /// class C { static #_ = initialize(); }
 /// ```
-fn transform_class_as_private_fields(
-    body: ClassBody,
+fn transform_class_as_private_fields<'id>(
+    body: ClassBody<'id>,
     names: &mut UsedNameState<'_>,
-    ctx: &mut TransformCtx<'_, '_>,
+    ctx: &mut TransformCtx<'_, '_, 'id>,
 ) {
     let mut index = 0;
     while let Some(member) = ctx.container_class_body_mut(body).get(index).copied() {
@@ -698,7 +714,10 @@ fn transform_class_as_private_fields(
     }
 }
 
-fn single_expression_statement(statements: SubRange<Stmt>, ast: &Ast<'_>) -> Option<Expr> {
+fn single_expression_statement<'id>(
+    statements: SubRange<'id, Stmt<'id>>,
+    ast: &Ast<'_, 'id>,
+) -> Option<Expr<'id>> {
     if statements.len() != 1 {
         return None;
     }
@@ -709,7 +728,10 @@ fn single_expression_statement(statements: SubRange<Stmt>, ast: &Ast<'_>) -> Opt
         .map(|statement| statement.expression(ast))
 }
 
-fn call_generated_after_class(name: BoundIdentifier, ctx: &mut TransformCtx<'_, '_>) -> Expr {
+fn call_generated_after_class<'id>(
+    name: BoundIdentifier<'id>,
+    ctx: &mut TransformCtx<'_, '_, 'id>,
+) -> Expr<'id> {
     let scope = ctx
         .semantic()
         .scope(ctx.current_scope())
@@ -727,14 +749,14 @@ fn call_generated_after_class(name: BoundIdentifier, ctx: &mut TransformCtx<'_, 
     }))
 }
 
-fn build_static_block_arrow(
+fn build_static_block_arrow<'id>(
     span: Span,
-    body: ArrowFunctionBody,
+    body: ArrowFunctionBody<'id>,
     expression: bool,
     reuse: ScopeId,
     parent: ScopeId,
-    ctx: &mut TransformCtx<'_, '_>,
-) -> (Expr, ScopeId) {
+    ctx: &mut TransformCtx<'_, '_, 'id>,
+) -> (Expr<'id>, ScopeId) {
     let arrow = ctx.add_node(|ast| {
         let params = ast.formal_parameters(
             DUMMY_SP,
@@ -760,7 +782,11 @@ fn build_static_block_arrow(
     (Expr::ArrowFunctionExpression(arrow), reuse)
 }
 
-fn inline_static_block_expression(block: NodeId, parent: ScopeId, ctx: &mut TransformCtx<'_, '_>) {
+fn inline_static_block_expression<'id>(
+    block: NodeId<'id>,
+    parent: ScopeId,
+    ctx: &mut TransformCtx<'_, '_, 'id>,
+) {
     let block = static_block(block, ctx.ast());
     let scope = ctx
         .semantic()
@@ -780,14 +806,14 @@ fn inline_static_block_expression(block: NodeId, parent: ScopeId, ctx: &mut Tran
     ctx.inherits_comments(expression, block);
 }
 
-fn static_block(node: NodeId, ast: &Ast<'_>) -> StaticBlock {
+fn static_block<'id>(node: NodeId<'id>, ast: &Ast<'_, 'id>) -> StaticBlock<'id> {
     match ast.kind_data(node) {
         NodeKindData::StaticBlock(block) => block,
         _ => unreachable!("static block source"),
     }
 }
 
-fn block_has_comments(block: StaticBlock, ast: &Ast<'_>) -> bool {
+fn block_has_comments<'id>(block: StaticBlock<'id>, ast: &Ast<'_, 'id>) -> bool {
     let span = block.span(ast);
     ast.comments().iter().any(|comment| {
         comment.attached_to == span.start
@@ -797,15 +823,15 @@ fn block_has_comments(block: StaticBlock, ast: &Ast<'_>) -> bool {
 }
 
 #[derive(Default)]
-struct ClassLayout {
+struct ClassLayout<'id> {
     has_static_blocks: bool,
-    first_static_property: Option<PropertyDefinition>,
-    last_static_property: Option<PropertyDefinition>,
+    first_static_property: Option<PropertyDefinition<'id>>,
+    last_static_property: Option<PropertyDefinition<'id>>,
     trailing_blocks: usize,
 }
 
-impl ClassLayout {
-    fn read(body: ClassBody, ctx: &TransformCtx<'_, '_>) -> Self {
+impl<'id> ClassLayout<'id> {
+    fn read(body: ClassBody<'id>, ctx: &TransformCtx<'_, '_, 'id>) -> Self {
         let mut layout = Self::default();
         for member in ctx.container_class_body(body) {
             if let Some(property) = static_property(member, ctx.ast()) {
@@ -823,7 +849,10 @@ impl ClassLayout {
     }
 }
 
-fn private_names<'a>(body: ClassBody, ctx: &TransformCtx<'_, 'a>) -> UsedNameState<'a> {
+fn private_names<'id, 'a>(
+    body: ClassBody<'id>,
+    ctx: &TransformCtx<'_, 'a, 'id>,
+) -> UsedNameState<'a> {
     let mut names = UsedNameState::new(ctx.ast().allocator());
     for member in ctx.container_class_body(body) {
         let key = match ctx.ast().class_element_data(member) {
@@ -846,7 +875,10 @@ fn private_names<'a>(body: ClassBody, ctx: &TransformCtx<'_, 'a>) -> UsedNameSta
     names
 }
 
-fn private_name(names: &mut UsedNameState<'_>, ctx: &mut TransformCtx<'_, '_>) -> PropertyKey {
+fn private_name<'id>(
+    names: &mut UsedNameState<'_>,
+    ctx: &mut TransformCtx<'_, '_, 'id>,
+) -> PropertyKey<'id> {
     let name = ctx.ast.add_utf8(names.next_name("_", 2));
     PropertyKey::Expr(Expr::PrivateIdentifier(
         ctx.add_node(|ast| ast.private_identifier(DUMMY_SP, name)),

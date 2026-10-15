@@ -58,18 +58,18 @@ use module_instance::{TsModuleInstanceMemo, TsModuleInstanceState, ts_module_ins
 /// modifiers, and spaces. Inspect [`Semantic::declarations`] when the
 /// contribution of an individual declaration matters.
 #[derive(Debug, Clone, Copy)]
-pub struct Symbol {
+pub struct Symbol<'id> {
     /// Same-named declarations that shadow an internal name reuse its name
     /// handle, so lexical lookup can compare names without reading the AST.
-    pub name: AstWtf8,
+    pub name: AstWtf8<'id>,
     pub flags: SymbolFlags,
     /// The first declaration contributing to this symbol.
     pub declaration: DeclarationId,
 }
 
-pub(crate) fn find_internal_name(
-    symbols: &[Symbol],
-    declarations: &[Declaration],
+pub(crate) fn find_internal_name<'id>(
+    symbols: &[Symbol<'id>],
+    declarations: &[Declaration<'id>],
     scope: ScopeId,
     binding: SymbolId,
 ) -> Option<SymbolId> {
@@ -90,8 +90,8 @@ pub(crate) fn find_internal_name(
 /// declaration. This preserves the distinct type, value, and namespace
 /// meanings of declarations that merge into one symbol.
 #[derive(Debug, Clone, Copy)]
-pub struct Declaration {
-    pub node: NodeId,
+pub struct Declaration<'id> {
+    pub node: NodeId<'id>,
     pub symbol: SymbolId,
     /// The lexical context containing this declaration. UMD global exports
     /// retain their module context without introducing a lexical binding.
@@ -403,12 +403,12 @@ impl Excludes {
 /// //         ^ a write of `a`, flags.is_write()
 /// ```
 #[derive(Debug, Clone, Copy)]
-pub struct Reference {
-    pub name: AstUtf8,
+pub struct Reference<'id> {
+    pub name: AstUtf8<'id>,
     /// The scope the reference appears in.
     pub scope: ScopeId,
     /// The referencing node.
-    pub node: NodeId,
+    pub node: NodeId<'id>,
     /// The nearest canonical name-resolution candidate. `None` for names with
     /// no lexical binding or TypeScript container member visible in the
     /// reference's space.
@@ -420,7 +420,7 @@ pub struct Reference {
     pub flags: ReferenceFlags,
 }
 
-impl Reference {
+impl<'id> Reference<'id> {
     /// Name-resolution certainty.
     pub fn resolution(self) -> NameResolution {
         match self.symbol {
@@ -623,16 +623,17 @@ oxc_index::define_nonmax_u32_index_type! {
 }
 
 type TsMemberMap<'a> = ArenaHashMap<'a, &'a [u8], TsMemberEntry>;
-type TsNamespaceExportAliasMap<'a> = ArenaHashMap<'a, &'a [u8], TsNamespaceExportAliasEntry<'a>>;
+type TsNamespaceExportAliasMap<'a, 'id> =
+    ArenaHashMap<'a, &'a [u8], TsNamespaceExportAliasEntry<'a, 'id>>;
 
 #[derive(Debug)]
-struct TsMemberEnvironment<'a> {
+struct TsMemberEnvironment<'a, 'id> {
     // Canonical declarations visible from other bodies merged into the same
     // namespace or enum.
     members: TsMemberMap<'a>,
     // Public aliases do not become lexical bindings in merged namespace
     // bodies. TypeScript likewise keeps container locals and exports apart.
-    export_aliases: TsNamespaceExportAliasMap<'a>,
+    export_aliases: TsNamespaceExportAliasMap<'a, 'id>,
 }
 
 bitflags::bitflags! {
@@ -722,15 +723,15 @@ enum BindingVisibility {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct TsNamespaceExportAliasEntry<'a> {
+struct TsNamespaceExportAliasEntry<'a, 'id> {
     type_only: bool,
-    resolution: TsExportAliasResolution<'a>,
-    node: NodeId,
+    resolution: TsExportAliasResolution<'a, 'id>,
+    node: NodeId<'id>,
 }
 
 #[derive(Debug, Clone, Copy)]
-enum TsExportAliasResolution<'a> {
-    Resolved(TsResolvedExportAliasTarget<'a>),
+enum TsExportAliasResolution<'a, 'id> {
+    Resolved(TsResolvedExportAliasTarget<'a, 'id>),
     Unresolved,
     NonLocal,
 }
@@ -769,12 +770,12 @@ struct TsMemberView {
 
 impl TsMemberView {
     #[inline(always)]
-    fn candidates<'lookup, 'a>(
+    fn candidates<'id, 'lookup, 'a>(
         self,
-        environments: &'lookup TsMemberEnvironments<'a>,
+        environments: &'lookup TsMemberEnvironments<'a, 'id>,
         hash: u64,
         name: &[u8],
-    ) -> Option<TsMemberCandidates<'lookup, 'a>> {
+    ) -> Option<TsMemberCandidates<'lookup, 'a, 'id>> {
         let environment = &environments.environments[self.environment.index()];
         let direct = environment
             .members
@@ -810,12 +811,12 @@ impl TsMemberView {
     }
 
     #[inline(always)]
-    fn lookup<'a>(
+    fn lookup<'id, 'a>(
         self,
-        environments: &TsMemberEnvironments<'a>,
+        environments: &TsMemberEnvironments<'a, 'id>,
         hash: u64,
         name: &[u8],
-    ) -> Option<TsMemberLookup<'a>> {
+    ) -> Option<TsMemberLookup<'a, 'id>> {
         let TsMemberCandidates { direct, alias } = self.candidates(environments, hash, name)?;
         let target = TsResolvedImportTarget::from_members(direct.map(|entry| entry.symbol), alias)?;
         let direct_spaces = direct
@@ -828,20 +829,20 @@ impl TsMemberView {
     }
 }
 
-struct TsMemberCandidates<'lookup, 'a> {
+struct TsMemberCandidates<'lookup, 'a, 'id> {
     direct: Option<TsMemberEntry>,
-    alias: Option<&'lookup TsNamespaceExportAliasEntry<'a>>,
+    alias: Option<&'lookup TsNamespaceExportAliasEntry<'a, 'id>>,
 }
 
-struct TsMemberLookup<'a> {
-    target: TsResolvedImportTarget<'a>,
+struct TsMemberLookup<'a, 'id> {
+    target: TsResolvedImportTarget<'a, 'id>,
     direct_spaces: TsMemberVisibility,
 }
 
-impl TsMemberLookup<'_> {
+impl<'id> TsMemberLookup<'_, 'id> {
     fn visit_candidates<const PRECISE_IMPORT_ALIASES: bool>(
         &self,
-        symbols: &[Symbol],
+        symbols: &[Symbol<'id>],
         import_alias_spaces: &[Option<TsResolvedAliasSpaces>],
         space: ReferenceSpace,
         mut accept: impl FnMut(SymbolId, BindingVisibility) -> bool,
@@ -890,12 +891,12 @@ impl TsMemberLookup<'_> {
 }
 
 #[derive(Debug)]
-struct TsMemberEnvironments<'a> {
+struct TsMemberEnvironments<'a, 'id> {
     owners: ArenaHashMap<'a, SymbolId, TsMemberEnvironmentId>,
-    environments: ArenaVec<'a, TsMemberEnvironment<'a>>,
+    environments: ArenaVec<'a, TsMemberEnvironment<'a, 'id>>,
 }
 
-impl<'a> TsMemberEnvironments<'a> {
+impl<'id, 'a> TsMemberEnvironments<'a, 'id> {
     fn needs_value_projections(&self) -> bool {
         self.environments.iter().any(|environment| {
             environment.export_aliases.iter().any(|(name, alias)| {
@@ -924,7 +925,7 @@ impl<'a> TsMemberEnvironments<'a> {
         })
     }
 
-    fn get(&self, owner: SymbolId) -> Option<&TsMemberEnvironment<'a>> {
+    fn get(&self, owner: SymbolId) -> Option<&TsMemberEnvironment<'a, 'id>> {
         let environment = *self.owners.get(&owner)?;
         Some(&self.environments[environment.index()])
     }
@@ -944,14 +945,14 @@ impl<'a> TsMemberEnvironments<'a> {
     fn environment_export_aliases(
         &self,
         environment: TsMemberEnvironmentId,
-    ) -> &TsNamespaceExportAliasMap<'a> {
+    ) -> &TsNamespaceExportAliasMap<'a, 'id> {
         &self.environments[environment.index()].export_aliases
     }
 
     fn export_aliases_mut(
         &mut self,
         environment: TsMemberEnvironmentId,
-    ) -> &mut TsNamespaceExportAliasMap<'a> {
+    ) -> &mut TsNamespaceExportAliasMap<'a, 'id> {
         &mut self.environments[environment.index()].export_aliases
     }
 
@@ -969,17 +970,17 @@ struct TsImportAliasIndex<'a> {
 }
 
 #[derive(Debug)]
-pub(crate) struct TsMemberIndex<'a> {
+pub(crate) struct TsMemberIndex<'a, 'id> {
     source_exports: Option<TsSourceExports<'a>>,
-    local_exports: TsLocalExportMap<'a>,
-    environments: TsMemberEnvironments<'a>,
+    local_exports: TsLocalExportMap<'a, 'id>,
+    environments: TsMemberEnvironments<'a, 'id>,
     scope_views: Option<TsScopeViewIndex<'a>>,
     views: ArenaVec<'a, TsMemberView>,
     import_aliases: Option<TsImportAliasIndex<'a>>,
     reference_values: Option<ArenaBox<'a, TsReferenceValues<'a>>>,
 }
 
-impl TsMemberIndex<'_> {
+impl<'id> TsMemberIndex<'_, 'id> {
     pub(crate) fn reference_values(&self, reference: ReferenceId) -> Option<&[NameResolution]> {
         self.reference_values.as_ref()?.get(reference)
     }
@@ -995,8 +996,8 @@ impl TsMemberIndex<'_> {
 
     pub(crate) fn value_target(
         &self,
-        symbols: &[Symbol],
-        declarations: &[Declaration],
+        symbols: &[Symbol<'id>],
+        declarations: &[Declaration<'id>],
         scope_maps: &[ScopeMap<'_>],
         resolution: NameResolution,
         name: &[u8],
@@ -1071,8 +1072,8 @@ impl TsMemberIndex<'_> {
 
     pub(crate) fn namespace_value_targets<'s>(
         &'s self,
-        symbols: &'s [Symbol],
-        declarations: &'s [Declaration],
+        symbols: &'s [Symbol<'id>],
+        declarations: &'s [Declaration<'id>],
         scope_maps: &'s [ScopeMap<'_>],
         owner: SymbolId,
         name: &'s [u8],
@@ -1131,7 +1132,7 @@ impl TsMemberIndex<'_> {
 
     pub(crate) fn resolve_name(
         &self,
-        semantic: &Semantic<'_>,
+        semantic: &Semantic<'_, 'id>,
         scope: ScopeId,
         name: &[u8],
         space: ReferenceSpace,
@@ -1192,23 +1193,23 @@ impl Iterator for TsSourceBindingIterator<'_> {
 }
 
 #[derive(Clone, Copy)]
-enum TsContainerContext {
+enum TsContainerContext<'id> {
     UnsupportedExternalModule {
-        body: Option<NodeId>,
+        body: Option<NodeId<'id>>,
     },
     Member {
         environment: TsMemberEnvironmentId,
         views: Range,
         projection_scope: Option<ScopeId>,
-        body: Option<NodeId>,
+        body: Option<NodeId<'id>>,
         body_scope: Option<ScopeId>,
         implicit_exports: bool,
         public_exports: bool,
     },
 }
 
-impl TsContainerContext {
-    fn body(self) -> Option<NodeId> {
+impl<'id> TsContainerContext<'id> {
+    fn body(self) -> Option<NodeId<'id>> {
         match self {
             Self::UnsupportedExternalModule { body } | Self::Member { body, .. } => body,
         }
@@ -1216,19 +1217,19 @@ impl TsContainerContext {
 }
 
 #[derive(Clone, Copy)]
-struct PendingTsNamespaceExportAlias<'a> {
+struct PendingTsNamespaceExportAlias<'a, 'id> {
     type_only: bool,
     environment: TsMemberEnvironmentId,
     exported_name: &'a [u8],
     local_reference: ReferenceId,
-    node: NodeId,
-    previous: Option<NodeId>,
+    node: NodeId<'id>,
+    previous: Option<NodeId<'id>>,
 }
 
 #[derive(Clone, Copy)]
-struct TsImportAliasTarget {
+struct TsImportAliasTarget<'id> {
     alias: SymbolId,
-    declaration: TsImportEqualsDeclaration,
+    declaration: TsImportEqualsDeclaration<'id>,
     root_reference: ReferenceId,
 }
 
@@ -1236,27 +1237,27 @@ struct TsImportAliasTarget {
 // which alias resolution meets declaration meaning. Pure forwarding aliases
 // share their target; only a direct-plus-alias combination allocates a node.
 #[derive(Debug, Clone, Copy)]
-enum TsExportTarget<'a> {
+enum TsExportTarget<'a, 'id> {
     // Public access may cross an exported-value bridge; conflict checks keep
     // the lexical declaration meaning. Both stay compact for simple targets.
     Symbols { lexical: SymbolId, public: SymbolId },
-    Member(&'a TsExportMember<'a>),
+    Member(&'a TsExportMember<'a, 'id>),
 }
 
 #[derive(Debug)]
-struct TsExportMember<'a> {
+struct TsExportMember<'a, 'id> {
     direct: SymbolId,
-    alias: TsResolvedExportAliasTarget<'a>,
+    alias: TsResolvedExportAliasTarget<'a, 'id>,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct TsResolvedExportAliasTarget<'a> {
-    target: TsExportTarget<'a>,
-    type_only_export: Option<NodeId>,
+struct TsResolvedExportAliasTarget<'a, 'id> {
+    target: TsExportTarget<'a, 'id>,
+    type_only_export: Option<NodeId<'id>>,
 }
 
-impl<'a> TsResolvedExportAliasTarget<'a> {
-    fn target(target: TsExportTarget<'a>) -> Self {
+impl<'id, 'a> TsResolvedExportAliasTarget<'a, 'id> {
+    fn target(target: TsExportTarget<'a, 'id>) -> Self {
         Self {
             target,
             type_only_export: None,
@@ -1272,19 +1273,22 @@ impl<'a> TsResolvedExportAliasTarget<'a> {
 }
 
 #[derive(Clone, Copy)]
-struct TsExportContribution {
+struct TsExportContribution<'id> {
     symbol: SymbolId,
-    type_only_export: Option<NodeId>,
+    type_only_export: Option<NodeId<'id>>,
 }
 
-struct TsExportContributions<'a> {
-    target: Option<TsExportTarget<'a>>,
+struct TsExportContributions<'a, 'id> {
+    target: Option<TsExportTarget<'a, 'id>>,
     conflict: bool,
-    type_only_export: Option<NodeId>,
+    type_only_export: Option<NodeId<'id>>,
 }
 
-impl<'a> TsExportTarget<'a> {
-    fn public_contributions(self, type_only_export: Option<NodeId>) -> TsExportContributions<'a> {
+impl<'id, 'a> TsExportTarget<'a, 'id> {
+    fn public_contributions(
+        self,
+        type_only_export: Option<NodeId<'id>>,
+    ) -> TsExportContributions<'a, 'id> {
         TsExportContributions {
             target: Some(self),
             conflict: false,
@@ -1292,7 +1296,7 @@ impl<'a> TsExportTarget<'a> {
         }
     }
 
-    fn conflict_contributions(self) -> TsExportContributions<'a> {
+    fn conflict_contributions(self) -> TsExportContributions<'a, 'id> {
         TsExportContributions {
             target: Some(self),
             conflict: true,
@@ -1301,8 +1305,8 @@ impl<'a> TsExportTarget<'a> {
     }
 }
 
-impl Iterator for TsExportContributions<'_> {
-    type Item = TsExportContribution;
+impl<'id> Iterator for TsExportContributions<'_, 'id> {
+    type Item = TsExportContribution<'id>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let target = self.target.take()?;
@@ -1333,16 +1337,16 @@ impl Iterator for TsExportContributions<'_> {
 }
 
 #[derive(Clone, Copy)]
-struct TsResolvedImportTarget<'a> {
+struct TsResolvedImportTarget<'a, 'id> {
     direct: Option<SymbolId>,
-    alias: Option<TsResolvedExportAliasTarget<'a>>,
-    type_only_export: Option<NodeId>,
+    alias: Option<TsResolvedExportAliasTarget<'a, 'id>>,
+    type_only_export: Option<NodeId<'id>>,
     // Includes implicit members such as prototype; no lexical binding or
     // explicit member AST node is required to preserve this value meaning.
     property_value: PropertyValue,
 }
 
-impl<'a> TsResolvedImportTarget<'a> {
+impl<'id, 'a> TsResolvedImportTarget<'a, 'id> {
     fn needs_value_projection(self) -> bool {
         self.alias.is_some_and(|alias| match alias.target {
             TsExportTarget::Member(_) => true,
@@ -1355,7 +1359,7 @@ impl<'a> TsResolvedImportTarget<'a> {
 
     fn from_members(
         direct: Option<SymbolId>,
-        alias: Option<&TsNamespaceExportAliasEntry<'a>>,
+        alias: Option<&TsNamespaceExportAliasEntry<'a, 'id>>,
     ) -> Option<Self> {
         let alias = alias.and_then(|entry| match entry.resolution {
             TsExportAliasResolution::Resolved(target) => Some(target),
@@ -1399,7 +1403,7 @@ impl<'a> TsResolvedImportTarget<'a> {
     }
 
     // Symbol contributions exclude static members represented by non_symbol_spaces.
-    fn public_contributions(self) -> impl Iterator<Item = TsExportContribution> + 'a {
+    fn public_contributions(self) -> impl Iterator<Item = TsExportContribution<'id>> + 'a {
         let direct = self.direct.map(|symbol| TsExportContribution {
             symbol,
             type_only_export: None,
@@ -1434,36 +1438,51 @@ impl<'a> TsResolvedImportTarget<'a> {
             }))
     }
 
-    fn with_type_only_export(mut self, node: Option<NodeId>) -> Self {
+    fn with_type_only_export(mut self, node: Option<NodeId<'id>>) -> Self {
         self.type_only_export = self.type_only_export.or(node);
         self
     }
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum TsNamespaceExportAliasIssue {
-    Missing { name: AstUtf8, node: NodeId },
-    NonLocal { name: AstUtf8, node: NodeId },
-    Duplicate { node: NodeId, previous: NodeId },
-    Conflict { node: NodeId, previous: NodeId },
+pub(crate) enum TsNamespaceExportAliasIssue<'id> {
+    Missing {
+        name: AstUtf8<'id>,
+        node: NodeId<'id>,
+    },
+    NonLocal {
+        name: AstUtf8<'id>,
+        node: NodeId<'id>,
+    },
+    Duplicate {
+        node: NodeId<'id>,
+        previous: NodeId<'id>,
+    },
+    Conflict {
+        node: NodeId<'id>,
+        previous: NodeId<'id>,
+    },
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct TsImportAliasConflictIssue {
-    pub(crate) name: AstWtf8,
-    pub(crate) node: NodeId,
-    pub(crate) previous: NodeId,
+pub(crate) struct TsImportAliasConflictIssue<'id> {
+    pub(crate) name: AstWtf8<'id>,
+    pub(crate) node: NodeId<'id>,
+    pub(crate) previous: NodeId<'id>,
     pub(crate) previous_flags: SymbolFlags,
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum TsImportAliasIssue {
-    Conflict(TsImportAliasConflictIssue),
-    TypeOnlyExport { node: NodeId, export: NodeId },
+pub(crate) enum TsImportAliasIssue<'id> {
+    Conflict(TsImportAliasConflictIssue<'id>),
+    TypeOnlyExport {
+        node: NodeId<'id>,
+        export: NodeId<'id>,
+    },
 }
 
-enum TsNamespaceExportAliasLookup<'a> {
-    Resolved(TsResolvedExportAliasTarget<'a>),
+enum TsNamespaceExportAliasLookup<'a, 'id> {
+    Resolved(TsResolvedExportAliasTarget<'a, 'id>),
     Missing,
     NonLocal,
 }
@@ -1584,10 +1603,10 @@ impl<'a> ReferenceCandidates<'a> {
     }
 
     #[inline]
-    fn record(
+    fn record<'id>(
         &mut self,
         id: ReferenceId,
-        reference: &mut Reference,
+        reference: &mut Reference<'id>,
         resolution: NameResolution,
         candidates: &mut Vec<SymbolId>,
         use_ranges: &mut [Range],
@@ -1701,16 +1720,16 @@ struct TsDefaultExport<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct TsExportLocal {
+struct TsExportLocal<'id> {
     target: SymbolId,
     target_is_function: bool,
     exported_value: bool,
-    default_declarations: Option<TsDefaultLocal>,
+    default_declarations: Option<TsDefaultLocal<'id>>,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct TsDefaultLocal {
-    node: NodeId,
+struct TsDefaultLocal<'id> {
+    node: NodeId<'id>,
     flags: SymbolFlags,
 }
 
@@ -1718,18 +1737,18 @@ struct TsDefaultLocal {
 /// member environment is shared across several namespace bodies. Recording
 /// them during binding prevents same-named members in other bodies from
 /// acquiring a local ExportValue relationship.
-type TsLocalExportMap<'a> = ArenaHashMap<'a, (ScopeId, &'a [u8]), TsExportLocal>;
+type TsLocalExportMap<'a, 'id> = ArenaHashMap<'a, (ScopeId, &'a [u8]), TsExportLocal<'id>>;
 
-impl TsExportLocal {
+impl<'id> TsExportLocal<'id> {
     fn exported_value(self) -> Option<SymbolId> {
         self.exported_value.then_some(self.target)
     }
 }
 
-fn ts_exported_value(
-    locals: &TsLocalExportMap<'_>,
-    symbols: &[Symbol],
-    declarations: &[Declaration],
+fn ts_exported_value<'id>(
+    locals: &TsLocalExportMap<'_, 'id>,
+    symbols: &[Symbol<'id>],
+    declarations: &[Declaration<'id>],
     scope_maps: &[ScopeMap<'_>],
     lexical: SymbolId,
     name: &[u8],
@@ -1740,15 +1759,15 @@ fn ts_exported_value(
     (scope_maps[scope.index()].get(name).copied() == Some(lexical)).then_some(target)
 }
 
-struct TsValueTargetLookup<'lookup, 'arena> {
-    locals: &'lookup TsLocalExportMap<'arena>,
-    symbols: &'lookup [Symbol],
-    declarations: &'lookup [Declaration],
+struct TsValueTargetLookup<'lookup, 'arena, 'id> {
+    locals: &'lookup TsLocalExportMap<'arena, 'id>,
+    symbols: &'lookup [Symbol<'id>],
+    declarations: &'lookup [Declaration<'id>],
     scope_maps: &'lookup [ScopeMap<'arena>],
     import_alias_spaces: &'lookup [Option<TsResolvedAliasSpaces>],
 }
 
-impl TsValueTargetLookup<'_, '_> {
+impl<'id> TsValueTargetLookup<'_, '_, 'id> {
     fn target<const PRECISE_IMPORT_ALIASES: bool>(
         &self,
         symbol: SymbolId,
@@ -1782,12 +1801,12 @@ impl TsValueTargetLookup<'_, '_> {
 }
 
 impl TsSourceExports<'_> {
-    fn lookup(
+    fn lookup<'id>(
         &self,
         name: &[u8],
         space: ReferenceSpace,
-        symbols: &[Symbol],
-        locals: &TsLocalExportMap<'_>,
+        symbols: &[Symbol<'id>],
+        locals: &TsLocalExportMap<'_, 'id>,
     ) -> Option<SymbolId> {
         if matches!(space, ReferenceSpace::Value | ReferenceSpace::Typeof)
             && let Some(symbol) = locals
@@ -1806,12 +1825,12 @@ impl TsSourceExports<'_> {
 
 /// Collects symbols and references during the AST walk and finalizes
 /// them into a [`Semantic`].
-pub(crate) struct SymbolTracker<'a> {
+pub(crate) struct SymbolTracker<'a, 'id> {
     allocator: &'a Allocator,
-    symbols: ArenaVec<'a, Symbol>,
-    references: ArenaVec<'a, Reference>,
+    symbols: ArenaVec<'a, Symbol<'id>>,
+    references: ArenaVec<'a, Reference<'id>>,
     jsx_usages: ArenaVec<'a, crate::JsxUsage>,
-    declarations: ArenaVec<'a, Declaration>,
+    declarations: ArenaVec<'a, Declaration<'id>>,
     redeclarations: Redeclarations<'a>,
     node_semantic: ArenaVec<'a, NodeSemanticId>,
     scope_maps: ArenaVec<'a, ScopeMap<'a>>,
@@ -1819,18 +1838,18 @@ pub(crate) struct SymbolTracker<'a> {
     ts_type_parameter_owners: ArenaHashMap<'a, ScopeId, SymbolId>,
     ts_type_parameters: ArenaHashMap<'a, SymbolId, ScopeMap<'a>>,
     ts_source_exports: Option<TsSourceExports<'a>>,
-    ts_local_exports: TsLocalExportMap<'a>,
-    ts_member_environments: TsMemberEnvironments<'a>,
+    ts_local_exports: TsLocalExportMap<'a, 'id>,
+    ts_member_environments: TsMemberEnvironments<'a, 'id>,
     ts_global_owner: Option<SymbolId>,
     ts_member_views: ArenaVec<'a, TsMemberView>,
     ts_scope_view_records: ArenaVec<'a, (ScopeId, Range)>,
     ts_scope_view_index: Option<TsScopeViewIndex<'a>>,
-    pending_ts_namespace_export_aliases: ArenaVec<'a, PendingTsNamespaceExportAlias<'a>>,
-    ts_import_alias_targets: ArenaVec<'a, TsImportAliasTarget>,
-    ts_expando_assignments: ArenaVec<'a, (MemberExpression, TsExpandoBindingSite)>,
+    pending_ts_namespace_export_aliases: ArenaVec<'a, PendingTsNamespaceExportAlias<'a, 'id>>,
+    ts_import_alias_targets: ArenaVec<'a, TsImportAliasTarget<'id>>,
+    ts_expando_assignments: ArenaVec<'a, (MemberExpression<'id>, TsExpandoBindingSite)>,
     ts_import_aliases: Option<TsImportAliasIndex<'a>>,
-    ts_container_stack: Vec<TsContainerContext>,
-    ts_module_instance_scratch: HashMap<NodeId, TsModuleInstanceMemo, FxBuildHasher>,
+    ts_container_stack: Vec<TsContainerContext<'id>>,
+    ts_module_instance_scratch: HashMap<NodeId<'id>, TsModuleInstanceMemo, FxBuildHasher>,
     ts_enum_owner_stack: Vec<SymbolId>,
 
     /// What the next `binding_identifier` will declare: its flags,
@@ -1839,25 +1858,25 @@ pub(crate) struct SymbolTracker<'a> {
     pub(crate) pending: PendingBinding,
     /// Whether the next `binding_identifier` is the directly-exported
     /// name of an `export` declaration.
-    pub(crate) export_state: ExportState,
+    pub(crate) export_state: ExportState<'id>,
     // true inside an ambient (`declare`) context
     ambient: bool,
     // snapshots taken before declaration nodes rewrite the context,
     // restored on exit
-    saved_stack: Vec<SavedContext>,
+    saved_stack: Vec<SavedContext<'id>>,
 }
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
-pub(crate) enum ExportState {
+pub(crate) enum ExportState<'id> {
     #[default]
     None,
     Named {
-        statement: NodeId,
+        statement: NodeId<'id>,
     },
     Default,
 }
 
-impl ExportState {
+impl<'id> ExportState<'id> {
     fn is_exported(self) -> bool {
         !matches!(self, Self::None)
     }
@@ -1866,7 +1885,7 @@ impl ExportState {
         matches!(self, Self::Default)
     }
 
-    pub(crate) fn named(self) -> Option<NodeId> {
+    pub(crate) fn named(self) -> Option<NodeId<'id>> {
         match self {
             Self::Named { statement } => Some(statement),
             Self::None | Self::Default => None,
@@ -1883,9 +1902,9 @@ pub(crate) struct PendingBinding {
 }
 
 #[derive(Clone, Copy)]
-struct PendingDeclaration {
-    name: AstWtf8,
-    node: NodeId,
+struct PendingDeclaration<'id> {
+    name: AstWtf8<'id>,
+    node: NodeId<'id>,
     binding: PendingBinding,
 }
 
@@ -1910,8 +1929,8 @@ enum DeclarationDestination {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct PreparedDeclaration {
-    declaration: PendingDeclaration,
+pub(crate) struct PreparedDeclaration<'id> {
+    declaration: PendingDeclaration<'id>,
     destination: DeclarationDestination,
     // Keep the body-local and canonical member candidates separate. They can
     // legally occupy disjoint TypeScript declaration spaces under one name.
@@ -1919,24 +1938,24 @@ pub(crate) struct PreparedDeclaration {
     shared: Option<SymbolId>,
     // The symbol that receives this declaration after conflict checking.
     existing: Option<SymbolId>,
-    default_local: Option<(SymbolId, TsDefaultLocal)>,
+    default_local: Option<(SymbolId, TsDefaultLocal<'id>)>,
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct DeclarationConflictCandidate {
+pub(crate) struct DeclarationConflictCandidate<'id> {
     pub(crate) symbol: SymbolId,
     // A private lexical declaration in a namespace body only conflicts with
     // the canonical member contributions declared in that same body.
     scope: Option<ScopeId>,
-    default_local: Option<TsDefaultLocal>,
+    default_local: Option<TsDefaultLocal<'id>>,
 }
 
-impl PreparedDeclaration {
-    pub(crate) fn name(self) -> AstWtf8 {
+impl<'id> PreparedDeclaration<'id> {
+    pub(crate) fn name(self) -> AstWtf8<'id> {
         self.declaration.name
     }
 
-    pub(crate) fn node(self) -> NodeId {
+    pub(crate) fn node(self) -> NodeId<'id> {
         self.declaration.node
     }
 
@@ -1958,7 +1977,9 @@ impl PreparedDeclaration {
             .allows_annex_b_function_duplicate(existing)
     }
 
-    pub(crate) fn conflict_candidates(self) -> impl Iterator<Item = DeclarationConflictCandidate> {
+    pub(crate) fn conflict_candidates(
+        self,
+    ) -> impl Iterator<Item = DeclarationConflictCandidate<'id>> {
         let local = self.local.map(|symbol| DeclarationConflictCandidate {
             symbol,
             scope: None,
@@ -2008,14 +2029,14 @@ impl Default for PendingBinding {
 }
 
 #[derive(Clone, Copy)]
-struct SavedContext {
+struct SavedContext<'id> {
     pending: PendingBinding,
-    export_state: ExportState,
+    export_state: ExportState<'id>,
     ambient: bool,
 }
 
-impl<'a> SymbolTracker<'a> {
-    pub fn init(tree: &Ast<'a>) -> Self {
+impl<'id, 'a> SymbolTracker<'a, 'id> {
+    pub fn init(tree: &Ast<'a, 'id>) -> Self {
         let allocator = tree.allocator();
         let nodes = tree.node_count();
         let mut node_semantic = ArenaVec::with_capacity_in(nodes, allocator);
@@ -2058,7 +2079,7 @@ impl<'a> SymbolTracker<'a> {
         tracker
     }
 
-    fn init_ts_source_exports(&mut self, tree: &Ast<'a>) {
+    fn init_ts_source_exports(&mut self, tree: &Ast<'a, 'id>) {
         let program = tree.root_program();
         let owner = self.declare_symbol(
             tree,
@@ -2102,8 +2123,8 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_export_named_declaration(
         &mut self,
-        tree: &Ast<'a>,
-        declaration: ExportNamedDeclaration,
+        tree: &Ast<'a, 'id>,
+        declaration: ExportNamedDeclaration<'id>,
     ) {
         // The declaration form always exports its binding, even when
         // `export_kind` is type. The pure re-export form has no inner
@@ -2127,9 +2148,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_variable_declaration(
         &mut self,
-        tree: &Ast<'a>,
-        declaration: VariableDeclaration,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        declaration: VariableDeclaration<'id>,
+        scope: &ScopeTracker<'a, 'id>,
     ) {
         self.push_saved_context();
         let kind = declaration.kind(tree);
@@ -2174,9 +2195,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_function(
         &mut self,
-        tree: &Ast<'a>,
-        function: Function,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        function: Function<'id>,
+        scope: &ScopeTracker<'a, 'id>,
         annex_b_if_body: bool,
     ) {
         self.push_saved_context();
@@ -2248,9 +2269,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_function(
         &mut self,
-        tree: &Ast<'a>,
-        function: TsFunction,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        function: TsFunction<'id>,
+        scope: &ScopeTracker<'a, 'id>,
     ) {
         self.push_saved_context();
         let target = scope
@@ -2267,7 +2288,12 @@ impl<'a> SymbolTracker<'a> {
         }
     }
 
-    pub fn enter_class(&mut self, tree: &Ast<'a>, class: Class, scope: &ScopeTracker<'a>) {
+    pub fn enter_class(
+        &mut self,
+        tree: &Ast<'a, 'id>,
+        class: Class<'id>,
+        scope: &ScopeTracker<'a, 'id>,
+    ) {
         self.push_saved_context();
         let is_declaration = class.class_type(tree) == ClassType::ClassDeclaration;
         self.pending = PendingBinding {
@@ -2296,7 +2322,7 @@ impl<'a> SymbolTracker<'a> {
         }
     }
 
-    pub fn enter_formal_parameters(&mut self, scope: &ScopeTracker<'a>) {
+    pub fn enter_formal_parameters(&mut self, scope: &ScopeTracker<'a, 'id>) {
         self.push_saved_context();
         self.pending = PendingBinding {
             flags: (SymbolFlags::FUNCTION_SCOPED_VAR | SymbolFlags::PARAMETER).with(
@@ -2319,11 +2345,11 @@ impl<'a> SymbolTracker<'a> {
         self.ambient = saved.ambient;
     }
 
-    pub fn enter_arrow_function_expression(&mut self) -> ExportState {
+    pub fn enter_arrow_function_expression(&mut self) -> ExportState<'id> {
         std::mem::take(&mut self.export_state)
     }
 
-    pub fn exit_arrow_function_expression(&mut self, saved: ExportState) {
+    pub fn exit_arrow_function_expression(&mut self, saved: ExportState<'id>) {
         debug_assert_eq!(self.export_state, ExportState::None);
         self.export_state = saved;
     }
@@ -2333,7 +2359,7 @@ impl<'a> SymbolTracker<'a> {
         self.export_state = ExportState::None;
     }
 
-    pub fn enter_ts_module_block(&mut self, scope: &ScopeTracker<'a>) {
+    pub fn enter_ts_module_block(&mut self, scope: &ScopeTracker<'a, 'id>) {
         self.export_state = ExportState::None;
         let context = self
             .ts_container_stack
@@ -2350,7 +2376,7 @@ impl<'a> SymbolTracker<'a> {
         self.record_ts_scope_views(scope.current, views);
     }
 
-    pub fn enter_ts_enum_body(&mut self, scope: &ScopeTracker<'a>) {
+    pub fn enter_ts_enum_body(&mut self, scope: &ScopeTracker<'a, 'id>) {
         self.export_state = ExportState::None;
         let owner = *self
             .ts_enum_owner_stack
@@ -2382,9 +2408,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_module_body(
         &mut self,
-        tree: &Ast<'a>,
-        declaration: TsModuleDeclaration,
-    ) -> Vec<PreparedDeclaration> {
+        tree: &Ast<'a, 'id>,
+        declaration: TsModuleDeclaration<'id>,
+    ) -> Vec<PreparedDeclaration<'id>> {
         let name = declaration.id(tree);
         let (declarations, views) = self.prepare_ts_module_views(tree, name);
         let body = declaration.body(tree).map(|body| body.node_id());
@@ -2416,9 +2442,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_import_declaration(
         &mut self,
-        tree: &Ast<'a>,
-        declaration: ImportDeclaration,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        declaration: ImportDeclaration<'id>,
+        scope: &ScopeTracker<'a, 'id>,
     ) {
         self.push_saved_context();
         self.pending = import_pending(declaration.import_kind(tree), scope.current);
@@ -2427,14 +2453,14 @@ impl<'a> SymbolTracker<'a> {
     pub fn enter_ts_import_equals_declaration(
         &mut self,
         import_kind: ImportOrExportKind,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTracker<'a, 'id>,
     ) {
         self.push_saved_context();
         self.pending = import_pending(import_kind, scope.current);
         self.pending.flags |= SymbolFlags::IMPORT_EQUALS;
     }
 
-    pub fn enter_import_specifier(&mut self, tree: &Ast, specifier: ImportSpecifier) {
+    pub fn enter_import_specifier(&mut self, tree: &Ast<'_, 'id>, specifier: ImportSpecifier<'id>) {
         self.push_saved_context();
         if specifier.import_kind(tree) == ImportOrExportKind::Type {
             self.pending.flags = SymbolFlags::TYPE_IMPORT;
@@ -2442,7 +2468,7 @@ impl<'a> SymbolTracker<'a> {
         }
     }
 
-    pub fn enter_catch_clause(&mut self, scope: &ScopeTracker<'a>) {
+    pub fn enter_catch_clause(&mut self, scope: &ScopeTracker<'a, 'id>) {
         self.push_saved_context();
         self.pending = PendingBinding {
             flags: SymbolFlags::FUNCTION_SCOPED_VAR | SymbolFlags::CATCH_VAR,
@@ -2453,9 +2479,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_interface_declaration(
         &mut self,
-        tree: &Ast<'a>,
-        declaration: TsInterfaceDeclaration,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        declaration: TsInterfaceDeclaration<'id>,
+        scope: &ScopeTracker<'a, 'id>,
     ) {
         // The id binds in the surrounding scope. Type-parameter and
         // body bindings live in a scope pushed by the tracker.
@@ -2475,9 +2501,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_type_alias_declaration(
         &mut self,
-        tree: &Ast<'a>,
-        declaration: TsTypeAliasDeclaration,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        declaration: TsTypeAliasDeclaration<'id>,
+        scope: &ScopeTracker<'a, 'id>,
     ) {
         self.push_saved_context();
         self.pending = PendingBinding {
@@ -2495,9 +2521,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_enum_declaration(
         &mut self,
-        tree: &Ast<'a>,
-        declaration: TsEnumDeclaration,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        declaration: TsEnumDeclaration<'id>,
+        scope: &ScopeTracker<'a, 'id>,
     ) {
         self.push_saved_context();
         self.pending = PendingBinding {
@@ -2521,9 +2547,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_module_declaration(
         &mut self,
-        tree: &Ast<'a>,
-        declaration: TsModuleDeclaration,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        declaration: TsModuleDeclaration<'id>,
+        scope: &ScopeTracker<'a, 'id>,
     ) {
         self.push_saved_context();
         if matches!(
@@ -2567,8 +2593,8 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_global_declaration(
         &mut self,
-        tree: &Ast<'a>,
-        declaration: TsGlobalDeclaration,
+        tree: &Ast<'a, 'id>,
+        declaration: TsGlobalDeclaration<'id>,
     ) {
         self.push_saved_context();
         let identifier = declaration.id(tree);
@@ -2613,9 +2639,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_type_parameter(
         &mut self,
-        tree: &Ast<'a>,
-        parent: Option<NodeId>,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        parent: Option<NodeId<'id>>,
+        scope: &ScopeTracker<'a, 'id>,
     ) {
         // `TsTypeParameter` wraps `<T>` and `infer U`.
         self.push_saved_context();
@@ -2661,9 +2687,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn enter_ts_mapped_type(
         &mut self,
-        tree: &Ast<'a>,
-        parent: Option<NodeId>,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        parent: Option<NodeId<'id>>,
+        scope: &ScopeTracker<'a, 'id>,
     ) {
         // Mapped type keys `[K in T]` are bare binding identifiers, so the
         // same pending context as a type parameter applies.
@@ -2682,31 +2708,31 @@ impl<'a> SymbolTracker<'a> {
         self.export_state = ExportState::None;
     }
 
-    pub fn enter_ts_function_type(&mut self, scope: &ScopeTracker<'a>) {
+    pub fn enter_ts_function_type(&mut self, scope: &ScopeTracker<'a, 'id>) {
         self.enter_signature_type(scope);
     }
 
-    pub fn enter_ts_constructor_type(&mut self, scope: &ScopeTracker<'a>) {
+    pub fn enter_ts_constructor_type(&mut self, scope: &ScopeTracker<'a, 'id>) {
         self.enter_signature_type(scope);
     }
 
-    pub fn enter_ts_method_signature(&mut self, scope: &ScopeTracker<'a>) {
+    pub fn enter_ts_method_signature(&mut self, scope: &ScopeTracker<'a, 'id>) {
         self.enter_signature_type(scope);
     }
 
-    pub fn enter_ts_call_signature_declaration(&mut self, scope: &ScopeTracker<'a>) {
+    pub fn enter_ts_call_signature_declaration(&mut self, scope: &ScopeTracker<'a, 'id>) {
         self.enter_signature_type(scope);
     }
 
-    pub fn enter_ts_construct_signature_declaration(&mut self, scope: &ScopeTracker<'a>) {
+    pub fn enter_ts_construct_signature_declaration(&mut self, scope: &ScopeTracker<'a, 'id>) {
         self.enter_signature_type(scope);
     }
 
-    pub fn enter_ts_index_signature(&mut self, scope: &ScopeTracker<'a>) {
+    pub fn enter_ts_index_signature(&mut self, scope: &ScopeTracker<'a, 'id>) {
         self.enter_signature_type(scope);
     }
 
-    fn enter_signature_type(&mut self, scope: &ScopeTracker<'a>) {
+    fn enter_signature_type(&mut self, scope: &ScopeTracker<'a, 'id>) {
         // Erasure does not remove signature parameters from the value namespace.
         // FormalParameters uses the same role; index signatures bind directly.
         self.push_saved_context();
@@ -2739,10 +2765,10 @@ impl<'a> SymbolTracker<'a> {
     #[inline(always)]
     pub(crate) fn prepare_declaration(
         &self,
-        tree: &Ast<'a>,
-        name: AstWtf8,
-        node: NodeId,
-    ) -> PreparedDeclaration {
+        tree: &Ast<'a, 'id>,
+        name: AstWtf8<'id>,
+        node: NodeId<'id>,
+    ) -> PreparedDeclaration<'id> {
         let name_text = tree.get_wtf8(name).as_bytes();
         let local = self
             .binding(self.pending.scope, name_text)
@@ -2835,9 +2861,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn declare_binding_identifier(
         &mut self,
-        tree: &Ast<'a>,
-        identifier: BindingIdentifier,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        identifier: BindingIdentifier<'id>,
+        scope: &ScopeTracker<'a, 'id>,
     ) -> Option<SymbolId> {
         let (node, name) = self.binding_identifier_declaration(tree, identifier, scope)?;
         let symbol_id = self.declare(tree, name.into(), node);
@@ -2847,10 +2873,10 @@ impl<'a> SymbolTracker<'a> {
 
     pub(crate) fn declare_prepared_binding_identifier(
         &mut self,
-        tree: &Ast<'a>,
-        identifier: BindingIdentifier,
-        scope: &ScopeTracker<'a>,
-        prepared: PreparedDeclaration,
+        tree: &Ast<'a, 'id>,
+        identifier: BindingIdentifier<'id>,
+        scope: &ScopeTracker<'a, 'id>,
+        prepared: PreparedDeclaration<'id>,
     ) -> Option<SymbolId> {
         let (node, name) = self.binding_identifier_declaration(tree, identifier, scope)?;
         debug_assert_eq!(prepared.node(), node);
@@ -2862,10 +2888,10 @@ impl<'a> SymbolTracker<'a> {
 
     pub(crate) fn prepare_ts_enum_member(
         &mut self,
-        tree: &Ast<'a>,
-        member: TsEnumMember,
-        scope: &ScopeTracker<'a>,
-    ) -> Option<PreparedDeclaration> {
+        tree: &Ast<'a, 'id>,
+        member: TsEnumMember<'id>,
+        scope: &ScopeTracker<'a, 'id>,
+    ) -> Option<PreparedDeclaration<'id>> {
         self.sync_scope_maps_from(scope);
         // Members are lexically visible inside the enum body:
         //
@@ -2915,8 +2941,8 @@ impl<'a> SymbolTracker<'a> {
 
     pub(crate) fn declare_prepared_ts_enum_member(
         &mut self,
-        tree: &Ast<'a>,
-        prepared: PreparedDeclaration,
+        tree: &Ast<'a, 'id>,
+        prepared: PreparedDeclaration<'id>,
     ) {
         debug_assert!(prepared.flags().contains(SymbolFlags::ENUM_MEMBER));
         self.declare_prepared(tree, prepared);
@@ -2928,7 +2954,12 @@ impl<'a> SymbolTracker<'a> {
     /// as a declaration for error recovery.
     // Keep map-entry temporaries out of the visitor shared with syntax checking.
     #[inline(never)]
-    pub fn declare(&mut self, tree: &Ast<'a>, name: AstWtf8, node: NodeId) -> SymbolId {
+    pub fn declare(
+        &mut self,
+        tree: &Ast<'a, 'id>,
+        name: AstWtf8<'id>,
+        node: NodeId<'id>,
+    ) -> SymbolId {
         debug_assert!(node.index() < tree.node_count());
 
         let name_text = tree.get_wtf8(name).as_bytes();
@@ -3112,9 +3143,9 @@ impl<'a> SymbolTracker<'a> {
     #[inline(always)]
     fn prepare_ts_module_views(
         &mut self,
-        tree: &Ast<'a>,
-        name: TsModuleName,
-    ) -> (Vec<PreparedDeclaration>, Range) {
+        tree: &Ast<'a, 'id>,
+        name: TsModuleName<'id>,
+    ) -> (Vec<PreparedDeclaration<'id>>, Range) {
         let kind = if self.ambient {
             TsMemberViewKind::AmbientModule
         } else {
@@ -3168,9 +3199,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn record_ts_global_export(
         &mut self,
-        tree: &Ast<'a>,
-        declaration: TsNamespaceExportDeclaration,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        declaration: TsNamespaceExportDeclaration<'id>,
+        scope: &ScopeTracker<'a, 'id>,
     ) {
         if scope.current != ScopeId::MODULE || tree.lang() != swc_next_ecma_ast::Lang::Dts {
             return;
@@ -3201,7 +3232,7 @@ impl<'a> SymbolTracker<'a> {
             .copied()
     }
 
-    fn pending_is_default_export(&self, tree: &Ast) -> bool {
+    fn pending_is_default_export(&self, tree: &Ast<'_, 'id>) -> bool {
         tree.is_ts()
             && self.ts_source_exports.is_some()
             && self.export_state.is_default()
@@ -3212,7 +3243,7 @@ impl<'a> SymbolTracker<'a> {
                 .intersects(SymbolFlags::FUNCTION | SymbolFlags::CLASS | SymbolFlags::INTERFACE)
     }
 
-    fn declare_anonymous_default(&mut self, tree: &Ast<'a>, node: NodeId) {
+    fn declare_anonymous_default(&mut self, tree: &Ast<'a, 'id>, node: NodeId<'id>) {
         if !self.pending_is_default_export(tree) {
             return;
         }
@@ -3229,8 +3260,8 @@ impl<'a> SymbolTracker<'a> {
 
     fn declare_default_export(
         &mut self,
-        tree: &Ast<'a>,
-        declaration: PendingDeclaration,
+        tree: &Ast<'a, 'id>,
+        declaration: PendingDeclaration<'id>,
         named: bool,
     ) -> SymbolId {
         let mut source = self
@@ -3273,8 +3304,8 @@ impl<'a> SymbolTracker<'a> {
 
     fn record_ts_export_local(
         &mut self,
-        tree: &Ast<'a>,
-        declaration: PendingDeclaration,
+        tree: &Ast<'a, 'id>,
+        declaration: PendingDeclaration<'id>,
         symbol: SymbolId,
     ) {
         let flags = declaration.binding.flags;
@@ -3319,9 +3350,9 @@ impl<'a> SymbolTracker<'a> {
     /// conditional true branch, without exposing its siblings' infer names.
     pub fn expose_ts_infer_parameter(
         &mut self,
-        tree: &Ast<'a>,
-        name: BindingIdentifier,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        name: BindingIdentifier<'id>,
+        scope: &ScopeTracker<'a, 'id>,
     ) {
         self.sync_scope_maps_from(scope);
         let symbol = self
@@ -3333,10 +3364,10 @@ impl<'a> SymbolTracker<'a> {
     #[inline(always)]
     fn binding_identifier_declaration(
         &mut self,
-        tree: &Ast<'a>,
-        identifier: BindingIdentifier,
-        scope: &ScopeTracker<'a>,
-    ) -> Option<(NodeId, AstUtf8)> {
+        tree: &Ast<'a, 'id>,
+        identifier: BindingIdentifier<'id>,
+        scope: &ScopeTracker<'a, 'id>,
+    ) -> Option<(NodeId<'id>, AstUtf8<'id>)> {
         self.sync_scope_maps_from(scope);
         // The declaration role comes from the enclosing syntax, independently
         // of whether references in that syntax produce runtime access.
@@ -3349,10 +3380,10 @@ impl<'a> SymbolTracker<'a> {
     #[inline(always)]
     fn finish_binding_identifier(
         &mut self,
-        tree: &Ast<'a>,
-        name: AstUtf8,
+        tree: &Ast<'a, 'id>,
+        name: AstUtf8<'id>,
         symbol: SymbolId,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTracker<'a, 'id>,
     ) {
         // Register a hoisting var in every block it passes through so
         // block-scoped redeclarations see it.
@@ -3374,16 +3405,20 @@ impl<'a> SymbolTracker<'a> {
     #[inline(never)]
     fn declare_ts_context_binding(
         &mut self,
-        tree: &Ast<'a>,
-        name: AstWtf8,
-        node: NodeId,
+        tree: &Ast<'a, 'id>,
+        name: AstWtf8<'id>,
+        node: NodeId<'id>,
     ) -> SymbolId {
         let plan = self.prepare_declaration(tree, name, node);
         self.declare_prepared(tree, plan)
     }
 
     #[inline(always)]
-    fn declare_prepared(&mut self, tree: &Ast<'a>, plan: PreparedDeclaration) -> SymbolId {
+    fn declare_prepared(
+        &mut self,
+        tree: &Ast<'a, 'id>,
+        plan: PreparedDeclaration<'id>,
+    ) -> SymbolId {
         match plan.destination {
             DeclarationDestination::TsDefaultExport => {
                 self.declare_default_export(tree, plan.declaration, true)
@@ -3439,11 +3474,11 @@ impl<'a> SymbolTracker<'a> {
 
     fn declare_ts_namespace_member(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast<'a, 'id>,
         owner: SymbolId,
-        declaration: PendingDeclaration,
+        declaration: PendingDeclaration<'id>,
         actual_scope: Option<ScopeId>,
-    ) -> (SymbolId, PreparedDeclaration) {
+    ) -> (SymbolId, PreparedDeclaration<'id>) {
         let name = declaration.name;
         let name_text = tree.get_wtf8(name).as_bytes();
         let environment = self.ts_member_environments.ensure(owner, self.allocator);
@@ -3470,11 +3505,11 @@ impl<'a> SymbolTracker<'a> {
 
     fn declare_ts_member_in_environment(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast<'a, 'id>,
         environment: TsMemberEnvironmentId,
         body_scope: Option<ScopeId>,
         projection_scope: Option<ScopeId>,
-        mut declaration: PendingDeclaration,
+        mut declaration: PendingDeclaration<'id>,
         existing: Option<SymbolId>,
     ) -> SymbolId {
         let name = declaration.name;
@@ -3557,8 +3592,8 @@ impl<'a> SymbolTracker<'a> {
     #[inline(always)]
     fn declare_symbol(
         &mut self,
-        tree: &Ast<'a>,
-        declaration: PendingDeclaration,
+        tree: &Ast<'a, 'id>,
+        declaration: PendingDeclaration<'id>,
         existing: Option<SymbolId>,
         record_node: bool,
     ) -> SymbolId {
@@ -3616,16 +3651,16 @@ impl<'a> SymbolTracker<'a> {
     #[inline(always)]
     fn insert_scope_binding(
         &mut self,
-        tree: &Ast<'a>,
+        tree: &Ast<'a, 'id>,
         scope: ScopeId,
-        name: AstWtf8,
+        name: AstWtf8<'id>,
         id: SymbolId,
     ) {
         let name = tree.get_wtf8(name).as_bytes();
         self.scope_maps[scope.index()].insert(name, id);
     }
 
-    fn sync_scope_maps_from(&mut self, scope: &ScopeTracker<'a>) {
+    fn sync_scope_maps_from(&mut self, scope: &ScopeTracker<'a, 'id>) {
         if self.scope_maps.len() < scope.scopes.len() {
             self.sync_scope_maps(scope.scopes.len());
         }
@@ -3644,8 +3679,8 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn record_ts_import_equals_target(
         &mut self,
-        tree: &Ast<'a>,
-        declaration: TsImportEqualsDeclaration,
+        tree: &Ast<'a, 'id>,
+        declaration: TsImportEqualsDeclaration<'id>,
     ) {
         let alias = self
             .symbol_of_node(declaration.id(tree).node_id())
@@ -3676,9 +3711,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_identifier_reference(
         &mut self,
-        tree: &Ast<'a>,
-        identifier: IdentifierReference,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        identifier: IdentifierReference<'id>,
+        scope: &ScopeTracker<'a, 'id>,
         flags: ReferenceFlags,
     ) {
         self.add_reference(
@@ -3692,9 +3727,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_local_export_reference(
         &mut self,
-        tree: &Ast<'a>,
-        specifier: ExportSpecifier,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        specifier: ExportSpecifier<'id>,
+        scope: &ScopeTracker<'a, 'id>,
         flags: ReferenceFlags,
         type_only: bool,
     ) {
@@ -3741,10 +3776,10 @@ impl<'a> SymbolTracker<'a> {
     /// lexical queries: crossing a function or namespace changes ownership.
     pub fn record_ts_expando_assignment(
         &mut self,
-        tree: &Ast<'a>,
-        node: AssignmentExpression,
-        scope: &ScopeTracker<'a>,
-        ancestors: impl Iterator<Item = NodeId>,
+        tree: &Ast<'a, 'id>,
+        node: AssignmentExpression<'id>,
+        scope: &ScopeTracker<'a, 'id>,
+        ancestors: impl Iterator<Item = NodeId<'id>>,
     ) {
         if !tree.lang().is_typescript() || node.operator(tree) != AssignmentOperator::Assign {
             return;
@@ -3762,9 +3797,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_ts_type_predicate_reference(
         &mut self,
-        tree: &Ast<'a>,
-        predicate: TsTypePredicate,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        predicate: TsTypePredicate<'id>,
+        scope: &ScopeTracker<'a, 'id>,
     ) {
         self.sync_scope_maps_from(scope);
         // `param is T` parses `param` as an IdentifierName but it
@@ -3820,9 +3855,9 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_jsx_opening_element_reference(
         &mut self,
-        tree: &Ast<'a>,
-        element: JsxOpeningElement,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        element: JsxOpeningElement<'id>,
+        scope: &ScopeTracker<'a, 'id>,
     ) {
         // The root of a component tag is a JS binding
         // reference. Lowercase tags are intrinsic element names; the
@@ -3832,14 +3867,19 @@ impl<'a> SymbolTracker<'a> {
 
     pub fn add_jsx_closing_element_reference(
         &mut self,
-        tree: &Ast<'a>,
-        element: JsxClosingElement,
-        scope: &ScopeTracker<'a>,
+        tree: &Ast<'a, 'id>,
+        element: JsxClosingElement<'id>,
+        scope: &ScopeTracker<'a, 'id>,
     ) {
         self.add_jsx_reference(tree, element.name(tree), scope.current);
     }
 
-    fn add_jsx_reference(&mut self, tree: &Ast<'a>, name: JsxElementName, scope: ScopeId) {
+    fn add_jsx_reference(
+        &mut self,
+        tree: &Ast<'a, 'id>,
+        name: JsxElementName<'id>,
+        scope: ScopeId,
+    ) {
         let element_name = tree.jsx_element_name_data(name);
         let Some(identifier) = jsx_tag_root(tree, element_name) else {
             return;
@@ -3866,10 +3906,10 @@ impl<'a> SymbolTracker<'a> {
     /// Records an identifier reference at `node` in `scope`.
     pub fn add_reference(
         &mut self,
-        tree: &Ast<'a>,
-        name: AstUtf8,
+        tree: &Ast<'a, 'id>,
+        name: AstUtf8<'id>,
         scope: ScopeId,
-        node: NodeId,
+        node: NodeId<'id>,
         flags: ReferenceFlags,
     ) -> ReferenceId {
         debug_assert!(node.index() < tree.node_count());
@@ -3913,7 +3953,7 @@ impl<'a> SymbolTracker<'a> {
     }
 
     /// The symbol with the given id.
-    pub fn symbol(&self, id: SymbolId) -> Symbol {
+    pub fn symbol(&self, id: SymbolId) -> Symbol<'id> {
         self.symbols[id.index()]
     }
 
@@ -3921,7 +3961,7 @@ impl<'a> SymbolTracker<'a> {
     #[inline(never)]
     pub(crate) fn conflict_candidate_flags(
         &self,
-        candidate: DeclarationConflictCandidate,
+        candidate: DeclarationConflictCandidate<'id>,
     ) -> SymbolFlags {
         if let Some(local) = candidate.default_local {
             return local.flags;
@@ -3941,8 +3981,8 @@ impl<'a> SymbolTracker<'a> {
     #[inline]
     pub(crate) fn conflict_candidate_info(
         &self,
-        candidate: DeclarationConflictCandidate,
-    ) -> (SymbolFlags, NodeId) {
+        candidate: DeclarationConflictCandidate<'id>,
+    ) -> (SymbolFlags, NodeId<'id>) {
         if let Some(local) = candidate.default_local {
             return (local.flags, local.node);
         }
@@ -3965,7 +4005,7 @@ impl<'a> SymbolTracker<'a> {
     #[inline(never)]
     pub(crate) fn has_non_ambient_class_declaration(
         &self,
-        candidate: DeclarationConflictCandidate,
+        candidate: DeclarationConflictCandidate<'id>,
         incoming: SymbolFlags,
     ) -> bool {
         let existing = self.conflict_candidate_flags(candidate);
@@ -3985,8 +4025,8 @@ impl<'a> SymbolTracker<'a> {
 
     fn conflict_candidate_declarations(
         &self,
-        candidate: DeclarationConflictCandidate,
-    ) -> impl Iterator<Item = Declaration> + '_ {
+        candidate: DeclarationConflictCandidate<'id>,
+    ) -> impl Iterator<Item = Declaration<'id>> + '_ {
         let symbol = self.symbols[candidate.symbol.index()];
         let first = std::iter::once(self.declarations[symbol.declaration.index()]);
         let rest = self
@@ -4002,7 +4042,7 @@ impl<'a> SymbolTracker<'a> {
         })
     }
 
-    pub fn symbol_of_node(&self, node: NodeId) -> Option<SymbolId> {
+    pub fn symbol_of_node(&self, node: NodeId<'id>) -> Option<SymbolId> {
         self.node_semantic[node.index()].symbol()
     }
 
@@ -4016,7 +4056,7 @@ impl<'a> SymbolTracker<'a> {
 
     /// The `binding_identifier` node of the earliest declaration of `id`.
     /// Later declarations merged into the symbol do not change it.
-    pub fn first_decl_of(&self, id: SymbolId) -> NodeId {
+    pub fn first_decl_of(&self, id: SymbolId) -> NodeId<'id> {
         let declaration_id = self.symbols[id.index()].declaration;
         self.declarations[declaration_id.index()].node
     }
@@ -4052,7 +4092,7 @@ impl<'a> SymbolTracker<'a> {
     #[inline(never)]
     pub(crate) fn has_same_scope_export_visibility_conflict(
         &self,
-        prepared: PreparedDeclaration,
+        prepared: PreparedDeclaration<'id>,
         symbol: SymbolId,
     ) -> bool {
         // Default exports are checked by TypeScript's separate TS2652 rule.
@@ -4153,7 +4193,11 @@ impl<'a> SymbolTracker<'a> {
 
     #[cold]
     #[inline(never)]
-    fn ts_public_member(&self, owner: SymbolId, name: &[u8]) -> Option<TsResolvedImportTarget<'a>> {
+    fn ts_public_member(
+        &self,
+        owner: SymbolId,
+        name: &[u8],
+    ) -> Option<TsResolvedImportTarget<'a, 'id>> {
         // TypeScript's public export symbol can combine a direct member and
         // an export alias under one name. Keep both contributions here rather
         // than mutating either canonical symbol with the other's meanings.
@@ -4169,10 +4213,10 @@ impl<'a> SymbolTracker<'a> {
     /// remains valid for the source tree's arena lifetime.
     pub fn finalize(
         mut self,
-        tree: &Ast<'a>,
-        scopes: ScopeTree<'a>,
-        module_record: ModuleRecordBuilder<'a>,
-    ) -> Semantic<'a> {
+        tree: &Ast<'a, 'id>,
+        scopes: ScopeTree<'a, 'id>,
+        module_record: ModuleRecordBuilder<'a, 'id>,
+    ) -> Semantic<'a, 'id> {
         // The walk must have ended balanced.
         debug_assert!(self.saved_stack.is_empty());
         debug_assert_eq!(self.export_state, ExportState::None);
@@ -4335,7 +4379,7 @@ impl<'a> SymbolTracker<'a> {
 
     #[cold]
     #[inline(never)]
-    fn finalize_ts_scope_views(&self, scopes: &[Scope]) -> Option<TsScopeViewIndex<'a>> {
+    fn finalize_ts_scope_views(&self, scopes: &[Scope<'id>]) -> Option<TsScopeViewIndex<'a>> {
         if self.ts_scope_view_records.is_empty() {
             return None;
         }
@@ -4367,8 +4411,8 @@ impl<'a> SymbolTracker<'a> {
 
     fn resolve_references_with_ts_views<const PRECISE_IMPORT_ALIASES: bool>(
         &mut self,
-        tree: &Ast<'a>,
-        scopes: &ScopeTree<'_>,
+        tree: &Ast<'a, 'id>,
+        scopes: &ScopeTree<'_, 'id>,
         scope_views: &TsScopeViewIndex<'_>,
         use_ranges: &mut [Range],
         additional_targets: &mut ReferenceCandidates<'a>,
@@ -4399,8 +4443,8 @@ impl<'a> SymbolTracker<'a> {
         const MEMBER_VALUES: bool,
     >(
         &mut self,
-        tree: &Ast<'a>,
-        scopes: &ScopeTree<'_>,
+        tree: &Ast<'a, 'id>,
+        scopes: &ScopeTree<'_, 'id>,
         scope_views: &TsScopeViewIndex<'_>,
         use_ranges: &mut [Range],
         additional_targets: &mut ReferenceCandidates<'a>,
@@ -4493,8 +4537,8 @@ impl<'a> SymbolTracker<'a> {
         const FILTER_BY_SPACE: bool,
     >(
         &mut self,
-        tree: &Ast<'a>,
-        scopes: &ScopeTree<'_>,
+        tree: &Ast<'a, 'id>,
+        scopes: &ScopeTree<'_, 'id>,
         use_ranges: &mut [Range],
         additional_targets: &mut ReferenceCandidates<'a>,
     ) {
@@ -4608,8 +4652,8 @@ impl<'a> SymbolTracker<'a> {
 
     fn resolved_reference_flags<const PRECISE_IMPORT_ALIASES: bool>(
         &self,
-        tree: &Ast<'a>,
-        reference: Reference,
+        tree: &Ast<'a, 'id>,
+        reference: Reference<'id>,
         resolved: NameResolution,
     ) -> ReferenceFlags {
         debug_assert_eq!(reference.flags.space, ReferenceSpace::Any);
@@ -4650,7 +4694,7 @@ fn import_pending(kind: ImportOrExportKind, scope: ScopeId) -> PendingBinding {
     }
 }
 
-fn infer_owner(scope: &ScopeTracker<'_>) -> ScopeId {
+fn infer_owner<'id>(scope: &ScopeTracker<'_, 'id>) -> ScopeId {
     // Like TS7's getInferTypeContainer, select the nearest conditional whose
     // extends subtree contains the declaration, even across nested branches.
     for id in scope.ancestors(Some(scope.current)) {
@@ -4664,11 +4708,11 @@ fn infer_owner(scope: &ScopeTracker<'_>) -> ScopeId {
     scope.current
 }
 
-fn collect_ts_module_path(
-    tree: &Ast<'_>,
-    qualified: TsQualifiedName,
-    members: &mut Vec<(AstWtf8, NodeId)>,
-) -> Option<NodeId> {
+fn collect_ts_module_path<'id>(
+    tree: &Ast<'_, 'id>,
+    qualified: TsQualifiedName<'id>,
+    members: &mut Vec<(AstWtf8<'id>, NodeId<'id>)>,
+) -> Option<NodeId<'id>> {
     let root = match tree.ts_qualified_name_left_data(qualified.left(tree)) {
         TsQualifiedNameLeftData::BindingIdentifier(identifier) => identifier.node_id(),
         TsQualifiedNameLeftData::TsQualifiedName(left) => {
@@ -4683,7 +4727,7 @@ fn collect_ts_module_path(
     Some(root)
 }
 
-fn ts_module_export_name(tree: &Ast<'_>, name: ModuleExportName) -> AstWtf8 {
+fn ts_module_export_name<'id>(tree: &Ast<'_, 'id>, name: ModuleExportName<'id>) -> AstWtf8<'id> {
     match tree.module_export_name_data(name) {
         ModuleExportNameData::IdentifierName(identifier) => identifier.name(tree).into(),
         ModuleExportNameData::StringLiteral(literal) => literal.value(tree),
@@ -4692,7 +4736,10 @@ fn ts_module_export_name(tree: &Ast<'_>, name: ModuleExportName) -> AstWtf8 {
 
 // Walks a JSX tag name to its leftmost JsxIdentifier. Returns None for
 // namespaced names (`<svg:path>`) and non-tag shapes.
-fn jsx_tag_root(tree: &Ast<'_>, name: JsxElementNameData) -> Option<JsxIdentifier> {
+fn jsx_tag_root<'id>(
+    tree: &Ast<'_, 'id>,
+    name: JsxElementNameData<'id>,
+) -> Option<JsxIdentifier<'id>> {
     let mut current = name;
     loop {
         match current {
@@ -4715,9 +4762,9 @@ fn jsx_tag_root(tree: &Ast<'_>, name: JsxElementNameData) -> Option<JsxIdentifie
 // TypeScript gives an ambient namespace body an implicit export context unless
 // it contains an export declaration or export assignment. `export as
 // namespace` does not change that context.
-fn ts_module_has_export_declarations(
-    tree: &Ast<'_>,
-    body: Option<swc_next_ecma_ast::TsModuleBody>,
+fn ts_module_has_export_declarations<'id>(
+    tree: &Ast<'_, 'id>,
+    body: Option<swc_next_ecma_ast::TsModuleBody<'id>>,
 ) -> bool {
     let Some(body) = body else {
         return false;
@@ -4734,7 +4781,7 @@ fn ts_module_has_export_declarations(
     }
 }
 
-fn ts_statement_is_export_declaration(tree: &Ast, statement: NodeId) -> bool {
+fn ts_statement_is_export_declaration<'id>(tree: &Ast<'_, 'id>, statement: NodeId<'id>) -> bool {
     match tree.kind_data(statement) {
         NodeKindData::ExportNamedDeclaration(export) => export.declaration(tree).is_none(),
         NodeKindData::ExportDefaultDeclaration(export) => {

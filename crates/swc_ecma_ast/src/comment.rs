@@ -1,5 +1,5 @@
-use crate::AstUtf8;
 use crate::Span;
+use crate::{Ast, AstUtf8};
 
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -34,7 +34,8 @@ impl Comment {
         }
     }
 
-    pub fn value(&self, source: &[u8]) -> AstUtf8 {
+    pub fn value<'id>(&self, ast: &Ast<'_, 'id>) -> AstUtf8<'id> {
+        let source = ast.source().as_bytes();
         let start = self.span.start;
         let head = match source[start as usize] {
             b'<' => 4,
@@ -47,9 +48,6 @@ impl Comment {
             0
         };
 
-        AstUtf8 {
-            start: self.span.start + head,
-            end: self.span.end - tail,
-        }
+        ast.source_slice(self.span.start + head, self.span.end - tail)
     }
 }

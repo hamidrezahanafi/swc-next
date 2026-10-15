@@ -40,19 +40,37 @@ impl AstType {
         }
     }
 
+    pub fn expr_ident(&self, schema: &Schema) -> TokenStream {
+        match self {
+            AstType::Struct(ast) => format_ident!("{}", ast.name).into_token_stream(),
+            AstType::Enum(ast) => format_ident!("{}", ast.name).into_token_stream(),
+            _ => self.repr_ident(schema),
+        }
+    }
+
     pub fn repr_ident<'a>(&'a self, schema: &'a Schema) -> TokenStream {
         match self {
-            AstType::Struct(ast) => format_ident!("{}", &ast.name).into_token_stream(),
-            AstType::Enum(ast) => format_ident!("{}", &ast.name).into_token_stream(),
+            AstType::Struct(ast) => {
+                let name = format_ident!("{}", ast.name);
+                quote!(#name<'id>)
+            }
+            AstType::Enum(ast) => {
+                let name = format_ident!("{}", ast.name);
+                quote!(#name<'id>)
+            }
             AstType::SubRange(ast) => {
                 let name = format_ident!("SubRange");
                 let inner_name = schema.types[ast.inner_type_id].repr_ident(schema);
-                quote!( #name<#inner_name> )
+                quote!( #name<'id, #inner_name> )
             }
             AstType::Option(ast) => {
                 let name = format_ident!("Option");
                 let inner_name = schema.types[ast.inner_type_id].repr_ident(schema);
                 quote!( #name<#inner_name> )
+            }
+            AstType::Primitive(ast) if matches!(ast.name, "AstUtf8" | "AstWtf8") => {
+                let name = format_ident!("{}", ast.name);
+                quote!(#name<'id>)
             }
             AstType::Primitive(ast) => format_ident!("{}", &ast.name).into_token_stream(),
         }

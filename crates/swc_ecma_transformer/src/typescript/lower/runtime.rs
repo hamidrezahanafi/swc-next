@@ -7,31 +7,34 @@ use swc_next_ecma_ast::{
 use super::TypeScriptLowerer;
 
 #[derive(Clone, Copy)]
-pub(super) enum RuntimeTarget {
-    Identifier(AstUtf8),
+pub(super) enum RuntimeTarget<'id> {
+    Identifier(AstUtf8<'id>),
     IdentifierAndProperty {
-        identifier: AstUtf8,
-        object: AstUtf8,
-        property: AstUtf8,
+        identifier: AstUtf8<'id>,
+        object: AstUtf8<'id>,
+        property: AstUtf8<'id>,
     },
 }
 
 /// A single location which supports both reads and assignments.
 #[derive(Clone, Copy)]
-enum RuntimeReference {
-    Identifier(AstUtf8),
-    Property { object: AstUtf8, property: AstUtf8 },
+enum RuntimeReference<'id> {
+    Identifier(AstUtf8<'id>),
+    Property {
+        object: AstUtf8<'id>,
+        property: AstUtf8<'id>,
+    },
 }
 
-impl TypeScriptLowerer<'_, '_> {
+impl<'id> TypeScriptLowerer<'_, '_, 'id> {
     pub(super) fn object_iife_statement(
         &mut self,
-        parameter: AstUtf8,
-        directives: SubRange<Directive>,
-        statements: SubRange<Stmt>,
-        target: RuntimeTarget,
+        parameter: AstUtf8<'id>,
+        directives: SubRange<'id, Directive<'id>>,
+        statements: SubRange<'id, Stmt<'id>>,
+        target: RuntimeTarget<'id>,
         span: Span,
-    ) -> Stmt {
+    ) -> Stmt<'id> {
         let body = self.ast().function_body(DUMMY_SP, directives, statements);
         let parameter_binding = self.ast().binding_identifier(DUMMY_SP, parameter);
         let parameter = self.ast().formal_parameter(
@@ -71,7 +74,7 @@ impl TypeScriptLowerer<'_, '_> {
         self.ast().stmt_expression_statement(span, call)
     }
 
-    fn runtime_target_argument(&mut self, target: RuntimeTarget) -> Expr {
+    fn runtime_target_argument(&mut self, target: RuntimeTarget<'id>) -> Expr<'id> {
         let (local, reference) = match target {
             RuntimeTarget::Identifier(name) => (None, RuntimeReference::Identifier(name)),
             RuntimeTarget::IdentifierAndProperty {
@@ -99,7 +102,7 @@ impl TypeScriptLowerer<'_, '_> {
             .expr_assignment_expression(DUMMY_SP, target, value, AssignmentOperator::Assign)
     }
 
-    fn runtime_target_initializer(&mut self, target: RuntimeReference) -> Expr {
+    fn runtime_target_initializer(&mut self, target: RuntimeReference<'id>) -> Expr<'id> {
         let assignment_target = self.runtime_target_assignment(target);
         let object = self
             .ast()
@@ -112,7 +115,7 @@ impl TypeScriptLowerer<'_, '_> {
         )
     }
 
-    fn runtime_target_read(&mut self, target: RuntimeReference) -> Expr {
+    fn runtime_target_read(&mut self, target: RuntimeReference<'id>) -> Expr<'id> {
         match target {
             RuntimeReference::Identifier(name) => {
                 self.ast().expr_identifier_reference(DUMMY_SP, name)
@@ -124,7 +127,10 @@ impl TypeScriptLowerer<'_, '_> {
         }
     }
 
-    fn runtime_target_assignment(&mut self, target: RuntimeReference) -> AssignmentTarget {
+    fn runtime_target_assignment(
+        &mut self,
+        target: RuntimeReference<'id>,
+    ) -> AssignmentTarget<'id> {
         let target = match target {
             RuntimeReference::Identifier(name) => SimpleAssignmentTarget::IdentifierReference(
                 self.ast().identifier_reference(DUMMY_SP, name),
@@ -139,9 +145,9 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn runtime_target_member(
         &mut self,
-        object: AstUtf8,
-        property: AstUtf8,
-    ) -> swc_next_ecma_ast::MemberExpression {
+        object: AstUtf8<'id>,
+        property: AstUtf8<'id>,
+    ) -> swc_next_ecma_ast::MemberExpression<'id> {
         let object = self.ast().expr_identifier_reference(DUMMY_SP, object);
         let property = self.ast().identifier_name(DUMMY_SP, property);
         self.ast().member_expression(

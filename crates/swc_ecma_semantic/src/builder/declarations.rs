@@ -1,20 +1,20 @@
 use super::*;
 
-pub(super) fn check_prepared_redeclaration(
-    builder: &mut SemanticBuilder<'_, '_>,
-    prepared: PreparedDeclaration,
+pub(super) fn check_prepared_redeclaration<'id>(
+    builder: &mut SemanticBuilder<'_, '_, 'id>,
+    prepared: PreparedDeclaration<'id>,
 ) {
     let name = builder.ast.get_wtf8(prepared.name()).as_bytes();
     builder.check_redeclaration(prepared.node(), name, prepared);
 }
 
-impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
+impl<'id, 'traverse, 'a> SemanticBuilder<'traverse, 'a, 'id> {
     #[inline(always)]
     pub(super) fn check_redeclaration(
         &mut self,
-        node: NodeId,
+        node: NodeId<'id>,
         name: &[u8],
-        prepared: PreparedDeclaration,
+        prepared: PreparedDeclaration<'id>,
     ) {
         let target = prepared.target();
         let flags = prepared.flags();
@@ -90,9 +90,9 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     #[inline(always)]
     fn check_outer_parameter_conflict(
         &mut self,
-        node: NodeId,
+        node: NodeId<'id>,
         name: &[u8],
-        prepared: PreparedDeclaration,
+        prepared: PreparedDeclaration<'id>,
     ) {
         let target = prepared.target();
         let flags = prepared.flags();
@@ -141,9 +141,9 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     #[inline(always)]
     fn check_hoisting_var_conflict(
         &mut self,
-        node: NodeId,
+        node: NodeId<'id>,
         name: &[u8],
-        prepared: PreparedDeclaration,
+        prepared: PreparedDeclaration<'id>,
     ) {
         let target = prepared.target();
         let flags = prepared.flags();
@@ -196,9 +196,9 @@ impl<'traverse, 'a> SemanticBuilder<'traverse, 'a> {
     }
 }
 
-fn find_formal_parameters(
-    builder: &SemanticBuilder<'_, '_>,
-) -> Option<swc_next_ecma_ast::FormalParameters> {
+fn find_formal_parameters<'id>(
+    builder: &SemanticBuilder<'_, '_, 'id>,
+) -> Option<swc_next_ecma_ast::FormalParameters<'id>> {
     for ancestor in builder.ancestors() {
         match builder.ast.kind_data(ancestor) {
             NodeKindData::FormalParameters(parameters) => {

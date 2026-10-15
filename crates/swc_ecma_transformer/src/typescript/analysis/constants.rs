@@ -13,22 +13,25 @@ use swc_next_ecma_semantic::{NameResolution, Semantic, SymbolFlags};
 
 /// A TypeScript enum member value known without evaluating runtime code.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum TsEnumConstantValue<'a> {
-    Number { value: f64, raw: Option<AstUtf8> },
+pub(crate) enum TsEnumConstantValue<'a, 'id> {
+    Number {
+        value: f64,
+        raw: Option<AstUtf8<'id>>,
+    },
     String(&'a Wtf8),
 }
 
 /// Facts needed to emit a member whose exact value may be unknown.
 #[derive(Debug, Clone, Copy, Default)]
-pub(in crate::typescript) enum EnumMemberValue<'a> {
-    Constant(TsEnumConstantValue<'a>),
+pub(in crate::typescript) enum EnumMemberValue<'a, 'id> {
+    Constant(TsEnumConstantValue<'a, 'id>),
     StringExpression,
     #[default]
     Unknown,
 }
 
-impl<'a> EnumMemberValue<'a> {
-    pub(in crate::typescript) fn constant(self) -> Option<TsEnumConstantValue<'a>> {
+impl<'id, 'a> EnumMemberValue<'a, 'id> {
+    pub(in crate::typescript) fn constant(self) -> Option<TsEnumConstantValue<'a, 'id>> {
         match self {
             Self::Constant(value) => Some(value),
             Self::StringExpression | Self::Unknown => None,
@@ -43,25 +46,25 @@ impl<'a> EnumMemberValue<'a> {
     }
 }
 
-type EnumMemberValues<'a> = FxHashMap<SymbolId, EnumMemberValue<'a>>;
+type EnumMemberValues<'a, 'id> = FxHashMap<SymbolId, EnumMemberValue<'a, 'id>>;
 
 #[derive(Clone, Copy)]
-pub(super) struct ConstBinding {
-    pub syntax: VariableDeclarator,
-    pub deferred: Option<NodeId>,
+pub(super) struct ConstBinding<'id> {
+    pub syntax: VariableDeclarator<'id>,
+    pub deferred: Option<NodeId<'id>>,
 }
 
-pub(super) type ConstBindings = FxHashMap<SymbolId, ConstBinding>;
+pub(super) type ConstBindings<'id> = FxHashMap<SymbolId, ConstBinding<'id>>;
 
 #[derive(Clone, Copy)]
-struct EvaluationLocation {
-    node: NodeId,
-    deferred: Option<NodeId>,
+struct EvaluationLocation<'id> {
+    node: NodeId<'id>,
+    deferred: Option<NodeId<'id>>,
 }
 
 #[derive(Clone, Copy)]
-struct EnumMemberDeclaration {
-    syntax: TsEnumMember,
+struct EnumMemberDeclaration<'id> {
+    syntax: TsEnumMember<'id>,
     owner: usize,
 }
 
@@ -73,24 +76,24 @@ enum EnumEvaluation {
 }
 
 #[derive(Clone, Copy)]
-enum ConstEvaluation<'a> {
+enum ConstEvaluation<'a, 'id> {
     Visiting,
-    Evaluated(EnumMemberValue<'a>),
+    Evaluated(EnumMemberValue<'a, 'id>),
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct EnumDeclaration {
-    pub syntax: TsEnumDeclaration,
+pub(super) struct EnumDeclaration<'id> {
+    pub syntax: TsEnumDeclaration<'id>,
     pub auto_increment: bool,
-    pub deferred: Option<NodeId>,
+    pub deferred: Option<NodeId<'id>>,
 }
 
-pub(super) fn evaluate<'a>(
-    tree: &Ast<'a>,
-    declarations: &[EnumDeclaration],
-    const_bindings: &ConstBindings,
-    semantic: &Semantic<'a>,
-) -> EnumMemberValues<'a> {
+pub(super) fn evaluate<'id, 'a>(
+    tree: &Ast<'a, 'id>,
+    declarations: &[EnumDeclaration<'id>],
+    const_bindings: &ConstBindings<'id>,
+    semantic: &Semantic<'a, 'id>,
+) -> EnumMemberValues<'a, 'id> {
     let mut enum_member_declarations = FxHashMap::default();
     for (owner, declaration) in declarations.iter().enumerate() {
         let syntax = declaration.syntax;
@@ -126,18 +129,18 @@ pub(super) fn evaluate<'a>(
     computer.enum_values
 }
 
-struct EnumValueComputer<'visit, 'a> {
-    tree: &'visit Ast<'a>,
-    semantic: &'visit Semantic<'a>,
-    const_bindings: &'visit ConstBindings,
-    enum_member_declarations: FxHashMap<SymbolId, EnumMemberDeclaration>,
-    declarations: &'visit [EnumDeclaration],
+struct EnumValueComputer<'visit, 'a, 'id> {
+    tree: &'visit Ast<'a, 'id>,
+    semantic: &'visit Semantic<'a, 'id>,
+    const_bindings: &'visit ConstBindings<'id>,
+    enum_member_declarations: FxHashMap<SymbolId, EnumMemberDeclaration<'id>>,
+    declarations: &'visit [EnumDeclaration<'id>],
     enum_evaluations: Vec<EnumEvaluation>,
-    enum_values: EnumMemberValues<'a>,
-    const_evaluations: FxHashMap<SymbolId, ConstEvaluation<'a>>,
+    enum_values: EnumMemberValues<'a, 'id>,
+    const_evaluations: FxHashMap<SymbolId, ConstEvaluation<'a, 'id>>,
 }
 
-impl<'a> EnumValueComputer<'_, 'a> {
+impl<'id, 'a> EnumValueComputer<'_, 'a, 'id> {
     fn compute_declaration(&mut self, index: usize) {
         if self.enum_evaluations[index] != EnumEvaluation::Pending {
             return;
@@ -173,7 +176,11 @@ impl<'a> EnumValueComputer<'_, 'a> {
         self.enum_evaluations[index] = EnumEvaluation::Evaluated;
     }
 
-    fn compute(&mut self, expression: Expr, location: EvaluationLocation) -> EnumMemberValue<'a> {
+    fn compute(
+        &mut self,
+        expression: Expr<'id>,
+        location: EvaluationLocation<'id>,
+    ) -> EnumMemberValue<'a, 'id> {
         use EnumMemberValue::{Constant, StringExpression, Unknown};
         match self.tree.kind_data(expression.node_id()) {
             NodeKindData::StringLiteral(literal) => Constant(TsEnumConstantValue::String(
@@ -257,8 +264,8 @@ impl<'a> EnumValueComputer<'_, 'a> {
     fn compute_symbol(
         &mut self,
         symbol: SymbolId,
-        location: EvaluationLocation,
-    ) -> EnumMemberValue<'a> {
+        location: EvaluationLocation<'id>,
+    ) -> EnumMemberValue<'a, 'id> {
         // Semantic keeps an alias's binding identity separate from its terminal value.
         let symbol = self
             .semantic
@@ -302,7 +309,11 @@ impl<'a> EnumValueComputer<'_, 'a> {
         value
     }
 
-    fn is_declared_before(&self, declaration: NodeId, location: EvaluationLocation) -> bool {
+    fn is_declared_before(
+        &self,
+        declaration: NodeId<'id>,
+        location: EvaluationLocation<'id>,
+    ) -> bool {
         if declaration == location.node {
             return false;
         }
@@ -319,7 +330,7 @@ impl<'a> EnumValueComputer<'_, 'a> {
         })
     }
 
-    fn number_literal(&self, literal: NumericLiteral) -> TsEnumConstantValue<'a> {
+    fn number_literal(&self, literal: NumericLiteral<'id>) -> TsEnumConstantValue<'a, 'id> {
         TsEnumConstantValue::Number {
             value: literal.value(self.tree),
             raw: literal.raw(self.tree),
@@ -328,10 +339,10 @@ impl<'a> EnumValueComputer<'_, 'a> {
 
     fn compute_binary(
         &self,
-        left: TsEnumConstantValue<'a>,
-        right: TsEnumConstantValue<'a>,
+        left: TsEnumConstantValue<'a, 'id>,
+        right: TsEnumConstantValue<'a, 'id>,
         operator: BinaryOperator,
-    ) -> Option<TsEnumConstantValue<'a>> {
+    ) -> Option<TsEnumConstantValue<'a, 'id>> {
         if operator == BinaryOperator::Add
             && (matches!(left, TsEnumConstantValue::String(_))
                 || matches!(right, TsEnumConstantValue::String(_)))
@@ -379,9 +390,9 @@ impl<'a> EnumValueComputer<'_, 'a> {
 
     fn compute_template(
         &mut self,
-        template: swc_next_ecma_ast::TemplateLiteral,
-        location: EvaluationLocation,
-    ) -> Option<TsEnumConstantValue<'a>> {
+        template: swc_next_ecma_ast::TemplateLiteral<'id>,
+        location: EvaluationLocation<'id>,
+    ) -> Option<TsEnumConstantValue<'a, 'id>> {
         let quasis = template.quasis(self.tree);
         let expressions = template.expressions(self.tree);
         let mut quasis = quasis.iter();
@@ -421,10 +432,10 @@ enum MemberResolution {
 
 // Constant evaluation follows TypeScript's entity-name grammar: dot access can
 // resolve a namespace constant, while element access only resolves enum members.
-pub(super) fn resolve_constant_member(
-    ast: &Ast<'_>,
-    semantic: &Semantic<'_>,
-    member: MemberExpression,
+pub(super) fn resolve_constant_member<'id>(
+    ast: &Ast<'_, 'id>,
+    semantic: &Semantic<'_, 'id>,
+    member: MemberExpression<'id>,
 ) -> Option<SymbolId> {
     let (_, owner) = namespace_object(
         member.object(ast),
@@ -439,11 +450,11 @@ pub(super) fn resolve_constant_member(
     }
 }
 
-pub(super) fn resolve_enum_member(
-    ast: &Ast<'_>,
-    semantic: &Semantic<'_>,
-    member: MemberExpression,
-) -> Option<(NodeId, SymbolId, SymbolId)> {
+pub(super) fn resolve_enum_member<'id>(
+    ast: &Ast<'_, 'id>,
+    semantic: &Semantic<'_, 'id>,
+    member: MemberExpression<'id>,
+) -> Option<(NodeId<'id>, SymbolId, SymbolId)> {
     if member.optional(ast) {
         return None;
     }
@@ -454,7 +465,10 @@ pub(super) fn resolve_enum_member(
     Some((reference, owner, symbol))
 }
 
-fn static_member_name<'a>(ast: &'a Ast<'_>, member: MemberExpression) -> Option<&'a [u8]> {
+fn static_member_name<'id, 'a>(
+    ast: &'a Ast<'_, 'id>,
+    member: MemberExpression<'id>,
+) -> Option<&'a [u8]> {
     let expression = match ast.property_key_data(member.property(ast)) {
         PropertyKeyData::IdentifierName(identifier) => {
             return Some(ast.get_utf8(identifier.name(ast)).as_bytes());
@@ -473,12 +487,12 @@ fn static_member_name<'a>(ast: &'a Ast<'_>, member: MemberExpression) -> Option<
     }
 }
 
-fn namespace_object(
-    expression: Expr,
-    ast: &Ast<'_>,
-    semantic: &Semantic<'_>,
+fn namespace_object<'id>(
+    expression: Expr<'id>,
+    ast: &Ast<'_, 'id>,
+    semantic: &Semantic<'_, 'id>,
     resolution: MemberResolution,
-) -> Option<(NodeId, SymbolId)> {
+) -> Option<(NodeId<'id>, SymbolId)> {
     let (reference, symbol) = match ast.expr_data(expression) {
         ExprData::IdentifierReference(identifier) => {
             let reference = semantic.reference_of(identifier.node_id())?;
@@ -529,8 +543,8 @@ fn namespace_object(
     }
 }
 
-fn namespace_value_symbol(
-    semantic: &Semantic<'_>,
+fn namespace_value_symbol<'id>(
+    semantic: &Semantic<'_, 'id>,
     owner: SymbolId,
     name: &[u8],
 ) -> Option<SymbolId> {
@@ -541,11 +555,13 @@ fn namespace_value_symbol(
         .then_some(symbol)
 }
 
-fn number(value: f64) -> TsEnumConstantValue<'static> {
+fn number<'id>(value: f64) -> TsEnumConstantValue<'static, 'id> {
     TsEnumConstantValue::Number { value, raw: None }
 }
 
-fn increment(value: TsEnumConstantValue<'_>) -> Option<TsEnumConstantValue<'static>> {
+fn increment<'id>(
+    value: TsEnumConstantValue<'_, 'id>,
+) -> Option<TsEnumConstantValue<'static, 'id>> {
     match value {
         TsEnumConstantValue::Number { value, .. } => Some(number(value + 1.0)),
         TsEnumConstantValue::String(_) => None,
@@ -571,7 +587,7 @@ fn exponentiate(left: f64, right: f64) -> f64 {
     }
 }
 
-fn push_to_js_string(output: &mut Wtf8Buf, value: TsEnumConstantValue<'_>) {
+fn push_to_js_string<'id>(output: &mut Wtf8Buf, value: TsEnumConstantValue<'_, 'id>) {
     match value {
         TsEnumConstantValue::String(value) => output.push_wtf8(value),
         TsEnumConstantValue::Number { value, .. } => {

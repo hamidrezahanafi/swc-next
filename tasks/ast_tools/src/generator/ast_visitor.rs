@@ -20,16 +20,16 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
     let mut visit_mut_with_impls = TokenStream::new();
 
     visit_functions.extend(quote! {
-        fn ast(&self) -> &Ast<'a>;
+        fn ast(&self) -> &Ast<'a, 'id>;
 
         #[inline]
-        fn enter_node(&mut self, node: NodeKindData) {}
+        fn enter_node(&mut self, node: NodeKindData<'id>) {}
         #[inline]
-        fn leave_node(&mut self, node: NodeKindData) {}
+        fn leave_node(&mut self, node: NodeKindData<'id>) {}
     });
 
     visit_mut_functions.extend(quote! {
-        fn ast(&mut self) -> &mut Ast<'a>;
+        fn ast(&mut self) -> &mut Ast<'a, 'id>;
     });
 
     for ty in schema.types.iter() {
@@ -38,21 +38,22 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                 let fn_name = format_ident!("visit_{}", &ast.name.to_case(Case::Snake));
                 let fn_mut_name = format_ident!("visit_mut_{}", &ast.name.to_case(Case::Snake));
                 let ty_ident = ty.repr_ident(schema);
+                let _ty_expr = ty.expr_ident(schema);
 
                 // Visit/VisitMut
                 visit_functions.extend(quote! {
                     #[inline]
                     fn #fn_name(&mut self, node: #ty_ident) {
-                        self.enter_node(NodeKindData::#ty_ident(node));
-                        <#ty_ident as VisitWith<'a, Self>>::visit_children_with(node, self);
-                        self.leave_node(NodeKindData::#ty_ident(node));
+                        self.enter_node(NodeKindData::#_ty_expr(node));
+                        <#ty_ident as VisitWith<'a, 'id, Self>>::visit_children_with(node, self);
+                        self.leave_node(NodeKindData::#_ty_expr(node));
                     }
                 });
 
                 visit_mut_functions.extend(quote! {
                     #[inline]
                     fn #fn_mut_name(&mut self, node: #ty_ident) -> Option<#ty_ident> {
-                        <#ty_ident as VisitMutWith<'a, Self>>::visit_mut_children_with(node, self)
+                        <#ty_ident as VisitMutWith<'a, 'id, Self>>::visit_mut_children_with(node, self)
                     }
                 });
                 // VisitWith/VisitMutWith
@@ -74,11 +75,11 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                         let #field_value = self.#getter_name(visitor.ast());
                     });
                     visit_children.extend(quote! {
-                        <#field_ty_ident as VisitWith<'a, V>>::visit_with(#field_value, visitor);
+                        <#field_ty_ident as VisitWith<'a, 'id, V>>::visit_with(#field_value, visitor);
                     });
                     visit_mut_children.extend(quote! {
                         let field_value = self.#getter_name(visitor.ast());
-                        if let Some(field_value) = <#field_ty_ident as VisitMutWith<'a, V>>::visit_mut_with(
+                        if let Some(field_value) = <#field_ty_ident as VisitMutWith<'a, 'id, V>>::visit_mut_with(
                             field_value,
                             visitor,
                         ) {
@@ -88,10 +89,10 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                 }
 
                 visit_with_impls.extend(quote! {
-                    impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for #ty_ident {
+                    impl<'a, 'id, V: ?Sized + Visit<'a, 'id>> VisitWith<'a, 'id, V> for #ty_ident {
                         #[inline]
                         fn visit_with(self, visitor: &mut V) {
-                            <V as Visit<'a>>::#fn_name(visitor, self)
+                            <V as Visit<'a, 'id>>::#fn_name(visitor, self)
                         }
 
                         #[inline]
@@ -102,10 +103,10 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                     }
                 });
                 visit_mut_with_impls.extend(quote! {
-                    impl<'a, V: ?Sized + VisitMut<'a>> VisitMutWith<'a, V> for #ty_ident {
+                    impl<'a, 'id, V: ?Sized + VisitMut<'a, 'id>> VisitMutWith<'a, 'id, V> for #ty_ident {
                         #[inline]
                         fn visit_mut_with(self, visitor: &mut V) -> Option<Self> {
-                            <V as VisitMut<'a>>::#fn_mut_name(visitor, self)
+                            <V as VisitMut<'a, 'id>>::#fn_mut_name(visitor, self)
                         }
 
                         #[inline]
@@ -120,18 +121,19 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                 let fn_name = format_ident!("visit_{}", &ast.name.to_case(Case::Snake));
                 let fn_mut_name = format_ident!("visit_mut_{}", &ast.name.to_case(Case::Snake));
                 let ty_ident = ty.repr_ident(schema);
+                let _ty_expr = ty.expr_ident(schema);
 
                 // Visit/VisitMut
                 visit_functions.extend(quote! {
                     #[inline]
                     fn #fn_name(&mut self, node: #ty_ident) {
-                        <#ty_ident as VisitWith<'a, Self>>::visit_children_with(node, self)
+                        <#ty_ident as VisitWith<'a, 'id, Self>>::visit_children_with(node, self)
                     }
                 });
                 visit_mut_functions.extend(quote! {
                     #[inline]
                     fn #fn_mut_name(&mut self, node: #ty_ident) -> Option<#ty_ident> {
-                        <#ty_ident as VisitMutWith<'a, Self>>::visit_mut_children_with(node, self)
+                        <#ty_ident as VisitMutWith<'a, 'id, Self>>::visit_mut_children_with(node, self)
                     }
                 });
                 // VisitWith/VisitMutWith
@@ -146,6 +148,7 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
 
                     let variant_ty = &schema.types[variant_type_id];
                     let variant_ty_ident = variant_ty.repr_ident(schema);
+                    let variant_expr = variant_ty.expr_ident(schema);
                     let variant_name = format_ident!("{}", variant.name);
                     let mut node_kind_names: Vec<_> = concrete_node_kinds(variant_type_id, schema)
                         .into_iter()
@@ -179,10 +182,10 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                                 NodeKind::#node_kind => {
                                     let concrete = #concrete_ty(self.0);
                                     if concrete.#type_getter(visitor.ast()) == #declaration_type {
-                                        <#concrete_ty as VisitWith<'a, V>>::visit_with(concrete, visitor)
+                                        <#concrete_ty<'id> as VisitWith<'a, 'id, V>>::visit_with(concrete, visitor)
                                     } else {
-                                        let nested = #variant_ty_ident(self.0);
-                                        <#variant_ty_ident as VisitWith<'a, V>>::visit_with(nested, visitor)
+                                        let nested = #variant_expr(self.0);
+                                        <#variant_ty_ident as VisitWith<'a, 'id, V>>::visit_with(nested, visitor)
                                     }
                                 }
                             });
@@ -190,16 +193,16 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                                 NodeKind::#node_kind => {
                                     let concrete = #concrete_ty(self.0);
                                     if concrete.#type_getter(visitor.ast()) == #declaration_type {
-                                        <#concrete_ty as VisitMutWith<'a, V>>::visit_mut_with(
+                                        <#concrete_ty<'id> as VisitMutWith<'a, 'id, V>>::visit_mut_with(
                                             concrete,
                                             visitor,
-                                        ).map(#ty_ident::#node_kind)
+                                        ).map(#_ty_expr::#node_kind)
                                     } else {
-                                        let nested = #variant_ty_ident(self.0);
-                                        <#variant_ty_ident as VisitMutWith<'a, V>>::visit_mut_with(
+                                        let nested = #variant_expr(self.0);
+                                        <#variant_ty_ident as VisitMutWith<'a, 'id, V>>::visit_mut_with(
                                             nested,
                                             visitor,
-                                        ).map(#ty_ident::#variant_name)
+                                        ).map(#_ty_expr::#variant_name)
                                     }
                                 }
                             });
@@ -215,31 +218,31 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                         .collect();
                     visit_children_arms.extend(quote! {
                         #(NodeKind::#node_kinds)|* => {
-                            let it = #variant_ty_ident(self.0);
-                            <#variant_ty_ident as VisitWith<'a, V>>::visit_with(it, visitor)
+                            let it = #variant_expr(self.0);
+                            <#variant_ty_ident as VisitWith<'a, 'id, V>>::visit_with(it, visitor)
                         }
                     });
                     visit_mut_children_arms.extend(quote! {
                         #(NodeKind::#node_kinds)|* => {
-                            let it = #variant_ty_ident(self.0);
-                            <#variant_ty_ident as VisitMutWith<'a, V>>::visit_mut_with(
+                            let it = #variant_expr(self.0);
+                            <#variant_ty_ident as VisitMutWith<'a, 'id, V>>::visit_mut_with(
                                 it,
                                 visitor,
-                            ).map(#ty_ident::#variant_name)
+                            ).map(#_ty_expr::#variant_name)
                         }
                     });
                 }
 
                 visit_with_impls.extend(quote! {
-                    impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for #ty_ident {
+                    impl<'a, 'id, V: ?Sized + Visit<'a, 'id>> VisitWith<'a, 'id, V> for #ty_ident {
                         #[inline]
                         fn visit_with(self, visitor: &mut V) {
-                            <V as Visit<'a>>::#fn_name(visitor, self)
+                            <V as Visit<'a, 'id>>::#fn_name(visitor, self)
                         }
 
                         #[inline]
                         fn visit_children_with(self, visitor: &mut V) {
-                            let kind = unsafe { *visitor.ast().nodes.kind_unchecked(self.0) };
+                            let kind = unsafe { *visitor.ast().nodes.kind_unchecked(self.0.raw()) };
                             match kind {
                                 #visit_children_arms
                                 _ => unsafe { std::hint::unreachable_unchecked() },
@@ -248,15 +251,15 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                     }
                 });
                 visit_mut_with_impls.extend(quote! {
-                    impl<'a, V: ?Sized + VisitMut<'a>> VisitMutWith<'a, V> for #ty_ident {
+                    impl<'a, 'id, V: ?Sized + VisitMut<'a, 'id>> VisitMutWith<'a, 'id, V> for #ty_ident {
                         #[inline]
                         fn visit_mut_with(self, visitor: &mut V) -> Option<Self> {
-                            <V as VisitMut<'a>>::#fn_mut_name(visitor, self)
+                            <V as VisitMut<'a, 'id>>::#fn_mut_name(visitor, self)
                         }
 
                         #[inline]
                         fn visit_mut_children_with(self, visitor: &mut V) -> Option<Self> {
-                            let kind = unsafe { *visitor.ast().nodes.kind_unchecked(self.0) };
+                            let kind = unsafe { *visitor.ast().nodes.kind_unchecked(self.0.raw()) };
                             match kind {
                                 #visit_mut_children_arms
                                 _ => unsafe { std::hint::unreachable_unchecked() },
@@ -294,27 +297,28 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                 };
 
                 let ty_ident = ty.repr_ident(schema);
+                let _ty_expr = ty.expr_ident(schema);
 
                 // Visit/VisitMut
                 visit_functions.extend(quote! {
                     #[inline]
                     fn #fn_name(&mut self, node: #ty_ident) {
-                        <#ty_ident as VisitWith<'a, Self>>::visit_children_with(node, self);
+                        <#ty_ident as VisitWith<'a, 'id, Self>>::visit_children_with(node, self);
                     }
                 });
                 visit_mut_functions.extend(quote! {
                     #[inline]
                     fn #fn_mut_name(&mut self, node: #ty_ident) -> Option<#ty_ident> {
-                        <#ty_ident as VisitMutWith<'a, Self>>::visit_mut_children_with(node, self)
+                        <#ty_ident as VisitMutWith<'a, 'id, Self>>::visit_mut_children_with(node, self)
                     }
                 });
 
                 // VisitWith/VisitMutWith
                 visit_with_impls.extend(quote! {
-                    impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for #ty_ident {
+                    impl<'a, 'id, V: ?Sized + Visit<'a, 'id>> VisitWith<'a, 'id, V> for #ty_ident {
                         #[inline]
                         fn visit_with(self, visitor: &mut V) {
-                            <V as Visit<'a>>::#fn_name(visitor, self)
+                            <V as Visit<'a, 'id>>::#fn_name(visitor, self)
                         }
 
                         #[inline]
@@ -327,10 +331,10 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                     }
                 });
                 visit_mut_with_impls.extend(quote! {
-                    impl<'a, V: ?Sized + VisitMut<'a>> VisitMutWith<'a, V> for #ty_ident {
+                    impl<'a, 'id, V: ?Sized + VisitMut<'a, 'id>> VisitMutWith<'a, 'id, V> for #ty_ident {
                         #[inline]
                         fn visit_mut_with(self, visitor: &mut V) -> Option<Self> {
-                            <V as VisitMut<'a>>::#fn_mut_name(visitor, self)
+                            <V as VisitMut<'a, 'id>>::#fn_mut_name(visitor, self)
                         }
 
                         #[inline]
@@ -368,18 +372,19 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                     }
                 };
                 let ty_ident = ty.repr_ident(schema);
+                let _ty_expr = ty.expr_ident(schema);
 
                 // Visit/VisitMut
                 visit_functions.extend(quote! {
                     #[inline]
                     fn #fn_name(&mut self, node: #ty_ident) {
-                        <#ty_ident as VisitWith<'a, Self>>::visit_children_with(node, self)
+                        <#ty_ident as VisitWith<'a, 'id, Self>>::visit_children_with(node, self)
                     }
                 });
                 visit_mut_functions.extend(quote! {
                     #[inline]
                     fn #fn_mut_name(&mut self, node: #ty_ident) -> Option<#ty_ident> {
-                        <#ty_ident as VisitMutWith<'a, Self>>::visit_mut_children_with(node, self)
+                        <#ty_ident as VisitMutWith<'a, 'id, Self>>::visit_mut_children_with(node, self)
                     }
                 });
 
@@ -387,10 +392,10 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                 let get_node =
                     quote! ( let child = visitor.ast().get_node_in_sub_range(child_idx); );
                 visit_with_impls.extend(quote! {
-                    impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for #ty_ident {
+                    impl<'a, 'id, V: ?Sized + Visit<'a, 'id>> VisitWith<'a, 'id, V> for #ty_ident {
                         #[inline]
                         fn visit_with(self, visitor: &mut V) {
-                            <V as Visit<'a>>::#fn_name(visitor, self)
+                            <V as Visit<'a, 'id>>::#fn_name(visitor, self)
                         }
 
                         #[inline]
@@ -403,10 +408,10 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
                     }
                 });
                 visit_mut_with_impls.extend(quote! {
-                    impl<'a, V: ?Sized + VisitMut<'a>> VisitMutWith<'a, V> for #ty_ident {
+                    impl<'a, 'id, V: ?Sized + VisitMut<'a, 'id>> VisitMutWith<'a, 'id, V> for #ty_ident {
                         #[inline]
                         fn visit_mut_with(self, visitor: &mut V) -> Option<Self> {
-                            <V as VisitMut<'a>>::#fn_mut_name(visitor, self)
+                            <V as VisitMut<'a, 'id>>::#fn_mut_name(visitor, self)
                         }
 
                         #[inline]
@@ -435,11 +440,11 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
             use oxc_index::Idx;
         use crate::visit::{TraverseCtx, TraverseMutCtx, traverse_mut_slot};
 
-            pub trait Visit<'a> {
+            pub trait Visit<'a, 'id> {
                 #visit_functions
             }
 
-            pub trait VisitWith<'a, V: ?Sized + Visit<'a>> {
+            pub trait VisitWith<'a, 'id, V: ?Sized + Visit<'a, 'id>> {
                 fn visit_with(self, visitor: &mut V);
                 fn visit_children_with(self, visitor: &mut V);
             }
@@ -451,12 +456,12 @@ pub fn ast_visitor(schema: &Schema) -> RawOutput {
             /// A visit method returns `Some(node)` to replace the node in its parent, or `None`
             /// to keep the existing node. Child replacements are applied directly to their
             /// containing node while walking it.
-            pub trait VisitMut<'a> {
+            pub trait VisitMut<'a, 'id> {
                 #visit_mut_functions
             }
 
             /// Dispatches mutable visits and reports an optional replacement for `self`.
-            pub trait VisitMutWith<'a, V: ?Sized + VisitMut<'a>>: Sized {
+            pub trait VisitMutWith<'a, 'id, V: ?Sized + VisitMut<'a, 'id>>: Sized {
                 fn visit_mut_with(self, visitor: &mut V) -> Option<Self>;
                 fn visit_mut_children_with(self, visitor: &mut V) -> Option<Self>;
             }
@@ -487,16 +492,17 @@ fn generate_traverse(schema: &Schema) -> TokenStream {
 
     for ty in schema.types.iter() {
         let ty_ident = ty.repr_ident(schema);
+        let _ty_expr = ty.expr_ident(schema);
         if matches!(ty, AstType::Struct(_) | AstType::Enum(_)) {
             let name = ty.name().to_case(Case::Snake);
             let enter_fn = format_ident!("enter_{name}");
             let exit_fn = format_ident!("exit_{name}");
             hooks.extend(quote! {
                 #[inline]
-                fn #enter_fn(&mut self, node: #ty_ident, ctx: &mut #ctx_ty<'_, 'a, State>) {}
+                fn #enter_fn(&mut self, node: #ty_ident, ctx: &mut #ctx_ty<'_, 'a, 'id, State>) {}
 
                 #[inline]
-                fn #exit_fn(&mut self, node: #ty_ident, ctx: &mut #ctx_ty<'_, 'a, State>) {}
+                fn #exit_fn(&mut self, node: #ty_ident, ctx: &mut #ctx_ty<'_, 'a, 'id, State>) {}
             });
         }
         let body = match ty {
@@ -526,10 +532,10 @@ fn generate_traverse(schema: &Schema) -> TokenStream {
 
                 walks.extend(quote! {
                     #[inline]
-                    fn #walk_fn<'a, State, T: ?Sized + #trait_name<'a, State>>(
+                    fn #walk_fn<'a, 'id, State, T: ?Sized + #trait_name<'a, 'id, State>>(
                         node: #ty_ident,
                         traverser: &mut T,
-                        ctx: &mut #ctx_ty<'_, 'a, State>,
+                        ctx: &mut #ctx_ty<'_, 'a, 'id, State>,
                     ) {
                         traverser.#enter_fn(node, ctx);
                         #children
@@ -547,7 +553,7 @@ fn generate_traverse(schema: &Schema) -> TokenStream {
                         continue;
                     };
                     let variant_ty = &schema.types[type_id];
-                    let variant_ident = variant_ty.repr_ident(schema);
+                    let variant_ident = variant_ty.expr_ident(schema);
                     let traverse = traverse_child(
                         variant_ty,
                         schema,
@@ -602,12 +608,12 @@ fn generate_traverse(schema: &Schema) -> TokenStream {
                 }
                 walks.extend(quote! {
                     #[inline]
-                    fn #walk_fn<'a, State, T: ?Sized + #trait_name<'a, State>>(
+                    fn #walk_fn<'a, 'id, State, T: ?Sized + #trait_name<'a, 'id, State>>(
                         node: #ty_ident,
                         traverser: &mut T,
-                        ctx: &mut #ctx_ty<'_, 'a, State>,
+                        ctx: &mut #ctx_ty<'_, 'a, 'id, State>,
                     ) {
-                        let kind = unsafe { *ctx.ast.nodes.kind_unchecked(node.0) };
+                        let kind = unsafe { *ctx.ast.nodes.kind_unchecked(node.0.raw()) };
                         match kind {
                             #arms
                             _ => unsafe { std::hint::unreachable_unchecked() },
@@ -631,12 +637,12 @@ fn generate_traverse(schema: &Schema) -> TokenStream {
             AstType::Primitive(_) => continue,
         };
         impls.extend(quote! {
-            impl<'a, State> #with_trait<'a, State> for #ty_ident {
+            impl<'a, 'id, State> #with_trait<'a, 'id, State> for #ty_ident {
                 #[inline]
-                fn #with_fn<T: ?Sized + #trait_name<'a, State>>(
+                fn #with_fn<T: ?Sized + #trait_name<'a, 'id, State>>(
                     self,
                     traverser: &mut T,
-                    ctx: &mut #ctx_ty<'_, 'a, State>,
+                    ctx: &mut #ctx_ty<'_, 'a, 'id, State>,
                 ) {
                     #body
                 }
@@ -651,22 +657,22 @@ fn generate_traverse(schema: &Schema) -> TokenStream {
         /// Each node's enter/exit hooks enclose its enum and concrete hooks, even
         /// when nested enums describe the same node. Direct traversal uses the
         /// same ordering for the root node.
-        pub trait #trait_name<'a, State = ()> {
+        pub trait #trait_name<'a, 'id, State = ()> {
             #[inline]
-            fn enter_node(&mut self, node_id: NodeId, ctx: &mut #ctx_ty<'_, 'a, State>) {}
+            fn enter_node(&mut self, node_id: NodeId<'id>, ctx: &mut #ctx_ty<'_, 'a, 'id, State>) {}
 
             #[inline]
-            fn exit_node(&mut self, node_id: NodeId, ctx: &mut #ctx_ty<'_, 'a, State>) {}
+            fn exit_node(&mut self, node_id: NodeId<'id>, ctx: &mut #ctx_ty<'_, 'a, 'id, State>) {}
 
             #hooks
         }
 
         /// Walks AST nodes and invokes their traversal hooks.
-        pub trait #with_trait<'a, State = ()> {
-            fn #with_fn<T: ?Sized + #trait_name<'a, State>>(
+        pub trait #with_trait<'a, 'id, State = ()> {
+            fn #with_fn<T: ?Sized + #trait_name<'a, 'id, State>>(
                 self,
                 traverser: &mut T,
-                ctx: &mut #ctx_ty<'_, 'a, State>,
+                ctx: &mut #ctx_ty<'_, 'a, 'id, State>,
             );
         }
 
@@ -756,6 +762,7 @@ fn generate_traverse_mut(schema: &Schema) -> TokenStream {
             continue;
         }
         let ty_ident = ty.repr_ident(schema);
+        let _ty_expr = ty.expr_ident(schema);
         let body = match ty {
             AstType::Struct(_) | AstType::Enum(_) => {
                 let name = ty.name().to_case(Case::Snake);
@@ -764,11 +771,11 @@ fn generate_traverse_mut(schema: &Schema) -> TokenStream {
                 let walk = format_ident!("walk_mut_{name}");
                 hooks.extend(quote! {
                     #[inline]
-                    fn #enter(&mut self, node: #ty_ident, ctx: &mut TraverseMutCtx<'_, 'a, State>) -> TraverseAction<#ty_ident> {
+                    fn #enter(&mut self, node: #ty_ident, ctx: &mut TraverseMutCtx<'_, 'a, 'id, State>) -> TraverseAction<#ty_ident> {
                         TraverseAction::Continue
                     }
                     #[inline]
-                    fn #exit(&mut self, node: #ty_ident, ctx: &mut TraverseMutCtx<'_, 'a, State>) -> TraverseAction<#ty_ident> {
+                    fn #exit(&mut self, node: #ty_ident, ctx: &mut TraverseMutCtx<'_, 'a, 'id, State>) -> TraverseAction<#ty_ident> {
                         TraverseAction::Continue
                     }
                 });
@@ -814,8 +821,8 @@ fn generate_traverse_mut(schema: &Schema) -> TokenStream {
                 };
                 walks.extend(quote! {
                     #[inline]
-                    fn #walk<'a, State, T: ?Sized + TraverseMut<'a, State>>(
-                        node: #ty_ident, traverser: &mut T, ctx: &mut TraverseMutCtx<'_, 'a, State>,
+                    fn #walk<'a, 'id, State, T: ?Sized + TraverseMut<'a, 'id, State>>(
+                        node: #ty_ident, traverser: &mut T, ctx: &mut TraverseMutCtx<'_, 'a, 'id, State>,
                     ) -> std::ops::ControlFlow<TraverseAction<#ty_ident>, bool> {
                         match traverser.#enter(node, ctx) {
                             TraverseAction::Continue => {},
@@ -861,10 +868,10 @@ fn generate_traverse_mut(schema: &Schema) -> TokenStream {
             AstType::Primitive(_) => unreachable!(),
         };
         impls.extend(quote! {
-            impl<'a, State> TraverseMutWith<'a, State> for #ty_ident {
+            impl<'a, 'id, State> TraverseMutWith<'a, 'id, State> for #ty_ident {
                 #[inline]
-                fn traverse_mut_with<T: ?Sized + TraverseMut<'a, State>>(
-                    self, traverser: &mut T, ctx: &mut TraverseMutCtx<'_, 'a, State>,
+                fn traverse_mut_with<T: ?Sized + TraverseMut<'a, 'id, State>>(
+                    self, traverser: &mut T, ctx: &mut TraverseMutCtx<'_, 'a, 'id, State>,
                 ) -> TraverseAction<Self> { #body }
             }
         });
@@ -884,11 +891,11 @@ fn generate_traverse_mut(schema: &Schema) -> TokenStream {
         /// Untyped node hooks always enclose the visit and return no action.
         /// Use a union hook such as exit_expr for changes between node kinds.
         /// Prepare semantic information before returning newly generated nodes.
-        pub trait TraverseMut<'a, State = ()> {
+        pub trait TraverseMut<'a, 'id, State = ()> {
             #[inline]
-            fn enter_node(&mut self, node: NodeId, ctx: &mut TraverseMutCtx<'_, 'a, State>) {}
+            fn enter_node(&mut self, node: NodeId<'id>, ctx: &mut TraverseMutCtx<'_, 'a, 'id, State>) {}
             #[inline]
-            fn exit_node(&mut self, node: NodeId, ctx: &mut TraverseMutCtx<'_, 'a, State>) {}
+            fn exit_node(&mut self, node: NodeId<'id>, ctx: &mut TraverseMutCtx<'_, 'a, 'id, State>) {}
             #hooks
         }
 
@@ -896,9 +903,9 @@ fn generate_traverse_mut(schema: &Schema) -> TokenStream {
         /// Parents attach replacements before revisiting for ReplaceContinue.
         /// A direct root caller must do the same through its root setter.
         /// Skip is consumed at the node boundary and returned as Continue.
-        pub trait TraverseMutWith<'a, State = ()>: Sized {
-            fn traverse_mut_with<T: ?Sized + TraverseMut<'a, State>>(
-                self, traverser: &mut T, ctx: &mut TraverseMutCtx<'_, 'a, State>,
+        pub trait TraverseMutWith<'a, 'id, State = ()>: Sized {
+            fn traverse_mut_with<T: ?Sized + TraverseMut<'a, 'id, State>>(
+                self, traverser: &mut T, ctx: &mut TraverseMutCtx<'_, 'a, 'id, State>,
             ) -> TraverseAction<Self>;
         }
         #impls
@@ -915,7 +922,7 @@ fn generate_mut_enum_dispatch(node: &crate::schema::AstEnum, schema: &Schema) ->
             continue;
         };
         let ty = &schema.types[type_id];
-        let inner = ty.repr_ident(schema);
+        let inner = ty.expr_ident(schema);
         let variant_name = format_ident!("{}", variant.name);
         let walk = format_ident!("walk_mut_{}", ty.name().to_case(Case::Snake));
         let dispatch = quote!(#walk(#inner(node.0), traverser, ctx).map_break(|action| action.map(#outer::#variant_name)));

@@ -10,14 +10,17 @@ use swc_next_ecma_semantic::Semantic;
 
 use super::DeclarationSurface;
 
-pub(crate) fn unparenthesized(mut expression: Expr, ast: &Ast<'_>) -> Expr {
+pub(crate) fn unparenthesized<'id>(mut expression: Expr<'id>, ast: &Ast<'_, 'id>) -> Expr<'id> {
     while let ExprData::ParenthesizedExpression(parenthesized) = ast.expr_data(expression) {
         expression = parenthesized.expression(ast);
     }
     expression
 }
 
-pub(crate) fn first_template_quasi(template: TemplateLiteral, ast: &Ast<'_>) -> TemplateElement {
+pub(crate) fn first_template_quasi<'id>(
+    template: TemplateLiteral<'id>,
+    ast: &Ast<'_, 'id>,
+) -> TemplateElement<'id> {
     let first = template
         .quasis(ast)
         .first()
@@ -25,13 +28,16 @@ pub(crate) fn first_template_quasi(template: TemplateLiteral, ast: &Ast<'_>) -> 
     ast.get_node_in_sub_range(first)
 }
 
-pub(crate) enum ExportExpression {
-    Reference(IdentifierReference),
-    Class(Class),
-    Inferred(Expr),
+pub(crate) enum ExportExpression<'id> {
+    Reference(IdentifierReference<'id>),
+    Class(Class<'id>),
+    Inferred(Expr<'id>),
 }
 
-pub(crate) fn export_expression(expression: Expr, ast: &Ast<'_>) -> ExportExpression {
+pub(crate) fn export_expression<'id>(
+    expression: Expr<'id>,
+    ast: &Ast<'_, 'id>,
+) -> ExportExpression<'id> {
     let expression = unparenthesized(expression, ast);
     match ast.expr_data(expression) {
         ExprData::IdentifierReference(reference) => ExportExpression::Reference(reference),
@@ -40,33 +46,33 @@ pub(crate) fn export_expression(expression: Expr, ast: &Ast<'_>) -> ExportExpres
     }
 }
 
-pub(crate) enum InferredType {
-    Annotation(TsType),
-    OptionalParameter(TsType),
-    Literal(TsLiteral),
-    Template(TemplateElement),
+pub(crate) enum InferredType<'id> {
+    Annotation(TsType<'id>),
+    OptionalParameter(TsType<'id>),
+    Literal(TsLiteral<'id>),
+    Template(TemplateElement<'id>),
     String,
     Number,
     BigInt,
     Boolean,
     Null,
     Undefined,
-    Object(ObjectExpression, bool),
-    Array(ArrayExpression),
-    Function(Function),
-    Arrow(ArrowFunctionExpression),
+    Object(ObjectExpression<'id>, bool),
+    Array(ArrayExpression<'id>),
+    Function(Function<'id>),
+    Arrow(ArrowFunctionExpression<'id>),
     InvalidArray,
     InvalidClass,
     Unsupported,
 }
 
-pub(crate) fn inferred_type(
-    expression: Expr,
+pub(crate) fn inferred_type<'id>(
+    expression: Expr<'id>,
     is_const: bool,
-    ast: &Ast<'_>,
-    semantic: &Semantic<'_>,
-    surface: &DeclarationSurface,
-) -> InferredType {
+    ast: &Ast<'_, 'id>,
+    semantic: &Semantic<'_, 'id>,
+    surface: &DeclarationSurface<'id>,
+) -> InferredType<'id> {
     let expression = unparenthesized(expression, ast);
     match ast.expr_data(expression) {
         ExprData::TsAsExpression(assertion) => asserted_type(
@@ -178,13 +184,13 @@ pub(crate) fn inferred_type(
     }
 }
 
-fn asserted_type(
-    expression: Expr,
-    annotation: TsType,
-    ast: &Ast<'_>,
-    semantic: &Semantic<'_>,
-    surface: &DeclarationSurface,
-) -> InferredType {
+fn asserted_type<'id>(
+    expression: Expr<'id>,
+    annotation: TsType<'id>,
+    ast: &Ast<'_, 'id>,
+    semantic: &Semantic<'_, 'id>,
+    surface: &DeclarationSurface<'id>,
+) -> InferredType<'id> {
     let is_const = if let TsTypeData::TsTypeReference(reference) = ast.ts_type_data(annotation)
         && let TsTypeNameData::IdentifierReference(identifier) =
             ast.ts_type_name_data(reference.type_name(ast))
@@ -202,7 +208,10 @@ fn asserted_type(
 
 /// Only a single, direct return expression is syntactically inferable. Nested returns
 /// require control-flow analysis and must not be mistaken for an unconditional return.
-pub(crate) fn return_expression(body: FunctionBody, ast: &Ast<'_>) -> Option<Expr> {
+pub(crate) fn return_expression<'id>(
+    body: FunctionBody<'id>,
+    ast: &Ast<'_, 'id>,
+) -> Option<Expr<'id>> {
     let mut direct = None;
     for statement in body.body(ast).iter() {
         let statement = ast.get_node_in_sub_range(statement);
@@ -227,19 +236,19 @@ pub(crate) fn return_expression(body: FunctionBody, ast: &Ast<'_>) -> Option<Exp
     }
 }
 
-struct ReturnCollector<'visit, 'ast> {
-    ast: &'visit Ast<'ast>,
-    direct: ReturnStatement,
+struct ReturnCollector<'visit, 'ast, 'id> {
+    ast: &'visit Ast<'ast, 'id>,
+    direct: ReturnStatement<'id>,
     nested: bool,
 }
-impl<'ast> Visit<'ast> for ReturnCollector<'_, 'ast> {
-    fn ast(&self) -> &Ast<'ast> {
+impl<'id, 'ast> Visit<'ast, 'id> for ReturnCollector<'_, 'ast, 'id> {
+    fn ast(&self) -> &Ast<'ast, 'id> {
         self.ast
     }
-    fn visit_return_statement(&mut self, statement: ReturnStatement) {
+    fn visit_return_statement(&mut self, statement: ReturnStatement<'id>) {
         self.nested |= statement != self.direct;
     }
-    fn visit_function(&mut self, _: Function) {}
-    fn visit_arrow_function_expression(&mut self, _: ArrowFunctionExpression) {}
-    fn visit_class(&mut self, _: Class) {}
+    fn visit_function(&mut self, _: Function<'id>) {}
+    fn visit_arrow_function_expression(&mut self, _: ArrowFunctionExpression<'id>) {}
+    fn visit_class(&mut self, _: Class<'id>) {}
 }

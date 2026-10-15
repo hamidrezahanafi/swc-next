@@ -9,8 +9,9 @@ fn assert_import_target_access(source: &str, name: &[u8], read: bool) {
 fn assert_alias_reference_access(source: &str, name: &[u8], space: ReferenceSpace, read: bool) {
     let allocator = Allocator::new();
     let check = |options| {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) =
-            analyze_with_options(&allocator, source, ts_module_options(), options);
+            analyze_with_options(&allocator, source, ts_module_options(), options, ast_guard);
         let target = symbol_named(&ast, &semantic, name);
         let reference = semantic
             .iter_references()
@@ -141,8 +142,9 @@ fn alias_exports() {
 fn assert_namespace_shadowing(source: &str, name: &[u8]) {
     let allocator = Allocator::new();
     let check = |options| {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) =
-            analyze_with_options(&allocator, source, ts_module_options(), options);
+            analyze_with_options(&allocator, source, ts_module_options(), options, ast_guard);
         let namespace = symbol_named(&ast, &semantic, b"N");
         let member = semantic.ts_namespace_member(namespace, name).unwrap();
         let outer = semantic
@@ -236,8 +238,9 @@ fn member_alias_visibility() {
     let allocator = Allocator::new();
     let source = "export {}; const A = 0; type A = string; namespace Target { export interface T {} } enum E { A = 42, B = A } declare namespace E { export import A = Target } namespace E { const value: 0 = A; type ValueType = A; type Qualified = A.T }";
     let check = |options| {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) =
-            analyze_with_options(&allocator, source, ts_module_options(), options);
+            analyze_with_options(&allocator, source, ts_module_options(), options, ast_guard);
         let outer = semantic
             .iter_symbols()
             .find(|entry| {
@@ -279,8 +282,9 @@ fn assert_import_target(source: &str, name: Option<&[u8]>) {
             check_syntax,
             ..AnalyzeOptions::default()
         };
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) =
-            analyze_with_options(&allocator, source, ts_module_options(), options);
+            analyze_with_options(&allocator, source, ts_module_options(), options, ast_guard);
         let alias = semantic.binding(ScopeId::MODULE, b"A").unwrap();
         let target = semantic.ts_import_alias_target(alias);
         assert_eq!(
@@ -334,8 +338,9 @@ fn assert_import_initializer(source: &str, expected: InitializerReference) {
             check_syntax,
             ..AnalyzeOptions::default()
         };
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) =
-            analyze_with_options(&allocator, source, ts_module_options(), options);
+            analyze_with_options(&allocator, source, ts_module_options(), options, ast_guard);
         let declaration = ast
             .root_program()
             .body(&ast)
@@ -449,7 +454,9 @@ fn assert_import_root_access(source: &str, name: &[u8], read: bool) {
         check_syntax: true,
         ..AnalyzeOptions::default()
     };
-    let (ast, semantic) = analyze_with_options(&allocator, source, ts_module_options(), checked);
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (ast, semantic) =
+        analyze_with_options(&allocator, source, ts_module_options(), checked, ast_guard);
     let reference = semantic
         .iter_references()
         .find(|entry| {
@@ -532,6 +539,7 @@ fn anonymous_class_import_members() {
 fn assert_qualified_alias_bindings(source: &str, alias_is_value: bool) {
     let allocator = Allocator::new();
     for check_syntax in [false, true] {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) = analyze_with_options(
             &allocator,
             source,
@@ -540,6 +548,7 @@ fn assert_qualified_alias_bindings(source: &str, alias_is_value: bool) {
                 check_syntax,
                 ..AnalyzeOptions::default()
             },
+            ast_guard,
         );
         let outer = semantic.binding(ScopeId::MODULE, b"A").unwrap();
         let alias = semantic
@@ -631,8 +640,9 @@ fn assert_namespace_owner_binding(source: &str, declaration: &str, import_root: 
     let allocator = Allocator::new();
     let expected_start = source.find(declaration).unwrap() as u32;
     let check = |options| {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) =
-            analyze_with_options(&allocator, source, ts_module_options(), options);
+            analyze_with_options(&allocator, source, ts_module_options(), options, ast_guard);
         let target = semantic
             .iter_declarations()
             .find(|entry| ast.span(entry.declaration.node).start == expected_start)
@@ -709,7 +719,8 @@ fn qualified_namespace_owners() {
 
 fn import_binding_flags(source: &str) -> SymbolFlags {
     let allocator = Allocator::new();
-    let (_, semantic) = analyze_source(&allocator, source, ts_module_options());
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let (_, semantic) = analyze_source(&allocator, source, ts_module_options(), ast_guard);
     let alias = semantic.binding(ScopeId::MODULE, b"A").unwrap();
     semantic.symbol(alias).flags
 }

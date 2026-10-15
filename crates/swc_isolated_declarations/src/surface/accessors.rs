@@ -17,38 +17,38 @@ pub(crate) struct AccessorKey<'ast> {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum AccessorFunction {
-    Implementation(Function),
-    Signature(TsFunction),
+pub(crate) enum AccessorFunction<'id> {
+    Implementation(Function<'id>),
+    Signature(TsFunction<'id>),
 }
 
-impl AccessorFunction {
-    pub(crate) fn node_id(self) -> NodeId {
+impl<'id> AccessorFunction<'id> {
+    pub(crate) fn node_id(self) -> NodeId<'id> {
         match self {
             Self::Implementation(function) => function.node_id(),
             Self::Signature(function) => function.node_id(),
         }
     }
-    pub(crate) fn span(self, ast: &Ast<'_>) -> Span {
+    pub(crate) fn span(self, ast: &Ast<'_, 'id>) -> Span {
         match self {
             Self::Implementation(function) => function.span(ast),
             Self::Signature(function) => function.span(ast),
         }
     }
-    fn return_type(self, ast: &Ast<'_>) -> Option<TsTypeAnnotation> {
+    fn return_type(self, ast: &Ast<'_, 'id>) -> Option<TsTypeAnnotation<'id>> {
         match self {
             Self::Implementation(function) => function.return_type(ast),
             Self::Signature(function) => function.return_type(ast),
         }
     }
-    fn params(self, ast: &Ast<'_>) -> FormalParameters {
+    fn params(self, ast: &Ast<'_, 'id>) -> FormalParameters<'id> {
         match self {
             Self::Implementation(function) => function.params(ast),
             Self::Signature(function) => function.params(ast),
         }
     }
 
-    fn first_parameter_annotation(self, ast: &Ast<'_>) -> Option<TsTypeAnnotation> {
+    fn first_parameter_annotation(self, ast: &Ast<'_, 'id>) -> Option<TsTypeAnnotation<'id>> {
         let item = ast.get_node_in_sub_range(self.params(ast).items(ast).first()?);
         let parameter = match ast.formal_parameter_item_data(item) {
             FormalParameterItemData::FormalParameter(parameter) => parameter,
@@ -59,19 +59,19 @@ impl AccessorFunction {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct AccessorPair {
-    pub(crate) getter: Option<AccessorFunction>,
-    pub(crate) setter: Option<AccessorFunction>,
+pub(crate) struct AccessorPair<'id> {
+    pub(crate) getter: Option<AccessorFunction<'id>>,
+    pub(crate) setter: Option<AccessorFunction<'id>>,
     pub(crate) span: Span,
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum AccessorType {
-    Annotation(TsTypeAnnotation),
-    Inferred(Function),
+pub(crate) enum AccessorType<'id> {
+    Annotation(TsTypeAnnotation<'id>),
+    Inferred(Function<'id>),
 }
 
-impl AccessorPair {
+impl<'id> AccessorPair<'id> {
     fn new(span: Span) -> Self {
         Self {
             getter: None,
@@ -80,15 +80,15 @@ impl AccessorPair {
         }
     }
 
-    pub(crate) fn getter_annotation(self, ast: &Ast<'_>) -> Option<TsTypeAnnotation> {
+    pub(crate) fn getter_annotation(self, ast: &Ast<'_, 'id>) -> Option<TsTypeAnnotation<'id>> {
         self.getter.and_then(|function| function.return_type(ast))
     }
 
-    pub(crate) fn setter_annotation(self, ast: &Ast<'_>) -> Option<TsTypeAnnotation> {
+    pub(crate) fn setter_annotation(self, ast: &Ast<'_, 'id>) -> Option<TsTypeAnnotation<'id>> {
         self.setter?.first_parameter_annotation(ast)
     }
 
-    pub(crate) fn read_type(self, ast: &Ast<'_>) -> Option<AccessorType> {
+    pub(crate) fn read_type(self, ast: &Ast<'_, 'id>) -> Option<AccessorType<'id>> {
         self.getter_annotation(ast)
             .or_else(|| self.setter_annotation(ast))
             .map(AccessorType::Annotation)
@@ -100,19 +100,19 @@ impl AccessorPair {
             })
     }
 
-    pub(crate) fn write_type(self, ast: &Ast<'_>) -> Option<AccessorType> {
+    pub(crate) fn write_type(self, ast: &Ast<'_, 'id>) -> Option<AccessorType<'id>> {
         self.setter_annotation(ast)
             .map(AccessorType::Annotation)
             .or_else(|| self.read_type(ast))
     }
 }
 
-pub(crate) fn object_accessors<'ast>(
-    object: ObjectExpression,
-    ast: &Ast<'ast>,
-    semantic: &Semantic<'_>,
-) -> FxHashMap<AccessorKey<'ast>, AccessorPair> {
-    let mut pairs = FxHashMap::<_, AccessorPair>::default();
+pub(crate) fn object_accessors<'id, 'ast>(
+    object: ObjectExpression<'id>,
+    ast: &Ast<'ast, 'id>,
+    semantic: &Semantic<'_, 'id>,
+) -> FxHashMap<AccessorKey<'ast>, AccessorPair<'id>> {
+    let mut pairs = FxHashMap::<_, AccessorPair<'id>>::default();
     for property in object.properties(ast).iter() {
         let ObjectPropertyKindData::ObjectProperty(property) =
             ast.object_property_kind_data(ast.get_node_in_sub_range(property))
@@ -145,12 +145,12 @@ pub(crate) fn object_accessors<'ast>(
     pairs
 }
 
-pub(crate) fn class_accessors<'ast>(
-    elements: impl Iterator<Item = ClassElement>,
-    ast: &Ast<'ast>,
-    semantic: &Semantic<'_>,
-) -> FxHashMap<AccessorKey<'ast>, AccessorPair> {
-    let mut pairs = FxHashMap::<_, AccessorPair>::default();
+pub(crate) fn class_accessors<'id, 'ast>(
+    elements: impl Iterator<Item = ClassElement<'id>>,
+    ast: &Ast<'ast, 'id>,
+    semantic: &Semantic<'_, 'id>,
+) -> FxHashMap<AccessorKey<'ast>, AccessorPair<'id>> {
+    let mut pairs = FxHashMap::<_, AccessorPair<'id>>::default();
     for element in elements {
         let (function, kind, key, accessibility, is_static) = match ast.class_element_data(element)
         {

@@ -13,7 +13,15 @@ fn expect_generic_parameters(source: &str, lang: Lang, pretty: &str, compact: &s
             preserve_parens,
             ..ParseOptions::default()
         };
-        let original = Parser::init(&allocator, source, parse_options, NoTokenParserConfig).parse();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
+        let original = Parser::init(
+            &allocator,
+            source,
+            parse_options,
+            NoTokenParserConfig,
+            ast_guard,
+        )
+        .parse();
         assert!(original.diagnostics.is_empty());
 
         for minify in [false, true] {
@@ -23,9 +31,15 @@ fn expect_generic_parameters(source: &str, lang: Lang, pretty: &str, compact: &s
             };
             let printed = print(&allocator, &original.ast, print_options.clone());
             assert_eq!(printed.code, if minify { compact } else { pretty });
-
-            let reparsed =
-                Parser::init(&allocator, printed.code, parse_options, NoTokenParserConfig).parse();
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let reparsed = Parser::init(
+                &allocator,
+                printed.code,
+                parse_options,
+                NoTokenParserConfig,
+                ast_guard,
+            )
+            .parse();
             assert!(reparsed.diagnostics.is_empty());
             let repeated = print(&allocator, &reparsed.ast, print_options);
             assert_eq!(repeated.code, printed.code);
@@ -131,7 +145,15 @@ fn expect_token_boundary(source: &str, expected: &str) {
         preserve_parens: false,
         ..ParseOptions::default()
     };
-    let original = Parser::init(&allocator, source, parse_options, NoTokenParserConfig).parse();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let original = Parser::init(
+        &allocator,
+        source,
+        parse_options,
+        NoTokenParserConfig,
+        ast_guard,
+    )
+    .parse();
     assert!(original.diagnostics.is_empty());
     let print_options = PrintOptions {
         minify: true,
@@ -139,9 +161,15 @@ fn expect_token_boundary(source: &str, expected: &str) {
     };
     let compact = print(&allocator, &original.ast, print_options.clone());
     assert_eq!(compact.code, expected);
-
-    let reparsed =
-        Parser::init(&allocator, compact.code, parse_options, NoTokenParserConfig).parse();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let reparsed = Parser::init(
+        &allocator,
+        compact.code,
+        parse_options,
+        NoTokenParserConfig,
+        ast_guard,
+    )
+    .parse();
     assert!(reparsed.diagnostics.is_empty());
     let original_pretty = print(&allocator, &original.ast, PrintOptions::default());
     let reparsed_pretty = print(&allocator, &reparsed.ast, PrintOptions::default());

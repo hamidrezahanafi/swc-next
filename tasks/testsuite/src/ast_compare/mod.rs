@@ -9,7 +9,10 @@ use swc_next_ecma_ast::*;
 
 mod generated;
 
-pub(crate) fn compare(left: &Ast<'_>, right: &Ast<'_>) -> Result<(), String> {
+pub(crate) fn compare<'left, 'right>(
+    left: &Ast<'_, 'left>,
+    right: &Ast<'_, 'right>,
+) -> Result<(), String> {
     let asts = AstPair { left, right };
     if left.source_type() != right.source_type() {
         return Err(format!(
@@ -21,24 +24,28 @@ pub(crate) fn compare(left: &Ast<'_>, right: &Ast<'_>) -> Result<(), String> {
     left.root_program().compare(right.root_program(), &asts)
 }
 
-struct AstPair<'a, 'b> {
-    left: &'a Ast<'a>,
-    right: &'b Ast<'b>,
+struct AstPair<'a, 'b, 'left, 'right> {
+    left: &'a Ast<'a, 'left>,
+    right: &'b Ast<'b, 'right>,
 }
 
-impl AstPair<'_, '_> {
-    fn nodes(&self, left: NodeId, right: NodeId) -> Result<(), String> {
+impl<'left, 'right> AstPair<'_, '_, 'left, 'right> {
+    fn nodes(&self, left: NodeId<'left>, right: NodeId<'right>) -> Result<(), String> {
         let left = self.left.kind_data(left);
         let right = self.right.kind_data(right);
         generated::compare_nodes(left, right, self)
     }
 }
 
-trait Compare: Sized {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String>;
+trait Compare<'left, 'right, Other = Self>: Sized {
+    fn compare(self, other: Other, asts: &AstPair<'_, '_, 'left, 'right>) -> Result<(), String>;
 }
 
-fn compare_bigint(left: AstUtf8, right: AstUtf8, asts: &AstPair<'_, '_>) -> Result<(), String> {
+fn compare_bigint<'left, 'right>(
+    left: AstUtf8<'left>,
+    right: AstUtf8<'right>,
+    asts: &AstPair<'_, '_, 'left, 'right>,
+) -> Result<(), String> {
     let left = asts.left.get_utf8(left);
     let right = asts.right.get_utf8(right);
     fn digits(text: &str) -> impl Iterator<Item = u8> + '_ {
@@ -53,8 +60,12 @@ fn compare_bigint(left: AstUtf8, right: AstUtf8, asts: &AstPair<'_, '_>) -> Resu
 
 macro_rules! compare_value {
     ($ty:ty) => {
-        impl Compare for $ty {
-            fn compare(self, other: Self, _: &AstPair<'_, '_>) -> Result<(), String> {
+        impl<'left, 'right> Compare<'left, 'right> for $ty {
+            fn compare(
+                self,
+                other: Self,
+                _: &AstPair<'_, '_, 'left, 'right>,
+            ) -> Result<(), String> {
                 if self == other {
                     Ok(())
                 } else {
@@ -66,8 +77,12 @@ macro_rules! compare_value {
 }
 use compare_value;
 
-impl Compare for AstUtf8 {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, AstUtf8<'right>> for AstUtf8<'left> {
+    fn compare(
+        self,
+        other: AstUtf8<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = asts.left.get_utf8(self);
         let right = asts.right.get_utf8(other);
         if left == right {
@@ -78,8 +93,12 @@ impl Compare for AstUtf8 {
     }
 }
 
-impl Compare for AstWtf8 {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right, AstWtf8<'right>> for AstWtf8<'left> {
+    fn compare(
+        self,
+        other: AstWtf8<'right>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         let left = asts.left.get_wtf8(self);
         let right = asts.right.get_wtf8(other);
         if left == right {
@@ -90,8 +109,8 @@ impl Compare for AstWtf8 {
     }
 }
 
-impl Compare for f64 {
-    fn compare(self, other: Self, _: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right> Compare<'left, 'right> for f64 {
+    fn compare(self, other: Self, _: &AstPair<'_, '_, 'left, 'right>) -> Result<(), String> {
         // Preserve negative zero and compare NaN payloads deterministically.
         if self.to_bits() == other.to_bits() {
             Ok(())
@@ -101,8 +120,14 @@ impl Compare for f64 {
     }
 }
 
-impl<T: Compare> Compare for Option<T> {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right, T: Compare<'left, 'right, U>, U> Compare<'left, 'right, Option<U>>
+    for Option<T>
+{
+    fn compare(
+        self,
+        other: Option<U>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         match (self, other) {
             (Some(left), Some(right)) => left.compare(right, asts),
             (None, None) => Ok(()),
@@ -111,8 +136,14 @@ impl<T: Compare> Compare for Option<T> {
     }
 }
 
-impl<T: Compare + ExtraDataValue> Compare for SubRange<T> {
-    fn compare(self, other: Self, asts: &AstPair<'_, '_>) -> Result<(), String> {
+impl<'left, 'right, T: Compare<'left, 'right, U> + ExtraDataValue<'left>, U: ExtraDataValue<'right>>
+    Compare<'left, 'right, SubRange<'right, U>> for SubRange<'left, T>
+{
+    fn compare(
+        self,
+        other: SubRange<'right, U>,
+        asts: &AstPair<'_, '_, 'left, 'right>,
+    ) -> Result<(), String> {
         if self.len() != other.len() {
             return Err("list length changed".into());
         }

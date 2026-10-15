@@ -563,7 +563,6 @@ mod test {
 
             let pattern = &input[left_slash + 1..right_slash];
             let flags = &input[right_slash + 1..];
-
             let actual = LiteralParser::new(allocator, pattern, Some(flags), Options::default())
                 .parse()
                 .unwrap();

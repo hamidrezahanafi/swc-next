@@ -1,10 +1,10 @@
 #![allow(unused, clippy::manual_map)]
 use crate::{Ast, CloneIn, GetSpan, NodeKind};
 use crate::{ast::*, node_id::*};
-impl<'a> CloneIn<'a> for Program {
-    type Cloned = Program;
+impl<'a, 'id> CloneIn<'a, 'id> for Program<'id> {
+    type Cloned = Program<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let directives = self.directives(ast).clone_in(ast);
         let body = self.body(ast).clone_in(ast);
@@ -12,11 +12,11 @@ impl<'a> CloneIn<'a> for Program {
         ast.program(span, directives, body, hashbang)
     }
 }
-impl<'a> CloneIn<'a> for Stmt {
-    type Cloned = Stmt;
+impl<'a, 'id> CloneIn<'a, 'id> for Stmt<'id> {
+    type Cloned = Stmt<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::BlockStatement => Self::BlockStatement(BlockStatement(self.0).clone_in(ast)),
             NodeKind::BreakStatement => Self::BreakStatement(BreakStatement(self.0).clone_in(ast)),
@@ -82,11 +82,11 @@ impl<'a> CloneIn<'a> for Stmt {
         }
     }
 }
-impl<'a> CloneIn<'a> for Decl {
-    type Cloned = Decl;
+impl<'a, 'id> CloneIn<'a, 'id> for Decl<'id> {
+    type Cloned = Decl<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::VariableDeclaration => {
                 Self::VariableDeclaration(VariableDeclaration(self.0).clone_in(ast))
@@ -116,11 +116,11 @@ impl<'a> CloneIn<'a> for Decl {
         }
     }
 }
-impl<'a> CloneIn<'a> for Expr {
-    type Cloned = Expr;
+impl<'a, 'id> CloneIn<'a, 'id> for Expr<'id> {
+    type Cloned = Expr<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::IdentifierReference => {
                 Self::IdentifierReference(IdentifierReference(self.0).clone_in(ast))
@@ -214,11 +214,11 @@ impl<'a> CloneIn<'a> for Expr {
         }
     }
 }
-impl<'a> CloneIn<'a> for BindingPattern {
-    type Cloned = BindingPattern;
+impl<'a, 'id> CloneIn<'a, 'id> for BindingPattern<'id> {
+    type Cloned = BindingPattern<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::BindingIdentifier => {
                 Self::BindingIdentifier(BindingIdentifier(self.0).clone_in(ast))
@@ -243,11 +243,11 @@ impl<'a> CloneIn<'a> for BindingPattern {
         }
     }
 }
-impl<'a> CloneIn<'a> for AssignmentTarget {
-    type Cloned = AssignmentTarget;
+impl<'a, 'id> CloneIn<'a, 'id> for AssignmentTarget<'id> {
+    type Cloned = AssignmentTarget<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::IdentifierReference
             | NodeKind::MemberExpression
@@ -267,11 +267,11 @@ impl<'a> CloneIn<'a> for AssignmentTarget {
         }
     }
 }
-impl<'a> CloneIn<'a> for SimpleAssignmentTarget {
-    type Cloned = SimpleAssignmentTarget;
+impl<'a, 'id> CloneIn<'a, 'id> for SimpleAssignmentTarget<'id> {
+    type Cloned = SimpleAssignmentTarget<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::IdentifierReference => {
                 Self::IdentifierReference(IdentifierReference(self.0).clone_in(ast))
@@ -293,11 +293,11 @@ impl<'a> CloneIn<'a> for SimpleAssignmentTarget {
         }
     }
 }
-impl<'a> CloneIn<'a> for PropertyKey {
-    type Cloned = PropertyKey;
+impl<'a, 'id> CloneIn<'a, 'id> for PropertyKey<'id> {
+    type Cloned = PropertyKey<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::IdentifierName => Self::IdentifierName(IdentifierName(self.0).clone_in(ast)),
             NodeKind::IdentifierReference
@@ -344,11 +344,11 @@ impl<'a> CloneIn<'a> for PropertyKey {
         }
     }
 }
-impl<'a> CloneIn<'a> for ModuleExportName {
-    type Cloned = ModuleExportName;
+impl<'a, 'id> CloneIn<'a, 'id> for ModuleExportName<'id> {
+    type Cloned = ModuleExportName<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::IdentifierName => Self::IdentifierName(IdentifierName(self.0).clone_in(ast)),
             NodeKind::StringLiteral => Self::StringLiteral(StringLiteral(self.0).clone_in(ast)),
@@ -356,11 +356,11 @@ impl<'a> CloneIn<'a> for ModuleExportName {
         }
     }
 }
-impl<'a> CloneIn<'a> for Argument {
-    type Cloned = Argument;
+impl<'a, 'id> CloneIn<'a, 'id> for Argument<'id> {
+    type Cloned = Argument<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::IdentifierReference
             | NodeKind::ThisExpression
@@ -407,11 +407,11 @@ impl<'a> CloneIn<'a> for Argument {
         }
     }
 }
-impl<'a> CloneIn<'a> for ObjectPropertyKind {
-    type Cloned = ObjectPropertyKind;
+impl<'a, 'id> CloneIn<'a, 'id> for ObjectPropertyKind<'id> {
+    type Cloned = ObjectPropertyKind<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::ObjectProperty => Self::ObjectProperty(ObjectProperty(self.0).clone_in(ast)),
             NodeKind::SpreadElement => Self::SpreadElement(SpreadElement(self.0).clone_in(ast)),
@@ -419,11 +419,11 @@ impl<'a> CloneIn<'a> for ObjectPropertyKind {
         }
     }
 }
-impl<'a> CloneIn<'a> for ForStatementInit {
-    type Cloned = ForStatementInit;
+impl<'a, 'id> CloneIn<'a, 'id> for ForStatementInit<'id> {
+    type Cloned = ForStatementInit<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::VariableDeclaration => {
                 Self::VariableDeclaration(VariableDeclaration(self.0).clone_in(ast))
@@ -472,11 +472,11 @@ impl<'a> CloneIn<'a> for ForStatementInit {
         }
     }
 }
-impl<'a> CloneIn<'a> for ForStatementLeft {
-    type Cloned = ForStatementLeft;
+impl<'a, 'id> CloneIn<'a, 'id> for ForStatementLeft<'id> {
+    type Cloned = ForStatementLeft<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::VariableDeclaration => {
                 Self::VariableDeclaration(VariableDeclaration(self.0).clone_in(ast))
@@ -495,11 +495,11 @@ impl<'a> CloneIn<'a> for ForStatementLeft {
         }
     }
 }
-impl<'a> CloneIn<'a> for ArrowFunctionBody {
-    type Cloned = ArrowFunctionBody;
+impl<'a, 'id> CloneIn<'a, 'id> for ArrowFunctionBody<'id> {
+    type Cloned = ArrowFunctionBody<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::FunctionBody => Self::FunctionBody(FunctionBody(self.0).clone_in(ast)),
             NodeKind::IdentifierReference
@@ -546,11 +546,11 @@ impl<'a> CloneIn<'a> for ArrowFunctionBody {
         }
     }
 }
-impl<'a> CloneIn<'a> for FormalParameterItem {
-    type Cloned = FormalParameterItem;
+impl<'a, 'id> CloneIn<'a, 'id> for FormalParameterItem<'id> {
+    type Cloned = FormalParameterItem<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::FormalParameter => {
                 Self::FormalParameter(FormalParameter(self.0).clone_in(ast))
@@ -562,11 +562,11 @@ impl<'a> CloneIn<'a> for FormalParameterItem {
         }
     }
 }
-impl<'a> CloneIn<'a> for FormalParameterPattern {
-    type Cloned = FormalParameterPattern;
+impl<'a, 'id> CloneIn<'a, 'id> for FormalParameterPattern<'id> {
+    type Cloned = FormalParameterPattern<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::BindingIdentifier => {
                 Self::BindingIdentifier(BindingIdentifier(self.0).clone_in(ast))
@@ -577,11 +577,11 @@ impl<'a> CloneIn<'a> for FormalParameterPattern {
         }
     }
 }
-impl<'a> CloneIn<'a> for ClassElement {
-    type Cloned = ClassElement;
+impl<'a, 'id> CloneIn<'a, 'id> for ClassElement<'id> {
+    type Cloned = ClassElement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::MethodDefinition => {
                 Self::MethodDefinition(MethodDefinition(self.0).clone_in(ast))
@@ -600,11 +600,11 @@ impl<'a> CloneIn<'a> for ClassElement {
         }
     }
 }
-impl<'a> CloneIn<'a> for ImportDeclarationSpecifier {
-    type Cloned = ImportDeclarationSpecifier;
+impl<'a, 'id> CloneIn<'a, 'id> for ImportDeclarationSpecifier<'id> {
+    type Cloned = ImportDeclarationSpecifier<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::ImportSpecifier => {
                 Self::ImportSpecifier(ImportSpecifier(self.0).clone_in(ast))
@@ -619,11 +619,11 @@ impl<'a> CloneIn<'a> for ImportDeclarationSpecifier {
         }
     }
 }
-impl<'a> CloneIn<'a> for ExportDefaultDeclarationKind {
-    type Cloned = ExportDefaultDeclarationKind;
+impl<'a, 'id> CloneIn<'a, 'id> for ExportDefaultDeclarationKind<'id> {
+    type Cloned = ExportDefaultDeclarationKind<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::Function => {
                 let concrete = Function(self.0);
@@ -687,92 +687,92 @@ impl<'a> CloneIn<'a> for ExportDefaultDeclarationKind {
         }
     }
 }
-impl<'a> CloneIn<'a> for Super {
-    type Cloned = Super;
+impl<'a, 'id> CloneIn<'a, 'id> for Super<'id> {
+    type Cloned = Super<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.super_(span)
     }
 }
-impl<'a> CloneIn<'a> for ThisExpression {
-    type Cloned = ThisExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for ThisExpression<'id> {
+    type Cloned = ThisExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.this_expression(span)
     }
 }
-impl<'a> CloneIn<'a> for StringLiteral {
-    type Cloned = StringLiteral;
+impl<'a, 'id> CloneIn<'a, 'id> for StringLiteral<'id> {
+    type Cloned = StringLiteral<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let value = self.value(ast).clone_in(ast);
         let raw = self.raw(ast).clone_in(ast);
         ast.string_literal(span, value, raw)
     }
 }
-impl<'a> CloneIn<'a> for NumericLiteral {
-    type Cloned = NumericLiteral;
+impl<'a, 'id> CloneIn<'a, 'id> for NumericLiteral<'id> {
+    type Cloned = NumericLiteral<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let value = self.value(ast).clone_in(ast);
         let raw = self.raw(ast).clone_in(ast);
         ast.numeric_literal(span, value, raw)
     }
 }
-impl<'a> CloneIn<'a> for BigIntLiteral {
-    type Cloned = BigIntLiteral;
+impl<'a, 'id> CloneIn<'a, 'id> for BigIntLiteral<'id> {
+    type Cloned = BigIntLiteral<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let raw = self.raw(ast).clone_in(ast);
         ast.big_int_literal(span, raw)
     }
 }
-impl<'a> CloneIn<'a> for BooleanLiteral {
-    type Cloned = BooleanLiteral;
+impl<'a, 'id> CloneIn<'a, 'id> for BooleanLiteral<'id> {
+    type Cloned = BooleanLiteral<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let value = self.value(ast).clone_in(ast);
         ast.boolean_literal(span, value)
     }
 }
-impl<'a> CloneIn<'a> for NullLiteral {
-    type Cloned = NullLiteral;
+impl<'a, 'id> CloneIn<'a, 'id> for NullLiteral<'id> {
+    type Cloned = NullLiteral<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.null_literal(span)
     }
 }
-impl<'a> CloneIn<'a> for RegExpLiteral {
-    type Cloned = RegExpLiteral;
+impl<'a, 'id> CloneIn<'a, 'id> for RegExpLiteral<'id> {
+    type Cloned = RegExpLiteral<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let pattern = self.pattern(ast).clone_in(ast);
         let flags = self.flags(ast).clone_in(ast);
         ast.reg_exp_literal(span, pattern, flags)
     }
 }
-impl<'a> CloneIn<'a> for TemplateLiteral {
-    type Cloned = TemplateLiteral;
+impl<'a, 'id> CloneIn<'a, 'id> for TemplateLiteral<'id> {
+    type Cloned = TemplateLiteral<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let quasis = self.quasis(ast).clone_in(ast);
         let expressions = self.expressions(ast).clone_in(ast);
         ast.template_literal(span, quasis, expressions)
     }
 }
-impl<'a> CloneIn<'a> for TemplateElement {
-    type Cloned = TemplateElement;
+impl<'a, 'id> CloneIn<'a, 'id> for TemplateElement<'id> {
+    type Cloned = TemplateElement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let cooked = self.cooked(ast).clone_in(ast);
         let raw = self.raw(ast).clone_in(ast);
@@ -781,94 +781,94 @@ impl<'a> CloneIn<'a> for TemplateElement {
         ast.template_element(span, cooked, raw, tail, is_cooked_undefined)
     }
 }
-impl<'a> CloneIn<'a> for IdentifierReference {
-    type Cloned = IdentifierReference;
+impl<'a, 'id> CloneIn<'a, 'id> for IdentifierReference<'id> {
+    type Cloned = IdentifierReference<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let name = self.name(ast).clone_in(ast);
         ast.identifier_reference(span, name)
     }
 }
-impl<'a> CloneIn<'a> for PrivateIdentifier {
-    type Cloned = PrivateIdentifier;
+impl<'a, 'id> CloneIn<'a, 'id> for PrivateIdentifier<'id> {
+    type Cloned = PrivateIdentifier<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let name = self.name(ast).clone_in(ast);
         ast.private_identifier(span, name)
     }
 }
-impl<'a> CloneIn<'a> for BindingIdentifier {
-    type Cloned = BindingIdentifier;
+impl<'a, 'id> CloneIn<'a, 'id> for BindingIdentifier<'id> {
+    type Cloned = BindingIdentifier<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let name = self.name(ast).clone_in(ast);
         ast.binding_identifier(span, name)
     }
 }
-impl<'a> CloneIn<'a> for IdentifierName {
-    type Cloned = IdentifierName;
+impl<'a, 'id> CloneIn<'a, 'id> for IdentifierName<'id> {
+    type Cloned = IdentifierName<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let name = self.name(ast).clone_in(ast);
         ast.identifier_name(span, name)
     }
 }
-impl<'a> CloneIn<'a> for LabelIdentifier {
-    type Cloned = LabelIdentifier;
+impl<'a, 'id> CloneIn<'a, 'id> for LabelIdentifier<'id> {
+    type Cloned = LabelIdentifier<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let name = self.name(ast).clone_in(ast);
         ast.label_identifier(span, name)
     }
 }
-impl<'a> CloneIn<'a> for AssignmentPattern {
-    type Cloned = AssignmentPattern;
+impl<'a, 'id> CloneIn<'a, 'id> for AssignmentPattern<'id> {
+    type Cloned = AssignmentPattern<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let left = self.left(ast).clone_in(ast);
         let right = self.right(ast).clone_in(ast);
         ast.assignment_pattern(span, left, right)
     }
 }
-impl<'a> CloneIn<'a> for BindingRestElement {
-    type Cloned = BindingRestElement;
+impl<'a, 'id> CloneIn<'a, 'id> for BindingRestElement<'id> {
+    type Cloned = BindingRestElement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let argument = self.argument(ast).clone_in(ast);
         ast.binding_rest_element(span, argument)
     }
 }
-impl<'a> CloneIn<'a> for ArrayPattern {
-    type Cloned = ArrayPattern;
+impl<'a, 'id> CloneIn<'a, 'id> for ArrayPattern<'id> {
+    type Cloned = ArrayPattern<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let elements = self.elements(ast).clone_in(ast);
         let rest = self.rest(ast).clone_in(ast);
         ast.array_pattern(span, elements, rest)
     }
 }
-impl<'a> CloneIn<'a> for ObjectPattern {
-    type Cloned = ObjectPattern;
+impl<'a, 'id> CloneIn<'a, 'id> for ObjectPattern<'id> {
+    type Cloned = ObjectPattern<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let properties = self.properties(ast).clone_in(ast);
         let rest = self.rest(ast).clone_in(ast);
         ast.object_pattern(span, properties, rest)
     }
 }
-impl<'a> CloneIn<'a> for BindingProperty {
-    type Cloned = BindingProperty;
+impl<'a, 'id> CloneIn<'a, 'id> for BindingProperty<'id> {
+    type Cloned = BindingProperty<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let key = self.key(ast).clone_in(ast);
         let value = self.value(ast).clone_in(ast);
@@ -877,10 +877,10 @@ impl<'a> CloneIn<'a> for BindingProperty {
         ast.binding_property(span, key, value, shorthand, computed)
     }
 }
-impl<'a> CloneIn<'a> for BinaryExpression {
-    type Cloned = BinaryExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for BinaryExpression<'id> {
+    type Cloned = BinaryExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let left = self.left(ast).clone_in(ast);
         let right = self.right(ast).clone_in(ast);
@@ -888,10 +888,10 @@ impl<'a> CloneIn<'a> for BinaryExpression {
         ast.binary_expression(span, left, right, operator)
     }
 }
-impl<'a> CloneIn<'a> for LogicalExpression {
-    type Cloned = LogicalExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for LogicalExpression<'id> {
+    type Cloned = LogicalExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let left = self.left(ast).clone_in(ast);
         let right = self.right(ast).clone_in(ast);
@@ -899,10 +899,10 @@ impl<'a> CloneIn<'a> for LogicalExpression {
         ast.logical_expression(span, left, right, operator)
     }
 }
-impl<'a> CloneIn<'a> for ConditionalExpression {
-    type Cloned = ConditionalExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for ConditionalExpression<'id> {
+    type Cloned = ConditionalExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let test = self.test(ast).clone_in(ast);
         let consequent = self.consequent(ast).clone_in(ast);
@@ -910,20 +910,20 @@ impl<'a> CloneIn<'a> for ConditionalExpression {
         ast.conditional_expression(span, test, consequent, alternate)
     }
 }
-impl<'a> CloneIn<'a> for UnaryExpression {
-    type Cloned = UnaryExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for UnaryExpression<'id> {
+    type Cloned = UnaryExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let argument = self.argument(ast).clone_in(ast);
         let operator = self.operator(ast).clone_in(ast);
         ast.unary_expression(span, argument, operator)
     }
 }
-impl<'a> CloneIn<'a> for UpdateExpression {
-    type Cloned = UpdateExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for UpdateExpression<'id> {
+    type Cloned = UpdateExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let argument = self.argument(ast).clone_in(ast);
         let operator = self.operator(ast).clone_in(ast);
@@ -931,10 +931,10 @@ impl<'a> CloneIn<'a> for UpdateExpression {
         ast.update_expression(span, argument, operator, prefix)
     }
 }
-impl<'a> CloneIn<'a> for AssignmentExpression {
-    type Cloned = AssignmentExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for AssignmentExpression<'id> {
+    type Cloned = AssignmentExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let left = self.left(ast).clone_in(ast);
         let right = self.right(ast).clone_in(ast);
@@ -942,10 +942,10 @@ impl<'a> CloneIn<'a> for AssignmentExpression {
         ast.assignment_expression(span, left, right, operator)
     }
 }
-impl<'a> CloneIn<'a> for VariableDeclaration {
-    type Cloned = VariableDeclaration;
+impl<'a, 'id> CloneIn<'a, 'id> for VariableDeclaration<'id> {
+    type Cloned = VariableDeclaration<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let kind = self.kind(ast).clone_in(ast);
         let declarators = self.declarators(ast).clone_in(ast);
@@ -953,10 +953,10 @@ impl<'a> CloneIn<'a> for VariableDeclaration {
         ast.variable_declaration(span, kind, declarators, declare)
     }
 }
-impl<'a> CloneIn<'a> for VariableDeclarator {
-    type Cloned = VariableDeclarator;
+impl<'a, 'id> CloneIn<'a, 'id> for VariableDeclarator<'id> {
+    type Cloned = VariableDeclarator<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let id = self.id(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
@@ -965,10 +965,10 @@ impl<'a> CloneIn<'a> for VariableDeclarator {
         ast.variable_declarator(span, id, type_annotation, init, definite)
     }
 }
-impl<'a> CloneIn<'a> for IfStatement {
-    type Cloned = IfStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for IfStatement<'id> {
+    type Cloned = IfStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let test = self.test(ast).clone_in(ast);
         let consequent = self.consequent(ast).clone_in(ast);
@@ -976,30 +976,30 @@ impl<'a> CloneIn<'a> for IfStatement {
         ast.if_statement(span, test, consequent, alternate)
     }
 }
-impl<'a> CloneIn<'a> for SwitchStatement {
-    type Cloned = SwitchStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for SwitchStatement<'id> {
+    type Cloned = SwitchStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let discriminant = self.discriminant(ast).clone_in(ast);
         let cases = self.cases(ast).clone_in(ast);
         ast.switch_statement(span, discriminant, cases)
     }
 }
-impl<'a> CloneIn<'a> for SwitchCase {
-    type Cloned = SwitchCase;
+impl<'a, 'id> CloneIn<'a, 'id> for SwitchCase<'id> {
+    type Cloned = SwitchCase<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let test = self.test(ast).clone_in(ast);
         let consequent = self.consequent(ast).clone_in(ast);
         ast.switch_case(span, test, consequent)
     }
 }
-impl<'a> CloneIn<'a> for ForStatement {
-    type Cloned = ForStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for ForStatement<'id> {
+    type Cloned = ForStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let init = self.init(ast).clone_in(ast);
         let test = self.test(ast).clone_in(ast);
@@ -1008,10 +1008,10 @@ impl<'a> CloneIn<'a> for ForStatement {
         ast.for_statement(span, init, test, update, body)
     }
 }
-impl<'a> CloneIn<'a> for ForInStatement {
-    type Cloned = ForInStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for ForInStatement<'id> {
+    type Cloned = ForInStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let left = self.left(ast).clone_in(ast);
         let right = self.right(ast).clone_in(ast);
@@ -1019,10 +1019,10 @@ impl<'a> CloneIn<'a> for ForInStatement {
         ast.for_in_statement(span, left, right, body)
     }
 }
-impl<'a> CloneIn<'a> for ForOfStatement {
-    type Cloned = ForOfStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for ForOfStatement<'id> {
+    type Cloned = ForOfStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let left = self.left(ast).clone_in(ast);
         let right = self.right(ast).clone_in(ast);
@@ -1031,10 +1031,10 @@ impl<'a> CloneIn<'a> for ForOfStatement {
         ast.for_of_statement(span, left, right, body, r#await)
     }
 }
-impl<'a> CloneIn<'a> for TryStatement {
-    type Cloned = TryStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for TryStatement<'id> {
+    type Cloned = TryStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let block = self.block(ast).clone_in(ast);
         let handler = self.handler(ast).clone_in(ast);
@@ -1042,10 +1042,10 @@ impl<'a> CloneIn<'a> for TryStatement {
         ast.try_statement(span, block, handler, finalizer)
     }
 }
-impl<'a> CloneIn<'a> for CatchClause {
-    type Cloned = CatchClause;
+impl<'a, 'id> CloneIn<'a, 'id> for CatchClause<'id> {
+    type Cloned = CatchClause<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let param = self.param(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
@@ -1053,100 +1053,100 @@ impl<'a> CloneIn<'a> for CatchClause {
         ast.catch_clause(span, param, type_annotation, body)
     }
 }
-impl<'a> CloneIn<'a> for BreakStatement {
-    type Cloned = BreakStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for BreakStatement<'id> {
+    type Cloned = BreakStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let label = self.label(ast).clone_in(ast);
         ast.break_statement(span, label)
     }
 }
-impl<'a> CloneIn<'a> for ContinueStatement {
-    type Cloned = ContinueStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for ContinueStatement<'id> {
+    type Cloned = ContinueStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let label = self.label(ast).clone_in(ast);
         ast.continue_statement(span, label)
     }
 }
-impl<'a> CloneIn<'a> for LabeledStatement {
-    type Cloned = LabeledStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for LabeledStatement<'id> {
+    type Cloned = LabeledStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let label = self.label(ast).clone_in(ast);
         let body = self.body(ast).clone_in(ast);
         ast.labeled_statement(span, label, body)
     }
 }
-impl<'a> CloneIn<'a> for ExpressionStatement {
-    type Cloned = ExpressionStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for ExpressionStatement<'id> {
+    type Cloned = ExpressionStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         ast.expression_statement(span, expression)
     }
 }
-impl<'a> CloneIn<'a> for ReturnStatement {
-    type Cloned = ReturnStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for ReturnStatement<'id> {
+    type Cloned = ReturnStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let argument = self.argument(ast).clone_in(ast);
         ast.return_statement(span, argument)
     }
 }
-impl<'a> CloneIn<'a> for ThrowStatement {
-    type Cloned = ThrowStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for ThrowStatement<'id> {
+    type Cloned = ThrowStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let argument = self.argument(ast).clone_in(ast);
         ast.throw_statement(span, argument)
     }
 }
-impl<'a> CloneIn<'a> for DebuggerStatement {
-    type Cloned = DebuggerStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for DebuggerStatement<'id> {
+    type Cloned = DebuggerStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.debugger_statement(span)
     }
 }
-impl<'a> CloneIn<'a> for EmptyStatement {
-    type Cloned = EmptyStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for EmptyStatement<'id> {
+    type Cloned = EmptyStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.empty_statement(span)
     }
 }
-impl<'a> CloneIn<'a> for Directive {
-    type Cloned = Directive;
+impl<'a, 'id> CloneIn<'a, 'id> for Directive<'id> {
+    type Cloned = Directive<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         let value = self.value(ast).clone_in(ast);
         ast.directive(span, expression, value)
     }
 }
-impl<'a> CloneIn<'a> for Decorator {
-    type Cloned = Decorator;
+impl<'a, 'id> CloneIn<'a, 'id> for Decorator<'id> {
+    type Cloned = Decorator<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         ast.decorator(span, expression)
     }
 }
-impl<'a> CloneIn<'a> for Class {
-    type Cloned = Class;
+impl<'a, 'id> CloneIn<'a, 'id> for Class<'id> {
+    type Cloned = Class<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let class_type = self.class_type(ast).clone_in(ast);
         let decorators = self.decorators(ast).clone_in(ast);
@@ -1173,19 +1173,19 @@ impl<'a> CloneIn<'a> for Class {
         )
     }
 }
-impl<'a> CloneIn<'a> for ClassBody {
-    type Cloned = ClassBody;
+impl<'a, 'id> CloneIn<'a, 'id> for ClassBody<'id> {
+    type Cloned = ClassBody<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let body = self.body(ast).clone_in(ast);
         ast.class_body(span, body)
     }
 }
-impl<'a> CloneIn<'a> for MethodDefinition {
-    type Cloned = MethodDefinition;
+impl<'a, 'id> CloneIn<'a, 'id> for MethodDefinition<'id> {
+    type Cloned = MethodDefinition<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let decorators = self.decorators(ast).clone_in(ast);
         let key = self.key(ast).clone_in(ast);
@@ -1212,10 +1212,10 @@ impl<'a> CloneIn<'a> for MethodDefinition {
         )
     }
 }
-impl<'a> CloneIn<'a> for PropertyDefinition {
-    type Cloned = PropertyDefinition;
+impl<'a, 'id> CloneIn<'a, 'id> for PropertyDefinition<'id> {
+    type Cloned = PropertyDefinition<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let decorators = self.decorators(ast).clone_in(ast);
         let key = self.key(ast).clone_in(ast);
@@ -1250,19 +1250,19 @@ impl<'a> CloneIn<'a> for PropertyDefinition {
         )
     }
 }
-impl<'a> CloneIn<'a> for StaticBlock {
-    type Cloned = StaticBlock;
+impl<'a, 'id> CloneIn<'a, 'id> for StaticBlock<'id> {
+    type Cloned = StaticBlock<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let body = self.body(ast).clone_in(ast);
         ast.static_block(span, body)
     }
 }
-impl<'a> CloneIn<'a> for Function {
-    type Cloned = Function;
+impl<'a, 'id> CloneIn<'a, 'id> for Function<'id> {
+    type Cloned = Function<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let function_type = self.function_type(ast).clone_in(ast);
         let id = self.id(ast).clone_in(ast);
@@ -1287,59 +1287,59 @@ impl<'a> CloneIn<'a> for Function {
         )
     }
 }
-impl<'a> CloneIn<'a> for FunctionBody {
-    type Cloned = FunctionBody;
+impl<'a, 'id> CloneIn<'a, 'id> for FunctionBody<'id> {
+    type Cloned = FunctionBody<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let directives = self.directives(ast).clone_in(ast);
         let body = self.body(ast).clone_in(ast);
         ast.function_body(span, directives, body)
     }
 }
-impl<'a> CloneIn<'a> for BlockStatement {
-    type Cloned = BlockStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for BlockStatement<'id> {
+    type Cloned = BlockStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let body = self.body(ast).clone_in(ast);
         ast.block_statement(span, body)
     }
 }
-impl<'a> CloneIn<'a> for WhileStatement {
-    type Cloned = WhileStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for WhileStatement<'id> {
+    type Cloned = WhileStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let test = self.test(ast).clone_in(ast);
         let body = self.body(ast).clone_in(ast);
         ast.while_statement(span, test, body)
     }
 }
-impl<'a> CloneIn<'a> for DoWhileStatement {
-    type Cloned = DoWhileStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for DoWhileStatement<'id> {
+    type Cloned = DoWhileStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let body = self.body(ast).clone_in(ast);
         let test = self.test(ast).clone_in(ast);
         ast.do_while_statement(span, body, test)
     }
 }
-impl<'a> CloneIn<'a> for WithStatement {
-    type Cloned = WithStatement;
+impl<'a, 'id> CloneIn<'a, 'id> for WithStatement<'id> {
+    type Cloned = WithStatement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let object = self.object(ast).clone_in(ast);
         let body = self.body(ast).clone_in(ast);
         ast.with_statement(span, object, body)
     }
 }
-impl<'a> CloneIn<'a> for FormalParameters {
-    type Cloned = FormalParameters;
+impl<'a, 'id> CloneIn<'a, 'id> for FormalParameters<'id> {
+    type Cloned = FormalParameters<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let items = self.items(ast).clone_in(ast);
         let rest = self.rest(ast).clone_in(ast);
@@ -1347,10 +1347,10 @@ impl<'a> CloneIn<'a> for FormalParameters {
         ast.formal_parameters(span, items, rest, kind)
     }
 }
-impl<'a> CloneIn<'a> for FormalParameter {
-    type Cloned = FormalParameter;
+impl<'a, 'id> CloneIn<'a, 'id> for FormalParameter<'id> {
+    type Cloned = FormalParameter<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let decorators = self.decorators(ast).clone_in(ast);
         let pattern = self.pattern(ast).clone_in(ast);
@@ -1367,10 +1367,10 @@ impl<'a> CloneIn<'a> for FormalParameter {
         )
     }
 }
-impl<'a> CloneIn<'a> for FormalParameterRest {
-    type Cloned = FormalParameterRest;
+impl<'a, 'id> CloneIn<'a, 'id> for FormalParameterRest<'id> {
+    type Cloned = FormalParameterRest<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let decorators = self.decorators(ast).clone_in(ast);
         let argument = self.argument(ast).clone_in(ast);
@@ -1378,37 +1378,37 @@ impl<'a> CloneIn<'a> for FormalParameterRest {
         ast.formal_parameter_rest(span, decorators, argument, type_annotation)
     }
 }
-impl<'a> CloneIn<'a> for ArrayExpression {
-    type Cloned = ArrayExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for ArrayExpression<'id> {
+    type Cloned = ArrayExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let elements = self.elements(ast).clone_in(ast);
         ast.array_expression(span, elements)
     }
 }
-impl<'a> CloneIn<'a> for ObjectExpression {
-    type Cloned = ObjectExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for ObjectExpression<'id> {
+    type Cloned = ObjectExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let properties = self.properties(ast).clone_in(ast);
         ast.object_expression(span, properties)
     }
 }
-impl<'a> CloneIn<'a> for SpreadElement {
-    type Cloned = SpreadElement;
+impl<'a, 'id> CloneIn<'a, 'id> for SpreadElement<'id> {
+    type Cloned = SpreadElement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let argument = self.argument(ast).clone_in(ast);
         ast.spread_element(span, argument)
     }
 }
-impl<'a> CloneIn<'a> for ObjectProperty {
-    type Cloned = ObjectProperty;
+impl<'a, 'id> CloneIn<'a, 'id> for ObjectProperty<'id> {
+    type Cloned = ObjectProperty<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let key = self.key(ast).clone_in(ast);
         let value = self.value(ast).clone_in(ast);
@@ -1419,19 +1419,19 @@ impl<'a> CloneIn<'a> for ObjectProperty {
         ast.object_property(span, key, value, kind, method, shorthand, computed)
     }
 }
-impl<'a> CloneIn<'a> for ParenthesizedExpression {
-    type Cloned = ParenthesizedExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for ParenthesizedExpression<'id> {
+    type Cloned = ParenthesizedExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         ast.parenthesized_expression(span, expression)
     }
 }
-impl<'a> CloneIn<'a> for ArrowFunctionExpression {
-    type Cloned = ArrowFunctionExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for ArrowFunctionExpression<'id> {
+    type Cloned = ArrowFunctionExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         let r#async = self.r#async(ast).clone_in(ast);
@@ -1450,19 +1450,19 @@ impl<'a> CloneIn<'a> for ArrowFunctionExpression {
         )
     }
 }
-impl<'a> CloneIn<'a> for SequenceExpression {
-    type Cloned = SequenceExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for SequenceExpression<'id> {
+    type Cloned = SequenceExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expressions = self.expressions(ast).clone_in(ast);
         ast.sequence_expression(span, expressions)
     }
 }
-impl<'a> CloneIn<'a> for MemberExpression {
-    type Cloned = MemberExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for MemberExpression<'id> {
+    type Cloned = MemberExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let object = self.object(ast).clone_in(ast);
         let property = self.property(ast).clone_in(ast);
@@ -1471,10 +1471,10 @@ impl<'a> CloneIn<'a> for MemberExpression {
         ast.member_expression(span, object, property, computed, optional)
     }
 }
-impl<'a> CloneIn<'a> for CallExpression {
-    type Cloned = CallExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for CallExpression<'id> {
+    type Cloned = CallExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let callee = self.callee(ast).clone_in(ast);
         let type_arguments = self.type_arguments(ast).clone_in(ast);
@@ -1483,19 +1483,19 @@ impl<'a> CloneIn<'a> for CallExpression {
         ast.call_expression(span, callee, type_arguments, arguments, optional)
     }
 }
-impl<'a> CloneIn<'a> for ChainExpression {
-    type Cloned = ChainExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for ChainExpression<'id> {
+    type Cloned = ChainExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         ast.chain_expression(span, expression)
     }
 }
-impl<'a> CloneIn<'a> for TaggedTemplateExpression {
-    type Cloned = TaggedTemplateExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for TaggedTemplateExpression<'id> {
+    type Cloned = TaggedTemplateExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let tag = self.tag(ast).clone_in(ast);
         let type_arguments = self.type_arguments(ast).clone_in(ast);
@@ -1503,10 +1503,10 @@ impl<'a> CloneIn<'a> for TaggedTemplateExpression {
         ast.tagged_template_expression(span, tag, type_arguments, quasi)
     }
 }
-impl<'a> CloneIn<'a> for NewExpression {
-    type Cloned = NewExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for NewExpression<'id> {
+    type Cloned = NewExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let callee = self.callee(ast).clone_in(ast);
         let type_arguments = self.type_arguments(ast).clone_in(ast);
@@ -1514,39 +1514,39 @@ impl<'a> CloneIn<'a> for NewExpression {
         ast.new_expression(span, callee, type_arguments, arguments)
     }
 }
-impl<'a> CloneIn<'a> for AwaitExpression {
-    type Cloned = AwaitExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for AwaitExpression<'id> {
+    type Cloned = AwaitExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let argument = self.argument(ast).clone_in(ast);
         ast.await_expression(span, argument)
     }
 }
-impl<'a> CloneIn<'a> for YieldExpression {
-    type Cloned = YieldExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for YieldExpression<'id> {
+    type Cloned = YieldExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let argument = self.argument(ast).clone_in(ast);
         let delegate = self.delegate(ast).clone_in(ast);
         ast.yield_expression(span, argument, delegate)
     }
 }
-impl<'a> CloneIn<'a> for MetaProperty {
-    type Cloned = MetaProperty;
+impl<'a, 'id> CloneIn<'a, 'id> for MetaProperty<'id> {
+    type Cloned = MetaProperty<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let meta = self.meta(ast).clone_in(ast);
         let property = self.property(ast).clone_in(ast);
         ast.meta_property(span, meta, property)
     }
 }
-impl<'a> CloneIn<'a> for ImportExpression {
-    type Cloned = ImportExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for ImportExpression<'id> {
+    type Cloned = ImportExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let source = self.source(ast).clone_in(ast);
         let options = self.options(ast).clone_in(ast);
@@ -1555,10 +1555,10 @@ impl<'a> CloneIn<'a> for ImportExpression {
         ast.import_expression(span, source, options, phase, sync)
     }
 }
-impl<'a> CloneIn<'a> for ImportDeclaration {
-    type Cloned = ImportDeclaration;
+impl<'a, 'id> CloneIn<'a, 'id> for ImportDeclaration<'id> {
+    type Cloned = ImportDeclaration<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let specifiers = self.specifiers(ast).clone_in(ast);
         let source = self.source(ast).clone_in(ast);
@@ -1568,10 +1568,10 @@ impl<'a> CloneIn<'a> for ImportDeclaration {
         ast.import_declaration(span, specifiers, source, attributes, phase, import_kind)
     }
 }
-impl<'a> CloneIn<'a> for ImportSpecifier {
-    type Cloned = ImportSpecifier;
+impl<'a, 'id> CloneIn<'a, 'id> for ImportSpecifier<'id> {
+    type Cloned = ImportSpecifier<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let imported = self.imported(ast).clone_in(ast);
         let local = self.local(ast).clone_in(ast);
@@ -1579,38 +1579,38 @@ impl<'a> CloneIn<'a> for ImportSpecifier {
         ast.import_specifier(span, imported, local, import_kind)
     }
 }
-impl<'a> CloneIn<'a> for ImportDefaultSpecifier {
-    type Cloned = ImportDefaultSpecifier;
+impl<'a, 'id> CloneIn<'a, 'id> for ImportDefaultSpecifier<'id> {
+    type Cloned = ImportDefaultSpecifier<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let local = self.local(ast).clone_in(ast);
         ast.import_default_specifier(span, local)
     }
 }
-impl<'a> CloneIn<'a> for ImportNamespaceSpecifier {
-    type Cloned = ImportNamespaceSpecifier;
+impl<'a, 'id> CloneIn<'a, 'id> for ImportNamespaceSpecifier<'id> {
+    type Cloned = ImportNamespaceSpecifier<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let local = self.local(ast).clone_in(ast);
         ast.import_namespace_specifier(span, local)
     }
 }
-impl<'a> CloneIn<'a> for ImportAttribute {
-    type Cloned = ImportAttribute;
+impl<'a, 'id> CloneIn<'a, 'id> for ImportAttribute<'id> {
+    type Cloned = ImportAttribute<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let key = self.key(ast).clone_in(ast);
         let value = self.value(ast).clone_in(ast);
         ast.import_attribute(span, key, value)
     }
 }
-impl<'a> CloneIn<'a> for ExportNamedDeclaration {
-    type Cloned = ExportNamedDeclaration;
+impl<'a, 'id> CloneIn<'a, 'id> for ExportNamedDeclaration<'id> {
+    type Cloned = ExportNamedDeclaration<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let declaration = self.declaration(ast).clone_in(ast);
         let specifiers = self.specifiers(ast).clone_in(ast);
@@ -1627,19 +1627,19 @@ impl<'a> CloneIn<'a> for ExportNamedDeclaration {
         )
     }
 }
-impl<'a> CloneIn<'a> for ExportDefaultDeclaration {
-    type Cloned = ExportDefaultDeclaration;
+impl<'a, 'id> CloneIn<'a, 'id> for ExportDefaultDeclaration<'id> {
+    type Cloned = ExportDefaultDeclaration<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let declaration = self.declaration(ast).clone_in(ast);
         ast.export_default_declaration(span, declaration)
     }
 }
-impl<'a> CloneIn<'a> for ExportAllDeclaration {
-    type Cloned = ExportAllDeclaration;
+impl<'a, 'id> CloneIn<'a, 'id> for ExportAllDeclaration<'id> {
+    type Cloned = ExportAllDeclaration<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let exported = self.exported(ast).clone_in(ast);
         let source = self.source(ast).clone_in(ast);
@@ -1648,10 +1648,10 @@ impl<'a> CloneIn<'a> for ExportAllDeclaration {
         ast.export_all_declaration(span, exported, source, attributes, export_kind)
     }
 }
-impl<'a> CloneIn<'a> for ExportSpecifier {
-    type Cloned = ExportSpecifier;
+impl<'a, 'id> CloneIn<'a, 'id> for ExportSpecifier<'id> {
+    type Cloned = ExportSpecifier<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let local = self.local(ast).clone_in(ast);
         let exported = self.exported(ast).clone_in(ast);
@@ -1659,20 +1659,20 @@ impl<'a> CloneIn<'a> for ExportSpecifier {
         ast.export_specifier(span, local, exported, export_kind)
     }
 }
-impl<'a> CloneIn<'a> for Hashbang {
-    type Cloned = Hashbang;
+impl<'a, 'id> CloneIn<'a, 'id> for Hashbang<'id> {
+    type Cloned = Hashbang<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let value = self.value(ast).clone_in(ast);
         ast.hashbang(span, value)
     }
 }
-impl<'a> CloneIn<'a> for TsType {
-    type Cloned = TsType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsType<'id> {
+    type Cloned = TsType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::TsAnyKeyword => Self::TsAnyKeyword(TsAnyKeyword(self.0).clone_in(ast)),
             NodeKind::TsUnknownKeyword => {
@@ -1756,11 +1756,11 @@ impl<'a> CloneIn<'a> for TsType {
         }
     }
 }
-impl<'a> CloneIn<'a> for TsTypeName {
-    type Cloned = TsTypeName;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTypeName<'id> {
+    type Cloned = TsTypeName<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::IdentifierReference => {
                 Self::IdentifierReference(IdentifierReference(self.0).clone_in(ast))
@@ -1772,11 +1772,11 @@ impl<'a> CloneIn<'a> for TsTypeName {
         }
     }
 }
-impl<'a> CloneIn<'a> for TsQualifiedNameLeft {
-    type Cloned = TsQualifiedNameLeft;
+impl<'a, 'id> CloneIn<'a, 'id> for TsQualifiedNameLeft<'id> {
+    type Cloned = TsQualifiedNameLeft<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::IdentifierReference => {
                 Self::IdentifierReference(IdentifierReference(self.0).clone_in(ast))
@@ -1793,11 +1793,11 @@ impl<'a> CloneIn<'a> for TsQualifiedNameLeft {
         }
     }
 }
-impl<'a> CloneIn<'a> for TsImportTypeQualifier {
-    type Cloned = TsImportTypeQualifier;
+impl<'a, 'id> CloneIn<'a, 'id> for TsImportTypeQualifier<'id> {
+    type Cloned = TsImportTypeQualifier<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::IdentifierName => Self::IdentifierName(IdentifierName(self.0).clone_in(ast)),
             NodeKind::TsQualifiedName => {
@@ -1807,11 +1807,11 @@ impl<'a> CloneIn<'a> for TsImportTypeQualifier {
         }
     }
 }
-impl<'a> CloneIn<'a> for TsTypeQueryExprName {
-    type Cloned = TsTypeQueryExprName;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTypeQueryExprName<'id> {
+    type Cloned = TsTypeQueryExprName<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::IdentifierReference | NodeKind::TsQualifiedName => {
                 Self::TsTypeName(TsTypeName(self.0).clone_in(ast))
@@ -1822,11 +1822,11 @@ impl<'a> CloneIn<'a> for TsTypeQueryExprName {
         }
     }
 }
-impl<'a> CloneIn<'a> for TsLiteral {
-    type Cloned = TsLiteral;
+impl<'a, 'id> CloneIn<'a, 'id> for TsLiteral<'id> {
+    type Cloned = TsLiteral<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::StringLiteral => Self::StringLiteral(StringLiteral(self.0).clone_in(ast)),
             NodeKind::NumericLiteral => Self::NumericLiteral(NumericLiteral(self.0).clone_in(ast)),
@@ -1842,11 +1842,11 @@ impl<'a> CloneIn<'a> for TsLiteral {
         }
     }
 }
-impl<'a> CloneIn<'a> for TsTupleElement {
-    type Cloned = TsTupleElement;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTupleElement<'id> {
+    type Cloned = TsTupleElement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::TsAnyKeyword
             | NodeKind::TsUnknownKeyword
@@ -1893,11 +1893,11 @@ impl<'a> CloneIn<'a> for TsTupleElement {
         }
     }
 }
-impl<'a> CloneIn<'a> for TsTypeElement {
-    type Cloned = TsTypeElement;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTypeElement<'id> {
+    type Cloned = TsTypeElement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::TsPropertySignature => {
                 Self::TsPropertySignature(TsPropertySignature(self.0).clone_in(ast))
@@ -1918,11 +1918,11 @@ impl<'a> CloneIn<'a> for TsTypeElement {
         }
     }
 }
-impl<'a> CloneIn<'a> for TsTypePredicateName {
-    type Cloned = TsTypePredicateName;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTypePredicateName<'id> {
+    type Cloned = TsTypePredicateName<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::IdentifierName => Self::IdentifierName(IdentifierName(self.0).clone_in(ast)),
             NodeKind::TsThisType => Self::TsThisType(TsThisType(self.0).clone_in(ast)),
@@ -1930,11 +1930,11 @@ impl<'a> CloneIn<'a> for TsTypePredicateName {
         }
     }
 }
-impl<'a> CloneIn<'a> for TsEnumMemberName {
-    type Cloned = TsEnumMemberName;
+impl<'a, 'id> CloneIn<'a, 'id> for TsEnumMemberName<'id> {
+    type Cloned = TsEnumMemberName<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::IdentifierName => Self::IdentifierName(IdentifierName(self.0).clone_in(ast)),
             NodeKind::StringLiteral => Self::StringLiteral(StringLiteral(self.0).clone_in(ast)),
@@ -1945,11 +1945,11 @@ impl<'a> CloneIn<'a> for TsEnumMemberName {
         }
     }
 }
-impl<'a> CloneIn<'a> for TsModuleName {
-    type Cloned = TsModuleName;
+impl<'a, 'id> CloneIn<'a, 'id> for TsModuleName<'id> {
+    type Cloned = TsModuleName<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::BindingIdentifier => {
                 Self::BindingIdentifier(BindingIdentifier(self.0).clone_in(ast))
@@ -1962,11 +1962,11 @@ impl<'a> CloneIn<'a> for TsModuleName {
         }
     }
 }
-impl<'a> CloneIn<'a> for TsModuleBody {
-    type Cloned = TsModuleBody;
+impl<'a, 'id> CloneIn<'a, 'id> for TsModuleBody<'id> {
+    type Cloned = TsModuleBody<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::TsModuleBlock => Self::TsModuleBlock(TsModuleBlock(self.0).clone_in(ast)),
             NodeKind::TsModuleDeclaration => {
@@ -1976,11 +1976,11 @@ impl<'a> CloneIn<'a> for TsModuleBody {
         }
     }
 }
-impl<'a> CloneIn<'a> for TsModuleReference {
-    type Cloned = TsModuleReference;
+impl<'a, 'id> CloneIn<'a, 'id> for TsModuleReference<'id> {
+    type Cloned = TsModuleReference<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::IdentifierReference | NodeKind::TsQualifiedName => {
                 Self::TsTypeName(TsTypeName(self.0).clone_in(ast))
@@ -1992,10 +1992,10 @@ impl<'a> CloneIn<'a> for TsModuleReference {
         }
     }
 }
-impl<'a> CloneIn<'a> for TsFunction {
-    type Cloned = TsFunction;
+impl<'a, 'id> CloneIn<'a, 'id> for TsFunction<'id> {
+    type Cloned = TsFunction<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let id = self.id(ast).clone_in(ast);
         let type_parameters = self.type_parameters(ast).clone_in(ast);
@@ -2018,10 +2018,10 @@ impl<'a> CloneIn<'a> for TsFunction {
         )
     }
 }
-impl<'a> CloneIn<'a> for TsMethodDefinition {
-    type Cloned = TsMethodDefinition;
+impl<'a, 'id> CloneIn<'a, 'id> for TsMethodDefinition<'id> {
+    type Cloned = TsMethodDefinition<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let decorators = self.decorators(ast).clone_in(ast);
         let key = self.key(ast).clone_in(ast);
@@ -2048,161 +2048,161 @@ impl<'a> CloneIn<'a> for TsMethodDefinition {
         )
     }
 }
-impl<'a> CloneIn<'a> for TsTypeAnnotation {
-    type Cloned = TsTypeAnnotation;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTypeAnnotation<'id> {
+    type Cloned = TsTypeAnnotation<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
         ast.ts_type_annotation(span, type_annotation)
     }
 }
-impl<'a> CloneIn<'a> for TsAnyKeyword {
-    type Cloned = TsAnyKeyword;
+impl<'a, 'id> CloneIn<'a, 'id> for TsAnyKeyword<'id> {
+    type Cloned = TsAnyKeyword<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.ts_any_keyword(span)
     }
 }
-impl<'a> CloneIn<'a> for TsUnknownKeyword {
-    type Cloned = TsUnknownKeyword;
+impl<'a, 'id> CloneIn<'a, 'id> for TsUnknownKeyword<'id> {
+    type Cloned = TsUnknownKeyword<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.ts_unknown_keyword(span)
     }
 }
-impl<'a> CloneIn<'a> for TsNeverKeyword {
-    type Cloned = TsNeverKeyword;
+impl<'a, 'id> CloneIn<'a, 'id> for TsNeverKeyword<'id> {
+    type Cloned = TsNeverKeyword<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.ts_never_keyword(span)
     }
 }
-impl<'a> CloneIn<'a> for TsVoidKeyword {
-    type Cloned = TsVoidKeyword;
+impl<'a, 'id> CloneIn<'a, 'id> for TsVoidKeyword<'id> {
+    type Cloned = TsVoidKeyword<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.ts_void_keyword(span)
     }
 }
-impl<'a> CloneIn<'a> for TsNullKeyword {
-    type Cloned = TsNullKeyword;
+impl<'a, 'id> CloneIn<'a, 'id> for TsNullKeyword<'id> {
+    type Cloned = TsNullKeyword<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.ts_null_keyword(span)
     }
 }
-impl<'a> CloneIn<'a> for TsUndefinedKeyword {
-    type Cloned = TsUndefinedKeyword;
+impl<'a, 'id> CloneIn<'a, 'id> for TsUndefinedKeyword<'id> {
+    type Cloned = TsUndefinedKeyword<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.ts_undefined_keyword(span)
     }
 }
-impl<'a> CloneIn<'a> for TsStringKeyword {
-    type Cloned = TsStringKeyword;
+impl<'a, 'id> CloneIn<'a, 'id> for TsStringKeyword<'id> {
+    type Cloned = TsStringKeyword<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.ts_string_keyword(span)
     }
 }
-impl<'a> CloneIn<'a> for TsNumberKeyword {
-    type Cloned = TsNumberKeyword;
+impl<'a, 'id> CloneIn<'a, 'id> for TsNumberKeyword<'id> {
+    type Cloned = TsNumberKeyword<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.ts_number_keyword(span)
     }
 }
-impl<'a> CloneIn<'a> for TsBigIntKeyword {
-    type Cloned = TsBigIntKeyword;
+impl<'a, 'id> CloneIn<'a, 'id> for TsBigIntKeyword<'id> {
+    type Cloned = TsBigIntKeyword<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.ts_big_int_keyword(span)
     }
 }
-impl<'a> CloneIn<'a> for TsBooleanKeyword {
-    type Cloned = TsBooleanKeyword;
+impl<'a, 'id> CloneIn<'a, 'id> for TsBooleanKeyword<'id> {
+    type Cloned = TsBooleanKeyword<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.ts_boolean_keyword(span)
     }
 }
-impl<'a> CloneIn<'a> for TsSymbolKeyword {
-    type Cloned = TsSymbolKeyword;
+impl<'a, 'id> CloneIn<'a, 'id> for TsSymbolKeyword<'id> {
+    type Cloned = TsSymbolKeyword<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.ts_symbol_keyword(span)
     }
 }
-impl<'a> CloneIn<'a> for TsObjectKeyword {
-    type Cloned = TsObjectKeyword;
+impl<'a, 'id> CloneIn<'a, 'id> for TsObjectKeyword<'id> {
+    type Cloned = TsObjectKeyword<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.ts_object_keyword(span)
     }
 }
-impl<'a> CloneIn<'a> for TsIntrinsicKeyword {
-    type Cloned = TsIntrinsicKeyword;
+impl<'a, 'id> CloneIn<'a, 'id> for TsIntrinsicKeyword<'id> {
+    type Cloned = TsIntrinsicKeyword<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.ts_intrinsic_keyword(span)
     }
 }
-impl<'a> CloneIn<'a> for TsThisType {
-    type Cloned = TsThisType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsThisType<'id> {
+    type Cloned = TsThisType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.ts_this_type(span)
     }
 }
-impl<'a> CloneIn<'a> for TsTypeReference {
-    type Cloned = TsTypeReference;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTypeReference<'id> {
+    type Cloned = TsTypeReference<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let type_name = self.type_name(ast).clone_in(ast);
         let type_arguments = self.type_arguments(ast).clone_in(ast);
         ast.ts_type_reference(span, type_name, type_arguments)
     }
 }
-impl<'a> CloneIn<'a> for TsQualifiedName {
-    type Cloned = TsQualifiedName;
+impl<'a, 'id> CloneIn<'a, 'id> for TsQualifiedName<'id> {
+    type Cloned = TsQualifiedName<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let left = self.left(ast).clone_in(ast);
         let right = self.right(ast).clone_in(ast);
         ast.ts_qualified_name(span, left, right)
     }
 }
-impl<'a> CloneIn<'a> for TsTypeQuery {
-    type Cloned = TsTypeQuery;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTypeQuery<'id> {
+    type Cloned = TsTypeQuery<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expr_name = self.expr_name(ast).clone_in(ast);
         let type_arguments = self.type_arguments(ast).clone_in(ast);
         ast.ts_type_query(span, expr_name, type_arguments)
     }
 }
-impl<'a> CloneIn<'a> for TsImportType {
-    type Cloned = TsImportType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsImportType<'id> {
+    type Cloned = TsImportType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let source = self.source(ast).clone_in(ast);
         let options = self.options(ast).clone_in(ast);
@@ -2211,10 +2211,10 @@ impl<'a> CloneIn<'a> for TsImportType {
         ast.ts_import_type(span, source, options, qualifier, type_arguments)
     }
 }
-impl<'a> CloneIn<'a> for TsTypeParameter {
-    type Cloned = TsTypeParameter;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTypeParameter<'id> {
+    type Cloned = TsTypeParameter<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let name = self.name(ast).clone_in(ast);
         let constraint = self.constraint(ast).clone_in(ast);
@@ -2225,75 +2225,75 @@ impl<'a> CloneIn<'a> for TsTypeParameter {
         ast.ts_type_parameter(span, name, constraint, default, r#in, out, r#const)
     }
 }
-impl<'a> CloneIn<'a> for TsTypeParameterDeclaration {
-    type Cloned = TsTypeParameterDeclaration;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTypeParameterDeclaration<'id> {
+    type Cloned = TsTypeParameterDeclaration<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let params = self.params(ast).clone_in(ast);
         ast.ts_type_parameter_declaration(span, params)
     }
 }
-impl<'a> CloneIn<'a> for TsTypeParameterInstantiation {
-    type Cloned = TsTypeParameterInstantiation;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTypeParameterInstantiation<'id> {
+    type Cloned = TsTypeParameterInstantiation<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let params = self.params(ast).clone_in(ast);
         ast.ts_type_parameter_instantiation(span, params)
     }
 }
-impl<'a> CloneIn<'a> for TsLiteralType {
-    type Cloned = TsLiteralType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsLiteralType<'id> {
+    type Cloned = TsLiteralType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let literal = self.literal(ast).clone_in(ast);
         ast.ts_literal_type(span, literal)
     }
 }
-impl<'a> CloneIn<'a> for TsTemplateLiteralType {
-    type Cloned = TsTemplateLiteralType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTemplateLiteralType<'id> {
+    type Cloned = TsTemplateLiteralType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let quasis = self.quasis(ast).clone_in(ast);
         let types = self.types(ast).clone_in(ast);
         ast.ts_template_literal_type(span, quasis, types)
     }
 }
-impl<'a> CloneIn<'a> for TsArrayType {
-    type Cloned = TsArrayType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsArrayType<'id> {
+    type Cloned = TsArrayType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let element_type = self.element_type(ast).clone_in(ast);
         ast.ts_array_type(span, element_type)
     }
 }
-impl<'a> CloneIn<'a> for TsIndexedAccessType {
-    type Cloned = TsIndexedAccessType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsIndexedAccessType<'id> {
+    type Cloned = TsIndexedAccessType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let object_type = self.object_type(ast).clone_in(ast);
         let index_type = self.index_type(ast).clone_in(ast);
         ast.ts_indexed_access_type(span, object_type, index_type)
     }
 }
-impl<'a> CloneIn<'a> for TsTupleType {
-    type Cloned = TsTupleType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTupleType<'id> {
+    type Cloned = TsTupleType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let element_types = self.element_types(ast).clone_in(ast);
         ast.ts_tuple_type(span, element_types)
     }
 }
-impl<'a> CloneIn<'a> for TsNamedTupleMember {
-    type Cloned = TsNamedTupleMember;
+impl<'a, 'id> CloneIn<'a, 'id> for TsNamedTupleMember<'id> {
+    type Cloned = TsNamedTupleMember<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let label = self.label(ast).clone_in(ast);
         let element_type = self.element_type(ast).clone_in(ast);
@@ -2301,74 +2301,74 @@ impl<'a> CloneIn<'a> for TsNamedTupleMember {
         ast.ts_named_tuple_member(span, label, element_type, optional)
     }
 }
-impl<'a> CloneIn<'a> for TsOptionalType {
-    type Cloned = TsOptionalType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsOptionalType<'id> {
+    type Cloned = TsOptionalType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
         ast.ts_optional_type(span, type_annotation)
     }
 }
-impl<'a> CloneIn<'a> for TsRestType {
-    type Cloned = TsRestType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsRestType<'id> {
+    type Cloned = TsRestType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
         ast.ts_rest_type(span, type_annotation)
     }
 }
-impl<'a> CloneIn<'a> for TsJsDocNullableType {
-    type Cloned = TsJsDocNullableType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsJsDocNullableType<'id> {
+    type Cloned = TsJsDocNullableType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
         let postfix = self.postfix(ast).clone_in(ast);
         ast.ts_js_doc_nullable_type(span, type_annotation, postfix)
     }
 }
-impl<'a> CloneIn<'a> for TsJsDocNonNullableType {
-    type Cloned = TsJsDocNonNullableType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsJsDocNonNullableType<'id> {
+    type Cloned = TsJsDocNonNullableType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
         let postfix = self.postfix(ast).clone_in(ast);
         ast.ts_js_doc_non_nullable_type(span, type_annotation, postfix)
     }
 }
-impl<'a> CloneIn<'a> for TsJsDocUnknownType {
-    type Cloned = TsJsDocUnknownType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsJsDocUnknownType<'id> {
+    type Cloned = TsJsDocUnknownType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.ts_js_doc_unknown_type(span)
     }
 }
-impl<'a> CloneIn<'a> for TsUnionType {
-    type Cloned = TsUnionType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsUnionType<'id> {
+    type Cloned = TsUnionType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let types = self.types(ast).clone_in(ast);
         ast.ts_union_type(span, types)
     }
 }
-impl<'a> CloneIn<'a> for TsIntersectionType {
-    type Cloned = TsIntersectionType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsIntersectionType<'id> {
+    type Cloned = TsIntersectionType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let types = self.types(ast).clone_in(ast);
         ast.ts_intersection_type(span, types)
     }
 }
-impl<'a> CloneIn<'a> for TsConditionalType {
-    type Cloned = TsConditionalType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsConditionalType<'id> {
+    type Cloned = TsConditionalType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let check_type = self.check_type(ast).clone_in(ast);
         let extends_type = self.extends_type(ast).clone_in(ast);
@@ -2377,38 +2377,38 @@ impl<'a> CloneIn<'a> for TsConditionalType {
         ast.ts_conditional_type(span, check_type, extends_type, true_type, false_type)
     }
 }
-impl<'a> CloneIn<'a> for TsInferType {
-    type Cloned = TsInferType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsInferType<'id> {
+    type Cloned = TsInferType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let type_parameter = self.type_parameter(ast).clone_in(ast);
         ast.ts_infer_type(span, type_parameter)
     }
 }
-impl<'a> CloneIn<'a> for TsTypeOperator {
-    type Cloned = TsTypeOperator;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTypeOperator<'id> {
+    type Cloned = TsTypeOperator<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let operator = self.operator(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
         ast.ts_type_operator(span, operator, type_annotation)
     }
 }
-impl<'a> CloneIn<'a> for TsParenthesizedType {
-    type Cloned = TsParenthesizedType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsParenthesizedType<'id> {
+    type Cloned = TsParenthesizedType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
         ast.ts_parenthesized_type(span, type_annotation)
     }
 }
-impl<'a> CloneIn<'a> for TsFunctionType {
-    type Cloned = TsFunctionType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsFunctionType<'id> {
+    type Cloned = TsFunctionType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let type_parameters = self.type_parameters(ast).clone_in(ast);
         let this_param = self.this_param(ast).clone_in(ast);
@@ -2417,10 +2417,10 @@ impl<'a> CloneIn<'a> for TsFunctionType {
         ast.ts_function_type(span, type_parameters, this_param, params, return_type)
     }
 }
-impl<'a> CloneIn<'a> for TsConstructorType {
-    type Cloned = TsConstructorType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsConstructorType<'id> {
+    type Cloned = TsConstructorType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let type_parameters = self.type_parameters(ast).clone_in(ast);
         let params = self.params(ast).clone_in(ast);
@@ -2429,10 +2429,10 @@ impl<'a> CloneIn<'a> for TsConstructorType {
         ast.ts_constructor_type(span, type_parameters, params, return_type, r#abstract)
     }
 }
-impl<'a> CloneIn<'a> for TsTypePredicate {
-    type Cloned = TsTypePredicate;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTypePredicate<'id> {
+    type Cloned = TsTypePredicate<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let parameter_name = self.parameter_name(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
@@ -2440,19 +2440,19 @@ impl<'a> CloneIn<'a> for TsTypePredicate {
         ast.ts_type_predicate(span, parameter_name, type_annotation, asserts)
     }
 }
-impl<'a> CloneIn<'a> for TsTypeLiteral {
-    type Cloned = TsTypeLiteral;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTypeLiteral<'id> {
+    type Cloned = TsTypeLiteral<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let members = self.members(ast).clone_in(ast);
         ast.ts_type_literal(span, members)
     }
 }
-impl<'a> CloneIn<'a> for TsMappedType {
-    type Cloned = TsMappedType;
+impl<'a, 'id> CloneIn<'a, 'id> for TsMappedType<'id> {
+    type Cloned = TsMappedType<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let key = self.key(ast).clone_in(ast);
         let constraint = self.constraint(ast).clone_in(ast);
@@ -2471,10 +2471,10 @@ impl<'a> CloneIn<'a> for TsMappedType {
         )
     }
 }
-impl<'a> CloneIn<'a> for TsPropertySignature {
-    type Cloned = TsPropertySignature;
+impl<'a, 'id> CloneIn<'a, 'id> for TsPropertySignature<'id> {
+    type Cloned = TsPropertySignature<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let key = self.key(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
@@ -2484,10 +2484,10 @@ impl<'a> CloneIn<'a> for TsPropertySignature {
         ast.ts_property_signature(span, key, type_annotation, computed, optional, readonly)
     }
 }
-impl<'a> CloneIn<'a> for TsMethodSignature {
-    type Cloned = TsMethodSignature;
+impl<'a, 'id> CloneIn<'a, 'id> for TsMethodSignature<'id> {
+    type Cloned = TsMethodSignature<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let key = self.key(ast).clone_in(ast);
         let type_parameters = self.type_parameters(ast).clone_in(ast);
@@ -2510,10 +2510,10 @@ impl<'a> CloneIn<'a> for TsMethodSignature {
         )
     }
 }
-impl<'a> CloneIn<'a> for TsCallSignatureDeclaration {
-    type Cloned = TsCallSignatureDeclaration;
+impl<'a, 'id> CloneIn<'a, 'id> for TsCallSignatureDeclaration<'id> {
+    type Cloned = TsCallSignatureDeclaration<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let type_parameters = self.type_parameters(ast).clone_in(ast);
         let this_param = self.this_param(ast).clone_in(ast);
@@ -2522,10 +2522,10 @@ impl<'a> CloneIn<'a> for TsCallSignatureDeclaration {
         ast.ts_call_signature_declaration(span, type_parameters, this_param, params, return_type)
     }
 }
-impl<'a> CloneIn<'a> for TsConstructSignatureDeclaration {
-    type Cloned = TsConstructSignatureDeclaration;
+impl<'a, 'id> CloneIn<'a, 'id> for TsConstructSignatureDeclaration<'id> {
+    type Cloned = TsConstructSignatureDeclaration<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let type_parameters = self.type_parameters(ast).clone_in(ast);
         let params = self.params(ast).clone_in(ast);
@@ -2533,10 +2533,10 @@ impl<'a> CloneIn<'a> for TsConstructSignatureDeclaration {
         ast.ts_construct_signature_declaration(span, type_parameters, params, return_type)
     }
 }
-impl<'a> CloneIn<'a> for TsIndexSignature {
-    type Cloned = TsIndexSignature;
+impl<'a, 'id> CloneIn<'a, 'id> for TsIndexSignature<'id> {
+    type Cloned = TsIndexSignature<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let parameters = self.parameters(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
@@ -2545,10 +2545,10 @@ impl<'a> CloneIn<'a> for TsIndexSignature {
         ast.ts_index_signature(span, parameters, type_annotation, readonly, r#static)
     }
 }
-impl<'a> CloneIn<'a> for TsTypeAliasDeclaration {
-    type Cloned = TsTypeAliasDeclaration;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTypeAliasDeclaration<'id> {
+    type Cloned = TsTypeAliasDeclaration<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let id = self.id(ast).clone_in(ast);
         let type_parameters = self.type_parameters(ast).clone_in(ast);
@@ -2557,10 +2557,10 @@ impl<'a> CloneIn<'a> for TsTypeAliasDeclaration {
         ast.ts_type_alias_declaration(span, id, type_parameters, type_annotation, declare)
     }
 }
-impl<'a> CloneIn<'a> for TsInterfaceDeclaration {
-    type Cloned = TsInterfaceDeclaration;
+impl<'a, 'id> CloneIn<'a, 'id> for TsInterfaceDeclaration<'id> {
+    type Cloned = TsInterfaceDeclaration<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let id = self.id(ast).clone_in(ast);
         let type_parameters = self.type_parameters(ast).clone_in(ast);
@@ -2570,39 +2570,39 @@ impl<'a> CloneIn<'a> for TsInterfaceDeclaration {
         ast.ts_interface_declaration(span, id, type_parameters, extends, body, declare)
     }
 }
-impl<'a> CloneIn<'a> for TsInterfaceBody {
-    type Cloned = TsInterfaceBody;
+impl<'a, 'id> CloneIn<'a, 'id> for TsInterfaceBody<'id> {
+    type Cloned = TsInterfaceBody<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let body = self.body(ast).clone_in(ast);
         ast.ts_interface_body(span, body)
     }
 }
-impl<'a> CloneIn<'a> for TsInterfaceHeritage {
-    type Cloned = TsInterfaceHeritage;
+impl<'a, 'id> CloneIn<'a, 'id> for TsInterfaceHeritage<'id> {
+    type Cloned = TsInterfaceHeritage<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         let type_arguments = self.type_arguments(ast).clone_in(ast);
         ast.ts_interface_heritage(span, expression, type_arguments)
     }
 }
-impl<'a> CloneIn<'a> for TsClassImplements {
-    type Cloned = TsClassImplements;
+impl<'a, 'id> CloneIn<'a, 'id> for TsClassImplements<'id> {
+    type Cloned = TsClassImplements<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         let type_arguments = self.type_arguments(ast).clone_in(ast);
         ast.ts_class_implements(span, expression, type_arguments)
     }
 }
-impl<'a> CloneIn<'a> for TsEnumDeclaration {
-    type Cloned = TsEnumDeclaration;
+impl<'a, 'id> CloneIn<'a, 'id> for TsEnumDeclaration<'id> {
+    type Cloned = TsEnumDeclaration<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let id = self.id(ast).clone_in(ast);
         let body = self.body(ast).clone_in(ast);
@@ -2611,19 +2611,19 @@ impl<'a> CloneIn<'a> for TsEnumDeclaration {
         ast.ts_enum_declaration(span, id, body, is_const, declare)
     }
 }
-impl<'a> CloneIn<'a> for TsEnumBody {
-    type Cloned = TsEnumBody;
+impl<'a, 'id> CloneIn<'a, 'id> for TsEnumBody<'id> {
+    type Cloned = TsEnumBody<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let members = self.members(ast).clone_in(ast);
         ast.ts_enum_body(span, members)
     }
 }
-impl<'a> CloneIn<'a> for TsEnumMember {
-    type Cloned = TsEnumMember;
+impl<'a, 'id> CloneIn<'a, 'id> for TsEnumMember<'id> {
+    type Cloned = TsEnumMember<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let id = self.id(ast).clone_in(ast);
         let initializer = self.initializer(ast).clone_in(ast);
@@ -2631,10 +2631,10 @@ impl<'a> CloneIn<'a> for TsEnumMember {
         ast.ts_enum_member(span, id, initializer, computed)
     }
 }
-impl<'a> CloneIn<'a> for TsModuleDeclaration {
-    type Cloned = TsModuleDeclaration;
+impl<'a, 'id> CloneIn<'a, 'id> for TsModuleDeclaration<'id> {
+    type Cloned = TsModuleDeclaration<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let id = self.id(ast).clone_in(ast);
         let body = self.body(ast).clone_in(ast);
@@ -2643,20 +2643,20 @@ impl<'a> CloneIn<'a> for TsModuleDeclaration {
         ast.ts_module_declaration(span, id, body, kind, declare)
     }
 }
-impl<'a> CloneIn<'a> for TsModuleBlock {
-    type Cloned = TsModuleBlock;
+impl<'a, 'id> CloneIn<'a, 'id> for TsModuleBlock<'id> {
+    type Cloned = TsModuleBlock<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let directives = self.directives(ast).clone_in(ast);
         let body = self.body(ast).clone_in(ast);
         ast.ts_module_block(span, directives, body)
     }
 }
-impl<'a> CloneIn<'a> for TsGlobalDeclaration {
-    type Cloned = TsGlobalDeclaration;
+impl<'a, 'id> CloneIn<'a, 'id> for TsGlobalDeclaration<'id> {
+    type Cloned = TsGlobalDeclaration<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let id = self.id(ast).clone_in(ast);
         let body = self.body(ast).clone_in(ast);
@@ -2664,10 +2664,10 @@ impl<'a> CloneIn<'a> for TsGlobalDeclaration {
         ast.ts_global_declaration(span, id, body, declare)
     }
 }
-impl<'a> CloneIn<'a> for TsParameterProperty {
-    type Cloned = TsParameterProperty;
+impl<'a, 'id> CloneIn<'a, 'id> for TsParameterProperty<'id> {
+    type Cloned = TsParameterProperty<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let decorators = self.decorators(ast).clone_in(ast);
         let parameter = self.parameter(ast).clone_in(ast);
@@ -2684,86 +2684,86 @@ impl<'a> CloneIn<'a> for TsParameterProperty {
         )
     }
 }
-impl<'a> CloneIn<'a> for TsThisParameter {
-    type Cloned = TsThisParameter;
+impl<'a, 'id> CloneIn<'a, 'id> for TsThisParameter<'id> {
+    type Cloned = TsThisParameter<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
         ast.ts_this_parameter(span, type_annotation)
     }
 }
-impl<'a> CloneIn<'a> for TsAsExpression {
-    type Cloned = TsAsExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for TsAsExpression<'id> {
+    type Cloned = TsAsExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
         ast.ts_as_expression(span, expression, type_annotation)
     }
 }
-impl<'a> CloneIn<'a> for TsSatisfiesExpression {
-    type Cloned = TsSatisfiesExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for TsSatisfiesExpression<'id> {
+    type Cloned = TsSatisfiesExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
         ast.ts_satisfies_expression(span, expression, type_annotation)
     }
 }
-impl<'a> CloneIn<'a> for TsTypeAssertion {
-    type Cloned = TsTypeAssertion;
+impl<'a, 'id> CloneIn<'a, 'id> for TsTypeAssertion<'id> {
+    type Cloned = TsTypeAssertion<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         ast.ts_type_assertion(span, type_annotation, expression)
     }
 }
-impl<'a> CloneIn<'a> for TsNonNullExpression {
-    type Cloned = TsNonNullExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for TsNonNullExpression<'id> {
+    type Cloned = TsNonNullExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         ast.ts_non_null_expression(span, expression)
     }
 }
-impl<'a> CloneIn<'a> for TsInstantiationExpression {
-    type Cloned = TsInstantiationExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for TsInstantiationExpression<'id> {
+    type Cloned = TsInstantiationExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         let type_arguments = self.type_arguments(ast).clone_in(ast);
         ast.ts_instantiation_expression(span, expression, type_arguments)
     }
 }
-impl<'a> CloneIn<'a> for TsExportAssignment {
-    type Cloned = TsExportAssignment;
+impl<'a, 'id> CloneIn<'a, 'id> for TsExportAssignment<'id> {
+    type Cloned = TsExportAssignment<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         ast.ts_export_assignment(span, expression)
     }
 }
-impl<'a> CloneIn<'a> for TsNamespaceExportDeclaration {
-    type Cloned = TsNamespaceExportDeclaration;
+impl<'a, 'id> CloneIn<'a, 'id> for TsNamespaceExportDeclaration<'id> {
+    type Cloned = TsNamespaceExportDeclaration<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let id = self.id(ast).clone_in(ast);
         ast.ts_namespace_export_declaration(span, id)
     }
 }
-impl<'a> CloneIn<'a> for TsImportEqualsDeclaration {
-    type Cloned = TsImportEqualsDeclaration;
+impl<'a, 'id> CloneIn<'a, 'id> for TsImportEqualsDeclaration<'id> {
+    type Cloned = TsImportEqualsDeclaration<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let id = self.id(ast).clone_in(ast);
         let module_reference = self.module_reference(ast).clone_in(ast);
@@ -2771,30 +2771,30 @@ impl<'a> CloneIn<'a> for TsImportEqualsDeclaration {
         ast.ts_import_equals_declaration(span, id, module_reference, import_kind)
     }
 }
-impl<'a> CloneIn<'a> for TsExternalModuleReference {
-    type Cloned = TsExternalModuleReference;
+impl<'a, 'id> CloneIn<'a, 'id> for TsExternalModuleReference<'id> {
+    type Cloned = TsExternalModuleReference<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         ast.ts_external_module_reference(span, expression)
     }
 }
-impl<'a> CloneIn<'a> for TsIndexSignatureParameter {
-    type Cloned = TsIndexSignatureParameter;
+impl<'a, 'id> CloneIn<'a, 'id> for TsIndexSignatureParameter<'id> {
+    type Cloned = TsIndexSignatureParameter<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let name = self.name(ast).clone_in(ast);
         let type_annotation = self.type_annotation(ast).clone_in(ast);
         ast.ts_index_signature_parameter(span, name, type_annotation)
     }
 }
-impl<'a> CloneIn<'a> for JsxElementName {
-    type Cloned = JsxElementName;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxElementName<'id> {
+    type Cloned = JsxElementName<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::JsxIdentifier => Self::JsxIdentifier(JsxIdentifier(self.0).clone_in(ast)),
             NodeKind::JsxNamespacedName => {
@@ -2807,11 +2807,11 @@ impl<'a> CloneIn<'a> for JsxElementName {
         }
     }
 }
-impl<'a> CloneIn<'a> for JsxMemberExpressionObject {
-    type Cloned = JsxMemberExpressionObject;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxMemberExpressionObject<'id> {
+    type Cloned = JsxMemberExpressionObject<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::JsxIdentifier => Self::JsxIdentifier(JsxIdentifier(self.0).clone_in(ast)),
             NodeKind::JsxMemberExpression => {
@@ -2821,11 +2821,11 @@ impl<'a> CloneIn<'a> for JsxMemberExpressionObject {
         }
     }
 }
-impl<'a> CloneIn<'a> for JsxAttributeName {
-    type Cloned = JsxAttributeName;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxAttributeName<'id> {
+    type Cloned = JsxAttributeName<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::JsxIdentifier => Self::JsxIdentifier(JsxIdentifier(self.0).clone_in(ast)),
             NodeKind::JsxNamespacedName => {
@@ -2835,11 +2835,11 @@ impl<'a> CloneIn<'a> for JsxAttributeName {
         }
     }
 }
-impl<'a> CloneIn<'a> for JsxAttributeItem {
-    type Cloned = JsxAttributeItem;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxAttributeItem<'id> {
+    type Cloned = JsxAttributeItem<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::JsxAttribute => Self::JsxAttribute(JsxAttribute(self.0).clone_in(ast)),
             NodeKind::JsxSpreadAttribute => {
@@ -2849,11 +2849,11 @@ impl<'a> CloneIn<'a> for JsxAttributeItem {
         }
     }
 }
-impl<'a> CloneIn<'a> for JsxAttributeValue {
-    type Cloned = JsxAttributeValue;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxAttributeValue<'id> {
+    type Cloned = JsxAttributeValue<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::StringLiteral => Self::StringLiteral(StringLiteral(self.0).clone_in(ast)),
             NodeKind::JsxExpressionContainer => {
@@ -2865,11 +2865,11 @@ impl<'a> CloneIn<'a> for JsxAttributeValue {
         }
     }
 }
-impl<'a> CloneIn<'a> for JsxExpression {
-    type Cloned = JsxExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxExpression<'id> {
+    type Cloned = JsxExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::IdentifierReference
             | NodeKind::ThisExpression
@@ -2918,11 +2918,11 @@ impl<'a> CloneIn<'a> for JsxExpression {
         }
     }
 }
-impl<'a> CloneIn<'a> for JsxChild {
-    type Cloned = JsxChild;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxChild<'id> {
+    type Cloned = JsxChild<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
-        let kind = unsafe { *ast.nodes.kind_unchecked(self.0) };
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
+        let kind = unsafe { *ast.nodes.kind_unchecked(self.0.raw()) };
         match kind {
             NodeKind::JsxText => Self::JsxText(JsxText(self.0).clone_in(ast)),
             NodeKind::JsxExpressionContainer => {
@@ -2935,10 +2935,10 @@ impl<'a> CloneIn<'a> for JsxChild {
         }
     }
 }
-impl<'a> CloneIn<'a> for JsxElement {
-    type Cloned = JsxElement;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxElement<'id> {
+    type Cloned = JsxElement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let opening_element = self.opening_element(ast).clone_in(ast);
         let children = self.children(ast).clone_in(ast);
@@ -2946,10 +2946,10 @@ impl<'a> CloneIn<'a> for JsxElement {
         ast.jsx_element(span, opening_element, children, closing_element)
     }
 }
-impl<'a> CloneIn<'a> for JsxOpeningElement {
-    type Cloned = JsxOpeningElement;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxOpeningElement<'id> {
+    type Cloned = JsxOpeningElement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let name = self.name(ast).clone_in(ast);
         let type_arguments = self.type_arguments(ast).clone_in(ast);
@@ -2958,19 +2958,19 @@ impl<'a> CloneIn<'a> for JsxOpeningElement {
         ast.jsx_opening_element(span, name, type_arguments, attributes, self_closing)
     }
 }
-impl<'a> CloneIn<'a> for JsxClosingElement {
-    type Cloned = JsxClosingElement;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxClosingElement<'id> {
+    type Cloned = JsxClosingElement<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let name = self.name(ast).clone_in(ast);
         ast.jsx_closing_element(span, name)
     }
 }
-impl<'a> CloneIn<'a> for JsxFragment {
-    type Cloned = JsxFragment;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxFragment<'id> {
+    type Cloned = JsxFragment<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let opening_fragment = self.opening_fragment(ast).clone_in(ast);
         let children = self.children(ast).clone_in(ast);
@@ -2978,100 +2978,100 @@ impl<'a> CloneIn<'a> for JsxFragment {
         ast.jsx_fragment(span, opening_fragment, children, closing_fragment)
     }
 }
-impl<'a> CloneIn<'a> for JsxOpeningFragment {
-    type Cloned = JsxOpeningFragment;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxOpeningFragment<'id> {
+    type Cloned = JsxOpeningFragment<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.jsx_opening_fragment(span)
     }
 }
-impl<'a> CloneIn<'a> for JsxClosingFragment {
-    type Cloned = JsxClosingFragment;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxClosingFragment<'id> {
+    type Cloned = JsxClosingFragment<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.jsx_closing_fragment(span)
     }
 }
-impl<'a> CloneIn<'a> for JsxIdentifier {
-    type Cloned = JsxIdentifier;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxIdentifier<'id> {
+    type Cloned = JsxIdentifier<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let name = self.name(ast).clone_in(ast);
         ast.jsx_identifier(span, name)
     }
 }
-impl<'a> CloneIn<'a> for JsxNamespacedName {
-    type Cloned = JsxNamespacedName;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxNamespacedName<'id> {
+    type Cloned = JsxNamespacedName<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let namespace = self.namespace(ast).clone_in(ast);
         let name = self.name(ast).clone_in(ast);
         ast.jsx_namespaced_name(span, namespace, name)
     }
 }
-impl<'a> CloneIn<'a> for JsxMemberExpression {
-    type Cloned = JsxMemberExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxMemberExpression<'id> {
+    type Cloned = JsxMemberExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let object = self.object(ast).clone_in(ast);
         let property = self.property(ast).clone_in(ast);
         ast.jsx_member_expression(span, object, property)
     }
 }
-impl<'a> CloneIn<'a> for JsxAttribute {
-    type Cloned = JsxAttribute;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxAttribute<'id> {
+    type Cloned = JsxAttribute<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let name = self.name(ast).clone_in(ast);
         let value = self.value(ast).clone_in(ast);
         ast.jsx_attribute(span, name, value)
     }
 }
-impl<'a> CloneIn<'a> for JsxSpreadAttribute {
-    type Cloned = JsxSpreadAttribute;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxSpreadAttribute<'id> {
+    type Cloned = JsxSpreadAttribute<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let argument = self.argument(ast).clone_in(ast);
         ast.jsx_spread_attribute(span, argument)
     }
 }
-impl<'a> CloneIn<'a> for JsxExpressionContainer {
-    type Cloned = JsxExpressionContainer;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxExpressionContainer<'id> {
+    type Cloned = JsxExpressionContainer<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         ast.jsx_expression_container(span, expression)
     }
 }
-impl<'a> CloneIn<'a> for JsxEmptyExpression {
-    type Cloned = JsxEmptyExpression;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxEmptyExpression<'id> {
+    type Cloned = JsxEmptyExpression<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         ast.jsx_empty_expression(span)
     }
 }
-impl<'a> CloneIn<'a> for JsxText {
-    type Cloned = JsxText;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxText<'id> {
+    type Cloned = JsxText<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let value = self.value(ast).clone_in(ast);
         ast.jsx_text(span, value)
     }
 }
-impl<'a> CloneIn<'a> for JsxSpreadChild {
-    type Cloned = JsxSpreadChild;
+impl<'a, 'id> CloneIn<'a, 'id> for JsxSpreadChild<'id> {
+    type Cloned = JsxSpreadChild<'id>;
     #[inline]
-    fn clone_in(&self, ast: &mut Ast<'a>) -> Self::Cloned {
+    fn clone_in(&self, ast: &mut Ast<'a, 'id>) -> Self::Cloned {
         let span = self.span(ast).clone_in(ast);
         let expression = self.expression(ast).clone_in(ast);
         ast.jsx_spread_child(span, expression)

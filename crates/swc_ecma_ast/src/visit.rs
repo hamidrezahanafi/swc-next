@@ -54,15 +54,15 @@ impl<T> TraverseAction<T> {
 /// Attach replacements before visiting them, and consume local skips without
 /// propagating them to the owning node. Only a stop escapes the child slot.
 #[inline]
-pub(crate) fn traverse_mut_slot<'a, State, N, V>(
+pub(crate) fn traverse_mut_slot<'id, 'a, State, N, V>(
     mut node: N,
     traverser: &mut V,
-    ctx: &mut TraverseMutCtx<'_, 'a, State>,
-    mut attach: impl FnMut(&mut TraverseMutCtx<'_, 'a, State>, N),
+    ctx: &mut TraverseMutCtx<'_, 'a, 'id, State>,
+    mut attach: impl FnMut(&mut TraverseMutCtx<'_, 'a, 'id, State>, N),
 ) -> bool
 where
-    N: Copy + crate::TraverseMutWith<'a, State>,
-    V: ?Sized + crate::TraverseMut<'a, State>,
+    N: Copy + crate::TraverseMutWith<'a, 'id, State>,
+    V: ?Sized + crate::TraverseMut<'a, 'id, State>,
 {
     loop {
         match node.traverse_mut_with(traverser, ctx) {
@@ -87,34 +87,34 @@ where
 /// Shared AST and mutable user state passed to every [`crate::Traverse`] hook.
 ///
 /// AST mutation requires [`TraverseMutCtx`]:
-pub struct TraverseCtx<'traverse, 'ast, State = ()> {
+pub struct TraverseCtx<'traverse, 'ast, 'id, State = ()> {
     pub state: State,
-    pub ast: &'traverse Ast<'ast>,
+    pub ast: &'traverse Ast<'ast, 'id>,
 }
 
-impl<'traverse, 'ast, State> TraverseCtx<'traverse, 'ast, State> {
+impl<'id, 'traverse, 'ast, State> TraverseCtx<'traverse, 'ast, 'id, State> {
     #[inline]
-    pub fn new(ast: &'traverse Ast<'ast>, state: State) -> Self {
+    pub fn new(ast: &'traverse Ast<'ast, 'id>, state: State) -> Self {
         Self { state, ast }
     }
 }
 
 /// Mutable AST state passed to every [`crate::TraverseMut`] hook.
-pub struct TraverseMutCtx<'traverse, 'ast, State = ()> {
+pub struct TraverseMutCtx<'traverse, 'ast, 'id, State = ()> {
     pub state: State,
-    pub ast: &'traverse mut Ast<'ast>,
+    pub ast: &'traverse mut Ast<'ast, 'id>,
 }
 
-impl<'traverse, 'ast, State> TraverseMutCtx<'traverse, 'ast, State> {
+impl<'id, 'traverse, 'ast, State> TraverseMutCtx<'traverse, 'ast, 'id, State> {
     #[inline]
-    pub fn new(ast: &'traverse mut Ast<'ast>, state: State) -> Self {
+    pub fn new(ast: &'traverse mut Ast<'ast, 'id>, state: State) -> Self {
         Self { state, ast }
     }
 }
 
 macro_rules! dummy_visit_mut_impl {
     ($ty:ty) => {
-        impl<'a, V: ?Sized + Visit<'a>> VisitWith<'a, V> for $ty {
+        impl<'a, 'id, V: ?Sized + Visit<'a, 'id>> VisitWith<'a, 'id, V> for $ty {
             #[inline]
             fn visit_with(self, _visitor: &mut V) {}
 
@@ -122,7 +122,7 @@ macro_rules! dummy_visit_mut_impl {
             fn visit_children_with(self, _visitor: &mut V) {}
         }
 
-        impl<'a, V: ?Sized + VisitMut<'a>> VisitMutWith<'a, V> for $ty {
+        impl<'a, 'id, V: ?Sized + VisitMut<'a, 'id>> VisitMutWith<'a, 'id, V> for $ty {
             #[inline]
             fn visit_mut_with(self, _visitor: &mut V) -> Option<Self> {
                 None
@@ -139,8 +139,8 @@ macro_rules! dummy_visit_mut_impl {
 dummy_visit_mut_impl!(bool);
 dummy_visit_mut_impl!(f64);
 dummy_visit_mut_impl!(Span);
-dummy_visit_mut_impl!(AstUtf8);
-dummy_visit_mut_impl!(AstWtf8);
+dummy_visit_mut_impl!(AstUtf8<'id>);
+dummy_visit_mut_impl!(AstWtf8<'id>);
 dummy_visit_mut_impl!(ImportPhase);
 dummy_visit_mut_impl!(SourceType);
 dummy_visit_mut_impl!(MethodDefinitionKind);

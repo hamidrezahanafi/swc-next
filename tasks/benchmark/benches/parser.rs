@@ -9,6 +9,7 @@ use swc_next_ecma_parser::{NoTokenParserConfig, Options, Parser};
 fn bench_new(b: &mut Bencher, src: &'static str, lang: Lang) {
     b.iter(|| {
         let allocator = Allocator::new();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         Parser::init(
             &allocator,
             src,
@@ -17,6 +18,7 @@ fn bench_new(b: &mut Bencher, src: &'static str, lang: Lang) {
                 ..Options::default()
             },
             NoTokenParserConfig,
+            ast_guard,
         )
         .parse();
     });

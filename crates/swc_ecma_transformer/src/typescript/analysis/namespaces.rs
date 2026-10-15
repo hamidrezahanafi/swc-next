@@ -11,13 +11,13 @@ use super::super::TypeScriptOptions;
 use super::{enums::EnumAnalysis, modules::ModuleAnalysis};
 
 #[derive(Default)]
-pub(super) struct NamespaceCollector {
-    declarations: Vec<TsModuleDeclaration>,
-    runtime_value_candidates: Vec<BindingIdentifier>,
+pub(super) struct NamespaceCollector<'id> {
+    declarations: Vec<TsModuleDeclaration<'id>>,
+    runtime_value_candidates: Vec<BindingIdentifier<'id>>,
 }
 
-impl NamespaceCollector {
-    pub(super) fn record_statement(&mut self, statement: Stmt, ast: &Ast<'_>) {
+impl<'id> NamespaceCollector<'id> {
+    pub(super) fn record_statement(&mut self, statement: Stmt<'id>, ast: &Ast<'_, 'id>) {
         match ast.stmt_data(statement) {
             StmtData::Declaration(declaration) => {
                 self.record_runtime_value_declaration(declaration, ast);
@@ -31,11 +31,11 @@ impl NamespaceCollector {
         }
     }
 
-    pub(super) fn record_declaration(&mut self, declaration: TsModuleDeclaration) {
+    pub(super) fn record_declaration(&mut self, declaration: TsModuleDeclaration<'id>) {
         self.declarations.push(declaration);
     }
 
-    fn record_runtime_value_declaration(&mut self, declaration: Decl, ast: &Ast<'_>) {
+    fn record_runtime_value_declaration(&mut self, declaration: Decl<'id>, ast: &Ast<'_, 'id>) {
         let binding = match ast.decl_data(declaration) {
             DeclData::Function(function) => function.id(ast),
             DeclData::Class(class) if !class.declare(ast) => class.id(ast),
@@ -48,19 +48,19 @@ impl NamespaceCollector {
 }
 
 #[derive(Default)]
-pub(super) struct NamespaceAnalysis {
-    instantiated_declarations: FxHashSet<NodeId>,
+pub(super) struct NamespaceAnalysis<'id> {
+    instantiated_declarations: FxHashSet<NodeId<'id>>,
     has_merged_runtime_bindings: bool,
 }
 
-impl NamespaceAnalysis {
+impl<'id> NamespaceAnalysis<'id> {
     pub(super) fn finish(
-        ast: &Ast<'_>,
-        semantic: &Semantic<'_>,
+        ast: &Ast<'_, 'id>,
+        semantic: &Semantic<'_, 'id>,
         options: &TypeScriptOptions,
-        enums: &EnumAnalysis<'_>,
-        modules: &ModuleAnalysis,
-        collector: &NamespaceCollector,
+        enums: &EnumAnalysis<'_, 'id>,
+        modules: &ModuleAnalysis<'id>,
+        collector: &NamespaceCollector<'id>,
     ) -> Self {
         if collector.declarations.is_empty() {
             return Self::default();
@@ -88,7 +88,7 @@ impl NamespaceAnalysis {
         analysis
     }
 
-    pub(super) fn is_instantiated(&self, declaration: NodeId) -> bool {
+    pub(super) fn is_instantiated(&self, declaration: NodeId<'id>) -> bool {
         self.instantiated_declarations.contains(&declaration)
     }
 
@@ -97,14 +97,14 @@ impl NamespaceAnalysis {
     }
 }
 
-struct NamespaceFinalizer<'visit, 'ast> {
-    ast: &'visit Ast<'ast>,
-    semantic: &'visit Semantic<'ast>,
+struct NamespaceFinalizer<'visit, 'ast, 'id> {
+    ast: &'visit Ast<'ast, 'id>,
+    semantic: &'visit Semantic<'ast, 'id>,
     options: &'visit TypeScriptOptions,
-    enums: &'visit EnumAnalysis<'ast>,
-    modules: &'visit ModuleAnalysis,
-    analysis: &'visit mut NamespaceAnalysis,
-    namespace_instantiations: FxHashMap<NodeId, NamespaceInstantiation>,
+    enums: &'visit EnumAnalysis<'ast, 'id>,
+    modules: &'visit ModuleAnalysis<'id>,
+    analysis: &'visit mut NamespaceAnalysis<'id>,
+    namespace_instantiations: FxHashMap<NodeId<'id>, NamespaceInstantiation>,
     runtime_namespace_usage: FxHashMap<SymbolId, bool>,
 }
 
@@ -114,14 +114,14 @@ struct NamespaceInstantiation {
     emits_runtime: bool,
 }
 
-impl<'visit, 'ast> NamespaceFinalizer<'visit, 'ast> {
+impl<'id, 'visit, 'ast> NamespaceFinalizer<'visit, 'ast, 'id> {
     fn new(
-        ast: &'visit Ast<'ast>,
-        semantic: &'visit Semantic<'ast>,
+        ast: &'visit Ast<'ast, 'id>,
+        semantic: &'visit Semantic<'ast, 'id>,
         options: &'visit TypeScriptOptions,
-        enums: &'visit EnumAnalysis<'ast>,
-        modules: &'visit ModuleAnalysis,
-        analysis: &'visit mut NamespaceAnalysis,
+        enums: &'visit EnumAnalysis<'ast, 'id>,
+        modules: &'visit ModuleAnalysis<'id>,
+        analysis: &'visit mut NamespaceAnalysis<'id>,
     ) -> Self {
         Self {
             ast,
@@ -137,7 +137,7 @@ impl<'visit, 'ast> NamespaceFinalizer<'visit, 'ast> {
 
     fn namespace_instantiation(
         &mut self,
-        declaration: TsModuleDeclaration,
+        declaration: TsModuleDeclaration<'id>,
     ) -> NamespaceInstantiation {
         if let Some(&instantiation) = self.namespace_instantiations.get(&declaration.node_id()) {
             return instantiation;
@@ -168,7 +168,7 @@ impl<'visit, 'ast> NamespaceFinalizer<'visit, 'ast> {
         instantiation
     }
 
-    fn namespace_name_has_runtime_usage(&mut self, name: TsModuleName) -> bool {
+    fn namespace_name_has_runtime_usage(&mut self, name: TsModuleName<'id>) -> bool {
         let mut node = name.node_id();
         loop {
             match self.ast.kind_data(node) {
@@ -183,7 +183,7 @@ impl<'visit, 'ast> NamespaceFinalizer<'visit, 'ast> {
         }
     }
 
-    fn const_enum_namespace_is_used(&mut self, node: NodeId) -> bool {
+    fn const_enum_namespace_is_used(&mut self, node: NodeId<'id>) -> bool {
         let Some(symbol) = self.semantic.symbol_of(node) else {
             return false;
         };
@@ -202,7 +202,7 @@ impl<'visit, 'ast> NamespaceFinalizer<'visit, 'ast> {
             .or_insert_with(|| self.modules.has_runtime_usage(symbol, self.semantic))
     }
 
-    fn namespace_body_is_instantiated(&mut self, body: TsModuleBody) -> bool {
+    fn namespace_body_is_instantiated(&mut self, body: TsModuleBody<'id>) -> bool {
         match self.ast.ts_module_body_data(body) {
             TsModuleBodyData::TsModuleBlock(block) => {
                 !block.directives(self.ast).is_empty()
@@ -218,7 +218,7 @@ impl<'visit, 'ast> NamespaceFinalizer<'visit, 'ast> {
         }
     }
 
-    fn statement_instantiates_namespace(&mut self, statement: Stmt) -> bool {
+    fn statement_instantiates_namespace(&mut self, statement: Stmt<'id>) -> bool {
         match self.ast.stmt_data(statement) {
             StmtData::Declaration(declaration) => {
                 self.declaration_instantiates_namespace(declaration, false)
@@ -236,7 +236,11 @@ impl<'visit, 'ast> NamespaceFinalizer<'visit, 'ast> {
         }
     }
 
-    fn declaration_instantiates_namespace(&mut self, declaration: Decl, exported: bool) -> bool {
+    fn declaration_instantiates_namespace(
+        &mut self,
+        declaration: Decl<'id>,
+        exported: bool,
+    ) -> bool {
         match self.ast.decl_data(declaration) {
             DeclData::VariableDeclaration(_) | DeclData::Function(_) | DeclData::Class(_) => true,
             DeclData::TsFunction(_) => true,

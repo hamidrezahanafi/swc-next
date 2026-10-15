@@ -109,7 +109,15 @@ fn expect_printed_common_with_options(
         preserve_parens: false,
         comments: CommentMode::Flat,
     };
-    let result = Parser::init(&allocator, source, parse_options, NoTokenParserConfig).parse();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let result = Parser::init(
+        &allocator,
+        source,
+        parse_options,
+        NoTokenParserConfig,
+        ast_guard,
+    )
+    .parse();
     let has_errors = result
         .diagnostics
         .iter()

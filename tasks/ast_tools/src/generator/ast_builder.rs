@@ -43,7 +43,7 @@ pub fn ast_builder(schema: &Schema) -> RawOutput {
             use crate::generated::ast_payload::*;
             use oxc_index::Idx;
 
-            impl<'a> Ast<'a> {
+            impl<'a, 'id> Ast<'a, 'id> {
                 #build_functions
             }
     };
@@ -75,7 +75,7 @@ fn generate_build_function_inline(
     if ast.fields.is_empty() {
         return quote! {
             #[inline]
-            pub fn #fn_name(&mut self, span: Span) -> #ret_ty {
+            pub fn #fn_name(&mut self, span: Span) -> #ret_ty<'id> {
                 #ret_ty(self.add_node(
                     span,
                     NodeKind::#ret_ty,
@@ -90,7 +90,7 @@ fn generate_build_function_inline(
             let payload = generate_payload_constructor(ast, schema, layout, None);
             quote! {
                 #[inline]
-                pub fn #fn_name(&mut self, span: Span, #fn_params) -> #ret_ty {
+                pub fn #fn_name(&mut self, span: Span, #fn_params) -> #ret_ty<'id> {
                     #ret_ty(self.add_node(span, NodeKind::#ret_ty, #payload))
                 }
             }
@@ -110,7 +110,7 @@ fn generate_build_function_inline(
 
             quote! {
                 #[inline]
-                pub fn #fn_name(&mut self, span: Span, #fn_params) -> #ret_ty {
+                pub fn #fn_name(&mut self, span: Span, #fn_params) -> #ret_ty<'id> {
                     #add_extra_data
                     #ret_ty(self.add_node(span, NodeKind::#ret_ty, #payload))
                 }
@@ -143,7 +143,9 @@ fn generate_payload_constructor(
         let field = &ast.fields[field_index];
         let field_name = safe_ident(&field.name);
         let field_ty = &schema.types[field.type_id];
-        let value = if direct_payload_field(field_ty, schema) {
+        let value = if matches!(field_ty, AstType::SubRange(_)) {
+            quote!(#field_name.raw())
+        } else if direct_payload_field(field_ty, schema) {
             quote!(#field_name)
         } else if size == 8 {
             generate_field_to_u64(field_ty, &field_name, schema)
@@ -255,7 +257,7 @@ fn generate_build_function_for_enum(
                 let fn_params = generate_fn_params_decl(ast_struct, schema);
                 build_variants.extend(quote! {
                     #[inline]
-                    pub fn #fn_name(&mut self, span: Span, #fn_params) -> #ret_ty {
+                    pub fn #fn_name(&mut self, span: Span, #fn_params) -> #ret_ty<'id> {
                         #body
                     }
                 });

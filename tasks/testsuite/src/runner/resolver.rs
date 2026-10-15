@@ -41,7 +41,8 @@ impl Runner<SwcResolverCase> for ResolverRunner {
 
 fn run_case(case: &SwcResolverCase) -> Result<(), String> {
     let allocator = Allocator::new();
-    let ast = parse_case(&allocator, case)?;
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let ast = parse_case(&allocator, case, ast_guard)?;
     let resolver = resolver(&ast);
     let actual = resolver_snapshot(&ast, &resolver);
 
@@ -52,7 +53,7 @@ fn run_case(case: &SwcResolverCase) -> Result<(), String> {
     }
 }
 
-fn resolver_snapshot(ast: &Ast<'_>, resolver: &JsNameResolver<'_>) -> String {
+fn resolver_snapshot<'id>(ast: &Ast<'_, 'id>, resolver: &JsNameResolver<'_, 'id>) -> String {
     let mut output = String::new();
     writeln!(
         output,
@@ -75,26 +76,26 @@ fn resolver_snapshot(ast: &Ast<'_>, resolver: &JsNameResolver<'_>) -> String {
     output
 }
 
-struct ResolverDisplayVisitor<'a, 'ast> {
-    ast: &'a Ast<'ast>,
-    resolver: &'a JsNameResolver<'ast>,
+struct ResolverDisplayVisitor<'a, 'ast, 'id> {
+    ast: &'a Ast<'ast, 'id>,
+    resolver: &'a JsNameResolver<'ast, 'id>,
     output: &'a mut String,
     export_from: bool,
 }
 
-impl ResolverDisplayVisitor<'_, '_> {
-    fn write_identifier(&mut self, node: SymbolNode, name: AstUtf8) {
+impl<'id> ResolverDisplayVisitor<'_, '_, 'id> {
+    fn write_identifier(&mut self, node: SymbolNode<'id>, name: AstUtf8<'id>) {
         let name = self.ast.get_utf8(name);
         let context = self.resolver.symbol_scope(node).raw();
         writeln!(self.output, "{name} ({name:?}) -> ScopeId({context})").unwrap();
     }
 
-    fn write_identifier_name(&mut self, identifier: IdentifierName, context: u32) {
+    fn write_identifier_name(&mut self, identifier: IdentifierName<'id>, context: u32) {
         let name = self.ast.get_utf8(identifier.name(self.ast));
         writeln!(self.output, "{name} ({name:?}) -> ScopeId({context})").unwrap();
     }
 
-    fn write_module_export_name(&mut self, name: ModuleExportName, resolved: bool) {
+    fn write_module_export_name(&mut self, name: ModuleExportName<'id>, resolved: bool) {
         if let ModuleExportNameData::IdentifierName(identifier) =
             self.ast.module_export_name_data(name)
         {
@@ -109,46 +110,50 @@ impl ResolverDisplayVisitor<'_, '_> {
         }
     }
 
-    fn is_shorthand<N: AstNode + GetSpan>(&self, name: ModuleExportName, local: N) -> bool {
+    fn is_shorthand<N: AstNode<'id> + GetSpan<'id>>(
+        &self,
+        name: ModuleExportName<'id>,
+        local: N,
+    ) -> bool {
         name.span(self.ast) == local.span(self.ast)
     }
 }
 
-impl<'ast> Visit<'ast> for ResolverDisplayVisitor<'_, 'ast> {
-    fn ast(&self) -> &Ast<'ast> {
+impl<'id, 'ast> Visit<'ast, 'id> for ResolverDisplayVisitor<'_, 'ast, 'id> {
+    fn ast(&self) -> &Ast<'ast, 'id> {
         self.ast
     }
 
-    fn visit_identifier_reference(&mut self, node: IdentifierReference) {
+    fn visit_identifier_reference(&mut self, node: IdentifierReference<'id>) {
         self.write_identifier(SymbolNode::IdentifierReference(node), node.name(self.ast));
     }
 
-    fn visit_binding_identifier(&mut self, node: BindingIdentifier) {
+    fn visit_binding_identifier(&mut self, node: BindingIdentifier<'id>) {
         self.write_identifier(SymbolNode::BindingIdentifier(node), node.name(self.ast));
         node.visit_children_with(self);
     }
 
-    fn visit_identifier_name(&mut self, node: IdentifierName) {
+    fn visit_identifier_name(&mut self, node: IdentifierName<'id>) {
         node.visit_children_with(self);
     }
 
-    fn visit_label_identifier(&mut self, node: LabelIdentifier) {
+    fn visit_label_identifier(&mut self, node: LabelIdentifier<'id>) {
         self.write_identifier(SymbolNode::LabelIdentifier(node), node.name(self.ast));
     }
 
-    fn visit_private_identifier(&mut self, node: PrivateIdentifier) {
+    fn visit_private_identifier(&mut self, node: PrivateIdentifier<'id>) {
         node.visit_children_with(self);
     }
 
-    fn visit_jsx_identifier(&mut self, node: JsxIdentifier) {
+    fn visit_jsx_identifier(&mut self, node: JsxIdentifier<'id>) {
         node.visit_children_with(self);
     }
 
-    fn visit_module_export_name(&mut self, node: ModuleExportName) {
+    fn visit_module_export_name(&mut self, node: ModuleExportName<'id>) {
         self.write_module_export_name(node, true);
     }
 
-    fn visit_import_specifier(&mut self, node: ImportSpecifier) {
+    fn visit_import_specifier(&mut self, node: ImportSpecifier<'id>) {
         let local = node.local(self.ast);
         let imported = node.imported(self.ast);
         local.visit_with(self);
@@ -157,9 +162,9 @@ impl<'ast> Visit<'ast> for ResolverDisplayVisitor<'_, 'ast> {
         }
     }
 
-    fn visit_import_attribute(&mut self, _: ImportAttribute) {}
+    fn visit_import_attribute(&mut self, _: ImportAttribute<'id>) {}
 
-    fn visit_export_named_declaration(&mut self, node: ExportNamedDeclaration) {
+    fn visit_export_named_declaration(&mut self, node: ExportNamedDeclaration<'id>) {
         node.declaration(self.ast).visit_with(self);
         let old_export_from = self.export_from;
         self.export_from = node.source(self.ast).is_some();
@@ -167,13 +172,13 @@ impl<'ast> Visit<'ast> for ResolverDisplayVisitor<'_, 'ast> {
         self.export_from = old_export_from;
     }
 
-    fn visit_export_all_declaration(&mut self, node: ExportAllDeclaration) {
+    fn visit_export_all_declaration(&mut self, node: ExportAllDeclaration<'id>) {
         if let Some(exported) = node.exported(self.ast) {
             self.write_module_export_name(exported, false);
         }
     }
 
-    fn visit_export_specifier(&mut self, node: ExportSpecifier) {
+    fn visit_export_specifier(&mut self, node: ExportSpecifier<'id>) {
         let local = node.local(self.ast);
         let exported = node.exported(self.ast);
         self.write_module_export_name(local, !self.export_from);
@@ -182,14 +187,14 @@ impl<'ast> Visit<'ast> for ResolverDisplayVisitor<'_, 'ast> {
         }
     }
 
-    fn visit_class(&mut self, node: Class) {
+    fn visit_class(&mut self, node: Class<'id>) {
         node.id(self.ast).visit_with(self);
         node.decorators(self.ast).visit_with(self);
         node.body(self.ast).visit_with(self);
         node.super_class(self.ast).visit_with(self);
     }
 
-    fn visit_method_definition(&mut self, node: MethodDefinition) {
+    fn visit_method_definition(&mut self, node: MethodDefinition<'id>) {
         node.key(self.ast).visit_with(self);
         let function = node.value(self.ast);
         function.params(self.ast).visit_with(self);
@@ -197,18 +202,18 @@ impl<'ast> Visit<'ast> for ResolverDisplayVisitor<'_, 'ast> {
         function.body(self.ast).visit_with(self);
     }
 
-    fn visit_property_definition(&mut self, node: PropertyDefinition) {
+    fn visit_property_definition(&mut self, node: PropertyDefinition<'id>) {
         node.key(self.ast).visit_with(self);
         node.value(self.ast).visit_with(self);
         node.decorators(self.ast).visit_with(self);
     }
 
-    fn visit_do_while_statement(&mut self, node: DoWhileStatement) {
+    fn visit_do_while_statement(&mut self, node: DoWhileStatement<'id>) {
         node.test(self.ast).visit_with(self);
         node.body(self.ast).visit_with(self);
     }
 
-    fn visit_jsx_element_name(&mut self, node: JsxElementName) {
+    fn visit_jsx_element_name(&mut self, node: JsxElementName<'id>) {
         match self.ast.jsx_element_name_data(node) {
             JsxElementNameData::JsxIdentifier(identifier) => {
                 self.write_identifier(
@@ -223,7 +228,7 @@ impl<'ast> Visit<'ast> for ResolverDisplayVisitor<'_, 'ast> {
         }
     }
 
-    fn visit_jsx_member_expression_object(&mut self, node: JsxMemberExpressionObject) {
+    fn visit_jsx_member_expression_object(&mut self, node: JsxMemberExpressionObject<'id>) {
         match self.ast.jsx_member_expression_object_data(node) {
             JsxMemberExpressionObjectData::JsxIdentifier(identifier) => {
                 self.write_identifier(

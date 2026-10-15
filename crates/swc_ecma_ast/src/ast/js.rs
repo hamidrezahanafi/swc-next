@@ -11,7 +11,7 @@ macro_rules! impl_extra_data_value {
     ($($ty:ty),+ $(,)?) => {
         $(
             impl SealedExtraDataValue for $ty {}
-            impl ExtraDataValue for $ty {
+            impl<'id> ExtraDataValue<'id> for $ty {
                 #[inline]
                 fn into_extra_data(self) -> ExtraData {
                     ExtraData::from_raw(self as u64)
@@ -312,10 +312,9 @@ impl_extra_data_value!(
     ImportOrExportKind,
     ImportPhase,
 );
-
 impl SealedExtraDataValue for Option<ImportPhase> {}
 
-impl ExtraDataValue for Option<ImportPhase> {
+impl<'id> ExtraDataValue<'id> for Option<ImportPhase> {
     #[inline]
     fn into_extra_data(self) -> ExtraData {
         ExtraData::from_raw(self.map_or(u8::MAX as u64, |phase| phase as u64))

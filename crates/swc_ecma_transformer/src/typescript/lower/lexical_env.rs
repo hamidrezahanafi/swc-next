@@ -5,7 +5,10 @@ use swc_next_ecma_ast::{
 /// Visit expressions evaluated in the enclosing lexical function environment.
 /// Includes decorators, including parameter decorators, but excludes parameter
 /// defaults, method bodies, field initializers and static blocks.
-pub(super) fn visit_class_outer_expressions<'ast>(class: Class, visitor: &mut impl VisitMut<'ast>) {
+pub(super) fn visit_class_outer_expressions<'id, 'ast>(
+    class: Class<'id>,
+    visitor: &mut impl VisitMut<'ast, 'id>,
+) {
     let decorators = class.decorators(visitor.ast());
     if let Some(decorators) = decorators.visit_mut_with(visitor) {
         class.set_decorators(visitor.ast(), decorators);
@@ -46,9 +49,9 @@ pub(super) fn visit_class_outer_expressions<'ast>(class: Class, visitor: &mut im
     }
 }
 
-fn visit_parameter_decorators<'ast>(
-    parameters: FormalParameters,
-    visitor: &mut impl VisitMut<'ast>,
+fn visit_parameter_decorators<'id, 'ast>(
+    parameters: FormalParameters<'id>,
+    visitor: &mut impl VisitMut<'ast, 'id>,
 ) {
     let items = parameters.items(visitor.ast());
     for id in items.iter() {

@@ -157,8 +157,9 @@ fn assert_decorator_target(source: &str, name: &[u8], declaration: &str) {
     let expected_start = source.find(declaration).unwrap() as u32;
     let allocator = Allocator::new();
     let check = |options| {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) =
-            analyze_with_options(&allocator, &source, ts_module_options(), options);
+            analyze_with_options(&allocator, &source, ts_module_options(), options, ast_guard);
         let reference = semantic
             .iter_references()
             .find(|entry| ast.get_utf8(entry.reference.name).as_bytes() == name)
@@ -252,6 +253,7 @@ fn decorator_lexical_bindings() {
 fn assert_type_name_targets(source: &str, name: &[u8], outer_targets: &[bool]) {
     let allocator = Allocator::new();
     for check_syntax in [false, true] {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) = analyze_with_options(
             &allocator,
             source,
@@ -260,6 +262,7 @@ fn assert_type_name_targets(source: &str, name: &[u8], outer_targets: &[bool]) {
                 check_syntax,
                 ..AnalyzeOptions::default()
             },
+            ast_guard,
         );
         let outer = semantic.binding(ScopeId::MODULE, name).unwrap();
         let references = semantic
@@ -442,7 +445,9 @@ fn infer_declaration_merging() {
                 check_syntax,
                 ..AnalyzeOptions::default()
             };
-            let (ast, semantic) = analyze_with_options(&allocator, source, parser_options, options);
+            swc_next_ecma_ast::make_ast_guard!(ast_guard);
+            let (ast, semantic) =
+                analyze_with_options(&allocator, source, parser_options, options, ast_guard);
             let entry = semantic
                 .iter_references()
                 .find(|entry| ast.get_utf8(entry.reference.name) == "U")
@@ -803,6 +808,7 @@ fn parameter_initializer_environment() {
 fn assert_signature_references(source: &str, name: &[u8], parameters: &[bool]) {
     let allocator = Allocator::new();
     for check_syntax in [false, true] {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (ast, semantic) = analyze_with_options(
             &allocator,
             source,
@@ -811,6 +817,7 @@ fn assert_signature_references(source: &str, name: &[u8], parameters: &[bool]) {
                 check_syntax,
                 ..AnalyzeOptions::default()
             },
+            ast_guard,
         );
         let parameter = semantic
             .iter_symbols()
@@ -844,6 +851,7 @@ fn assert_signature_references(source: &str, name: &[u8], parameters: &[bool]) {
 fn assert_header_value_query(source: &str, outer: bool) {
     let allocator = Allocator::new();
     for check_syntax in [false, true] {
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let (_, semantic) = analyze_with_options(
             &allocator,
             source,
@@ -852,6 +860,7 @@ fn assert_header_value_query(source: &str, outer: bool) {
                 check_syntax,
                 ..AnalyzeOptions::default()
             },
+            ast_guard,
         );
         let query = semantic
             .iter_references()

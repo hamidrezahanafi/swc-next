@@ -15,12 +15,12 @@ pub(super) enum ModuleScopeKind {
     Global,
 }
 
-impl<'ast> Transformer<'_, 'ast> {
+impl<'id, 'ast> Transformer<'_, 'ast, 'id> {
     pub(super) fn transform_module_body(
         &mut self,
-        body: Option<TsModuleBody>,
+        body: Option<TsModuleBody<'id>>,
         ambient: bool,
-        ast: &mut Ast<'ast>,
+        ast: &mut Ast<'ast, 'id>,
     ) {
         let Some(body) = body else {
             return;
@@ -48,10 +48,10 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn transform_module_block(
         &mut self,
-        block: TsModuleBlock,
+        block: TsModuleBlock<'id>,
         context: DeclContext,
         scope: ModuleScopeKind,
-        ast: &mut Ast<'ast>,
+        ast: &mut Ast<'ast, 'id>,
     ) {
         let statements = self.transform_statements(block.body(ast), context, ast);
         let statements = self.normalize_module_statements(statements, scope, ast);
@@ -61,10 +61,10 @@ impl<'ast> Transformer<'_, 'ast> {
 
     fn normalize_module_statements(
         &self,
-        mut statements: Vec<Stmt>,
+        mut statements: Vec<Stmt<'id>>,
         scope: ModuleScopeKind,
-        ast: &mut Ast<'ast>,
-    ) -> Vec<Stmt> {
+        ast: &mut Ast<'ast, 'id>,
+    ) -> Vec<Stmt<'id>> {
         if scope == ModuleScopeKind::Global {
             return statements;
         }
@@ -124,7 +124,11 @@ impl<'ast> Transformer<'_, 'ast> {
             .collect()
     }
 
-    pub(super) fn transform_import(&self, import: ImportDeclaration, ast: &mut Ast<'ast>) -> bool {
+    pub(super) fn transform_import(
+        &self,
+        import: ImportDeclaration<'id>,
+        ast: &mut Ast<'ast, 'id>,
+    ) -> bool {
         let specifiers = import.specifiers(ast);
         if specifiers.is_empty() {
             return true;
@@ -158,8 +162,8 @@ impl<'ast> Transformer<'_, 'ast> {
 
     fn import_specifier_is_used(
         &self,
-        specifier: ImportDeclarationSpecifier,
-        ast: &Ast<'ast>,
+        specifier: ImportDeclarationSpecifier<'id>,
+        ast: &Ast<'ast, 'id>,
     ) -> bool {
         let binding = match ast.import_declaration_specifier_data(specifier) {
             ImportDeclarationSpecifierData::ImportSpecifier(specifier) => specifier.local(ast),
@@ -175,9 +179,9 @@ impl<'ast> Transformer<'_, 'ast> {
 
     pub(super) fn ensure_module_marker(
         &self,
-        mut body: Vec<Stmt>,
-        ast: &mut Ast<'ast>,
-    ) -> Vec<Stmt> {
+        mut body: Vec<Stmt<'id>>,
+        ast: &mut Ast<'ast, 'id>,
+    ) -> Vec<Stmt<'id>> {
         let has_scope_marker = body
             .iter()
             .any(|statement| match ast.stmt_data(*statement) {
@@ -225,7 +229,7 @@ impl<'ast> Transformer<'_, 'ast> {
         body
     }
 
-    fn empty_export_marker(&self, ast: &mut Ast<'ast>) -> Stmt {
+    fn empty_export_marker(&self, ast: &mut Ast<'ast, 'id>) -> Stmt<'id> {
         ast.stmt_export_named_declaration(
             Span::new(0, 0),
             None,

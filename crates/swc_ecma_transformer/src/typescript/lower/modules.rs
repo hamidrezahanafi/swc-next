@@ -8,8 +8,8 @@ use swc_next_ecma_ast::{
 
 use super::TypeScriptLowerer;
 
-impl TypeScriptLowerer<'_, '_> {
-    pub(super) fn lower_import_declaration(&mut self, declaration: ImportDeclaration) -> bool {
+impl<'id> TypeScriptLowerer<'_, '_, 'id> {
+    pub(super) fn lower_import_declaration(&mut self, declaration: ImportDeclaration<'id>) -> bool {
         if declaration.import_kind(self.ast_ref()) == ImportOrExportKind::Type {
             return false;
         }
@@ -67,7 +67,7 @@ impl TypeScriptLowerer<'_, '_> {
 
     pub(super) fn lower_export_named_declaration(
         &mut self,
-        declaration: ExportNamedDeclaration,
+        declaration: ExportNamedDeclaration<'id>,
     ) -> bool {
         if declaration.export_kind(self.ast_ref()) == ImportOrExportKind::Type {
             return false;
@@ -111,7 +111,7 @@ impl TypeScriptLowerer<'_, '_> {
         true
     }
 
-    fn export_local_is_erased(&self, local: swc_next_ecma_ast::ModuleExportName) -> bool {
+    fn export_local_is_erased(&self, local: swc_next_ecma_ast::ModuleExportName<'id>) -> bool {
         let Some(identifier) = local.as_identifier_name(self.ast_ref()) else {
             return false;
         };
@@ -120,7 +120,7 @@ impl TypeScriptLowerer<'_, '_> {
 
     pub(super) fn export_default_is_erased(
         &self,
-        declaration: swc_next_ecma_ast::ExportDefaultDeclaration,
+        declaration: swc_next_ecma_ast::ExportDefaultDeclaration<'id>,
     ) -> bool {
         if self.options.verbatim_module_syntax {
             return false;
@@ -142,7 +142,7 @@ impl TypeScriptLowerer<'_, '_> {
         self.export_reference_is_erased(expression.node_id())
     }
 
-    fn export_reference_is_erased(&self, node: swc_next_ecma_ast::NodeId) -> bool {
+    fn export_reference_is_erased(&self, node: swc_next_ecma_ast::NodeId<'id>) -> bool {
         let Some(id) = self.semantic.reference_of(node) else {
             return false;
         };
@@ -157,21 +157,24 @@ impl TypeScriptLowerer<'_, '_> {
                 })
     }
 
-    fn binding_has_runtime_usage(&self, binding: BindingIdentifier) -> bool {
+    fn binding_has_runtime_usage(&self, binding: BindingIdentifier<'id>) -> bool {
         self.semantic
             .symbol_of(binding.node_id())
             .is_none_or(|symbol| self.analysis.has_runtime_usage(symbol, self.semantic))
     }
 
-    pub(super) fn import_equals_is_erased(&self, declaration: TsImportEqualsDeclaration) -> bool {
+    pub(super) fn import_equals_is_erased(
+        &self,
+        declaration: TsImportEqualsDeclaration<'id>,
+    ) -> bool {
         self.analysis.import_equals_is_erased(declaration.node_id())
     }
 
     pub(super) fn lower_import_equals(
         &mut self,
-        declaration: TsImportEqualsDeclaration,
+        declaration: TsImportEqualsDeclaration<'id>,
         exported: bool,
-    ) -> Option<Stmt> {
+    ) -> Option<Stmt<'id>> {
         if self.import_equals_is_erased(declaration) {
             return None;
         }
@@ -219,8 +222,8 @@ impl TypeScriptLowerer<'_, '_> {
 
     pub(super) fn lower_import_equals_initializer(
         &mut self,
-        declaration: TsImportEqualsDeclaration,
-    ) -> Expr {
+        declaration: TsImportEqualsDeclaration<'id>,
+    ) -> Expr<'id> {
         let module_reference = declaration.module_reference(self.ast_ref());
         match self.ast_ref().ts_module_reference_data(module_reference) {
             TsModuleReferenceData::TsTypeName(type_name) => self.lower_type_name(type_name),
@@ -233,7 +236,7 @@ impl TypeScriptLowerer<'_, '_> {
         }
     }
 
-    fn lower_type_name(&mut self, type_name: TsTypeName) -> Expr {
+    fn lower_type_name(&mut self, type_name: TsTypeName<'id>) -> Expr<'id> {
         match self.ast_ref().ts_type_name_data(type_name) {
             TsTypeNameData::IdentifierReference(identifier) => {
                 Expr::IdentifierReference(identifier)
@@ -242,7 +245,7 @@ impl TypeScriptLowerer<'_, '_> {
         }
     }
 
-    fn lower_qualified_name(&mut self, qualified: TsQualifiedName) -> Expr {
+    fn lower_qualified_name(&mut self, qualified: TsQualifiedName<'id>) -> Expr<'id> {
         let left = qualified.left(self.ast_ref());
         let right = qualified.right(self.ast_ref());
         let span = qualified.span(self.ast_ref());
@@ -256,7 +259,7 @@ impl TypeScriptLowerer<'_, '_> {
         )
     }
 
-    fn lower_qualified_name_left(&mut self, left: TsQualifiedNameLeft) -> Expr {
+    fn lower_qualified_name_left(&mut self, left: TsQualifiedNameLeft<'id>) -> Expr<'id> {
         match self.ast_ref().ts_qualified_name_left_data(left) {
             TsQualifiedNameLeftData::IdentifierReference(identifier) => {
                 Expr::IdentifierReference(identifier)

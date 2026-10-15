@@ -8,12 +8,12 @@ use swc_next_ecma_ast::{
     VisitMut, VisitMutWith,
 };
 
-impl<'ast> VisitMut<'ast> for TypeScriptLowerer<'_, 'ast> {
-    fn ast(&mut self) -> &mut Ast<'ast> {
+impl<'id, 'ast> VisitMut<'ast, 'id> for TypeScriptLowerer<'_, 'ast, 'id> {
+    fn ast(&mut self) -> &mut Ast<'ast, 'id> {
         self.ast
     }
 
-    fn visit_mut_stmt(&mut self, statement: Stmt) -> Option<Stmt> {
+    fn visit_mut_stmt(&mut self, statement: Stmt<'id>) -> Option<Stmt<'id>> {
         match self.lower_statement(statement)? {
             StatementExpansion::Remove => {
                 Some(Stmt::EmptyStatement(self.ast().empty_statement(DUMMY_SP)))
@@ -28,14 +28,17 @@ impl<'ast> VisitMut<'ast> for TypeScriptLowerer<'_, 'ast> {
         }
     }
 
-    fn visit_mut_stmts(&mut self, statements: SubRange<Stmt>) -> Option<SubRange<Stmt>> {
+    fn visit_mut_stmts(
+        &mut self,
+        statements: SubRange<'id, Stmt<'id>>,
+    ) -> Option<SubRange<'id, Stmt<'id>>> {
         self.lower_statement_list(statements)
     }
 
     fn visit_mut_switch_statement(
         &mut self,
-        statement: SwitchStatement,
-    ) -> Option<SwitchStatement> {
+        statement: SwitchStatement<'id>,
+    ) -> Option<SwitchStatement<'id>> {
         let discriminant = statement.discriminant(self.ast_ref());
         if let Some(discriminant) = discriminant.visit_mut_with(self) {
             statement.set_discriminant(self.ast(), discriminant);
@@ -56,7 +59,7 @@ impl<'ast> VisitMut<'ast> for TypeScriptLowerer<'_, 'ast> {
         None
     }
 
-    fn visit_mut_switch_case(&mut self, case: SwitchCase) -> Option<SwitchCase> {
+    fn visit_mut_switch_case(&mut self, case: SwitchCase<'id>) -> Option<SwitchCase<'id>> {
         let test = case.test(self.ast_ref());
         if let Some(test) = test.visit_mut_with(self) {
             case.set_test(self.ast(), test);
@@ -71,12 +74,12 @@ impl<'ast> VisitMut<'ast> for TypeScriptLowerer<'_, 'ast> {
 
     fn visit_mut_class_elements(
         &mut self,
-        elements: SubRange<ClassElement>,
-    ) -> Option<SubRange<ClassElement>> {
+        elements: SubRange<'id, ClassElement<'id>>,
+    ) -> Option<SubRange<'id, ClassElement<'id>>> {
         self.lower_class_elements(elements)
     }
 
-    fn visit_mut_expr(&mut self, expression: Expr) -> Option<Expr> {
+    fn visit_mut_expr(&mut self, expression: Expr<'id>) -> Option<Expr<'id>> {
         if let Some(value) = self.analysis.inline_const_enum_use(expression.node_id()) {
             return Some(self.inline_enum_constant(expression, value));
         }
@@ -99,7 +102,10 @@ impl<'ast> VisitMut<'ast> for TypeScriptLowerer<'_, 'ast> {
         }
     }
 
-    fn visit_mut_object_property(&mut self, property: ObjectProperty) -> Option<ObjectProperty> {
+    fn visit_mut_object_property(
+        &mut self,
+        property: ObjectProperty<'id>,
+    ) -> Option<ObjectProperty<'id>> {
         property.visit_mut_children_with(self);
         let shorthand_value_is_identifier = matches!(
             self.ast_ref().expr_data(property.value(self.ast_ref())),
@@ -111,7 +117,10 @@ impl<'ast> VisitMut<'ast> for TypeScriptLowerer<'_, 'ast> {
         None
     }
 
-    fn visit_mut_binding_property(&mut self, property: BindingProperty) -> Option<BindingProperty> {
+    fn visit_mut_binding_property(
+        &mut self,
+        property: BindingProperty<'id>,
+    ) -> Option<BindingProperty<'id>> {
         property.visit_mut_children_with(self);
         update_binding_property_shorthand(self.ast(), property);
         None
@@ -119,8 +128,8 @@ impl<'ast> VisitMut<'ast> for TypeScriptLowerer<'_, 'ast> {
 
     fn visit_mut_simple_assignment_target(
         &mut self,
-        target: SimpleAssignmentTarget,
-    ) -> Option<SimpleAssignmentTarget> {
+        target: SimpleAssignmentTarget<'id>,
+    ) -> Option<SimpleAssignmentTarget<'id>> {
         if let SimpleAssignmentTargetData::IdentifierReference(identifier) =
             self.ast().simple_assignment_target_data(target)
             && let Some(replacement) = self.namespace_identifier_target(identifier)
@@ -153,8 +162,8 @@ impl<'ast> VisitMut<'ast> for TypeScriptLowerer<'_, 'ast> {
 
     fn visit_mut_formal_parameter(
         &mut self,
-        parameter: FormalParameter,
-    ) -> Option<FormalParameter> {
+        parameter: FormalParameter<'id>,
+    ) -> Option<FormalParameter<'id>> {
         parameter.set_type_annotation(self.ast(), None);
         parameter.set_optional(self.ast(), false);
         parameter.visit_mut_children_with(self)
@@ -162,35 +171,35 @@ impl<'ast> VisitMut<'ast> for TypeScriptLowerer<'_, 'ast> {
 
     fn visit_mut_formal_parameter_rest(
         &mut self,
-        rest: FormalParameterRest,
-    ) -> Option<FormalParameterRest> {
+        rest: FormalParameterRest<'id>,
+    ) -> Option<FormalParameterRest<'id>> {
         rest.set_type_annotation(self.ast(), None);
         rest.visit_mut_children_with(self)
     }
 
-    fn visit_mut_catch_clause(&mut self, clause: CatchClause) -> Option<CatchClause> {
+    fn visit_mut_catch_clause(&mut self, clause: CatchClause<'id>) -> Option<CatchClause<'id>> {
         clause.set_type_annotation(self.ast(), None);
         clause.visit_mut_children_with(self)
     }
 
     fn visit_mut_variable_declaration(
         &mut self,
-        declaration: VariableDeclaration,
-    ) -> Option<VariableDeclaration> {
+        declaration: VariableDeclaration<'id>,
+    ) -> Option<VariableDeclaration<'id>> {
         declaration.set_declare(self.ast(), false);
         declaration.visit_mut_children_with(self)
     }
 
     fn visit_mut_variable_declarator(
         &mut self,
-        declarator: VariableDeclarator,
-    ) -> Option<VariableDeclarator> {
+        declarator: VariableDeclarator<'id>,
+    ) -> Option<VariableDeclarator<'id>> {
         declarator.set_definite(self.ast(), false);
         declarator.set_type_annotation(self.ast(), None);
         declarator.visit_mut_children_with(self)
     }
 
-    fn visit_mut_class(&mut self, class: Class) -> Option<Class> {
+    fn visit_mut_class(&mut self, class: Class<'id>) -> Option<Class<'id>> {
         class.set_type_parameters(self.ast(), None);
         class.set_super_type_arguments(self.ast(), None);
         class.set_implements(self.ast(), SubRange::empty());
@@ -203,8 +212,8 @@ impl<'ast> VisitMut<'ast> for TypeScriptLowerer<'_, 'ast> {
 
     fn visit_mut_method_definition(
         &mut self,
-        method: MethodDefinition,
-    ) -> Option<MethodDefinition> {
+        method: MethodDefinition<'id>,
+    ) -> Option<MethodDefinition<'id>> {
         method.set_override(self.ast(), false);
         method.set_optional(self.ast(), false);
         method.set_abstract(self.ast(), false);
@@ -214,8 +223,8 @@ impl<'ast> VisitMut<'ast> for TypeScriptLowerer<'_, 'ast> {
 
     fn visit_mut_property_definition(
         &mut self,
-        property: PropertyDefinition,
-    ) -> Option<PropertyDefinition> {
+        property: PropertyDefinition<'id>,
+    ) -> Option<PropertyDefinition<'id>> {
         property.set_type_annotation(self.ast(), None);
         property.set_declare(self.ast(), false);
         property.set_override(self.ast(), false);
@@ -229,8 +238,8 @@ impl<'ast> VisitMut<'ast> for TypeScriptLowerer<'_, 'ast> {
 
     fn visit_mut_function(
         &mut self,
-        function: swc_next_ecma_ast::Function,
-    ) -> Option<swc_next_ecma_ast::Function> {
+        function: swc_next_ecma_ast::Function<'id>,
+    ) -> Option<swc_next_ecma_ast::Function<'id>> {
         function.set_type_parameters(self.ast(), None);
         function.set_this_param(self.ast(), None);
         function.set_return_type(self.ast(), None);
@@ -239,35 +248,41 @@ impl<'ast> VisitMut<'ast> for TypeScriptLowerer<'_, 'ast> {
 
     fn visit_mut_arrow_function_expression(
         &mut self,
-        arrow: ArrowFunctionExpression,
-    ) -> Option<ArrowFunctionExpression> {
+        arrow: ArrowFunctionExpression<'id>,
+    ) -> Option<ArrowFunctionExpression<'id>> {
         arrow.set_type_parameters(self.ast(), None);
         arrow.set_return_type(self.ast(), None);
         arrow.visit_mut_children_with(self)
     }
 
-    fn visit_mut_call_expression(&mut self, call: CallExpression) -> Option<CallExpression> {
+    fn visit_mut_call_expression(
+        &mut self,
+        call: CallExpression<'id>,
+    ) -> Option<CallExpression<'id>> {
         call.set_type_arguments(self.ast(), None);
         call.visit_mut_children_with(self)
     }
 
-    fn visit_mut_new_expression(&mut self, expression: NewExpression) -> Option<NewExpression> {
+    fn visit_mut_new_expression(
+        &mut self,
+        expression: NewExpression<'id>,
+    ) -> Option<NewExpression<'id>> {
         expression.set_type_arguments(self.ast(), None);
         expression.visit_mut_children_with(self)
     }
 
     fn visit_mut_tagged_template_expression(
         &mut self,
-        template: TaggedTemplateExpression,
-    ) -> Option<TaggedTemplateExpression> {
+        template: TaggedTemplateExpression<'id>,
+    ) -> Option<TaggedTemplateExpression<'id>> {
         template.set_type_arguments(self.ast(), None);
         template.visit_mut_children_with(self)
     }
 
     fn visit_mut_jsx_opening_element(
         &mut self,
-        element: JsxOpeningElement,
-    ) -> Option<JsxOpeningElement> {
+        element: JsxOpeningElement<'id>,
+    ) -> Option<JsxOpeningElement<'id>> {
         element.set_type_arguments(self.ast(), None);
         if let Some(name) = self.namespace_jsx_name(element.name(self.ast_ref())) {
             element.set_name(self.ast(), name);
@@ -277,8 +292,8 @@ impl<'ast> VisitMut<'ast> for TypeScriptLowerer<'_, 'ast> {
 
     fn visit_mut_jsx_closing_element(
         &mut self,
-        element: JsxClosingElement,
-    ) -> Option<JsxClosingElement> {
+        element: JsxClosingElement<'id>,
+    ) -> Option<JsxClosingElement<'id>> {
         if let Some(name) = self.namespace_jsx_name(element.name(self.ast_ref())) {
             element.set_name(self.ast(), name);
         }

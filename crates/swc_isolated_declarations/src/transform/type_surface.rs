@@ -7,8 +7,12 @@ use swc_next_ecma_ast::{
 
 use super::Transformer;
 
-impl<'ast> Transformer<'_, 'ast> {
-    pub(super) fn transform_type_surfaces(&mut self, program: Program, ast: &mut Ast<'ast>) {
+impl<'id, 'ast> Transformer<'_, 'ast, 'id> {
+    pub(super) fn transform_type_surfaces(
+        &mut self,
+        program: Program<'id>,
+        ast: &mut Ast<'ast, 'id>,
+    ) {
         let mut visitor = TypeSurfaceVisitor {
             transformer: self,
             ast,
@@ -17,20 +21,20 @@ impl<'ast> Transformer<'_, 'ast> {
     }
 }
 
-struct TypeSurfaceVisitor<'transform, 'ast, 'semantic> {
-    transformer: &'transform mut Transformer<'semantic, 'ast>,
-    ast: &'transform mut Ast<'ast>,
+struct TypeSurfaceVisitor<'transform, 'ast, 'semantic, 'id> {
+    transformer: &'transform mut Transformer<'semantic, 'ast, 'id>,
+    ast: &'transform mut Ast<'ast, 'id>,
 }
 
-impl<'ast, 'semantic> VisitMut<'ast> for TypeSurfaceVisitor<'_, 'ast, 'semantic> {
-    fn ast(&mut self) -> &mut Ast<'ast> {
+impl<'id, 'ast, 'semantic> VisitMut<'ast, 'id> for TypeSurfaceVisitor<'_, 'ast, 'semantic, 'id> {
+    fn ast(&mut self) -> &mut Ast<'ast, 'id> {
         self.ast
     }
 
     fn visit_mut_ts_type_elements(
         &mut self,
-        elements: SubRange<TsTypeElement>,
-    ) -> Option<SubRange<TsTypeElement>> {
+        elements: SubRange<'id, TsTypeElement<'id>>,
+    ) -> Option<SubRange<'id, TsTypeElement<'id>>> {
         self.transformer
             .transform_type_accessor_elements(elements, self.ast);
         self.transformer

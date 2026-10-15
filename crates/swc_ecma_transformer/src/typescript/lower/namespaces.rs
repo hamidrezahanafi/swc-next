@@ -14,20 +14,20 @@ use swc_next_ecma_ast::{
 use super::{StatementExpansion, TypeScriptLowerer, runtime::RuntimeTarget};
 
 #[derive(Default)]
-pub(super) struct NamespaceState {
+pub(super) struct NamespaceState<'id> {
     members: FxHashMap<SymbolId, Rc<NamespaceMembers>>,
-    contexts: Vec<NamespaceContext>,
+    contexts: Vec<NamespaceContext<'id>>,
     export_alias_depth: usize,
 }
 
-impl NamespaceState {
+impl<'id> NamespaceState<'id> {
     fn has_export_aliases(&self) -> bool {
         self.export_alias_depth != 0
     }
 
     fn enter(
         &mut self,
-        parameter: AstUtf8,
+        parameter: AstUtf8<'id>,
         members: Rc<NamespaceMembers>,
         local_symbols: FxHashSet<SymbolId>,
     ) {
@@ -48,8 +48,8 @@ impl NamespaceState {
     }
 }
 
-pub(super) struct NamespaceContext {
-    pub(super) parameter: AstUtf8,
+pub(super) struct NamespaceContext<'id> {
+    pub(super) parameter: AstUtf8<'id>,
     members: Rc<NamespaceMembers>,
     local_symbols: FxHashSet<SymbolId>,
 }
@@ -60,24 +60,24 @@ pub(super) struct NamespaceMembers {
 }
 
 #[derive(Clone, Copy)]
-struct NamespacePathPart {
+struct NamespacePathPart<'id> {
     symbol: SymbolId,
-    name: AstUtf8,
+    name: AstUtf8<'id>,
     span: Span,
 }
 
-struct NamespacePath {
-    binding: BindingIdentifier,
-    root: NamespacePathPart,
-    properties: Vec<NamespacePathPart>,
+struct NamespacePath<'id> {
+    binding: BindingIdentifier<'id>,
+    root: NamespacePathPart<'id>,
+    properties: Vec<NamespacePathPart<'id>>,
 }
 
-impl TypeScriptLowerer<'_, '_> {
+impl<'id> TypeScriptLowerer<'_, '_, 'id> {
     pub(super) fn lower_namespace(
         &mut self,
-        declaration: TsModuleDeclaration,
+        declaration: TsModuleDeclaration<'id>,
         exported: bool,
-    ) -> StatementExpansion {
+    ) -> StatementExpansion<'id> {
         if !self
             .analysis
             .namespace_is_instantiated(declaration.node_id())
@@ -111,7 +111,6 @@ impl TypeScriptLowerer<'_, '_> {
         } else {
             RuntimeTarget::Identifier(root.name)
         };
-
         let statement = self.build_namespace_layer(
             root,
             &path.properties,
@@ -124,8 +123,8 @@ impl TypeScriptLowerer<'_, '_> {
 
     pub(super) fn namespace_identifier_reference(
         &mut self,
-        identifier: IdentifierReference,
-    ) -> Option<Expr> {
+        identifier: IdentifierReference<'id>,
+    ) -> Option<Expr<'id>> {
         let parameter = self.namespace_parameter_for_reference(identifier.node_id())?;
         let name = identifier.name(self.ast_ref());
         let span = identifier.span(self.ast_ref());
@@ -136,8 +135,8 @@ impl TypeScriptLowerer<'_, '_> {
 
     pub(super) fn namespace_identifier_target(
         &mut self,
-        identifier: IdentifierReference,
-    ) -> Option<SimpleAssignmentTarget> {
+        identifier: IdentifierReference<'id>,
+    ) -> Option<SimpleAssignmentTarget<'id>> {
         let parameter = self.namespace_parameter_for_reference(identifier.node_id())?;
         let name = identifier.name(self.ast_ref());
         let span = identifier.span(self.ast_ref());
@@ -146,7 +145,10 @@ impl TypeScriptLowerer<'_, '_> {
         ))
     }
 
-    pub(super) fn namespace_jsx_name(&mut self, name: JsxElementName) -> Option<JsxElementName> {
+    pub(super) fn namespace_jsx_name(
+        &mut self,
+        name: JsxElementName<'id>,
+    ) -> Option<JsxElementName<'id>> {
         let root = self.jsx_name_root(name)?;
         let parameter = self.namespace_parameter_for_reference(root.node_id())?;
         let span = name.span(self.ast_ref());
@@ -172,22 +174,22 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn register_namespace_binding(
         &mut self,
-        binding: BindingIdentifier,
-        part: NamespacePathPart,
+        binding: BindingIdentifier<'id>,
+        part: NamespacePathPart<'id>,
         exported: bool,
-    ) -> Option<Stmt> {
+    ) -> Option<Stmt<'id>> {
         let kind = self.register_runtime_binding(part.symbol)?;
         Some(self.runtime_binding_statement(binding, part.span, kind, exported))
     }
 
     fn build_namespace_layer(
         &mut self,
-        part: NamespacePathPart,
-        properties: &[NamespacePathPart],
-        body: TsModuleBody,
-        target: RuntimeTarget,
+        part: NamespacePathPart<'id>,
+        properties: &[NamespacePathPart<'id>],
+        body: TsModuleBody<'id>,
+        target: RuntimeTarget<'id>,
         span: Span,
-    ) -> Stmt {
+    ) -> Stmt<'id> {
         let parameter = self.container_parameter(part.name, part.symbol);
         let members = self
             .namespaces
@@ -238,10 +240,13 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn lower_namespace_body(
         &mut self,
-        body: TsModuleBody,
-        parameter: AstUtf8,
+        body: TsModuleBody<'id>,
+        parameter: AstUtf8<'id>,
         members: &NamespaceMembers,
-    ) -> (SubRange<swc_next_ecma_ast::Directive>, SubRange<Stmt>) {
+    ) -> (
+        SubRange<'id, swc_next_ecma_ast::Directive<'id>>,
+        SubRange<'id, Stmt<'id>>,
+    ) {
         match self.ast_ref().ts_module_body_data(body) {
             TsModuleBodyData::TsModuleBlock(block) => {
                 let directives = block.directives(self.ast_ref());
@@ -263,10 +268,10 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn lower_namespace_statement_list(
         &mut self,
-        statements: SubRange<Stmt>,
-        parameter: AstUtf8,
+        statements: SubRange<'id, Stmt<'id>>,
+        parameter: AstUtf8<'id>,
         members: &NamespaceMembers,
-    ) -> SubRange<Stmt> {
+    ) -> SubRange<'id, Stmt<'id>> {
         if self.analysis.has_merged_runtime_bindings() {
             self.register_scope_runtime_bindings(statements);
         }
@@ -292,10 +297,10 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn lower_namespace_export(
         &mut self,
-        export: swc_next_ecma_ast::ExportNamedDeclaration,
-        parameter: AstUtf8,
+        export: swc_next_ecma_ast::ExportNamedDeclaration<'id>,
+        parameter: AstUtf8<'id>,
         members: &NamespaceMembers,
-        output: &mut Vec<Stmt>,
+        output: &mut Vec<Stmt<'id>>,
     ) {
         if export.export_kind(self.ast_ref()) == ImportOrExportKind::Type {
             return;
@@ -338,10 +343,10 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn lower_namespace_variable(
         &mut self,
-        declaration: VariableDeclaration,
-        parameter: AstUtf8,
+        declaration: VariableDeclaration<'id>,
+        parameter: AstUtf8<'id>,
         property_symbols: &FxHashSet<SymbolId>,
-        output: &mut Vec<Stmt>,
+        output: &mut Vec<Stmt<'id>>,
     ) {
         if declaration.declare(self.ast_ref()) {
             return;
@@ -388,9 +393,9 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn lower_namespace_import_equals(
         &mut self,
-        declaration: TsImportEqualsDeclaration,
-        parameter: AstUtf8,
-        output: &mut Vec<Stmt>,
+        declaration: TsImportEqualsDeclaration<'id>,
+        parameter: AstUtf8<'id>,
+        output: &mut Vec<Stmt<'id>>,
     ) {
         if self.import_equals_is_erased(declaration) {
             return;
@@ -408,9 +413,9 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn namespace_export_assignment(
         &mut self,
-        parameter: AstUtf8,
-        binding: BindingIdentifier,
-    ) -> Stmt {
+        parameter: AstUtf8<'id>,
+        binding: BindingIdentifier<'id>,
+    ) -> Stmt<'id> {
         let name = binding.name(self.ast_ref());
         let span = binding.span(self.ast_ref());
         let value = self.ast().expr_identifier_reference(span, name);
@@ -419,11 +424,11 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn namespace_property_assignment_statement(
         &mut self,
-        parameter: AstUtf8,
-        name: AstUtf8,
-        value: Expr,
+        parameter: AstUtf8<'id>,
+        name: AstUtf8<'id>,
+        value: Expr<'id>,
         span: Span,
-    ) -> Stmt {
+    ) -> Stmt<'id> {
         let member = self.namespace_member(parameter, name, span);
         let target = AssignmentTarget::SimpleAssignmentTarget(
             SimpleAssignmentTarget::MemberExpression(member),
@@ -436,10 +441,10 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn namespace_member(
         &mut self,
-        object: AstUtf8,
-        property: AstUtf8,
+        object: AstUtf8<'id>,
+        property: AstUtf8<'id>,
         span: Span,
-    ) -> swc_next_ecma_ast::MemberExpression {
+    ) -> swc_next_ecma_ast::MemberExpression<'id> {
         let object = self.ast().expr_identifier_reference(DUMMY_SP, object);
         let property = self.ast().identifier_name(span, property);
         self.ast().member_expression(
@@ -453,8 +458,8 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn namespace_parameter_for_reference(
         &self,
-        node: swc_next_ecma_ast::NodeId,
-    ) -> Option<AstUtf8> {
+        node: swc_next_ecma_ast::NodeId<'id>,
+    ) -> Option<AstUtf8<'id>> {
         if self.namespaces.contexts.is_empty() || node.index() >= self.semantic_node_count {
             return None;
         }
@@ -479,9 +484,9 @@ impl TypeScriptLowerer<'_, '_> {
     #[inline(never)]
     fn namespace_parameter_for_export_alias(
         &self,
-        name: AstUtf8,
+        name: AstUtf8<'id>,
         symbol: SymbolId,
-    ) -> Option<AstUtf8> {
+    ) -> Option<AstUtf8<'id>> {
         // Export specifiers can expose a declaration under a different name,
         // including when its original name has a local runtime binding.
         let name = self.ast_ref().get_utf8(name).as_bytes();
@@ -506,7 +511,7 @@ impl TypeScriptLowerer<'_, '_> {
         None
     }
 
-    fn namespace_body_local_symbols(&self, body: TsModuleBody) -> FxHashSet<SymbolId> {
+    fn namespace_body_local_symbols(&self, body: TsModuleBody<'id>) -> FxHashSet<SymbolId> {
         let TsModuleBodyData::TsModuleBlock(block) = self.ast_ref().ts_module_body_data(body)
         else {
             return FxHashSet::default();
@@ -528,7 +533,7 @@ impl TypeScriptLowerer<'_, '_> {
         symbols
     }
 
-    fn namespace_export_local_symbol(&self, declaration: Decl) -> Option<SymbolId> {
+    fn namespace_export_local_symbol(&self, declaration: Decl<'id>) -> Option<SymbolId> {
         let binding = match self.ast_ref().decl_data(declaration) {
             DeclData::Function(function) => function.id(self.ast_ref()),
             DeclData::Class(class) if !class.declare(self.ast_ref()) => class.id(self.ast_ref()),
@@ -551,7 +556,7 @@ impl TypeScriptLowerer<'_, '_> {
         self.semantic.symbol_of(binding.node_id())
     }
 
-    fn jsx_name_root(&self, name: JsxElementName) -> Option<JsxIdentifier> {
+    fn jsx_name_root(&self, name: JsxElementName<'id>) -> Option<JsxIdentifier<'id>> {
         match self.ast_ref().jsx_element_name_data(name) {
             JsxElementNameData::JsxIdentifier(identifier) => Some(identifier),
             JsxElementNameData::JsxMemberExpression(member) => self.jsx_member_root(member),
@@ -559,7 +564,7 @@ impl TypeScriptLowerer<'_, '_> {
         }
     }
 
-    fn jsx_member_root(&self, member: JsxMemberExpression) -> Option<JsxIdentifier> {
+    fn jsx_member_root(&self, member: JsxMemberExpression<'id>) -> Option<JsxIdentifier<'id>> {
         match self
             .ast_ref()
             .jsx_member_expression_object_data(member.object(self.ast_ref()))
@@ -573,9 +578,9 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn prepend_jsx_namespace(
         &mut self,
-        object: JsxMemberExpressionObject,
-        parameter: AstUtf8,
-    ) -> JsxMemberExpressionObject {
+        object: JsxMemberExpressionObject<'id>,
+        parameter: AstUtf8<'id>,
+    ) -> JsxMemberExpressionObject<'id> {
         match self.ast_ref().jsx_member_expression_object_data(object) {
             JsxMemberExpressionObjectData::JsxIdentifier(identifier) => {
                 let namespace = self
@@ -595,7 +600,7 @@ impl TypeScriptLowerer<'_, '_> {
         }
     }
 
-    fn namespace_path(&self, name: TsModuleName) -> Option<NamespacePath> {
+    fn namespace_path(&self, name: TsModuleName<'id>) -> Option<NamespacePath<'id>> {
         let mut properties = Vec::new();
         let binding = match self.ast_ref().ts_module_name_data(name) {
             TsModuleNameData::BindingIdentifier(binding) => binding,
@@ -621,9 +626,9 @@ impl TypeScriptLowerer<'_, '_> {
 
     fn collect_qualified_namespace_path(
         &self,
-        qualified: TsQualifiedName,
-        output: &mut Vec<NamespacePathPart>,
-    ) -> Option<BindingIdentifier> {
+        qualified: TsQualifiedName<'id>,
+        output: &mut Vec<NamespacePathPart<'id>>,
+    ) -> Option<BindingIdentifier<'id>> {
         let left = qualified.left(self.ast_ref());
         let binding = match self.ast_ref().ts_qualified_name_left_data(left) {
             TsQualifiedNameLeftData::BindingIdentifier(binding) => binding,
@@ -648,19 +653,22 @@ impl TypeScriptLowerer<'_, '_> {
     }
 }
 
-struct NamespaceBindingPatternRewriter<'visit, 'ast> {
-    ast: &'visit mut Ast<'ast>,
-    semantic: &'visit swc_next_ecma_semantic::Semantic<'ast>,
+struct NamespaceBindingPatternRewriter<'visit, 'ast, 'id> {
+    ast: &'visit mut Ast<'ast, 'id>,
+    semantic: &'visit swc_next_ecma_semantic::Semantic<'ast, 'id>,
     property_symbols: &'visit FxHashSet<SymbolId>,
-    parameter: AstUtf8,
+    parameter: AstUtf8<'id>,
 }
 
-impl<'ast> VisitMut<'ast> for NamespaceBindingPatternRewriter<'_, 'ast> {
-    fn ast(&mut self) -> &mut Ast<'ast> {
+impl<'id, 'ast> VisitMut<'ast, 'id> for NamespaceBindingPatternRewriter<'_, 'ast, 'id> {
+    fn ast(&mut self) -> &mut Ast<'ast, 'id> {
         self.ast
     }
 
-    fn visit_mut_binding_pattern(&mut self, pattern: BindingPattern) -> Option<BindingPattern> {
+    fn visit_mut_binding_pattern(
+        &mut self,
+        pattern: BindingPattern<'id>,
+    ) -> Option<BindingPattern<'id>> {
         let BindingPatternData::BindingIdentifier(identifier) =
             self.ast.binding_pattern_data(pattern)
         else {
@@ -686,17 +694,20 @@ impl<'ast> VisitMut<'ast> for NamespaceBindingPatternRewriter<'_, 'ast> {
         ))
     }
 
-    fn visit_mut_binding_property(&mut self, property: BindingProperty) -> Option<BindingProperty> {
+    fn visit_mut_binding_property(
+        &mut self,
+        property: BindingProperty<'id>,
+    ) -> Option<BindingProperty<'id>> {
         property.visit_mut_children_with(self);
         super::erase::update_binding_property_shorthand(self.ast, property);
         None
     }
 }
 
-fn binding_pattern_to_assignment_target(
-    pattern: BindingPattern,
-    ast: &Ast<'_>,
-) -> AssignmentTarget {
+fn binding_pattern_to_assignment_target<'id>(
+    pattern: BindingPattern<'id>,
+    ast: &Ast<'_, 'id>,
+) -> AssignmentTarget<'id> {
     match ast.binding_pattern_data(pattern) {
         swc_next_ecma_ast::BindingPatternData::SimpleAssignmentTarget(target) => {
             AssignmentTarget::SimpleAssignmentTarget(target)

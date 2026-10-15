@@ -25,11 +25,11 @@ pub(crate) enum DecoratorSite {
 /// //               while `a` hoists to the function scope
 /// ```
 #[derive(Debug, Clone, Copy)]
-pub struct Scope {
+pub struct Scope<'id> {
     /// False when a transform has removed this scope.
     pub active: bool,
     /// The AST node that created this scope.
-    pub node: NodeId,
+    pub node: NodeId<'id>,
     /// Parent scope, or `None` for the root.
     pub parent: Option<ScopeId>,
     /// Nearest ancestor (or self) where `var` declarations hoist to.
@@ -136,19 +136,19 @@ pub struct ScopeFlags {
 
 /// All scopes of a tree, indexed by [`ScopeId`].
 #[derive(Debug)]
-pub struct ScopeTree<'a> {
-    pub(crate) list: ArenaVec<'a, Scope>,
+pub struct ScopeTree<'a, 'id> {
+    pub(crate) list: ArenaVec<'a, Scope<'id>>,
 }
 
-impl<'a> ScopeTree<'a> {
+impl<'id, 'a> ScopeTree<'a, 'id> {
     /// The scope with the given id.
     #[inline]
-    pub fn get(&self, id: ScopeId) -> Scope {
+    pub fn get(&self, id: ScopeId) -> Scope<'id> {
         self.list[id.index()]
     }
 
     /// Walks from `start` up to the root, yielding `start` first.
-    pub fn ancestors(&self, start: Option<ScopeId>) -> AncestorIterator<'_> {
+    pub fn ancestors(&self, start: Option<ScopeId>) -> AncestorIterator<'_, 'id> {
         AncestorIterator {
             list: &self.list,
             current: start,
@@ -157,12 +157,12 @@ impl<'a> ScopeTree<'a> {
 }
 
 /// Yields each scope id from a starting scope up to the root.
-pub struct AncestorIterator<'a> {
-    list: &'a [Scope],
+pub struct AncestorIterator<'a, 'id> {
+    list: &'a [Scope<'id>],
     current: Option<ScopeId>,
 }
 
-impl Iterator for AncestorIterator<'_> {
+impl<'id> Iterator for AncestorIterator<'_, 'id> {
     type Item = ScopeId;
 
     /// The next scope id, or `None` past the root.
@@ -173,8 +173,8 @@ impl Iterator for AncestorIterator<'_> {
     }
 }
 
-pub(crate) struct ScopeTracker<'a> {
-    pub(crate) scopes: ArenaVec<'a, Scope>,
+pub(crate) struct ScopeTracker<'a, 'id> {
+    pub(crate) scopes: ArenaVec<'a, Scope<'id>>,
     // active scope. follow the parent chain to walk the path.
     pub(crate) current: ScopeId,
     // scopes saved while a decorator subtree retargets `current`,
@@ -182,8 +182,8 @@ pub(crate) struct ScopeTracker<'a> {
     decorator_saved: Vec<ScopeId>,
 }
 
-impl<'a> ScopeTracker<'a> {
-    pub fn init(tree: &Ast<'a>) -> Self {
+impl<'id, 'a> ScopeTracker<'a, 'id> {
+    pub fn init(tree: &Ast<'a, 'id>) -> Self {
         let root = tree.root_program();
         let root_strict = root.directives(tree).iter().any(|directive| {
             let directive = tree.get_node_in_sub_range(directive);
@@ -200,7 +200,7 @@ impl<'a> ScopeTracker<'a> {
         tracker
     }
 
-    fn push_root(&mut self, root_node: NodeId, source_type: SourceType, root_strict: bool) {
+    fn push_root(&mut self, root_node: NodeId<'id>, source_type: SourceType, root_strict: bool) {
         debug_assert!(self.scopes.is_empty());
         self.scopes.push(Scope {
             active: true,
@@ -243,7 +243,7 @@ impl<'a> ScopeTracker<'a> {
         }
     }
 
-    pub fn push_scope(&mut self, kind: ScopeKind, node: NodeId, flags: ScopeFlags) {
+    pub fn push_scope(&mut self, kind: ScopeKind, node: NodeId<'id>, flags: ScopeFlags) {
         // The current length is the about-to-be-assigned id and must fit u32.
         debug_assert!(self.scopes.len() < u32::MAX as usize);
         let id = ScopeId::from_usize(self.scopes.len());
@@ -272,13 +272,13 @@ impl<'a> ScopeTracker<'a> {
             .expect("non-root scopes have a parent");
     }
 
-    pub fn enter_directive(&mut self, tree: &Ast, directive: Directive) {
+    pub fn enter_directive(&mut self, tree: &Ast<'_, 'id>, directive: Directive<'id>) {
         if tree.get_utf8(directive.value(tree)) == "use strict" {
             self.current_mut().flags.strict = true;
         }
     }
 
-    pub fn enter_function(&mut self, tree: &Ast, function: Function) {
+    pub fn enter_function(&mut self, tree: &Ast<'_, 'id>, function: Function<'id>) {
         let flags = if self.has_retroactive_use_strict(tree, function.body(tree)) {
             ScopeFlags {
                 strict: true,
@@ -290,13 +290,13 @@ impl<'a> ScopeTracker<'a> {
         self.push_function_scope(function.node_id(), flags);
     }
 
-    pub fn enter_ts_function(&mut self, node: NodeId) {
+    pub fn enter_ts_function(&mut self, node: NodeId<'id>) {
         self.push_function_scope(node, self.inherit_strict_flag());
     }
 
     // Ordinary functions own arguments whether or not they have a body.
     // Arrows, function types and interface signatures use other scope entries.
-    fn push_function_scope(&mut self, node: NodeId, flags: ScopeFlags) {
+    fn push_function_scope(&mut self, node: NodeId<'id>, flags: ScopeFlags) {
         self.push_scope(
             ScopeKind::Function,
             node,
@@ -307,7 +307,11 @@ impl<'a> ScopeTracker<'a> {
         );
     }
 
-    pub fn enter_arrow_function_expression(&mut self, tree: &Ast, arrow: ArrowFunctionExpression) {
+    pub fn enter_arrow_function_expression(
+        &mut self,
+        tree: &Ast<'_, 'id>,
+        arrow: ArrowFunctionExpression<'id>,
+    ) {
         let body = arrow.body(tree).node_id();
         let flags = match tree.kind_data(body) {
             NodeKindData::FunctionBody(body) if self.has_retroactive_use_strict(tree, body) => {
@@ -321,7 +325,12 @@ impl<'a> ScopeTracker<'a> {
         self.push_scope(ScopeKind::Function, arrow.node_id(), flags);
     }
 
-    pub fn enter_function_body(&mut self, tree: &Ast, body: FunctionBody, parent: Option<NodeId>) {
+    pub fn enter_function_body(
+        &mut self,
+        tree: &Ast<'_, 'id>,
+        body: FunctionBody<'id>,
+        parent: Option<NodeId<'id>>,
+    ) {
         // Pushed only when the parent function's parameter list
         // contains expressions; see ScopeKind::FunctionBody.
         let Some(parent) = parent else { return };
@@ -341,7 +350,7 @@ impl<'a> ScopeTracker<'a> {
         }
     }
 
-    pub fn enter_block_statement(&mut self, tree: &Ast, node: NodeId) {
+    pub fn enter_block_statement(&mut self, tree: &Ast<'_, 'id>, node: NodeId<'id>) {
         // 14.15.2 gives catch parameters and the block separate
         // environments. Folding them is unobservable and makes the
         // 14.15.1 conflict a single-scope lookup, except when a
@@ -365,7 +374,7 @@ impl<'a> ScopeTracker<'a> {
         }
     }
 
-    pub fn enter_switch_case(&mut self, parent: Option<NodeId>) {
+    pub fn enter_switch_case(&mut self, parent: Option<NodeId<'id>>) {
         // One case-block scope per switch, shared by every case and
         // created at the first case. Per 14.12.4, the discriminant
         // evaluates before this environment exists:
@@ -378,42 +387,42 @@ impl<'a> ScopeTracker<'a> {
         }
     }
 
-    pub fn enter_ts_enum_body(&mut self, node: NodeId) {
+    pub fn enter_ts_enum_body(&mut self, node: NodeId<'id>) {
         // TSC resolves unqualified member references inside the body.
         self.enter_block_scope(node);
     }
 
-    pub fn enter_block_scope(&mut self, node: NodeId) {
+    pub fn enter_block_scope(&mut self, node: NodeId<'id>) {
         self.push_scope(ScopeKind::Block, node, self.inherit_strict_flag());
     }
 
-    pub fn enter_with_scope(&mut self, node: NodeId) {
+    pub fn enter_with_scope(&mut self, node: NodeId<'id>) {
         self.push_scope(ScopeKind::With, node, self.inherit_strict_flag());
     }
 
-    pub fn exit_with_scope(&mut self, node: NodeId) {
+    pub fn exit_with_scope(&mut self, node: NodeId<'id>) {
         let scope = self.current_scope();
         debug_assert_eq!(scope.node, node);
         debug_assert_eq!(scope.kind, ScopeKind::With);
         self.pop_scope();
     }
 
-    pub fn enter_ts_lookup_view(&mut self, node: NodeId, kind: ScopeKind) {
+    pub fn enter_ts_lookup_view(&mut self, node: NodeId<'id>, kind: ScopeKind) {
         debug_assert!(kind.is_ts_lookup_view());
         self.push_scope(kind, node, self.inherit_strict_flag());
     }
 
-    pub fn exit_ts_lookup_view(&mut self, node: NodeId) {
+    pub fn exit_ts_lookup_view(&mut self, node: NodeId<'id>) {
         debug_assert_eq!(self.current_scope().node, node);
         debug_assert!(self.current_scope().kind.is_ts_lookup_view());
         self.pop_scope();
     }
 
-    pub fn enter_ts_module_block(&mut self, node: NodeId) {
+    pub fn enter_ts_module_block(&mut self, node: NodeId<'id>) {
         self.push_scope(ScopeKind::TsModule, node, self.inherit_strict_flag());
     }
 
-    pub fn enter_class(&mut self, class: Class) {
+    pub fn enter_class(&mut self, class: Class<'id>) {
         // Classes are always strict mode (section 15.7.14).
         let flags = ScopeFlags {
             strict: true,
@@ -422,12 +431,12 @@ impl<'a> ScopeTracker<'a> {
         self.push_scope(ScopeKind::Class, class.node_id(), flags);
     }
 
-    pub fn enter_static_block(&mut self, node: NodeId) {
+    pub fn enter_static_block(&mut self, node: NodeId<'id>) {
         self.push_scope(ScopeKind::StaticBlock, node, self.inherit_strict_flag());
         self.current_mut().flags.arguments_barrier = true;
     }
 
-    pub fn enter_decorator(&mut self, node: NodeId, site: DecoratorSite) {
+    pub fn enter_decorator(&mut self, node: NodeId<'id>, site: DecoratorSite) {
         self.decorator_saved.push(self.current);
         let Some((class, outer)) = self.decorator_scopes() else {
             return;
@@ -462,7 +471,7 @@ impl<'a> ScopeTracker<'a> {
     // "use strict" applies retroactively to the whole function including
     // its parameter list, so peek into the body and set the flag at
     // scope-creation time, before any parameter is visited
-    fn has_retroactive_use_strict(&self, tree: &Ast, body: FunctionBody) -> bool {
+    fn has_retroactive_use_strict(&self, tree: &Ast<'_, 'id>, body: FunctionBody<'id>) -> bool {
         for directive in body.directives(tree).iter() {
             let directive = tree.get_node_in_sub_range(directive);
             if tree.get_utf8(directive.value(tree)) == "use strict" {
@@ -483,7 +492,7 @@ impl<'a> ScopeTracker<'a> {
     // A node owns its lexical scopes.
     // Lookup views have a separate lifetime: their root node may
     // create lexical scopes without owning the surrounding lookup view.
-    pub fn exit_scope(&mut self, node: NodeId) {
+    pub fn exit_scope(&mut self, node: NodeId<'id>) {
         while self.current.index() != 0
             && self.current_scope().node == node
             && !self.current_scope().kind.is_ts_lookup_view()
@@ -502,13 +511,13 @@ impl<'a> ScopeTracker<'a> {
 
     /// The current scope.
     #[inline]
-    pub fn current_scope(&self) -> Scope {
+    pub fn current_scope(&self) -> Scope<'id> {
         self.get(self.current)
     }
 
     #[inline]
     // Mutable view used for the tracker's strict-mode bookkeeping.
-    fn current_mut(&mut self) -> &mut Scope {
+    fn current_mut(&mut self) -> &mut Scope<'id> {
         &mut self.scopes[self.current.index()]
     }
 
@@ -520,7 +529,7 @@ impl<'a> ScopeTracker<'a> {
 
     /// The scope with the given id.
     #[inline]
-    pub fn get(&self, id: ScopeId) -> Scope {
+    pub fn get(&self, id: ScopeId) -> Scope<'id> {
         self.scopes[id.index()]
     }
 
@@ -531,7 +540,7 @@ impl<'a> ScopeTracker<'a> {
     }
 
     /// Walks from `start` up to the root, yielding `start` first.
-    pub fn ancestors(&self, start: Option<ScopeId>) -> AncestorIterator<'_> {
+    pub fn ancestors(&self, start: Option<ScopeId>) -> AncestorIterator<'_, 'id> {
         AncestorIterator {
             list: &self.scopes,
             current: start,
@@ -539,7 +548,7 @@ impl<'a> ScopeTracker<'a> {
     }
 
     /// Finalizes into an immutable [`ScopeTree`].
-    pub fn into_scope_tree(self) -> ScopeTree<'a> {
+    pub fn into_scope_tree(self) -> ScopeTree<'a, 'id> {
         ScopeTree { list: self.scopes }
     }
 }

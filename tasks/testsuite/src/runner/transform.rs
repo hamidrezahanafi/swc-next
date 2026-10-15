@@ -54,12 +54,14 @@ impl<C: TransformCase> Runner<C> for TransformerRunner {
 
 fn run_case<C: TransformCase>(case: &C) -> Result<bool, String> {
     let allocator = Allocator::new();
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
     let Some(ast) = transform_program(
         case,
         &allocator,
         case.code(),
         case.source_type(),
         case.lang(),
+        ast_guard,
     ) else {
         return Ok(false);
     };
@@ -68,12 +70,14 @@ fn run_case<C: TransformCase>(case: &C) -> Result<bool, String> {
     let output = print(&allocator, &ast, case.codegen_options()).code;
     if let Some(expected) = expected {
         let expected_allocator = Allocator::new();
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let Some(expected_ast) = parse_program(
             &expected_allocator,
             expected,
             case.source_type(),
             case.lang(),
             true,
+            ast_guard,
         ) else {
             return Ok(false);
         };
@@ -102,12 +106,14 @@ fn run_case<C: TransformCase>(case: &C) -> Result<bool, String> {
         let output_allocator = Allocator::new();
         // TODO: Configure decorators and module transforms when those passes are supported.
         // Keep the input's parsing mode even when unambiguous parsing resolved its AST.
+        swc_next_ecma_ast::make_ast_guard!(ast_guard);
         let Some(output_ast) = transform_program(
             case,
             &output_allocator,
             output,
             case.source_type(),
             output_lang,
+            ast_guard,
         ) else {
             return Ok(false);
         };
@@ -119,14 +125,15 @@ fn run_case<C: TransformCase>(case: &C) -> Result<bool, String> {
     Ok(true)
 }
 
-fn transform_program<'a, C: TransformCase>(
+fn transform_program<'id: 'a, 'a, C: TransformCase>(
     case: &C,
     allocator: &'a Allocator,
     source: &'a str,
     source_type: SourceType,
     lang: Lang,
-) -> Option<Ast<'a>> {
-    let mut ast = parse_program(allocator, source, source_type, lang, true)?;
+    guard: swc_next_ecma_ast::AstGuard<'id>,
+) -> Option<Ast<'a, 'id>> {
+    let mut ast = parse_program(allocator, source, source_type, lang, true, guard)?;
     let options = case.transformer_options();
     if options.typescript.is_some() {
         Normalizer::normalize_runtime(ast.root_program(), &mut ast);
@@ -151,13 +158,14 @@ fn transform_program<'a, C: TransformCase>(
     Some(ast)
 }
 
-fn parse_program<'a>(
+fn parse_program<'id, 'a>(
     allocator: &'a Allocator,
     source: &'a str,
     source_type: SourceType,
     lang: Lang,
     preserve_parens: bool,
-) -> Option<Ast<'a>> {
+    guard: swc_next_ecma_ast::AstGuard<'id>,
+) -> Option<Ast<'a, 'id>> {
     let result = Parser::init(
         allocator,
         source,
@@ -168,6 +176,7 @@ fn parse_program<'a>(
             ..ParserOptions::default()
         },
         NoTokenParserConfig,
+        guard,
     )
     .parse();
     if result
@@ -183,7 +192,15 @@ fn parse_program<'a>(
 /// Compare output with comments while ignoring redundant parentheses and formatting.
 fn normalize_output<C: TransformCase>(case: &C, source: &str) -> Option<String> {
     let allocator = Allocator::new();
-    let ast = parse_program(&allocator, source, case.source_type(), case.lang(), false)?;
+    swc_next_ecma_ast::make_ast_guard!(ast_guard);
+    let ast = parse_program(
+        &allocator,
+        source,
+        case.source_type(),
+        case.lang(),
+        false,
+        ast_guard,
+    )?;
     let mut options = case.codegen_options();
     options.minify = true;
     options.comments = true;

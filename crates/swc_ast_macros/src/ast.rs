@@ -17,7 +17,7 @@ fn expand_struct(item: ItemStruct) -> TokenStream {
     quote! {
         #[repr(transparent)]
         #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-        pub struct #name(pub(crate) crate::NodeId);
+        pub struct #name<'id>(pub(crate) crate::NodeId<'id>);
     }
 }
 
@@ -26,6 +26,6 @@ fn expand_enum(item: ItemEnum) -> TokenStream {
     quote! {
         #[repr(transparent)]
         #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-        pub struct #name(pub(crate) crate::NodeId);
+        pub struct #name<'id>(pub(crate) crate::NodeId<'id>);
     }
 }

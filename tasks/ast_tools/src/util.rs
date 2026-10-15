@@ -90,6 +90,11 @@ pub fn generate_field_to_u64(
         return quote!(#field_name.map_or(u64::from(u32::MAX), AstUtf8::raw));
     }
 
+    if matches!(field_ty, AstType::Primitive(primitive) if matches!(primitive.name, "AstUtf8" | "AstWtf8"))
+    {
+        return quote!(#field_name.raw());
+    }
+
     // Other encoded eight-byte representations share the extra-data format.
     quote!(#field_name.into_extra_data().raw())
 }
@@ -98,18 +103,18 @@ pub fn generate_field_to_u64(
 pub fn generate_u32_to_field(field_ty: &AstType, schema: &Schema) -> TokenStream {
     match field_ty {
         AstType::Struct(_) | AstType::Enum(_) => {
-            let field_inner_ty = field_ty.repr_ident(schema);
+            let field_inner_ty = field_ty.expr_ident(schema);
             quote! {
-                #field_inner_ty(NodeId::from_raw_unchecked(raw))
+                #field_inner_ty(NodeId::from_raw_index(raw))
             }
         }
         AstType::Option(ast_option) => {
             let inner_ty = &schema.types[ast_option.inner_type_id];
-            let field_inner_ident = inner_ty.repr_ident(schema);
+            let field_inner_ident = inner_ty.expr_ident(schema);
             match inner_ty {
                 AstType::Struct(_) | AstType::Enum(_) => quote! {
                     (raw != u32::MAX).then(|| {
-                        #field_inner_ident(NodeId::from_raw_unchecked(raw))
+                        #field_inner_ident(NodeId::from_raw_index(raw))
                     })
                 },
                 AstType::Primitive(primitive)
@@ -167,6 +172,12 @@ pub fn generate_u64_to_field(field_ty: &AstType, schema: &Schema) -> TokenStream
         return quote! {
             (raw != u64::from(u32::MAX)).then(|| AstUtf8::from_raw(raw))
         };
+    }
+    if let AstType::Primitive(primitive) = field_ty
+        && matches!(primitive.name, "AstUtf8" | "AstWtf8")
+    {
+        let name = format_ident!("{}", primitive.name);
+        return quote!(#name::from_raw(raw));
     }
     quote! {
         unsafe { ExtraDataValue::from_extra_data(&ExtraData::from_raw(raw)) }
