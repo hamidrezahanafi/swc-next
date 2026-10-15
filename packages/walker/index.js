@@ -1,4 +1,4 @@
-import { childVisitors, nodeWalkers } from "./child-visitors.js";
+import { childVisitors, nodeWalkers, dispatchNode } from "./child-visitors.js";
 import { visitorKeys } from "./visitor-keys.js";
 
 export { visitorKeys };
@@ -327,9 +327,8 @@ class WalkContext {
   }
 
   visit(node, parent, key, list, index) {
-    const visit = this.#walkers[node.type];
-    if (visit === undefined || typeof node !== "object") assertNode(node);
-    return visit === null ? index : visit(node, this, parent, key, list, index);
+    if (typeof node !== "object") assertNode(node);
+    return dispatchNode(node, this, parent, key, list, index, this.#walkers);
   }
 
   leaveChanged(node, parent, key, list, index) {

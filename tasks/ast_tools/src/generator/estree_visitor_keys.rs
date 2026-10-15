@@ -200,6 +200,24 @@ pub fn estree_visitor_keys(schema: &Schema) -> Vec<RawOutput> {
         }
         writeln!(children, "  if (node.type !== {name:?}) return walker.leaveChanged(node, parent, key, list, index);\n  return index;\n}}").unwrap();
     }
+    // Keep a separate property/call feedback site for every node kind. A single
+    // walkers[node.type](...) site becomes megamorphic across the whole AST.
+    // V8 lowers a string switch to a comparison chain. Group by string length
+    // first so the dense integer switch can use a jump table; still compare the
+    // full name inside each group, including for unsupported input.
+    let mut by_length: BTreeMap<usize, Vec<&String>> = BTreeMap::new();
+    for name in keys.keys() {
+        by_length.entry(name.len()).or_default().push(name);
+    }
+    children.push_str("\nexport function dispatchNode(node, walker, parent, key, list, index, walkers) {\n  const type = node.type;\n  switch (typeof type === \"string\" ? type.length : -1) {\n");
+    for (length, names) in by_length {
+        writeln!(children, "    case {length}:\n      switch (type) {{").unwrap();
+        for name in names {
+            writeln!(children, "        case {name:?}: {{\n          const visit = walkers.{name};\n          return visit === null ? index : visit(node, walker, parent, key, list, index);\n        }}").unwrap();
+        }
+        children.push_str("      }\n      break;\n");
+    }
+    children.push_str("  }\n  throw new TypeError(`Unsupported AST node type: ${type}`);\n}\n");
     dts.push_str("};\nexport type NodeType = keyof typeof visitorKeys;\n");
     vec![
         RawOutput {

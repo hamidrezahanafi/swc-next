@@ -10,6 +10,30 @@ const statement = (name) => ({
 const program = (...names) => ({ type: "Program", body: names.map(statement) });
 const bodyNames = (ast) => ast.body.map((node) => node.expression.name);
 
+test("all supported node kinds dispatch typed hooks and reject unknown names", () => {
+  for (const type of Object.keys(visitorKeys)) {
+    const node = { type };
+    const seen = [];
+    walk(node, {
+      [type]: {
+        enter(current, ctx) {
+          assert.equal(ctx.node, node);
+          seen.push(current);
+        },
+        leave(current) {
+          seen.push(current);
+        },
+      },
+    });
+    assert.deepEqual(seen, [node, node]);
+    assert.equal(walk(node, {}), node);
+  }
+  assert.throws(
+    () => walk({ type: "Program", body: [{ type: "IdentifieX" }] }, {}),
+    /Unsupported AST/,
+  );
+});
+
 test("walk works without a parser or binding and visits only schema child keys", () => {
   const ast = program("first", "second");
   ast.metadata = id("not-a-child");
