@@ -165,7 +165,6 @@ pub fn estree_visitor_keys(schema: &Schema) -> Vec<RawOutput> {
         .filter_map(|(field, child)| {
             projected_types
                 .get(&child)
-                .filter(|projected| keys.get(*projected).is_some_and(|fields| fields.is_empty()))
                 .map(|projected| (field, projected.clone()))
         })
         .collect();
@@ -245,7 +244,7 @@ pub fn estree_visitor_keys(schema: &Schema) -> Vec<RawOutput> {
         writeln!(children, "  if (node.type !== {name:?}) return walker.leaveChanged(node, parent, key, list, index);\n  return index;\n}}").unwrap();
     }
     for name in dispatch_types {
-        writeln!(children, "\nfunction dispatch{name}(node, walker, parent, key, list, index, walkers) {{\n  const type = node.type;\n  if (type !== {name:?}) {{\n    if (typeof type !== \"string\") throw new TypeError(`Unsupported AST node type: ${{type}}`);\n    const fallback = walkers[type];\n    if (fallback === undefined) throw new TypeError(`Unsupported AST node type: ${{type}}`);\n    return fallback === null ? index : fallback(node, walker, parent, key, list, index);\n  }}\n  const visit = walkers.{name};\n  return visit === null ? index : visit(node, walker, parent, key, list, index);\n}}\n").unwrap();
+        writeln!(children, "\nconst dispatch{name} = function(node, walker, parent, key, list, index, walkers) {{\n  const type = node.type;\n  if (type !== {name:?}) {{\n    if (typeof type !== \"string\") throw new TypeError(`Unsupported AST node type: ${{type}}`);\n    const fallback = walkers[type];\n    if (fallback === undefined) throw new TypeError(`Unsupported AST node type: ${{type}}`);\n    return fallback === null ? index : fallback(node, walker, parent, key, list, index);\n  }}\n  const visit = walkers.{name};\n  return visit === null ? index : visit(node, walker, parent, key, list, index);\n}};\n").unwrap();
     }
     // Partition large same-length groups by the most distinguishing character.
     // Full-name guards preserve rejection of unsupported names; each known type

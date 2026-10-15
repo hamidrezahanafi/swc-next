@@ -313,3 +313,104 @@ test("read-only visitors retain state and mixed list element traversal", () => {
   assert.deepEqual(seen, ["binding", "fallback"]);
   assert.deepEqual(ast, original);
 });
+
+test("non-leaf concrete list: list edits preserve inserted type dispatch and stop behavior", () => {
+  const first = { type: "VariableDeclarator", id: id("first"), init: null };
+  const last = { type: "VariableDeclarator", id: id("last"), init: null };
+  const ast = { type: "VariableDeclaration", declarations: [first, null, last] };
+  const seen = [];
+  walk(ast, {
+    VariableDeclarator(node, ctx) {
+      seen.push(node.id.name);
+      if (node === first) {
+        ctx.insertBefore(id("before"));
+        ctx.insertAfter({ type: "Literal", value: "after" });
+        ctx.remove();
+      }
+    },
+    Literal(node, ctx) {
+      seen.push(node.value);
+      assert.equal(ctx.parent, ast);
+      assert.equal(ctx.key, "declarations");
+      assert.equal(ctx.index, 1);
+      assert.deepEqual(ctx.ancestors(), [ast]);
+    },
+  });
+  assert.deepEqual(seen, ["first", "after", "last"]);
+  assert.equal(ast.declarations[0].name, "before");
+  assert.equal(ast.declarations[2], null);
+  assert.equal(ast.declarations[3], last);
+  walk(ast, {
+    Literal(node, ctx) {
+      ctx.stop();
+    },
+    VariableDeclarator() {
+      assert.fail("later list elements are not visited after stop");
+    },
+    VariableDeclaration: {
+      leave() {
+        assert.fail("pending leave is not called after stop");
+      },
+    },
+  });
+});
+
+test("non-leaf concrete list: list elements retain generic types and single discriminator reads", () => {
+  let reads = 0;
+  const child = {
+    get type() {
+      reads++;
+      assert.equal(reads, 1);
+      return "Literal";
+    },
+    value: "changed",
+  };
+  const root = { type: "VariableDeclaration", declarations: [child] };
+  assert.equal(walk(root, {}), root);
+  assert.equal(reads, 1);
+  let invalidReads = 0;
+  const invalid = {
+    get type() {
+      invalidReads++;
+      return undefined;
+    },
+  };
+  assert.throws(
+    () => walk({ type: "VariableDeclaration", declarations: [invalid] }, {}),
+    TypeError,
+  );
+  assert.equal(invalidReads, 1);
+});
+
+test("non-leaf concrete list: read-only visitors retain state and mixed list element traversal", () => {
+  const ast = {
+    type: "VariableDeclaration",
+    declarations: [
+      { type: "VariableDeclarator", id: id("binding"), init: null },
+      null,
+      { type: "Literal", value: "fallback" },
+    ],
+  };
+  const original = structuredClone(ast);
+  const seen = [];
+  assert.equal(
+    visit(
+      ast,
+      {
+        VariableDeclarator(node, state) {
+          state.push("declaration");
+        },
+        Identifier(node, state) {
+          state.push(node.name);
+        },
+        Literal(node, state) {
+          state.push(node.value);
+        },
+      },
+      seen,
+    ),
+    ast,
+  );
+  assert.deepEqual(seen, ["declaration", "binding", "fallback"]);
+  assert.deepEqual(ast, original);
+});
