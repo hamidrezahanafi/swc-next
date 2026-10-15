@@ -192,3 +192,17 @@ test("compiled hooks snapshot alias and concrete pairs without freezing caller o
   });
   assert.deepEqual(seen, ["alias", "typed"]);
 });
+
+test("supported type membership rejects inherited object names", () => {
+  assert.throws(() => walk({ type: "toString" }, {}), TypeError);
+  assert.throws(() => walk({ type: "constructor" }, {}), TypeError);
+  assert.throws(() => walk({ type: "__proto__" }, {}), TypeError);
+  assert.throws(() => createWalker({ toString() {} }), TypeError);
+  const hooks = Object.create(null);
+  hooks.Identifier = (node, ctx) => {
+    ctx.state.push(node.name);
+  };
+  const state = [];
+  walk(id("valid"), hooks, state);
+  assert.deepEqual(state, ["valid"]);
+});
