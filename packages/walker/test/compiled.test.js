@@ -206,3 +206,110 @@ test("supported type membership rejects inherited object names", () => {
   walk(id("valid"), hooks, state);
   assert.deepEqual(state, ["valid"]);
 });
+
+test("list edits preserve inserted type dispatch and stop behavior", () => {
+  const first = { type: "TemplateElement", value: { raw: "first", cooked: "first" } };
+  const last = { type: "TemplateElement", value: { raw: "last", cooked: "last" } };
+  const ast = { type: "TemplateLiteral", quasis: [first, null, last] };
+  const seen = [];
+  walk(ast, {
+    TemplateElement(node, ctx) {
+      seen.push(node.value.raw);
+      if (node === first) {
+        ctx.insertBefore(id("before"));
+        ctx.insertAfter({
+          type: "ExpressionStatement",
+          expression: { type: "Literal", value: "nested" },
+        });
+        ctx.remove();
+      }
+    },
+    ExpressionStatement(node, ctx) {
+      seen.push("after");
+      assert.equal(ctx.parent, ast);
+      assert.equal(ctx.key, "quasis");
+      assert.equal(ctx.index, 1);
+      assert.deepEqual(ctx.ancestors(), [ast]);
+    },
+    Literal(node) {
+      seen.push(node.value);
+    },
+  });
+  assert.deepEqual(seen, ["first", "after", "nested", "last"]);
+  assert.equal(ast.quasis[0].name, "before");
+  assert.equal(ast.quasis[2], null);
+  assert.equal(ast.quasis[3], last);
+  walk(ast, {
+    ExpressionStatement(node, ctx) {
+      ctx.stop();
+    },
+    TemplateElement() {
+      assert.fail("later list elements are not visited after stop");
+    },
+    TemplateLiteral: {
+      leave() {
+        assert.fail("pending leave is not called after stop");
+      },
+    },
+  });
+});
+
+test("list elements retain generic types and single discriminator reads", () => {
+  let reads = 0;
+  const child = {
+    get type() {
+      reads++;
+      assert.equal(reads, 1);
+      return "Literal";
+    },
+    value: "changed",
+  };
+  const root = { type: "TemplateLiteral", quasis: [child] };
+  assert.equal(walk(root, {}), root);
+  assert.equal(reads, 1);
+  let invalidReads = 0;
+  const invalid = {
+    get type() {
+      invalidReads++;
+      return undefined;
+    },
+  };
+  assert.throws(
+    () => walk({ type: "TemplateLiteral", quasis: [invalid] }, {}),
+    TypeError,
+  );
+  assert.equal(invalidReads, 1);
+});
+
+test("read-only visitors retain state and mixed list element traversal", () => {
+  const ast = {
+    type: "TemplateLiteral",
+    quasis: [
+      { type: "TemplateElement", value: { raw: "binding", cooked: "binding" } },
+      null,
+      { type: "Literal", value: "fallback" },
+    ],
+  };
+  const original = structuredClone(ast);
+  const seen = [];
+  assert.equal(
+    visit(
+      ast,
+      {
+        TemplateElement(node, state) {
+          state.push(node.value.raw);
+        },
+        Identifier(node, state) {
+          state.push(node.name);
+        },
+        Literal(node, state) {
+          state.push(node.value);
+        },
+      },
+      seen,
+    ),
+    ast,
+  );
+  assert.deepEqual(seen, ["binding", "fallback"]);
+  assert.deepEqual(ast, original);
+});

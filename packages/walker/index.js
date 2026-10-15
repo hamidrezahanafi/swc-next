@@ -317,6 +317,20 @@ class WalkContext {
     return this.stopped;
   }
 
+  visitListKnown(value, parent, key, dispatch) {
+    this.#ancestors[this.#depth++] = parent;
+    for (let i = 0; i < value.length; i++) {
+      const child = value[i];
+      if (child != null) {
+        if (typeof child !== "object") assertNode(child);
+        i = dispatch(child, this, parent, key, value, i, this.#walkers);
+      }
+      if (this.stopped) return true;
+    }
+    this.#depth--;
+    return this.stopped;
+  }
+
   visitList(value, parent, key) {
     this.#ancestors[this.#depth++] = parent;
     for (let i = 0; i < value.length; i++) {
@@ -440,6 +454,9 @@ class ReadVisitor {
   visitScalar(node) {
     this.visit(node);
     return false;
+  }
+  visitListKnown(nodes) {
+    return this.visitList(nodes);
   }
   visitList(nodes) {
     for (let i = 0; i < nodes.length; i++) {

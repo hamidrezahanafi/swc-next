@@ -866,7 +866,7 @@ export const childVisitors = {
   TSSymbolKeyword: null,
   TSTemplateLiteralType(node, walker) {
     const child0 = node.quasis;
-    if (child0 != null && walker.visitList(child0, node, "quasis")) return true;
+    if (child0 != null && walker.visitListKnown(child0, node, "quasis", dispatchTemplateElement)) return true;
     const child1 = node.types;
     if (child1 != null && walker.visitList(child1, node, "types")) return true;
     return false;
@@ -968,7 +968,7 @@ export const childVisitors = {
   TemplateElement: null,
   TemplateLiteral(node, walker) {
     const child0 = node.quasis;
-    if (child0 != null && walker.visitList(child0, node, "quasis")) return true;
+    if (child0 != null && walker.visitListKnown(child0, node, "quasis", dispatchTemplateElement)) return true;
     const child1 = node.expressions;
     if (child1 != null && walker.visitList(child1, node, "expressions")) return true;
     return false;
@@ -2267,7 +2267,7 @@ function walkTSSatisfiesExpression(node, walker, parent, key, list, index) {
 
 function walkTSTemplateLiteralType(node, walker, parent, key, list, index) {
   const child0 = node.quasis;
-  if (child0 != null && walker.visitList(child0, node, "quasis")) return index;
+  if (child0 != null && walker.visitListKnown(child0, node, "quasis", dispatchTemplateElement)) return index;
   const child1 = node.types;
   if (child1 != null && walker.visitList(child1, node, "types")) return index;
   if (node.type !== "TSTemplateLiteralType") return walker.leaveChanged(node, parent, key, list, index);
@@ -2394,7 +2394,7 @@ function walkTaggedTemplateExpression(node, walker, parent, key, list, index) {
 
 function walkTemplateLiteral(node, walker, parent, key, list, index) {
   const child0 = node.quasis;
-  if (child0 != null && walker.visitList(child0, node, "quasis")) return index;
+  if (child0 != null && walker.visitListKnown(child0, node, "quasis", dispatchTemplateElement)) return index;
   const child1 = node.expressions;
   if (child1 != null && walker.visitList(child1, node, "expressions")) return index;
   if (node.type !== "TemplateLiteral") return walker.leaveChanged(node, parent, key, list, index);
@@ -2473,6 +2473,19 @@ function walkYieldExpression(node, walker, parent, key, list, index) {
   if (node.type !== "YieldExpression") return walker.leaveChanged(node, parent, key, list, index);
   return index;
 }
+
+function dispatchTemplateElement(node, walker, parent, key, list, index, walkers) {
+  const type = node.type;
+  if (type !== "TemplateElement") {
+    if (typeof type !== "string") throw new TypeError(`Unsupported AST node type: ${type}`);
+    const fallback = walkers[type];
+    if (fallback === undefined) throw new TypeError(`Unsupported AST node type: ${type}`);
+    return fallback === null ? index : fallback(node, walker, parent, key, list, index);
+  }
+  const visit = walkers.TemplateElement;
+  return visit === null ? index : visit(node, walker, parent, key, list, index);
+}
+
 
 export function dispatchNode(node, walker, parent, key, list, index, walkers) {
   const type = node.type;
