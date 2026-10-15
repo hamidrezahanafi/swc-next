@@ -200,22 +200,19 @@ pub fn estree_visitor_keys(schema: &Schema) -> Vec<RawOutput> {
         }
         writeln!(children, "  if (node.type !== {name:?}) return walker.leaveChanged(node, parent, key, list, index);\n  return index;\n}}").unwrap();
     }
-    // Keep a separate property/call feedback site for every node kind. A single
-    // walkers[node.type](...) site becomes megamorphic across the whole AST.
-    // V8 lowers a string switch to a comparison chain. Group by string length
-    // first so the dense integer switch can use a jump table; still compare the
-    // full name inside each group, including for unsupported input.
+    // Partition large same-length groups by the most distinguishing character.
+    // Full-name guards preserve rejection of unsupported names; each known type
+    // retains its own property/call feedback site. No corpus frequencies enter
+    // the generator's choice of discriminator.
     let mut by_length: BTreeMap<usize, Vec<&String>> = BTreeMap::new();
     for name in keys.keys() {
         by_length.entry(name.len()).or_default().push(name);
     }
     children.push_str("\nexport function dispatchNode(node, walker, parent, key, list, index, walkers) {\n  const type = node.type;\n  switch (typeof type === \"string\" ? type.length : -1) {\n");
     for (length, names) in by_length {
-        writeln!(children, "    case {length}:\n      switch (type) {{").unwrap();
-        for name in names {
-            writeln!(children, "        case {name:?}: {{\n          const visit = walkers.{name};\n          return visit === null ? index : visit(node, walker, parent, key, list, index);\n        }}").unwrap();
-        }
-        children.push_str("      }\n      break;\n");
+        writeln!(children, "    case {length}:").unwrap();
+        write_dispatch_group(&mut children, &names, "      ");
+        children.push_str("      break;\n");
     }
     children.push_str("  }\n  throw new TypeError(`Unsupported AST node type: ${type}`);\n}\n");
     dts.push_str("};\nexport type NodeType = keyof typeof visitorKeys;\n");
@@ -233,6 +230,40 @@ pub fn estree_visitor_keys(schema: &Schema) -> Vec<RawOutput> {
             content: dts.into_bytes(),
         },
     ]
+}
+
+fn write_dispatch_group(out: &mut String, names: &[&String], indent: &str) {
+    if names.len() <= 16 {
+        writeln!(out, "{indent}switch (type) {{").unwrap();
+        for name in names {
+            writeln!(out, "{indent}  case {name:?}: {{\n{indent}    const visit = walkers.{name};\n{indent}    return visit === null ? index : visit(node, walker, parent, key, list, index);\n{indent}  }}").unwrap();
+        }
+        writeln!(out, "{indent}}}").unwrap();
+        return;
+    }
+    let position = (0..names[0].len())
+        .min_by_key(|&position| {
+            let mut counts = BTreeMap::<u8, usize>::new();
+            for name in names {
+                *counts.entry(name.as_bytes()[position]).or_default() += 1;
+            }
+            counts.values().map(|count| count * count).sum::<usize>()
+        })
+        .unwrap();
+    let mut groups = BTreeMap::<u8, Vec<&String>>::new();
+    for name in names {
+        groups
+            .entry(name.as_bytes()[position])
+            .or_default()
+            .push(name);
+    }
+    writeln!(out, "{indent}switch (type.charCodeAt({position})) {{").unwrap();
+    for (code, group) in groups {
+        writeln!(out, "{indent}  case {code}:").unwrap();
+        write_dispatch_group(out, &group, &format!("{indent}    "));
+        writeln!(out, "{indent}    break;").unwrap();
+    }
+    writeln!(out, "{indent}}}").unwrap();
 }
 
 fn is_child(id: TypeId, schema: &Schema) -> bool {

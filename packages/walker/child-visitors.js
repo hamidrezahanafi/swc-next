@@ -2746,103 +2746,159 @@ export function dispatchNode(node, walker, parent, key, list, index, walkers) {
       }
       break;
     case 15:
-      switch (type) {
-        case "ArrayExpression": {
-          const visit = walkers.ArrayExpression;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "AwaitExpression": {
-          const visit = walkers.AwaitExpression;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "ChainExpression": {
-          const visit = walkers.ChainExpression;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "ClassExpression": {
-          const visit = walkers.ClassExpression;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "ExportSpecifier": {
-          const visit = walkers.ExportSpecifier;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "ImportAttribute": {
-          const visit = walkers.ImportAttribute;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "ImportSpecifier": {
-          const visit = walkers.ImportSpecifier;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "ReturnStatement": {
-          const visit = walkers.ReturnStatement;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "SwitchStatement": {
-          const visit = walkers.SwitchStatement;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "TSBigIntKeyword": {
-          const visit = walkers.TSBigIntKeyword;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "TSInterfaceBody": {
-          const visit = walkers.TSInterfaceBody;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "TSNumberKeyword": {
-          const visit = walkers.TSNumberKeyword;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "TSObjectKeyword": {
-          const visit = walkers.TSObjectKeyword;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "TSQualifiedName": {
-          const visit = walkers.TSQualifiedName;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "TSStringKeyword": {
-          const visit = walkers.TSStringKeyword;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "TSSymbolKeyword": {
-          const visit = walkers.TSSymbolKeyword;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "TSTypeAssertion": {
-          const visit = walkers.TSTypeAssertion;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "TSTypeParameter": {
-          const visit = walkers.TSTypeParameter;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "TSTypePredicate": {
-          const visit = walkers.TSTypePredicate;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "TSTypeReference": {
-          const visit = walkers.TSTypeReference;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "TemplateElement": {
-          const visit = walkers.TemplateElement;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "TemplateLiteral": {
-          const visit = walkers.TemplateLiteral;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "UnaryExpression": {
-          const visit = walkers.UnaryExpression;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
-        case "YieldExpression": {
-          const visit = walkers.YieldExpression;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
+      switch (type.charCodeAt(2)) {
+        case 66:
+          switch (type) {
+            case "TSBigIntKeyword": {
+              const visit = walkers.TSBigIntKeyword;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+          }
+          break;
+        case 73:
+          switch (type) {
+            case "TSInterfaceBody": {
+              const visit = walkers.TSInterfaceBody;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+          }
+          break;
+        case 78:
+          switch (type) {
+            case "TSNumberKeyword": {
+              const visit = walkers.TSNumberKeyword;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+          }
+          break;
+        case 79:
+          switch (type) {
+            case "TSObjectKeyword": {
+              const visit = walkers.TSObjectKeyword;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+          }
+          break;
+        case 81:
+          switch (type) {
+            case "TSQualifiedName": {
+              const visit = walkers.TSQualifiedName;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+          }
+          break;
+        case 83:
+          switch (type) {
+            case "TSStringKeyword": {
+              const visit = walkers.TSStringKeyword;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+            case "TSSymbolKeyword": {
+              const visit = walkers.TSSymbolKeyword;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+          }
+          break;
+        case 84:
+          switch (type) {
+            case "TSTypeAssertion": {
+              const visit = walkers.TSTypeAssertion;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+            case "TSTypeParameter": {
+              const visit = walkers.TSTypeParameter;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+            case "TSTypePredicate": {
+              const visit = walkers.TSTypePredicate;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+            case "TSTypeReference": {
+              const visit = walkers.TSTypeReference;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+          }
+          break;
+        case 97:
+          switch (type) {
+            case "AwaitExpression": {
+              const visit = walkers.AwaitExpression;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+            case "ChainExpression": {
+              const visit = walkers.ChainExpression;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+            case "ClassExpression": {
+              const visit = walkers.ClassExpression;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+            case "UnaryExpression": {
+              const visit = walkers.UnaryExpression;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+          }
+          break;
+        case 101:
+          switch (type) {
+            case "YieldExpression": {
+              const visit = walkers.YieldExpression;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+          }
+          break;
+        case 105:
+          switch (type) {
+            case "SwitchStatement": {
+              const visit = walkers.SwitchStatement;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+          }
+          break;
+        case 109:
+          switch (type) {
+            case "TemplateElement": {
+              const visit = walkers.TemplateElement;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+            case "TemplateLiteral": {
+              const visit = walkers.TemplateLiteral;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+          }
+          break;
+        case 112:
+          switch (type) {
+            case "ExportSpecifier": {
+              const visit = walkers.ExportSpecifier;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+            case "ImportAttribute": {
+              const visit = walkers.ImportAttribute;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+            case "ImportSpecifier": {
+              const visit = walkers.ImportSpecifier;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+          }
+          break;
+        case 114:
+          switch (type) {
+            case "ArrayExpression": {
+              const visit = walkers.ArrayExpression;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+          }
+          break;
+        case 116:
+          switch (type) {
+            case "ReturnStatement": {
+              const visit = walkers.ReturnStatement;
+              return visit === null ? index : visit(node, walker, parent, key, list, index);
+            }
+          }
+          break;
       }
       break;
     case 16:
