@@ -12898,9 +12898,6 @@ fn member_expression_is_optional(member: MemberExpression, ast: &Ast<'_>) -> boo
         ExprData::MemberExpression(object) => member_expression_is_optional(object, ast),
         ExprData::CallExpression(call) => call.optional(ast),
         ExprData::ChainExpression(_) => true,
-        ExprData::ParenthesizedExpression(parenthesized) => {
-            ast.node_kind(parenthesized.expression(ast).node_id()) == NodeKind::ChainExpression
-        }
         _ => false,
     }
 }
