@@ -13429,8 +13429,7 @@ mod tests {
             |source, options| Parser::init(&allocator, source, options, TokenParserConfig).parse();
         let parse = |source| parse_with_options(source, script);
 
-        let source = "function f(,) {\n return;\n}\nconst after = 1;";
-        let parsed = parse(source);
+        let parsed = parse("function f(,) {\n return;\n}\nconst after = 1;");
         assert_eq!(parsed.diagnostics.len(), 1);
         let ast = &parsed.ast;
         assert_eq!(ast.root_program().body(ast).len(), 2);
@@ -13445,7 +13444,7 @@ mod tests {
                 .is_some()
         );
         assert_eq!(
-            token_texts(source, &parsed.tokens),
+            token_texts(parsed.ast.source(), &parsed.tokens),
             [
                 "function", "f", "(", ",", ")", "{", "return", ";", "}", "const", "after", "=",
                 "1", ";"
@@ -13511,14 +13510,14 @@ mod tests {
 
     #[test]
     fn partial_programs() {
-        fn statements<'a>(parsed: &ParseReturn<'_>, source: &'a str) -> Vec<&'a str> {
+        fn statements<'a>(parsed: &ParseReturn<'a>) -> Vec<&'a str> {
             let ast = &parsed.ast;
             ast.root_program()
                 .body(ast)
                 .iter()
                 .map(|statement| {
                     let span = ast.get_node_in_sub_range(statement).span(ast);
-                    &source[span.start as usize..span.end as usize]
+                    &ast.source()[span.start as usize..span.end as usize]
                 })
                 .collect()
         }
@@ -13526,31 +13525,25 @@ mod tests {
         let allocator = Allocator::new();
         let parse = |source| parse_tokens(&allocator, source);
 
-        let source = "const a = 1;\nconst b =";
-        let parsed = parse(source);
+        let parsed = parse("const a = 1;\nconst b =");
         assert_eq!(parsed.diagnostics.len(), 1);
-        assert_eq!(statements(&parsed, source), ["const a = 1;"]);
+        assert_eq!(statements(&parsed), ["const a = 1;"]);
         assert_eq!(
-            token_texts(source, &parsed.tokens),
+            token_texts(parsed.ast.source(), &parsed.tokens),
             ["const", "a", "=", "1", ";", "const", "b", "="]
         );
 
-        let source = "const a = 1;\nconst b;";
-        let parsed = parse(source);
+        let parsed = parse("const a = 1;\nconst b;");
         assert_eq!(parsed.diagnostics.len(), 1);
-        assert_eq!(statements(&parsed, source), ["const a = 1;", "const b;"]);
+        assert_eq!(statements(&parsed), ["const a = 1;", "const b;"]);
         assert_eq!(
-            token_texts(source, &parsed.tokens),
+            token_texts(parsed.ast.source(), &parsed.tokens),
             ["const", "a", "=", "1", ";", "const", "b", ";"]
         );
 
-        let source = "const a = 1;\nconst broken = ;\nconst b = 2;";
-        let parsed = parse(source);
+        let parsed = parse("const a = 1;\nconst broken = ;\nconst b = 2;");
         assert_eq!(parsed.diagnostics.len(), 1);
-        assert_eq!(
-            statements(&parsed, source),
-            ["const a = 1;", "const b = 2;"]
-        );
+        assert_eq!(statements(&parsed), ["const a = 1;", "const b = 2;"]);
     }
 
     #[test]
