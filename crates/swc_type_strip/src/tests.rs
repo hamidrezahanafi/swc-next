@@ -118,6 +118,14 @@ fn parser_error_does_not_block_recovery_edits() {
 }
 
 #[test]
+fn local_parser_recovery_preserves_edits() {
+    let result = strip_types("function f(,a:T) { return a; }", options(crate::Lang::Ts));
+
+    assert_eq!(result.code, "function f(,a  ) { return a; }");
+    assert_eq!(result.diagnostics.len(), 1);
+}
+
+#[test]
 fn parser_options_select_language() {
     let source = "const element = <Component<Type> />;";
     let result = strip_types(source, options(crate::Lang::Ts));

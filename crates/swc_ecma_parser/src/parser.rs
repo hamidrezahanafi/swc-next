@@ -3602,6 +3602,17 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             while self.current_token.tag() != TokenTag::RightParen
                 && self.current_token.tag() != TokenTag::Eof
             {
+                // An empty slot has an unambiguous boundary. Recover here so the
+                // caller can still parse the body in its original grammar context.
+                if self.current_token.tag() == TokenTag::Comma {
+                    self.report(
+                        self.current_token.span(),
+                        "Expected a parameter before ','",
+                        ReportOptions::default(),
+                    );
+                    self.advance()?;
+                    continue;
+                }
                 let parameter_start = self.current_token.start();
                 let decorators =
                     if self.lang.is_typescript() && self.current_token.tag() == TokenTag::At {
@@ -13352,6 +13363,194 @@ mod tests {
             let parsed = parse("(({a: ({b = 0}), c = 0}));");
             assert_eq!(parsed.diagnostics.len(), 2);
         }
+    }
+
+    #[test]
+    fn parameter_recovery_source_types() {
+        fn diagnostics(source: &str, options: Options) -> Vec<Diagnostic<'static>> {
+            let allocator = Allocator::new();
+            Parser::init(&allocator, source, options, NoTokenParserConfig)
+                .parse()
+                .diagnostics
+        }
+
+        let script = Options {
+            source_type: SourceType::Script,
+            ..Options::default()
+        };
+        let module = Options {
+            source_type: SourceType::Module,
+            ..script
+        };
+        let commonjs = Options {
+            source_type: SourceType::CommonJs,
+            ..script
+        };
+        let unambiguous = Options {
+            source_type: SourceType::Unambiguous,
+            ..script
+        };
+        let errors = diagnostics("function f(,) {\n  return;\n}", script);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].span, Span::new(11, 12));
+
+        let errors = diagnostics("function f(,) {\n  return;\n}", module);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].span, Span::new(11, 12));
+
+        let errors = diagnostics("function f(,) {\n  return;\n}", commonjs);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].span, Span::new(11, 12));
+
+        let errors = diagnostics("function f(,) {\n  return;\n}", unambiguous);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].span, Span::new(11, 12));
+    }
+
+    #[test]
+    fn parameter_recovery() {
+        fn function(ast: &Ast<'_>) -> Function {
+            ast.root_program()
+                .body(ast)
+                .get_node(ast, 0)
+                .unwrap()
+                .as_declaration(ast)
+                .unwrap()
+                .as_function(ast)
+                .unwrap()
+        }
+
+        let allocator = Allocator::new();
+        let script = Options {
+            source_type: SourceType::Script,
+            ..Options::default()
+        };
+        let parse_with_options =
+            |source, options| Parser::init(&allocator, source, options, TokenParserConfig).parse();
+        let parse = |source| parse_with_options(source, script);
+
+        let source = "function f(,) {\n return;\n}\nconst after = 1;";
+        let parsed = parse(source);
+        assert_eq!(parsed.diagnostics.len(), 1);
+        let ast = &parsed.ast;
+        assert_eq!(ast.root_program().body(ast).len(), 2);
+        let recovered = function(ast);
+        assert!(recovered.params(ast).items(ast).is_empty());
+        let body = recovered.body(ast).body(ast);
+        assert_eq!(body.len(), 1);
+        assert!(
+            body.get_node(ast, 0)
+                .unwrap()
+                .as_return_statement(ast)
+                .is_some()
+        );
+        assert_eq!(
+            token_texts(source, &parsed.tokens),
+            [
+                "function", "f", "(", ",", ")", "{", "return", ";", "}", "const", "after", "=",
+                "1", ";"
+            ]
+        );
+
+        let parsed = parse("function f(a,,b,) { return; }");
+        assert_eq!(parsed.diagnostics.len(), 1);
+        let ast = &parsed.ast;
+        let params = function(ast).params(ast).items(ast);
+        assert_eq!(params.len(), 2);
+        assert_eq!(
+            params.get_node(ast, 0).unwrap().span(ast),
+            Span::new(11, 12)
+        );
+        assert_eq!(
+            params.get_node(ast, 1).unwrap().span(ast),
+            Span::new(14, 15)
+        );
+
+        let parsed = parse("function f(,,) { return; }");
+        assert_eq!(parsed.diagnostics.len(), 2);
+        assert_eq!(parsed.ast.root_program().body(&parsed.ast).len(), 1);
+
+        let parsed = parse("function f(,) { return; }\nreturn;");
+        assert_eq!(parsed.diagnostics.len(), 2);
+        assert_eq!(parsed.diagnostics[1].span, Span::new(26, 32));
+
+        let module = Options {
+            source_type: SourceType::Module,
+            ..script
+        };
+        let parsed = parse_with_options("function f(,) { return; }\nreturn;", module);
+        assert_eq!(parsed.diagnostics.len(), 2);
+        assert_eq!(parsed.diagnostics[1].span, Span::new(26, 32));
+    }
+
+    #[test]
+    fn parameter_recovery_boundaries() {
+        let allocator = Allocator::new();
+        let parse = |source| parse_tokens(&allocator, source);
+
+        let parsed = parse("class C { m(,) {\n return;\n} }\nconst after = 1;");
+        assert_eq!(parsed.diagnostics.len(), 1);
+        assert_eq!(parsed.ast.root_program().body(&parsed.ast).len(), 2);
+
+        let parsed = parse("({ m(,) {\n return;\n} });\nconst after = 1;");
+        assert_eq!(parsed.diagnostics.len(), 1);
+        assert_eq!(parsed.ast.root_program().body(&parsed.ast).len(), 2);
+
+        let parsed = parse("const f = (a,,b) => {\n return;\n};\nconst after = 1;");
+        assert_eq!(parsed.diagnostics.len(), 1);
+        assert_eq!(parsed.ast.root_program().body(&parsed.ast).len(), 2);
+
+        let parsed = parse("declare function f(a: T,,b: U): void;");
+        assert_eq!(parsed.diagnostics.len(), 1);
+        assert_eq!(parsed.ast.root_program().body(&parsed.ast).len(), 1);
+
+        let parsed = parse("function f(a = g(1, 2),, {b}) { return; }");
+        assert_eq!(parsed.diagnostics.len(), 1);
+        assert_eq!(parsed.ast.root_program().body(&parsed.ast).len(), 1);
+    }
+
+    #[test]
+    fn partial_programs() {
+        fn statements<'a>(parsed: &ParseReturn<'_>, source: &'a str) -> Vec<&'a str> {
+            let ast = &parsed.ast;
+            ast.root_program()
+                .body(ast)
+                .iter()
+                .map(|statement| {
+                    let span = ast.get_node_in_sub_range(statement).span(ast);
+                    &source[span.start as usize..span.end as usize]
+                })
+                .collect()
+        }
+
+        let allocator = Allocator::new();
+        let parse = |source| parse_tokens(&allocator, source);
+
+        let source = "const a = 1;\nconst b =";
+        let parsed = parse(source);
+        assert_eq!(parsed.diagnostics.len(), 1);
+        assert_eq!(statements(&parsed, source), ["const a = 1;"]);
+        assert_eq!(
+            token_texts(source, &parsed.tokens),
+            ["const", "a", "=", "1", ";", "const", "b", "="]
+        );
+
+        let source = "const a = 1;\nconst b;";
+        let parsed = parse(source);
+        assert_eq!(parsed.diagnostics.len(), 1);
+        assert_eq!(statements(&parsed, source), ["const a = 1;", "const b;"]);
+        assert_eq!(
+            token_texts(source, &parsed.tokens),
+            ["const", "a", "=", "1", ";", "const", "b", ";"]
+        );
+
+        let source = "const a = 1;\nconst broken = ;\nconst b = 2;";
+        let parsed = parse(source);
+        assert_eq!(parsed.diagnostics.len(), 1);
+        assert_eq!(
+            statements(&parsed, source),
+            ["const a = 1;", "const b = 2;"]
+        );
     }
 
     #[test]
