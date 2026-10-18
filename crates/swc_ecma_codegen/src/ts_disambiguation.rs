@@ -31,7 +31,8 @@ enum LeadingToken {
     Expression,
     // `<`, `>`, `+`, and `-` reject type arguments even after a line break.
     Reject,
-    // `(`, templates, and a regexp's slash admit speculative type arguments.
+    // Parentheses, templates, regexp slashes and contextual operator tokens
+    // admit speculative type arguments.
     Accept,
 }
 
@@ -426,11 +427,11 @@ impl<'a> GroupingPlan<'a> {
                     ));
                 }
             }
-            ExprData::YieldExpression(node) if context.tail != 0 => {
+            ExprData::YieldExpression(node) => {
                 if let Some(argument) = node.argument(ast) {
                     self.pending.push(Task::Plan(
                         argument,
-                        Context::tail(Precedence::Assignment, context.tail),
+                        Context::tail(Precedence::Yield, context.tail),
                     ));
                 }
             }
@@ -929,6 +930,15 @@ impl<'a> GroupingPlan<'a> {
             ExprData::ParenthesizedExpression(_)
             | ExprData::TemplateLiteral(_)
             | ExprData::RegExpLiteral(_) => LeadingToken::Accept,
+            ExprData::IdentifierReference(node) => {
+                // These identifier spellings are also relational operator tokens
+                // after a closing angle, where TypeScript favors type arguments.
+                if matches!(ast.get_utf8(node.name(ast)), "as" | "satisfies") {
+                    LeadingToken::Accept
+                } else {
+                    LeadingToken::Expression
+                }
+            }
             ExprData::ArrowFunctionExpression(node) => {
                 if node.r#async(ast) {
                     LeadingToken::Expression
@@ -1218,10 +1228,27 @@ impl<'a> GroupingPlan<'a> {
                     ..TypeSyntax::RECOVER
                 }
             }
+            ExprData::YieldExpression(node) => {
+                if node.delegate(ast) {
+                    TypeSyntax::BARRIER
+                } else if let Some(argument) = node.argument(ast) {
+                    // An operand ends an ordinary type-argument parse, but can
+                    // become a function type's return type after recovering its
+                    // missing parameter delimiters. Compose that parameter path
+                    // with the operand, including any closing prefixes within it.
+                    TypeSyntax {
+                        closes: 0,
+                        argument: 0,
+                        parameter: PARAMETER,
+                    }
+                    .then(self.syntax(argument, Precedence::Yield))
+                } else {
+                    TypeSyntax::THROUGH
+                }
+            }
             ExprData::NewExpression(_)
             | ExprData::UpdateExpression(_)
-            | ExprData::AwaitExpression(_)
-            | ExprData::YieldExpression(_) => TypeSyntax::BARRIER,
+            | ExprData::AwaitExpression(_) => TypeSyntax::BARRIER,
             ExprData::IdentifierReference(_) => TypeSyntax::THROUGH,
             _ => TypeSyntax::RECOVER,
         }

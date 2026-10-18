@@ -97,6 +97,76 @@ fn expect_ast_round_trip_languages(source: &str, languages: &[Lang]) {
 }
 
 #[test]
+fn test_comparison_yield_types() {
+    expect_comparison_round_trip(
+        "function* g() { f((a < b), yield, c > (d, e)); }",
+        "function* g() {\n  f((a < b), yield, c > (d, e));\n}\n",
+        "function*g(){f((a<b),yield,c>(d,e))}",
+    );
+
+    expect_ast_round_trip("function* g() { f((a << b), yield, c > (d, e)); }");
+
+    expect_ast_round_trip("function* g() { [(a < b), yield, c > (d, e)]; }");
+
+    expect_comparison_round_trip(
+        "function* g() { f((a << b), yield 0, c > (d, e)); }",
+        "function* g() {\n  f((a << b), yield 0, c > (d, e));\n}\n",
+        "function*g(){f((a<<b),yield 0,c>(d,e))}",
+    );
+
+    expect_ast_round_trip("function* g() { [(a << b), yield 0, c > (d, e)]; }");
+
+    expect_ast_round_trip("function* g() { f((a << b), yield (x => x), c > (d, e)); }");
+
+    expect_ast_round_trip("function* g() { f((a << b), yield { x: 0 }, c > (d, e)); }");
+
+    expect_ast_round_trip("function* g() { f((a < b), yield (c > (d, e))); }");
+
+    expect_ast_round_trip("function* g() { f((a << b), yield (c >> (d, e))); }");
+
+    expect_ast_round_trip("function* g() { f((a < b), yield x, c > (d, e)); }");
+
+    expect_comparison_round_trip(
+        "function* g() { f((a << b), yield x, c > (d, e)); }",
+        "function* g() {\n  f(a << b, yield x, c > (d, e));\n}\n",
+        "function*g(){f(a<<b,yield x,c>(d,e))}",
+    );
+
+    expect_ast_round_trip("function* g() { f((a << b), yield* xs, c > (d, e)); }");
+}
+
+#[test]
+fn test_comparison_contextual_operator_heads() {
+    expect_ast_round_trip("(a < b) > (as + 1);");
+
+    expect_ast_round_trip("(a < b) > (satisfies + 1);");
+
+    expect_ast_round_trip("(a < b) > as;");
+
+    expect_ast_round_trip("(a < b) > satisfies;");
+
+    expect_ast_round_trip("(a < b) > as.value;");
+
+    expect_ast_round_trip("(a < b) > satisfies.value;");
+
+    expect_ast_round_trip("(a < b) > as[0];");
+
+    expect_ast_round_trip("(a < b) > satisfies[0];");
+
+    expect_ast_round_trip("(a < b) > as();");
+
+    expect_ast_round_trip("(a < b) > satisfies();");
+
+    expect_ast_round_trip("f((a < b), c > (as + 1));");
+
+    expect_ast_round_trip("f((a < b), c > (satisfies + 1));");
+
+    expect_ast_round_trip("(a < b) > (\\u0061s + 1);");
+
+    expect_ast_round_trip("(a < b) > (\\u0073atisfies + 1);");
+}
+
+#[test]
 fn test_comparison_planned_fragments() {
     expect_ast_round_trip("((a < b) > ((c << d) >> (e | f)));");
 
