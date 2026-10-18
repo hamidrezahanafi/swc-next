@@ -1,7 +1,7 @@
 use swc_next_allocator::{vec::Vec as ArenaVec, wtf8::Wtf8};
 use swc_next_ecma_ast::{
-    ArrowFunctionExpression, Ast, BindingIdentifier, CommentKind, Expr, SimpleAssignmentTarget,
-    SimpleAssignmentTargetData,
+    ArrowFunctionExpression, Ast, BindingIdentifier, CommentKind, Expr, NewExpression, Precedence,
+    SimpleAssignmentTarget, SimpleAssignmentTargetData,
 };
 use swc_next_simd::prelude::*;
 
@@ -284,4 +284,17 @@ pub(crate) fn pure_comment_annotation(kind: CommentKind, value: &[u8]) -> Option
         b"@__PURE__" | b"#__PURE__" | b"@__NO_SIDE_EFFECTS__" | b"#__NO_SIDE_EFFECTS__"
     )
     .then_some(trimmed)
+}
+
+/// Whether the printer emits a constructor argument list in this context.
+pub(crate) fn new_expression_has_argument_list(
+    ast: &Ast<'_>,
+    node: NewExpression,
+    minify: bool,
+    level: Precedence,
+) -> bool {
+    !minify
+        || !node.arguments(ast).is_empty()
+        || node.type_arguments(ast).is_some()
+        || level >= Precedence::Postfix
 }

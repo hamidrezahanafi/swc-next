@@ -20,8 +20,8 @@ use swc_next_ecma_ast::*;
 use crate::{
     operator::{Binaryish, BinaryishOperator, ExprContext},
     util::{
-        bare_arrow_parameter, choose_quote, pure_comment_annotation,
-        simple_assignment_target_expression,
+        bare_arrow_parameter, choose_quote, new_expression_has_argument_list,
+        pure_comment_annotation, simple_assignment_target_expression,
     },
 };
 
@@ -101,12 +101,18 @@ impl State {
 const ARGUMENT: u8 = State::PROTECTED_ARGUMENT.bits();
 const PARAMETER: u8 = State::PROTECTED_PARAMETER.bits();
 const BOTH: u8 = ARGUMENT | PARAMETER;
+// Additional grammar entry positions share the existing three-byte transfer.
+// They are not planning/cache-validity flags.
+const TYPE_SUFFIX: u8 = 1 << 2;
+const CONSTRUCTOR: u8 = 1 << 3;
+const GRAMMAR_POSITIONS: u8 = BOTH | TYPE_SUFFIX | CONSTRUCTOR;
 
-// A conservative transfer function for speculative type syntax. `closes`
-// accepts the prefix here; `argument` and `parameter` map requirements at the
-// end back to possible interpretations at the start. Concatenation is associative,
-// so commas and binary operators use the same composition. Unknown/recovery productions pass both contexts;
-// only grammar barriers proven to terminate speculation clear a context.
+// A conservative relation between grammar entry positions before and after
+// emitted tokens. In addition to arguments and generic parameters, composition
+// distinguishes a suffix after a complete type and a constructor-type entry.
+// `closes` records accepting prefixes; each remaining byte packs two columns.
+// Boolean relation composition is associative, so every fragment uses `then`.
+// Grammar positions are projected out before querying the protection cache.
 #[derive(Clone, Copy, Default)]
 struct TypeSyntax {
     closes: u8,
@@ -116,20 +122,33 @@ struct TypeSyntax {
 
 impl TypeSyntax {
     fn carries(self) -> bool {
-        self.argument != 0 || self.parameter != 0
+        self.argument & BOTH != 0 || self.parameter & BOTH != 0
     }
 
     const THROUGH: Self = Self {
         closes: 0,
-        argument: ARGUMENT,
+        argument: ARGUMENT | (TYPE_SUFFIX << 4),
+        parameter: PARAMETER | (CONSTRUCTOR << 4),
+    };
+    const NAME: Self = Self {
+        closes: 0,
+        argument: ARGUMENT | CONSTRUCTOR,
         parameter: PARAMETER,
     };
-    // A type production that can also be reached after recovering missing
-    // generic-function delimiters. An outer argument requirement can arise
-    // from either entry context; a parameter requirement remains a parameter.
     const RECOVER: Self = Self {
         closes: 0,
         argument: BOTH,
+        parameter: PARAMETER,
+    };
+    // A complete type that cannot continue a generic parameter declaration.
+    const TYPE: Self = Self {
+        closes: 0,
+        argument: BOTH,
+        parameter: 0,
+    };
+    const PARAMETER_PREFIX: Self = Self {
+        closes: 0,
+        argument: 0,
         parameter: PARAMETER,
     };
     const BARRIER: Self = Self {
@@ -138,28 +157,110 @@ impl TypeSyntax {
         parameter: 0,
     };
 
-    fn then(self, next: Self) -> Self {
-        Self {
-            closes: self.before(next.closes),
-            argument: self.carry(next.argument),
-            parameter: self.carry(next.parameter),
-        }
-    }
-
-    fn carry(self, continuation: u8) -> u8 {
+    // Each byte stores two columns of the four-position transfer relation.
+    // Composition uses all positions; protection queries project back to the
+    // original argument/parameter requirements.
+    fn transfer_entries(self, continuation: u8) -> u8 {
         (if continuation & ARGUMENT != 0 {
-            self.argument
+            self.argument & GRAMMAR_POSITIONS
         } else {
             0
         }) | (if continuation & PARAMETER != 0 {
-            self.parameter
+            self.parameter & GRAMMAR_POSITIONS
         } else {
             0
         })
     }
 
+    fn transfer(self, continuation: u8) -> u8 {
+        self.transfer_entries(continuation)
+            | (if continuation & TYPE_SUFFIX != 0 {
+                self.argument >> 4
+            } else {
+                0
+            })
+            | (if continuation & CONSTRUCTOR != 0 {
+                self.parameter >> 4
+            } else {
+                0
+            })
+    }
+
+    fn then(self, next: Self) -> Self {
+        // If neither relation reaches the contextual entry positions, their
+        // composition only needs the two argument/parameter columns.
+        if (self.argument | self.parameter | next.argument | next.parameter) >> 4 == 0 {
+            return Self {
+                closes: self.closes | self.transfer_entries(next.closes),
+                argument: self.transfer_entries(next.argument),
+                parameter: self.transfer_entries(next.parameter),
+            };
+        }
+
+        self.then_contextual(next)
+    }
+
+    // Keep the full relation out of line so the two-column composition remains
+    // small enough to inline at its consumers.
+    #[inline(never)]
+    fn then_contextual(self, next: Self) -> Self {
+        Self {
+            closes: self.closes | self.transfer(next.closes),
+            argument: self.transfer(next.argument & GRAMMAR_POSITIONS)
+                | (self.transfer(next.argument >> 4) << 4),
+            parameter: self.transfer(next.parameter & GRAMMAR_POSITIONS)
+                | (self.transfer(next.parameter >> 4) << 4),
+        }
+    }
+    fn carry(self, continuation: u8) -> u8 {
+        (if continuation & ARGUMENT != 0 {
+            self.argument & BOTH
+        } else {
+            0
+        }) | (if continuation & PARAMETER != 0 {
+            self.parameter & BOTH
+        } else {
+            0
+        })
+    }
+    // A boundary only needs acceptance, not the composed outgoing columns.
     fn before(self, continuation: u8) -> u8 {
-        self.closes | self.carry(continuation)
+        (self.closes | self.transfer(continuation)) & BOTH
+    }
+    fn close_mask(self) -> u8 {
+        self.closes & BOTH
+    }
+    fn constructor(self) -> Self {
+        Self {
+            closes: if self.closes & CONSTRUCTOR != 0 {
+                BOTH
+            } else {
+                0
+            },
+            argument: if self.argument & CONSTRUCTOR != 0 {
+                BOTH
+            } else {
+                0
+            },
+            parameter: 0,
+        }
+    }
+    fn parameter_default(self) -> Self {
+        Self {
+            closes: if self.close_mask() != 0 { PARAMETER } else { 0 },
+            argument: 0,
+            parameter: if self.transfer(ARGUMENT) & BOTH != 0 {
+                PARAMETER
+            } else {
+                0
+            },
+        }
+    }
+    fn with_constructor(mut self, allowed: bool) -> Self {
+        if allowed {
+            self.argument |= CONSTRUCTOR;
+        }
+        self
     }
 }
 
@@ -334,7 +435,10 @@ impl<'a> GroupingPlan<'a> {
                     self.finish(expression, data);
                     if prefix != Prefix::None
                         && let ExprData::ArrowFunctionExpression(node) = data
-                        && self.fragments[expression.node_id().index()].syntax.closes != 0
+                        && self.fragments[expression.node_id().index()]
+                            .syntax
+                            .close_mask()
+                            != 0
                         && let Some(identifier) = bare_arrow_parameter(self.ast, node, true)
                         && node.params(self.ast).span(self.ast).start
                             == identifier.span(self.ast).start
@@ -427,6 +531,8 @@ impl<'a> GroupingPlan<'a> {
                     ));
                 }
             }
+            ExprData::AwaitExpression(node) => self.dependency(node.argument(ast)),
+            ExprData::NewExpression(node) => self.dependency(node.callee(ast)),
             ExprData::YieldExpression(node) => {
                 if let Some(argument) = node.argument(ast) {
                     self.pending.push(Task::Plan(
@@ -717,16 +823,19 @@ impl<'a> GroupingPlan<'a> {
     }
 
     fn syntax(&self, expression: Expr, level: Precedence) -> TypeSyntax {
+        let syntax = self.summary(expression).syntax;
         if self.grouped(expression, level) {
             // Parentheses can begin a function type. Recovery within that type
             // can still reach an angle in the contents, so grouping changes the
             // leading token but does not hide all speculative closing prefixes.
             TypeSyntax {
-                closes: TypeSyntax::RECOVER.carry(self.summary(expression).syntax.closes),
-                ..TypeSyntax::RECOVER
+                closes: TypeSyntax::RECOVER.carry(syntax.close_mask())
+                    | (syntax.closes & CONSTRUCTOR),
+                ..TypeSyntax::TYPE
             }
+            .with_constructor(syntax.argument & CONSTRUCTOR != 0)
         } else {
-            self.summary(expression).syntax
+            syntax
         }
     }
 
@@ -783,8 +892,7 @@ impl<'a> GroupingPlan<'a> {
         {
             tail |= self
                 .operator_syntax(binary.left(self.ast), binary.right(self.ast), operator)
-                .then(self.syntax(binary.right(self.ast), right_level))
-                .closes;
+                .before(self.syntax(binary.right(self.ast), right_level).closes);
         }
         self.pending.push(Task::Plan(
             binary.left(self.ast),
@@ -854,7 +962,7 @@ impl<'a> GroupingPlan<'a> {
             syntax.closes = if operator == BinaryishOperator::Binary(BinaryOperator::GreaterThan) {
                 ARGUMENT
             } else {
-                BOTH
+                PARAMETER
             };
         }
         syntax
@@ -871,10 +979,13 @@ impl<'a> GroupingPlan<'a> {
             }
         } else if Self::type_operator(operator) {
             TypeSyntax::RECOVER
-        } else if matches!(
-            operator,
-            BinaryishOperator::Binary(BinaryOperator::LessThan | BinaryOperator::LeftShift)
-        ) {
+        } else if operator == BinaryishOperator::Binary(BinaryOperator::LessThan) {
+            TypeSyntax {
+                closes: 0,
+                argument: ARGUMENT,
+                parameter: ARGUMENT,
+            }
+        } else if operator == BinaryishOperator::Binary(BinaryOperator::LeftShift) {
             TypeSyntax::THROUGH
         } else {
             TypeSyntax::BARRIER
@@ -1069,12 +1180,9 @@ impl<'a> GroupingPlan<'a> {
             ExprData::AssignmentExpression(node) => {
                 if node.operator(ast) == AssignmentOperator::Assign {
                     // `=` is a parameter default, never part of a type argument.
-                    TypeSyntax {
-                        closes: 0,
-                        argument: PARAMETER,
-                        parameter: PARAMETER,
-                    }
-                    .then(self.syntax(node.right(ast), Precedence::Assignment))
+                    self.syntax(node.right(ast), Precedence::Assignment)
+                        .parameter_default()
+                        .with_constructor(true)
                 } else {
                     TypeSyntax::BARRIER
                 }
@@ -1110,11 +1218,12 @@ impl<'a> GroupingPlan<'a> {
                     closes: object.closes | TypeSyntax::RECOVER.carry(index),
                     ..TypeSyntax::RECOVER
                 }
+                .with_constructor(object.argument & CONSTRUCTOR != 0)
             }
             // Tuple and object types parse their contents before demanding the
             // closing bracket/brace. Missing delimiters do not end speculation.
             ExprData::ArrayExpression(node) => {
-                let mut syntax = TypeSyntax::RECOVER;
+                let mut syntax = TypeSyntax::TYPE;
                 for id in node.elements(ast).iter() {
                     if let Some(argument) = ast.get_node_in_sub_range(id) {
                         let expression = match ast.argument_data(argument) {
@@ -1124,6 +1233,7 @@ impl<'a> GroupingPlan<'a> {
                         syntax = syntax.then(self.syntax(expression, Precedence::Assignment));
                     }
                 }
+                syntax.argument |= TYPE_SUFFIX | CONSTRUCTOR;
                 syntax
             }
             ExprData::ObjectExpression(node) => {
@@ -1145,9 +1255,10 @@ impl<'a> GroupingPlan<'a> {
                     }
                 }
                 TypeSyntax {
-                    closes: TypeSyntax::RECOVER.carry(closes),
-                    ..TypeSyntax::RECOVER
+                    closes: TypeSyntax::TYPE.carry(closes),
+                    ..TypeSyntax::TYPE
                 }
+                .with_constructor(true)
             }
             ExprData::ChainExpression(node) => {
                 self.syntax(node.expression(ast), Precedence::Lowest)
@@ -1176,16 +1287,22 @@ impl<'a> GroupingPlan<'a> {
                             .closes,
                 ),
                 ..TypeSyntax::RECOVER
-            },
-            ExprData::ArrowFunctionExpression(node) => TypeSyntax {
-                closes: match ast.arrow_function_body_data(node.body(ast)) {
+            }
+            .with_constructor(true),
+            ExprData::ArrowFunctionExpression(node) => {
+                let closes = match ast.arrow_function_body_data(node.body(ast)) {
                     ArrowFunctionBodyData::Expr(body) => {
                         TypeSyntax::RECOVER.carry(self.syntax(body, Precedence::Assignment).closes)
                     }
                     _ => 0,
-                },
-                ..TypeSyntax::RECOVER
-            },
+                };
+                // Recovery inside constructor parameters may enter the arrow's
+                // return expression before rejecting the remaining signature.
+                TypeSyntax {
+                    closes: closes | if closes != 0 { CONSTRUCTOR } else { 0 },
+                    ..TypeSyntax::TYPE
+                }
+            }
             ExprData::SequenceExpression(node) => {
                 node.expressions(ast)
                     .iter()
@@ -1229,27 +1346,68 @@ impl<'a> GroupingPlan<'a> {
                 }
             }
             ExprData::YieldExpression(node) => {
-                if node.delegate(ast) {
-                    TypeSyntax::BARRIER
-                } else if let Some(argument) = node.argument(ast) {
-                    // An operand ends an ordinary type-argument parse, but can
-                    // become a function type's return type after recovering its
-                    // missing parameter delimiters. Compose that parameter path
-                    // with the operand, including any closing prefixes within it.
-                    TypeSyntax {
-                        closes: 0,
-                        argument: 0,
-                        parameter: PARAMETER,
-                    }
-                    .then(self.syntax(argument, Precedence::Yield))
+                if let Some(argument) = node.argument(ast) {
+                    // The keyword can be a parameter name; a following operand
+                    // can start a function return type after missing delimiters.
+                    let prefix = if node.delegate(ast) {
+                        TypeSyntax {
+                            closes: 0,
+                            argument: PARAMETER << 4,
+                            parameter: 0,
+                        }
+                    } else {
+                        TypeSyntax::PARAMETER_PREFIX
+                    };
+                    prefix.then(self.syntax(argument, Precedence::Yield))
                 } else {
-                    TypeSyntax::THROUGH
+                    TypeSyntax::NAME
                 }
             }
-            ExprData::NewExpression(_)
-            | ExprData::UpdateExpression(_)
-            | ExprData::AwaitExpression(_) => TypeSyntax::BARRIER,
-            ExprData::IdentifierReference(_) => TypeSyntax::THROUGH,
+            ExprData::AwaitExpression(node) => {
+                let argument = node.argument(ast);
+                let syntax = self.syntax(argument, Precedence::Prefix);
+                if self.grouped(argument, Precedence::Prefix)
+                    || matches!(
+                        ast.expr_data(argument),
+                        ExprData::ParenthesizedExpression(_)
+                    )
+                {
+                    let mut constructor = syntax.constructor();
+                    constructor.argument &= PARAMETER;
+                    constructor.closes &= PARAMETER;
+                    constructor
+                } else {
+                    TypeSyntax::PARAMETER_PREFIX.then(syntax)
+                }
+            }
+            ExprData::NewExpression(node) => {
+                let callee = self.syntax(node.callee(ast), Precedence::New);
+                let syntax = callee.constructor();
+                let parameters = self.grouped(node.callee(ast), Precedence::New)
+                    || matches!(
+                        ast.expr_data(node.callee(ast)),
+                        ExprData::ParenthesizedExpression(_)
+                    );
+                if !parameters
+                    && new_expression_has_argument_list(ast, node, self.minify, Precedence::Lowest)
+                {
+                    syntax.then(TypeSyntax::BARRIER)
+                } else {
+                    syntax
+                }
+            }
+            ExprData::UpdateExpression(_) => TypeSyntax::BARRIER,
+            ExprData::TsInstantiationExpression(node) => {
+                let mut syntax = self.syntax(node.expression(ast), Precedence::Call);
+                syntax.closes |= CONSTRUCTOR;
+                syntax
+            }
+            ExprData::NumericLiteral(_)
+            | ExprData::StringLiteral(_)
+            | ExprData::BooleanLiteral(_)
+            | ExprData::NullLiteral(_)
+            | ExprData::BigIntLiteral(_) => TypeSyntax::TYPE,
+            ExprData::IdentifierReference(_) => TypeSyntax::NAME,
             _ => TypeSyntax::RECOVER,
         }
     }

@@ -97,6 +97,64 @@ fn expect_ast_round_trip_languages(source: &str, languages: &[Lang]) {
 }
 
 #[test]
+fn test_comparison_await_types() {
+    expect_comparison_round_trip(
+        "async function g() { f((a << b), await 0, c > (d, e)); }",
+        "async function g() {\n  f((a << b), await 0, c > (d, e));\n}\n",
+        "async function g(){f((a<<b),await 0,c>(d,e))}",
+    );
+
+    expect_comparison_round_trip(
+        "async function g() { f((a << b), await (x + 1), c > (d, e)); }",
+        "async function g() {\n  f(a << b, await (x + 1), c > (d, e));\n}\n",
+        "async function g(){f(a<<b,await(x+1),c>(d,e))}",
+    );
+
+    expect_ast_round_trip("async function g() { [(a << b), await [x], c > (d, e)]; }");
+
+    expect_ast_round_trip("async function g() { f((a << b), await x, c >> (d, e)); }");
+
+    expect_ast_round_trip("async function g() { f((a << b), await { x: 0 }, c > (d, e)); }");
+
+    expect_ast_round_trip("async function g() { f((a << b), await (x = 0), c > (d, e)); }");
+}
+
+#[test]
+fn test_comparison_constructor_types() {
+    expect_comparison_round_trip(
+        "f((a < b), new F(), c > (d, e));",
+        "f(a < b, new F(), c > (d, e));\n",
+        "f((a<b),new F,c>(d,e));",
+    );
+
+    expect_comparison_round_trip(
+        "f((a < b), new F(), c >> (d, e));",
+        "f(a < b, new F(), c >> (d, e));\n",
+        "f(a<b,new F,c>>(d,e));",
+    );
+
+    expect_comparison_round_trip(
+        "f((a < b), new (x => x), c > (d, e));",
+        "f(a < b, new ((x) => x)(), c > (d, e));\n",
+        "f(a<b,new(x=>x),c>(d,e));",
+    );
+
+    expect_comparison_round_trip(
+        "f((a < b), new (F, G), c > (d, e));",
+        "f((a < b), new (F, G)(), c > (d, e));\n",
+        "f((a<b),new(F,G),c>(d,e));",
+    );
+
+    expect_ast_round_trip("f((a < b), new (F<T>), c > (d, e));");
+
+    expect_ast_round_trip("f((a << b), new (x => c > (d, e)), c > (d, e));");
+
+    expect_ast_round_trip("[(a < b), new F(), c > (d, e)];");
+
+    expect_ast_round_trip("f((a << b), new F(x), c >> (d, e));");
+}
+
+#[test]
 fn test_comparison_yield_types() {
     expect_comparison_round_trip(
         "function* g() { f((a < b), yield, c > (d, e)); }",
@@ -133,6 +191,24 @@ fn test_comparison_yield_types() {
     );
 
     expect_ast_round_trip("function* g() { f((a << b), yield* xs, c > (d, e)); }");
+
+    expect_comparison_round_trip(
+        "function* g() { f((a << b), yield* [x], c > (d, e)); }",
+        "function* g() {\n  f((a << b), yield* [x], c > (d, e));\n}\n",
+        "function*g(){f((a<<b),yield* [x],c>(d,e))}",
+    );
+
+    expect_comparison_round_trip(
+        "function* g() { f((a << b), yield* 0, c > (d, e)); }",
+        "function* g() {\n  f(a << b, yield* 0, c > (d, e));\n}\n",
+        "function*g(){f(a<<b,yield* 0,c>(d,e))}",
+    );
+
+    expect_comparison_round_trip(
+        "function* g() { f((a << b), yield* xs, c >> (d, e)); }",
+        "function* g() {\n  f(a << b, yield* xs, c >> (d, e));\n}\n",
+        "function*g(){f(a<<b,yield* xs,c>>(d,e))}",
+    );
 }
 
 #[test]
@@ -480,8 +556,8 @@ fn test_comparison_list_boundaries() {
 
     expect_comparison_round_trip(
         "f(((a < b) < c), d >> (e, f));",
-        "f((a < b < c), d >> (e, f));\n",
-        "f((a<b<c),d>>(e,f));",
+        "f((a < b) < c, d >> (e, f));\n",
+        "f((a<b)<c,d>>(e,f));",
     );
 
     expect_comparison_round_trip(

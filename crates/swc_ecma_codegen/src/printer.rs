@@ -8,8 +8,9 @@ use swc_next_ecma_ast::*;
 use crate::operator::{BinaryExprVisitor, Binaryish, BinaryishOperator, ExprContext, OperatorCode};
 use crate::ts_disambiguation::GroupingPlan;
 use crate::util::{
-    bare_arrow_parameter, choose_quote, next_code_point, pure_comment_annotation,
-    push_code_point_escape, push_u16_escape, quote_into, simple_assignment_target_expression,
+    bare_arrow_parameter, choose_quote, new_expression_has_argument_list, next_code_point,
+    pure_comment_annotation, push_code_point_escape, push_u16_escape, quote_into,
+    simple_assignment_target_expression,
 };
 
 use crate::{
@@ -2651,11 +2652,7 @@ impl<'a> Printer<'a> {
         }
         let arguments = e.arguments(self.ast);
         // Generic constructors need `()` to disambiguate following operators.
-        if !self.options.minify
-            || !arguments.is_empty()
-            || type_arguments.is_some()
-            || level >= Precedence::Postfix
-        {
+        if new_expression_has_argument_list(self.ast, e, self.options.minify, level) {
             self.print_arguments(arguments, e.span(self.ast).end.saturating_sub(1));
         }
         if wrap {
