@@ -8454,7 +8454,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         }
         self.advance()?;
         let raw = self.ast.source_slice(token.start(), token.end());
-        let raw_text = self.ast.get_utf8(raw);
+        let raw_text = token.text(self.source);
         let value = match token.tag() {
             TokenTag::NumericLiteral => parse_decimal_literal(raw_text),
             TokenTag::HexLiteral => parse_hex_literal(raw_text),
