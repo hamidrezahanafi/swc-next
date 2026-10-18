@@ -3032,6 +3032,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "swc_next_formatter_bridge"
+version = "0.3.0"
+dependencies = [
+ "napi-build",
+ "swc_next_bridge",
+]
+
+[[package]]
 name = "swc_next_isolated_declarations"
 version = "0.3.0"
 dependencies = [
