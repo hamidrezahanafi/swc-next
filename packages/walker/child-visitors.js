@@ -2593,6 +2593,10 @@ const dispatchVariableDeclarator = function(node, walker, parent, key, list, ind
 
 export function dispatchNode(node, walker, parent, key, list, index, walkers) {
   const type = node.type;
+  if (type === "Identifier") {
+    const visit = walkers.Identifier;
+    return visit === null ? index : visit(node, walker, parent, key, list, index);
+  }
   switch (typeof type === "string" ? type.length : -1) {
     case 5:
       switch (type) {
@@ -2644,10 +2648,6 @@ export function dispatchNode(node, walker, parent, key, list, index, walkers) {
       break;
     case 10:
       switch (type) {
-        case "Identifier": {
-          const visit = walkers.Identifier;
-          return visit === null ? index : visit(node, walker, parent, key, list, index);
-        }
         case "JSXElement": {
           const visit = walkers.JSXElement;
           return visit === null ? index : visit(node, walker, parent, key, list, index);

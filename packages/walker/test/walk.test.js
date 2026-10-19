@@ -516,3 +516,38 @@ test("child fields are read once, in traversal order, and stop leaves later gett
   assert.equal(leftReads, 2);
   assert.equal(rightReads, 1);
 });
+
+
+test("Identifier hooks preserve annotation descendants and ancestor identities", () => {
+  const keyword = { type: "TSStringKeyword" };
+  const annotation = { type: "TSTypeAnnotation", typeAnnotation: keyword };
+  const root = { type: "Identifier", name: "typed", typeAnnotation: annotation };
+  const seen = [];
+  walk(root, {
+    Identifier: {
+      enter(node, ctx) {
+        assert.equal(node, root);
+        assert.deepEqual(ctx.ancestors(), []);
+        seen.push("identifier enter");
+      },
+      leave(node, ctx) {
+        assert.equal(node, root);
+        assert.deepEqual(ctx.ancestors(), []);
+        seen.push("identifier leave");
+      },
+    },
+    TSTypeAnnotation(node, ctx) {
+      assert.equal(node, annotation);
+      assert.equal(ctx.parent, root);
+      assert.deepEqual(ctx.ancestors(), [root]);
+      seen.push("annotation");
+    },
+    TSStringKeyword(node, ctx) {
+      assert.equal(node, keyword);
+      assert.equal(ctx.parent, annotation);
+      assert.deepEqual(ctx.ancestors(), [root, annotation]);
+      seen.push("keyword");
+    },
+  });
+  assert.deepEqual(seen, ["identifier enter", "annotation", "keyword", "identifier leave"]);
+});

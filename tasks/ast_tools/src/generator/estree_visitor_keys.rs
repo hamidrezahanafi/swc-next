@@ -252,9 +252,17 @@ pub fn estree_visitor_keys(schema: &Schema) -> Vec<RawOutput> {
     // the generator's choice of discriminator.
     let mut by_length: BTreeMap<usize, Vec<&String>> = BTreeMap::new();
     for name in keys.keys() {
-        by_length.entry(name.len()).or_default().push(name);
+        if name != "Identifier" {
+            by_length.entry(name.len()).or_default().push(name);
+        }
     }
-    children.push_str("\nexport function dispatchNode(node, walker, parent, key, list, index, walkers) {\n  const type = node.type;\n  switch (typeof type === \"string\" ? type.length : -1) {\n");
+    children.push_str("\nexport function dispatchNode(node, walker, parent, key, list, index, walkers) {\n  const type = node.type;\n");
+    // Identifiers are common across JS and TS trees. Keep their existing full
+    // walker, including annotation children, but avoid length partitioning.
+    if keys.contains_key("Identifier") {
+        children.push_str("  if (type === \"Identifier\") {\n    const visit = walkers.Identifier;\n    return visit === null ? index : visit(node, walker, parent, key, list, index);\n  }\n");
+    }
+    children.push_str("  switch (typeof type === \"string\" ? type.length : -1) {\n");
     for (length, names) in by_length {
         writeln!(children, "    case {length}:").unwrap();
         write_dispatch_group(&mut children, &names, "      ");
