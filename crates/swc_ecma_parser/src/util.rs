@@ -118,49 +118,32 @@ pub fn parse_hex4(input: &[u8], start: usize) -> Option<ParsedCodePoint> {
     })
 }
 
-pub fn parse_hex_variable(
-    input: &[u8],
-    start: usize,
-    max_digits: usize,
-) -> Option<ParsedCodePoint> {
+pub fn parse_unicode_escape(input: &[u8], start: usize) -> Option<ParsedCodePoint> {
+    if input.get(start) != Some(&b'{') {
+        return parse_hex4(input, start);
+    }
+
+    // Searching for `}` before validating digits makes template recovery quadratic.
+    let digit_start = start + 1;
     let mut value = 0u32;
-    let mut i = start;
-    let mut count = 0usize;
-    while i < input.len() && count < max_digits {
-        let digit = hex_val(input[i])?;
+    for (offset, &byte) in input[digit_start..].iter().enumerate() {
+        if byte == b'}' {
+            if offset == 0 {
+                return None;
+            }
+            return Some(ParsedCodePoint {
+                value: Wtf8CodePoint::from_u32(value)?,
+                end: digit_start + offset + 1,
+            });
+        }
+
+        let digit = hex_val(byte)?;
         value = (value << 4) | u32::from(digit);
         if value > 0x10FFFF {
             return None;
         }
-        count += 1;
-        i += 1;
     }
-    if count == 0 {
-        return None;
-    }
-    Some(ParsedCodePoint {
-        value: Wtf8CodePoint::from_u32(value)?,
-        end: i,
-    })
-}
-
-pub fn parse_unicode_escape(input: &[u8], start: usize) -> Option<ParsedCodePoint> {
-    if start < input.len() && input[start] == b'{' {
-        let digit_start = start + 1;
-        let brace_end = input[digit_start..]
-            .iter()
-            .position(|byte| *byte == b'}')
-            .map(|offset| digit_start + offset)?;
-        let parsed = parse_hex_variable(input, digit_start, brace_end - digit_start)?;
-        if parsed.end != brace_end {
-            return None;
-        }
-        return Some(ParsedCodePoint {
-            value: parsed.value,
-            end: brace_end + 1,
-        });
-    }
-    parse_hex4(input, start)
+    None
 }
 
 pub fn decode_identifier_escapes<'a>(raw: &str, buf: &'a mut [u8]) -> Option<&'a [u8]> {
