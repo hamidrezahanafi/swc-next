@@ -1,5 +1,5 @@
 import { expect, test } from "@rstest/core";
-import { createWalker, visit, walk } from "../index.js";
+import { createWalker, visit, walk } from "@swc-next/walker";
 
 const id = (name) => ({ type: "Identifier", name });
 const program = () => ({

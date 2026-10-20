@@ -178,15 +178,10 @@ can supply their own discriminated union with `WalkHooks<State, Nodes>` and
 ## Development
 
 ```sh
-# Unit tests and declarations; no native binding required.
-pnpm --filter @swc-next/walker test:unit
-pnpm --filter @swc-next/walker test:types
-
-# All walker tests, including core parse/edit/print integration.
+# Walker tests, including core parse/edit/print integration.
 pnpm --filter @swc-next/core build
-pnpm --filter @swc-next/walker test
+pnpm --filter @swc-next/core test:walk
 ```
 
-Tests use Rstest and live in `test/`; core integration tests live in `test/integration/`.
-The core package is a development-only dependency. Root `pnpm test` and
-`pnpm test:wasm` include both packages. Tests are excluded from the published package.
+Tests use Rstest and live in `npm/core/test/walk`. Root `pnpm test` and
+`pnpm test:wasm` include core and walker tests. Tests are excluded from the published package.

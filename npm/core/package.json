@@ -29,7 +29,8 @@
   "scripts": {
     "build": "napi build --platform --no-js --dts binding.d.ts --output-dir src-js",
     "build:wasm": "cargo run --quiet --locked -p bridge_cli -- build core --output-dir src-js",
-    "test": "node --test test/*.test.js",
+    "test": "node --test test/*.test.js && pnpm test:walk",
+    "test:walk": "rstest run --include \"test/walk/*.test.js\"",
     "test:wasm": "cross-env NAPI_RS_FORCE_WASI=error pnpm test",
     "test:conformance": "pnpm build --release && node ./test/estree-conformance.ts",
     "test:codec": "napi build --platform --release --features test-codec --esm --output-dir test/binding && node ./test/codec-conformance.ts"
@@ -60,7 +61,8 @@
   "dependencies": {
     "@swc-next/decoder": "workspace:*",
     "@swc-next/encoder": "workspace:*",
-    "@swc-next/types": "workspace:*"
+    "@swc-next/types": "workspace:*",
+    "@swc-next/walker": "workspace:*"
   },
   "wasm": {
     "binaryName": "swc-next-core",
@@ -69,6 +71,7 @@
   "devDependencies": {
     "@babel/parser": "catalog:",
     "@napi-rs/cli": "catalog:",
+    "@rstest/core": "catalog:",
     "@swc/core": "catalog:",
     "@types/node": "catalog:",
     "cross-env": "catalog:",
