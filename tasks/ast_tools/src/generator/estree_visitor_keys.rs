@@ -139,15 +139,15 @@ pub fn estree_visitor_keys(schema: &Schema) -> Vec<RawOutput> {
                             && is_list(f.type_id, schema)
                     })
                 };
-                if special.is_none() && list {
-                    if let Some(child) = ast
+                if special.is_none()
+                    && list
+                    && let Some(child) = ast
                         .fields
                         .iter()
                         .find(|f| estree_field_name(ast.name.as_str(), &f.name) == *field)
                         .and_then(|f| concrete_child(f.type_id, schema))
-                    {
-                        concrete_fields.insert((name.clone(), field.clone()), child.to_string());
-                    }
+                {
+                    concrete_fields.insert((name.clone(), field.clone()), child.to_string());
                 }
                 let previous = lists.insert((name.clone(), field.clone()), list);
                 assert!(previous.is_none_or(|previous| previous == list));
