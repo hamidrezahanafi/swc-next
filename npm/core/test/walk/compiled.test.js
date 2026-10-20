@@ -1,5 +1,5 @@
 import { expect, test } from "@rstest/core";
-import { createWalker, visit, walk } from "@swc-next/walker";
+import { createWalker, walk } from "@swc-next/walker";
 
 const id = (name) => ({ type: "Identifier", name });
 const program = () => ({
@@ -65,44 +65,6 @@ test("compiled walkers support reentrancy and recover after hook failures", () =
   expect(afterState).toEqual(["after"]);
 });
 
-test("read-only visits preserve global, alias and concrete hook order", () => {
-  const ast = program();
-  ast.body.body = [];
-  const original = structuredClone(ast);
-  const seen = [];
-  const record = (phase) => (node, state) => {
-    state.push(`${phase}:${node.type}`);
-  };
-  expect(
-    visit(
-      ast,
-      {
-        enter: record("enter"),
-        Function: { enter: record("alias:enter"), leave: record("alias:leave") },
-        FunctionDeclaration: {
-          enter: record("typed:enter"),
-          leave: record("typed:leave"),
-        },
-        leave: record("leave"),
-      },
-      seen,
-    ),
-  ).toBe(ast);
-  expect(seen).toEqual([
-    "enter:FunctionDeclaration",
-    "alias:enter:FunctionDeclaration",
-    "typed:enter:FunctionDeclaration",
-    "enter:Identifier",
-    "leave:Identifier",
-    "enter:BlockStatement",
-    "leave:BlockStatement",
-    "typed:leave:FunctionDeclaration",
-    "alias:leave:FunctionDeclaration",
-    "leave:FunctionDeclaration",
-  ]);
-  expect(ast).toEqual(original);
-});
-
 test("list edits dispatch inserted nodes and stop subsequent traversal", () => {
   const first = { type: "VariableDeclarator", id: id("first"), init: null };
   const last = { type: "VariableDeclarator", id: id("last"), init: null };
@@ -146,31 +108,4 @@ test("list edits dispatch inserted nodes and stop subsequent traversal", () => {
     },
   });
   expect(stopped).toEqual(["VariableDeclaration", "Identifier", "ExpressionStatement"]);
-});
-
-test("read-only visits traverse mixed lists and ignore non-child fields", () => {
-  const ast = {
-    type: "TemplateLiteral",
-    quasis: [
-      { type: "TemplateElement", value: { raw: "binding", cooked: "binding" } },
-      null,
-      { type: "Literal", value: "fallback" },
-    ],
-    metadata: id("ignored"),
-  };
-  const original = structuredClone(ast);
-  const seen = [];
-  visit(ast, {
-    TemplateElement(node) {
-      seen.push(node.value.raw);
-    },
-    Literal(node) {
-      seen.push(node.value);
-    },
-    Identifier(node) {
-      seen.push(node.name);
-    },
-  });
-  expect(seen).toEqual(["binding", "fallback"]);
-  expect(ast).toEqual(original);
 });

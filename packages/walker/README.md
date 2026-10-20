@@ -96,27 +96,6 @@ on return or failure. Captured callback closures remain alive with the compiled
 walker. Ordinary `walk(root, hooks, state)` continues to compile on every call;
 there is no implicit cache of mutable hook objects.
 
-### Read-only visits
-
-```js
-import { visit } from "@swc-next/walker";
-
-const strings = [];
-visit(program, {
-  Literal(node, output) {
-    if (typeof node.value === "string") output.push(node.value);
-  },
-}, strings);
-```
-
-`visit(root, hooks, state)` uses the same type names, aliases, enter/leave order,
-and synchronous callback requirements. Callbacks receive **`(node, state)`**,
-without an editing context. There is no position, ancestry, skip, stop, replacement,
-insertion, or removal API, and no editing/ancestor state is allocated. Do not
-mutate the AST during a visit: nodes are not deep-frozen and mutations are not
-comprehensively detected. Use `walk` when you need traversal control or edits.
-Both functions return the input root.
-
 ### Context and edits
 
 | API | Semantics |

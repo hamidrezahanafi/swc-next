@@ -88,38 +88,3 @@ export declare function createWalker<
   State = unknown,
   Node extends AstNode = AstNode,
 >(hooks: WalkHooks<State, Node>): CompiledWalker<State>;
-
-export type VisitHandler<Node extends AstNode = AstNode, State = unknown> = (
-  node: Readonly<Node>,
-  state: State,
-) => void;
-export type VisitHook<Node extends AstNode = AstNode, State = unknown> =
-  | VisitHandler<Node, State>
-  | { enter?: VisitHandler<Node, State>; leave?: VisitHandler<Node, State> };
-/** Read-only traversal; no position, ancestry, editing, skip or stop context. */
-export type VisitHooks<State = unknown, Node extends AstNode = AstNode> = {
-  [Type in Node["type"]]?: VisitHook<NodeOfType<Node, Type>, State>;
-} & {
-  enter?: VisitHandler<Node, State>;
-  leave?: VisitHandler<Node, State>;
-  Function?: VisitHook<
-    NodeOfType<
-      Node,
-      | "FunctionDeclaration"
-      | "FunctionExpression"
-      | "ArrowFunctionExpression"
-      | "TSDeclareFunction"
-      | "TSEmptyBodyFunctionExpression"
-    >,
-    State
-  >;
-  Class?: VisitHook<
-    NodeOfType<Node, "ClassDeclaration" | "ClassExpression">,
-    State
-  >;
-};
-export declare function visit<
-  Root extends AstNode,
-  State = unknown,
-  Node extends AstNode = AstNode,
->(root: Root, hooks: VisitHooks<State, Node>, state?: State): Root;

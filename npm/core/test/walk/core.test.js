@@ -1,6 +1,6 @@
 import { expect, test } from "@rstest/core";
 import { parseSync, printSync } from "@swc-next/core";
-import { walk, visit } from "@swc-next/walker";
+import { walk } from "@swc-next/walker";
 
 const ast = (source) => parseSync(source).program;
 
@@ -44,11 +44,9 @@ function expectProjectionCoverage(source, options) {
     }
   }
   collect(program);
-  for (const traverse of [walk, visit]) {
-    const actual = new Map();
-    traverse(program, { enter(node) { actual.set(node, (actual.get(node) ?? 0) + 1); } });
-    expect(actual).toEqual(expected);
-  }
+  const actual = new Map();
+  walk(program, { enter(node) { actual.set(node, (actual.get(node) ?? 0) + 1); } });
+  expect(actual).toEqual(expected);
   const identifiers = [];
   walk(program, { Identifier(node) { identifiers.push(node); } });
   expect(new Set(identifiers)).toEqual(
