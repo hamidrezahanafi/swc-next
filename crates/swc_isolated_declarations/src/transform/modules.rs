@@ -57,6 +57,7 @@ impl<'ast> Transformer<'_, 'ast> {
         let statements = self.normalize_module_statements(statements, scope, ast);
         let statements = ast.add_sub_range(statements);
         block.set_body(ast, statements);
+        block.set_directives(ast, SubRange::empty());
     }
 
     fn normalize_module_statements(
