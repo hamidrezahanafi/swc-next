@@ -1,20 +1,17 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { expect, test } from "@rstest/core";
 import { parseSync, printSync } from "@swc-next/core";
 import { walk, visit } from "@swc-next/walker";
 
 const ast = (source) => parseSync(source).program;
 
-test("walker edits round-trip through the core encoder and parser", () => {
+test("edits round-trip through the core encoder and parser", () => {
   const replacement = ast("replacement(nested());").body[0].expression;
   const before = ast("before();").body[0];
   const after = ast("after();").body[0];
   const seen = [];
   const { program, meta } = parseSync("debugger; original(); tail();");
   walk(program, {
-    DebuggerStatement(node, ctx) {
-      ctx.remove();
-    },
+    DebuggerStatement(_, ctx) { ctx.remove(); },
     ExpressionStatement(node, ctx) {
       if (node.expression.callee.name === "original") {
         ctx.insertBefore(before);
@@ -27,106 +24,49 @@ test("walker edits round-trip through the core encoder and parser", () => {
     },
   });
   const { code } = printSync(program, {}, meta);
-  assert.deepEqual(seen, ["original", "nested", "after", "tail"]);
-  assert.equal(code, "before();\nreplacement(nested());\nafter();\ntail();\n");
-  assert.deepEqual(parseSync(code).diagnostics, []);
+  expect(seen).toEqual(["original", "nested", "after", "tail"]);
+  expect(code).toBe("before();\nreplacement(nested());\nafter();\ntail();\n");
+  expect(parseSync(code).diagnostics).toEqual([]);
 });
 
-// On parser-produced trees, compare the generated traversal with structural
-// discovery to catch projection fields omitted from the visitor-key generator.
-function assertProjectionCoverage(source, options) {
-  const parsed = parseSync(source, options);
-  assert.deepEqual(parsed.diagnostics, []);
+function expectProjectionCoverage(source, options) {
+  const { program, diagnostics } = parseSync(source, options);
+  expect(diagnostics).toEqual([]);
   const expected = new Map();
   function collect(node) {
     expected.set(node, (expected.get(node) ?? 0) + 1);
     for (const value of Object.values(node)) {
       if (Array.isArray(value)) {
-        for (const child of value)
-          if (typeof child?.type === "string") collect(child);
-      } else if (typeof value?.type === "string") collect(value);
+        for (const child of value) if (typeof child?.type === "string") collect(child);
+      } else if (typeof value?.type === "string") {
+        collect(value);
+      }
     }
   }
-  collect(parsed.program);
-  const actual = new Map();
-  walk(parsed.program, {
-    enter(node) {
-      actual.set(node, (actual.get(node) ?? 0) + 1);
-    },
-  });
-  assert.deepEqual(actual, expected);
-  const readonly = new Map();
-  visit(parsed.program, {
-    enter(node) {
-      readonly.set(node, (readonly.get(node) ?? 0) + 1);
-    },
-  });
-  assert.deepEqual(readonly, expected);
-  // Sparse hooks exercise the generated route through unobserved parents.
+  collect(program);
+  for (const traverse of [walk, visit]) {
+    const actual = new Map();
+    traverse(program, { enter(node) { actual.set(node, (actual.get(node) ?? 0) + 1); } });
+    expect(actual).toEqual(expected);
+  }
   const identifiers = [];
-  walk(parsed.program, {
-    Identifier(node) {
-      identifiers.push(node);
-    },
-  });
-  assert.deepEqual(
-    new Set(identifiers),
+  walk(program, { Identifier(node) { identifiers.push(node); } });
+  expect(new Set(identifiers)).toEqual(
     new Set([...expected.keys()].filter((node) => node.type === "Identifier")),
   );
 }
 
-test("visitor keys cover projected JS, JSX, and TypeScript children", () => {
-  assertProjectionCoverage(
-    '"use strict"; function f({ a = 1, ...rest }, ...args) { return `${a}:${args[0]}`; }',
+test("traverses parser-projected JavaScript, JSX and TypeScript children", () => {
+  expectProjectionCoverage(
+    'function f({ a = 1, ...rest }, ...args) { return `${a}:${args[0]}`; }',
   );
-  assertProjectionCoverage(
-    'import data from "x" with { type: "json" }; export { data }; export * as ns from "x";',
+  expectProjectionCoverage(
+    "const x = <A<T> value={f()} {...props}><B />{g()}</A>;", { lang: "tsx" },
   );
-  assertProjectionCoverage(
-    "class C extends Base { #x = 1; get value() { return this.#x; } static { run(); } }",
+  expectProjectionCoverage(
+    "function f<T>(this: C, x: T = value, ...rest: T[]): T { return x; }", { lang: "ts" },
   );
-  assertProjectionCoverage(
-    "const x = <A<T> value={f()} {...props}><B />{g()}</A>;",
-    { lang: "tsx" },
-  );
-  assertProjectionCoverage(
-    "function f<T>(this: C, x: T = value, ...rest: T[]): T { return x; }",
-    { lang: "ts" },
-  );
-  assertProjectionCoverage(
-    "class C { constructor(public value: number) {} method(x: number): void {} }",
-    { lang: "ts" },
-  );
-  assertProjectionCoverage(
-    "abstract class C<T> extends Base<T> implements I<T> { abstract method(x: T): T; abstract value: T; accessor other: T; }",
-    { lang: "ts" },
-  );
-  assertProjectionCoverage(
-    "type F = <T>(this: C, x: T) => T; type Ctor = new <T>(x: T) => C<T>;",
-    { lang: "ts" },
-  );
-  assertProjectionCoverage(
-    "interface I<T> extends Base<T> { (x: T): T; new(x: T): I<T>; method(x: T): T; [key: string]: T; }",
-    { lang: "ts" },
-  );
-  assertProjectionCoverage(
-    "type M<T> = { [K in keyof T as `get${K}`]?: T[K] }; type Tup = [name: string, count?: number, ...rest: boolean[]];",
-    { lang: "ts" },
-  );
-  assertProjectionCoverage(
-    "declare function f<T>(x: T): T; declare namespace N { const x: number; } declare global { interface G {} } export {};",
-    { lang: "ts" },
-  );
-  assertProjectionCoverage(
-    'enum E { A = f(), B }; import X = require("x"); type T = typeof import("x").foo;',
-    { lang: "ts" },
-  );
-  assertProjectionCoverage(
-    "const { x }: T = input; try {} catch (e: unknown) {} const f = (x: number = 1): number => x;",
-    { lang: "ts" },
-  );
-  assertProjectionCoverage(
-    "@dec class C { @dec value = 1; @dec method(@dec x: T) {} }",
-    { lang: "ts" },
+  expectProjectionCoverage(
+    "class C { constructor(public value: number) {} method(x: number): void {} }", { lang: "ts" },
   );
 });

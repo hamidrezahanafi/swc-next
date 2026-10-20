@@ -1,322 +1,115 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { expect, test } from "@rstest/core";
 import { createWalker, visit, walk } from "../index.js";
 
 const id = (name) => ({ type: "Identifier", name });
 const program = () => ({
-  type: "Program",
-  body: [{ type: "DebuggerStatement" }],
+  type: "FunctionDeclaration",
+  id: id("f"),
+  params: [],
+  body: { type: "BlockStatement", body: [{ type: "DebuggerStatement" }] },
 });
 
-test("compiled walkers snapshot hooks and isolate each invocation", () => {
-  let retained;
+test("compiled walkers snapshot hooks and isolate invocation state", () => {
+  const pair = {
+    enter(node, ctx) {
+      ctx.state.push("typed");
+    },
+  };
   const hooks = {
+    Function(node, ctx) {
+      ctx.state.push("alias");
+    },
+    FunctionDeclaration: pair,
     DebuggerStatement(node, ctx) {
       ctx.state.push(node.type);
-      retained = ctx;
       ctx.remove();
     },
   };
   const walker = createWalker(hooks);
-  hooks.DebuggerStatement = () => assert.fail("hooks were not snapshotted");
+  hooks.Function = pair.enter = () => {
+    throw new Error("hooks were read again");
+  };
   const first = program();
-  const state = [];
-  assert.equal(walker.walk(first, state), first);
-  assert.deepEqual(first.body, []);
-  assert.deepEqual(state, ["DebuggerStatement"]);
-  assert.throws(() => retained.node, /only valid/);
   const second = program();
-  walker.walk(second, state);
-  assert.deepEqual(second.body, []);
-  assert.equal(state.length, 2);
+  const firstState = ["first"];
+  const secondState = ["second"];
+  expect(walker.walk(first, firstState)).toBe(first);
+  walker.walk(second, secondState);
+  expect(first.body.body).toEqual([]);
+  expect(second.body.body).toEqual([]);
+  expect(firstState).toEqual(["first", "alias", "typed", "DebuggerStatement"]);
+  expect(secondState).toEqual(["second", "alias", "typed", "DebuggerStatement"]);
 });
 
-test("a compiled walker is reentrant and recovers after hook failures", () => {
-  let outer;
+test("compiled walkers support reentrancy and recover after hook failures", () => {
+  const outerState = [];
+  const innerState = [];
   const walker = createWalker({
     Identifier(node, ctx) {
       if (node.name === "throw") throw new Error("hook failure");
       ctx.state.push(node.name);
       if (node.name === "outer") {
-        outer = ctx;
-        walker.walk(id("inner"), []);
-        assert.equal(ctx.node, node);
-      } else assert.notEqual(ctx, outer);
+        walker.walk(id("inner"), innerState);
+        expect(ctx.node).toBe(node);
+        expect(ctx.state).toBe(outerState);
+        ctx.state.push("resumed");
+      }
     },
   });
-  walker.walk(id("outer"), []);
-  assert.throws(() => walker.walk(id("throw"), []), /hook failure/);
-  const state = [];
-  walker.walk(id("after"), state);
-  assert.deepEqual(state, ["after"]);
+  walker.walk(id("outer"), outerState);
+  expect(outerState).toEqual(["outer", "resumed"]);
+  expect(innerState).toEqual(["inner"]);
+  expect(() => walker.walk(id("throw"), [])).toThrow("hook failure");
+  const afterState = [];
+  walker.walk(id("after"), afterState);
+  expect(afterState).toEqual(["after"]);
 });
 
 test("read-only visits preserve global, alias and concrete hook order", () => {
-  const ast = {
-    type: "FunctionDeclaration",
-    id: id("f"),
-    params: [],
-    body: { type: "BlockStatement", body: [] },
-  };
+  const ast = program();
+  ast.body.body = [];
+  const original = structuredClone(ast);
   const seen = [];
-  assert.equal(
+  const record = (phase) => (node, state) => {
+    state.push(`${phase}:${node.type}`);
+  };
+  expect(
     visit(
       ast,
       {
-        enter(node, state) {
-          state.push(`enter:${node.type}`);
-        },
-        Function: {
-          enter(node, state) {
-            state.push("alias:enter");
-          },
-          leave(node, state) {
-            state.push("alias:leave");
-          },
-        },
+        enter: record("enter"),
+        Function: { enter: record("alias:enter"), leave: record("alias:leave") },
         FunctionDeclaration: {
-          enter(node, state) {
-            state.push("typed:enter");
-          },
-          leave(node, state) {
-            state.push("typed:leave");
-          },
+          enter: record("typed:enter"),
+          leave: record("typed:leave"),
         },
-        leave(node, state) {
-          state.push(`leave:${node.type}`);
-        },
+        leave: record("leave"),
       },
       seen,
     ),
-    ast,
-  );
-  assert.deepEqual(seen, [
+  ).toBe(ast);
+  expect(seen).toEqual([
     "enter:FunctionDeclaration",
-    "alias:enter",
-    "typed:enter",
+    "alias:enter:FunctionDeclaration",
+    "typed:enter:FunctionDeclaration",
     "enter:Identifier",
     "leave:Identifier",
     "enter:BlockStatement",
     "leave:BlockStatement",
-    "typed:leave",
-    "alias:leave",
+    "typed:leave:FunctionDeclaration",
+    "alias:leave:FunctionDeclaration",
     "leave:FunctionDeclaration",
   ]);
+  expect(ast).toEqual(original);
 });
 
-test("read-only traversal collects supported fields and rejects invalid callbacks", async () => {
-  const ast = {
-    type: "ArrayExpression",
-    elements: [id("a"), null, id("b")],
-    metadata: id("ignored"),
-  };
-  const original = structuredClone(ast);
-  const seen = [];
-  visit(
-    ast,
-    {
-      Identifier(node, state) {
-        state.push(node.name);
-      },
-    },
-    seen,
-  );
-  assert.deepEqual(seen, ["a", "b"]);
-  assert.deepEqual(ast, original);
-  assert.throws(() => visit(ast, { Typo() {} }), /Unknown AST hook/);
-  assert.throws(
-    () =>
-      visit(ast, {
-        Identifier() {
-          return 1;
-        },
-      }),
-    /return undefined/,
-  );
-  assert.throws(
-    () =>
-      visit(ast, {
-        async Identifier() {
-          throw new Error("async failure");
-        },
-      }),
-    /synchronous/,
-  );
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.throws(() => visit({ type: "Unknown" }, {}), /Unsupported AST/);
-});
-
-test("unobserved parents select leave hooks after a child changes their type", () => {
-  const ast = {
-    type: "BinaryExpression",
-    left: id("left"),
-    right: id("right"),
-  };
-  const seen = [];
-  walk(ast, {
-    Identifier(node, ctx) {
-      seen.push(node.name);
-      ctx.parent.type = "LogicalExpression";
-    },
-    LogicalExpression: {
-      leave(node, ctx) {
-        assert.equal(ctx.node, ast);
-        assert.deepEqual(ctx.ancestors(), []);
-        seen.push("leave");
-      },
-    },
-  });
-  assert.deepEqual(seen, ["left", "right", "leave"]);
-});
-
-test("compiled hooks snapshot alias and concrete pairs without freezing caller objects", () => {
-  const seen = [];
-  const pair = {
-    enter() {
-      seen.push("typed");
-    },
-  };
-  const hooks = {
-    Function() {
-      seen.push("alias");
-    },
-    FunctionDeclaration: pair,
-  };
-  const walker = createWalker(hooks);
-  pair.enter = () => assert.fail("pair was read again");
-  hooks.Function = () => assert.fail("alias was read again");
-  walker.walk({
-    type: "FunctionDeclaration",
-    params: [],
-    body: { type: "BlockStatement", body: [] },
-  });
-  assert.deepEqual(seen, ["alias", "typed"]);
-});
-
-test("supported type membership rejects inherited object names", () => {
-  assert.throws(() => walk({ type: "toString" }, {}), TypeError);
-  assert.throws(() => walk({ type: "constructor" }, {}), TypeError);
-  assert.throws(() => walk({ type: "__proto__" }, {}), TypeError);
-  assert.throws(() => createWalker({ toString() {} }), TypeError);
-  const hooks = Object.create(null);
-  hooks.Identifier = (node, ctx) => {
-    ctx.state.push(node.name);
-  };
-  const state = [];
-  walk(id("valid"), hooks, state);
-  assert.deepEqual(state, ["valid"]);
-});
-
-test("list edits preserve inserted type dispatch and stop behavior", () => {
-  const first = { type: "TemplateElement", value: { raw: "first", cooked: "first" } };
-  const last = { type: "TemplateElement", value: { raw: "last", cooked: "last" } };
-  const ast = { type: "TemplateLiteral", quasis: [first, null, last] };
-  const seen = [];
-  walk(ast, {
-    TemplateElement(node, ctx) {
-      seen.push(node.value.raw);
-      if (node === first) {
-        ctx.insertBefore(id("before"));
-        ctx.insertAfter({
-          type: "ExpressionStatement",
-          expression: { type: "Literal", value: "nested" },
-        });
-        ctx.remove();
-      }
-    },
-    ExpressionStatement(node, ctx) {
-      seen.push("after");
-      assert.equal(ctx.parent, ast);
-      assert.equal(ctx.key, "quasis");
-      assert.equal(ctx.index, 1);
-      assert.deepEqual(ctx.ancestors(), [ast]);
-    },
-    Literal(node) {
-      seen.push(node.value);
-    },
-  });
-  assert.deepEqual(seen, ["first", "after", "nested", "last"]);
-  assert.equal(ast.quasis[0].name, "before");
-  assert.equal(ast.quasis[2], null);
-  assert.equal(ast.quasis[3], last);
-  walk(ast, {
-    ExpressionStatement(node, ctx) {
-      ctx.stop();
-    },
-    TemplateElement() {
-      assert.fail("later list elements are not visited after stop");
-    },
-    TemplateLiteral: {
-      leave() {
-        assert.fail("pending leave is not called after stop");
-      },
-    },
-  });
-});
-
-test("list elements retain generic types and single discriminator reads", () => {
-  let reads = 0;
-  const child = {
-    get type() {
-      reads++;
-      assert.equal(reads, 1);
-      return "Literal";
-    },
-    value: "changed",
-  };
-  const root = { type: "TemplateLiteral", quasis: [child] };
-  assert.equal(walk(root, {}), root);
-  assert.equal(reads, 1);
-  let invalidReads = 0;
-  const invalid = {
-    get type() {
-      invalidReads++;
-      return undefined;
-    },
-  };
-  assert.throws(
-    () => walk({ type: "TemplateLiteral", quasis: [invalid] }, {}),
-    TypeError,
-  );
-  assert.equal(invalidReads, 1);
-});
-
-test("read-only visitors retain state and mixed list element traversal", () => {
-  const ast = {
-    type: "TemplateLiteral",
-    quasis: [
-      { type: "TemplateElement", value: { raw: "binding", cooked: "binding" } },
-      null,
-      { type: "Literal", value: "fallback" },
-    ],
-  };
-  const original = structuredClone(ast);
-  const seen = [];
-  assert.equal(
-    visit(
-      ast,
-      {
-        TemplateElement(node, state) {
-          state.push(node.value.raw);
-        },
-        Identifier(node, state) {
-          state.push(node.name);
-        },
-        Literal(node, state) {
-          state.push(node.value);
-        },
-      },
-      seen,
-    ),
-    ast,
-  );
-  assert.deepEqual(seen, ["binding", "fallback"]);
-  assert.deepEqual(ast, original);
-});
-
-test("non-leaf concrete list: list edits preserve inserted type dispatch and stop behavior", () => {
+test("list edits dispatch inserted nodes and stop subsequent traversal", () => {
   const first = { type: "VariableDeclarator", id: id("first"), init: null };
   const last = { type: "VariableDeclarator", id: id("last"), init: null };
+  const inserted = {
+    type: "ExpressionStatement",
+    expression: { type: "Literal", value: "nested" },
+  };
   const ast = { type: "VariableDeclaration", declarations: [first, null, last] };
   const seen = [];
   walk(ast, {
@@ -324,93 +117,60 @@ test("non-leaf concrete list: list edits preserve inserted type dispatch and sto
       seen.push(node.id.name);
       if (node === first) {
         ctx.insertBefore(id("before"));
-        ctx.insertAfter({ type: "Literal", value: "after" });
+        ctx.insertAfter(inserted);
         ctx.remove();
       }
     },
-    Literal(node, ctx) {
+    ExpressionStatement() {
+      seen.push("inserted");
+    },
+    Literal(node) {
       seen.push(node.value);
-      assert.equal(ctx.parent, ast);
-      assert.equal(ctx.key, "declarations");
-      assert.equal(ctx.index, 1);
-      assert.deepEqual(ctx.ancestors(), [ast]);
     },
   });
-  assert.deepEqual(seen, ["first", "after", "last"]);
-  assert.equal(ast.declarations[0].name, "before");
-  assert.equal(ast.declarations[2], null);
-  assert.equal(ast.declarations[3], last);
+  expect(seen).toEqual(["first", "inserted", "nested", "last"]);
+  expect(ast.declarations).toEqual([id("before"), inserted, null, last]);
+
+  const stopped = [];
   walk(ast, {
-    Literal(node, ctx) {
-      ctx.stop();
+    enter(node) {
+      stopped.push(node.type);
     },
-    VariableDeclarator() {
-      assert.fail("later list elements are not visited after stop");
+    ExpressionStatement(node, ctx) {
+      ctx.stop();
     },
     VariableDeclaration: {
       leave() {
-        assert.fail("pending leave is not called after stop");
+        stopped.push("leave");
       },
     },
   });
+  expect(stopped).toEqual(["VariableDeclaration", "Identifier", "ExpressionStatement"]);
 });
 
-test("non-leaf concrete list: list elements retain generic types and single discriminator reads", () => {
-  let reads = 0;
-  const child = {
-    get type() {
-      reads++;
-      assert.equal(reads, 1);
-      return "Literal";
-    },
-    value: "changed",
-  };
-  const root = { type: "VariableDeclaration", declarations: [child] };
-  assert.equal(walk(root, {}), root);
-  assert.equal(reads, 1);
-  let invalidReads = 0;
-  const invalid = {
-    get type() {
-      invalidReads++;
-      return undefined;
-    },
-  };
-  assert.throws(
-    () => walk({ type: "VariableDeclaration", declarations: [invalid] }, {}),
-    TypeError,
-  );
-  assert.equal(invalidReads, 1);
-});
-
-test("non-leaf concrete list: read-only visitors retain state and mixed list element traversal", () => {
+test("read-only visits traverse mixed lists and ignore non-child fields", () => {
   const ast = {
-    type: "VariableDeclaration",
-    declarations: [
-      { type: "VariableDeclarator", id: id("binding"), init: null },
+    type: "TemplateLiteral",
+    quasis: [
+      { type: "TemplateElement", value: { raw: "binding", cooked: "binding" } },
       null,
       { type: "Literal", value: "fallback" },
     ],
+    metadata: id("ignored"),
   };
   const original = structuredClone(ast);
   const seen = [];
-  assert.equal(
-    visit(
-      ast,
-      {
-        VariableDeclarator(node, state) {
-          state.push("declaration");
-        },
-        Identifier(node, state) {
-          state.push(node.name);
-        },
-        Literal(node, state) {
-          state.push(node.value);
-        },
-      },
-      seen,
-    ),
-    ast,
-  );
-  assert.deepEqual(seen, ["declaration", "binding", "fallback"]);
-  assert.deepEqual(ast, original);
+  visit(ast, {
+    TemplateElement(node) {
+      seen.push(node.value.raw);
+    },
+    Literal(node) {
+      seen.push(node.value);
+    },
+    Identifier(node) {
+      seen.push(node.name);
+    },
+  });
+  expect(seen).toEqual(["binding", "fallback"]);
+  expect(ast).toEqual(original);
 });

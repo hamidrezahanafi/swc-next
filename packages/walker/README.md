@@ -187,6 +187,6 @@ pnpm --filter @swc-next/core build
 pnpm --filter @swc-next/walker test
 ```
 
-Tests live in `test/`; core integration tests live in `test/integration/`.
+Tests use Rstest and live in `test/`; core integration tests live in `test/integration/`.
 The core package is a development-only dependency. Root `pnpm test` and
 `pnpm test:wasm` include both packages. Tests are excluded from the published package.

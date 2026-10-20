@@ -372,6 +372,24 @@ importers:
 
   packages/types: {}
 
+  packages/walker:
+    devDependencies:
+      '@rstest/core':
+        specifier: 'catalog:'
+        version: 0.11.11
+      '@swc-next/core':
+        specifier: workspace:*
+        version: link:../../npm/core
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.1.1
+      cross-env:
+        specifier: 'catalog:'
+        version: 10.1.0
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+
   tasks/benchmark:
     dependencies:
       '@swc-next/core':
@@ -429,21 +447,6 @@ importers:
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
-      typescript:
-        specifier: 'catalog:'
-        version: 7.0.2
-
-  packages/walker:
-    devDependencies:
-      '@swc-next/core':
-        specifier: workspace:*
-        version: link:../../npm/core
-      '@types/node':
-        specifier: 'catalog:'
-        version: 26.1.1
-      cross-env:
-        specifier: 'catalog:'
-        version: 10.1.0
       typescript:
         specifier: 'catalog:'
         version: 7.0.2

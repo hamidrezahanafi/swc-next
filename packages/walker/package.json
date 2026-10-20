@@ -42,12 +42,13 @@
   "license": "Apache-2.0",
   "scripts": {
     "test": "pnpm test:unit && pnpm test:types && pnpm test:integration",
-    "test:unit": "node --test test/*.test.js",
+    "test:unit": "rstest run --include \"test/*.test.js\"",
     "test:types": "tsc --ignoreConfig --noEmit --strict --target esnext --module nodenext --moduleResolution nodenext --types node test/types.ts",
-    "test:integration": "node --test test/integration/*.test.js",
+    "test:integration": "rstest run --include \"test/integration/*.test.js\"",
     "test:wasm": "cross-env NAPI_RS_FORCE_WASI=error pnpm test"
   },
   "devDependencies": {
+    "@rstest/core": "catalog:",
     "@swc-next/core": "workspace:*",
     "@types/node": "catalog:",
     "cross-env": "catalog:",
