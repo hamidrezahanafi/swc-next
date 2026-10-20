@@ -8,8 +8,12 @@ test("edits round-trip through the core encoder and parser", () => {
   const before = ast("before();").body[0];
   const after = ast("after();").body[0];
   const seen = [];
-  const { program, meta } = parseSync("debugger; original(); tail();");
+  const { program, meta } = parseSync("#!/usr/bin/env node\ndebugger; original(); tail();");
   walk(program, {
+    Hashbang(node) {
+      seen.push("hashbang");
+      node.value = "/usr/bin/env bun";
+    },
     DebuggerStatement(_, ctx) { ctx.remove(); },
     ExpressionStatement(node, ctx) {
       if (node.expression.callee.name === "original") {
@@ -23,8 +27,8 @@ test("edits round-trip through the core encoder and parser", () => {
     },
   });
   const { code } = printSync(program, {}, meta);
-  expect(seen).toEqual(["original", "nested", "after", "tail"]);
-  expect(code).toBe("before();\nreplacement(nested());\nafter();\ntail();\n");
+  expect(seen).toEqual(["hashbang", "original", "nested", "after", "tail"]);
+  expect(code).toBe("#!/usr/bin/env bun\nbefore();\nreplacement(nested());\nafter();\ntail();\n");
   expect(parseSync(code).diagnostics).toEqual([]);
 });
 
@@ -55,7 +59,7 @@ function expectProjectionCoverage(source, options) {
 
 test("traverses parser-projected JavaScript, JSX and TypeScript children", () => {
   expectProjectionCoverage(
-    'function f({ a = 1, ...rest }, ...args) { return `${a}:${args[0]}`; }',
+    '#!/usr/bin/env node\nfunction f({ a = 1, ...rest }, ...args) { return `${a}:${args[0]}`; }',
   );
   expectProjectionCoverage(
     "const x = <A<T> value={f()} {...props}><B />{g()}</A>;", { lang: "tsx" },

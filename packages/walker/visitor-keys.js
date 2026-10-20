@@ -67,7 +67,7 @@ export const visitorKeys = Object.freeze({
   ObjectPattern: Object.freeze(["decorators", "properties", "typeAnnotation"]),
   ParenthesizedExpression: Object.freeze(["expression"]),
   PrivateIdentifier: Object.freeze([]),
-  Program: Object.freeze(["body"]),
+  Program: Object.freeze(["hashbang", "body"]),
   Property: Object.freeze(["key", "value"]),
   PropertyDefinition: Object.freeze(["decorators", "key", "typeAnnotation", "value"]),
   RestElement: Object.freeze(["decorators", "argument", "typeAnnotation"]),

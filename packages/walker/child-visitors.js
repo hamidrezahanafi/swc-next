@@ -454,8 +454,10 @@ export const childVisitors = {
   },
   PrivateIdentifier: null,
   Program(node, walker) {
-    const child0 = node.body;
-    if (child0 != null && walker.visitList(child0, node, "body")) return true;
+    const child0 = node.hashbang;
+    if (child0 != null && walker.visitScalar(child0, node, "hashbang")) return true;
+    const child1 = node.body;
+    if (child1 != null && walker.visitList(child1, node, "body")) return true;
     return false;
   },
   Property(node, walker) {
@@ -1757,8 +1759,10 @@ function walkParenthesizedExpression(node, walker, parent, key, list, index) {
 }
 
 function walkProgram(node, walker, parent, key, list, index) {
-  const child0 = node.body;
-  if (child0 != null && walker.visitList(child0, node, "body")) return index;
+  const child0 = node.hashbang;
+  if (child0 != null && walker.visitScalar(child0, node, "hashbang")) return index;
+  const child1 = node.body;
+  if (child1 != null && walker.visitList(child1, node, "body")) return index;
   if (node.type !== "Program") return walker.leaveChanged(node, parent, key, list, index);
   return index;
 }

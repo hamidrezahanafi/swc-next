@@ -21,7 +21,7 @@ pub fn estree_visitor_keys(schema: &Schema) -> Vec<RawOutput> {
         let name = ast.name.as_str();
         let (names, special): (Vec<String>, Option<&[&str]>) = match name {
             "FormalParameter" | "FormalParameters" | "TsIndexSignatureParameter" => continue,
-            "Program" => (vec!["Program".into()], Some(&["body"])),
+            "Program" => (vec!["Program".into()], Some(&["hashbang", "body"])),
             "FunctionBody" => (vec!["BlockStatement".into()], Some(&["body"])),
             "TsModuleBlock" => (vec!["TSModuleBlock".into()], Some(&["body"])),
             "Function" => (
