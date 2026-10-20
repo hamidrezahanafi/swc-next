@@ -12886,6 +12886,11 @@ fn assertion_erasure_changes_binary_grouping(
     next_operator: TokenTag,
     ast: &Ast<'_>,
 ) -> bool {
+    // Only the assertion before an operator needs to inspect the chain.
+    if !next_operator.is_binary_operator() && !next_operator.is_logical_operator() {
+        return false;
+    }
+
     loop {
         expression = match ast.expr_data(expression) {
             ExprData::TsAsExpression(assertion) => assertion.expression(ast),
@@ -12899,10 +12904,6 @@ fn assertion_erasure_changes_binary_grouping(
         ExprData::LogicalExpression(logical) => logical.operator(ast).precedence(),
         _ => return false,
     };
-    if !next_operator.is_binary_operator() && !next_operator.is_logical_operator() {
-        return false;
-    }
-
     let next_precedence = next_operator.precedence();
     next_precedence > current_precedence
         || (next_precedence == current_precedence && next_operator == TokenTag::Exponent)
