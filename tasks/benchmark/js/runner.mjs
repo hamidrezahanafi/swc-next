@@ -38,7 +38,9 @@ export function touch(value) {
 }
 
 export function prepare(api, operation, name, source) {
-  assert.deepEqual(Object.keys(api).sort(), apiNames);
+  for (const name of apiNames) {
+    assert.equal(typeof api[name], "function", `benchmark requires API export "${name}" to be a function`);
+  }
   if (operation === "lang" || operation === "source_type") {
     assert(extensions.includes(name), "unknown extension case");
     const fn = operation === "lang" ? api.langFromPath : api.sourceTypeFromPath;
