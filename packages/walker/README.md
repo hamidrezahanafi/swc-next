@@ -14,11 +14,10 @@ walk(program, {
 });
 ```
 
-`program` is an existing AST. For example, compose the walker with SWC Next:
+`program` is an existing AST. `@swc-next/core` also exports `walk`:
 
 ```js
-import { parseSync, printSync } from "@swc-next/core";
-import { walk } from "@swc-next/walker";
+import { parseSync, printSync, walk } from "@swc-next/core";
 
 const { program, meta } = parseSync("debugger; run();");
 walk(program, { DebuggerStatement(node, ctx) { ctx.remove(); } });

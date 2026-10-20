@@ -1,6 +1,5 @@
 import { expect, test } from "@rstest/core";
-import { parseSync, printSync } from "@swc-next/core";
-import { walk } from "@swc-next/walker";
+import { parseSync, printSync, walk } from "@swc-next/core";
 
 const ast = (source) => parseSync(source).program;
 
