@@ -8,7 +8,7 @@ use std::hint::cold_path;
 use std::{borrow::Cow, mem};
 
 use bitflags::bitflags;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use swc_next_allocator::{Allocator, vec::Vec as ArenaVec, wtf8::Wtf8Buf};
 use swc_next_ecma_ast::*;
 use swc_next_ecma_ast::{AstUtf8, AstWtf8};
@@ -593,6 +593,27 @@ enum AngleClose {
     Exact,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum TypeArgumentRule {
+    Peel,
+    Exact,
+    Expression,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct TypeArgumentKey {
+    position: u32,
+    context: u8,
+    ts_context: u8,
+    boundary_context: u8,
+    statement_context: u8,
+    state: u8,
+    lexer_mode: u8,
+    rule: TypeArgumentRule,
+    stripped_paren: Option<NodeId>,
+    trailing_comma: Option<u32>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AngleList {
     Arguments(TsTypeParameterInstantiation),
@@ -747,6 +768,11 @@ pub struct Parser<'a, C: ParserConfig = NoTokenParserConfig> {
     /// Span of the first identifier whose validity depends on a pending async arrow head.
     /// Nested covers restore this value when they become separate functions.
     await_identifier_in_async_head: Option<Span>,
+    /// Rule failures survive rollback, but are only reused in speculation so
+    /// committed type parses still produce their diagnostics and recovery.
+    failed_type_arguments: FxHashSet<TypeArgumentKey>,
+    type_argument_speculation_depth: u32,
+    type_argument_lookahead: TypeArgumentLookahead,
 }
 
 pub struct ParseReturn<'a> {
@@ -837,6 +863,121 @@ impl<C: ParserConfig> Drop for Peek<'_, '_, C> {
     }
 }
 
+#[derive(Clone, Copy)]
+enum DelimiterLookahead {
+    Closed { cursor: u32, state: LexerState },
+    Unknown,
+}
+
+#[derive(Default)]
+struct TypeArgumentLookahead {
+    groups: FxHashMap<u32, DelimiterLookahead>,
+}
+
+impl TypeArgumentLookahead {
+    /// Reject missing closing angles before nested speculation enters computed
+    /// expressions. Shared delimiter ends avoid rescanning nested groups.
+    fn can_close<C: ParserConfig>(
+        &mut self,
+        start: Token,
+        peek: &mut Peek<'_, '_, C>,
+        jsx: bool,
+    ) -> bool {
+        let mut angles = if start.tag() == TokenTag::LeftShift {
+            2
+        } else {
+            1
+        };
+        let mut groups: Vec<Token> = Vec::new();
+        while let Some(token) = peek.next() {
+            let tag = token.tag();
+            // These need expression grammar to select the lexical goal.
+            if matches!(
+                tag,
+                TokenTag::Slash | TokenTag::SlashAssign | TokenTag::TemplateHead
+            ) || jsx && !groups.is_empty() && is_angle_open(tag)
+            {
+                return self.inconclusive(&groups);
+            }
+            if matches!(
+                tag,
+                TokenTag::LeftParen | TokenTag::LeftBracket | TokenTag::LeftBrace
+            ) {
+                match self.groups.get(&token.start()) {
+                    Some(DelimiterLookahead::Closed { cursor, state }) => {
+                        peek.lexer.cursor = *cursor;
+                        peek.lexer.state = *state;
+                    }
+                    Some(DelimiterLookahead::Unknown) => return self.inconclusive(&groups),
+                    None => groups.push(token),
+                }
+                continue;
+            }
+            if matches!(
+                tag,
+                TokenTag::RightParen | TokenTag::RightBracket | TokenTag::RightBrace
+            ) {
+                let Some(open) = groups.pop() else {
+                    return false;
+                };
+                let matches = matches!(
+                    (open.tag(), tag),
+                    (TokenTag::LeftParen, TokenTag::RightParen)
+                        | (TokenTag::LeftBracket, TokenTag::RightBracket)
+                        | (TokenTag::LeftBrace, TokenTag::RightBrace)
+                );
+                if !matches {
+                    self.groups
+                        .insert(open.start(), DelimiterLookahead::Unknown);
+                    return self.inconclusive(&groups);
+                }
+                self.groups.insert(
+                    open.start(),
+                    DelimiterLookahead::Closed {
+                        cursor: peek.lexer.cursor,
+                        state: peek.lexer.state,
+                    },
+                );
+                continue;
+            }
+            if tag == TokenTag::Eof {
+                return false;
+            }
+            if !groups.is_empty() {
+                continue;
+            }
+            match tag {
+                TokenTag::LessThan => angles += 1,
+                TokenTag::LeftShift => angles += 2,
+                TokenTag::Semicolon => return false,
+                _ if is_angle_close(tag) => {
+                    let closed = match tag {
+                        TokenTag::RightShift | TokenTag::RightShiftAssign => 2,
+                        TokenTag::UnsignedRightShift | TokenTag::UnsignedRightShiftAssign => 3,
+                        _ => 1,
+                    };
+                    if closed >= angles {
+                        return true;
+                    }
+                    angles -= closed;
+                }
+                _ => {}
+            }
+        }
+        // Lexical errors belong to the actual parser.
+        self.inconclusive(&groups)
+    }
+
+    fn inconclusive(&mut self, groups: &[Token]) -> bool {
+        // An enclosing lookahead must not rescan the same ambiguous region.
+        for group in groups {
+            self.groups
+                .insert(group.start(), DelimiterLookahead::Unknown);
+        }
+        true
+    }
+}
+
 fn estimate_ast_capacity(source_len: usize) -> (usize, usize) {
     let baseline_nodes = if source_len < 4_000 {
         256.max(source_len / 4)
@@ -903,6 +1044,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             stripped_paren: None,
             ts_rejected_speculations: FxHashSet::default(),
             await_identifier_in_async_head: None,
+            failed_type_arguments: FxHashSet::default(),
+            type_argument_speculation_depth: 0,
+            type_argument_lookahead: TypeArgumentLookahead::default(),
         }
     }
 
@@ -7240,6 +7384,23 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     }
 
     fn parse_angle_list(&mut self, kind: AngleListKind, close: AngleClose) -> Option<AngleList> {
+        let key = (kind == AngleListKind::Arguments && self.type_argument_speculation_depth != 0)
+            .then(|| {
+                self.type_argument_key(match close {
+                    AngleClose::Peel => TypeArgumentRule::Peel,
+                    AngleClose::Exact => TypeArgumentRule::Exact,
+                })
+            });
+        if let Some(key) = key
+            && (self.failed_type_arguments.contains(&key)
+                || key.rule == TypeArgumentRule::Exact
+                    && self.failed_type_arguments.contains(&TypeArgumentKey {
+                        rule: TypeArgumentRule::Peel,
+                        ..key
+                    }))
+        {
+            return None;
+        }
         let start = self.consume_angle_open()?;
         let checkpoint = self.scratch_a.begin();
         let result = (|| {
@@ -7286,6 +7447,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             })
         })();
         self.scratch_a.reset(checkpoint);
+        if result.is_none()
+            && let Some(key) = key
+        {
+            self.failed_type_arguments.insert(key);
+        }
         result
     }
 
@@ -12117,23 +12283,65 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         if !is_angle_open(self.current_token.tag()) {
             return Some(None);
         }
+        let key = self.type_argument_key(TypeArgumentRule::Expression);
+        if self.failed_type_arguments.contains(&key) {
+            return Some(None);
+        }
         let after = self.peek_ahead()?;
         if !is_start_of_type(after.tag()) && after.tag() != TokenTag::GreaterThan {
             return Some(None);
         }
 
+        if self.type_argument_speculation_depth != 0 && !self.type_arguments_can_close() {
+            self.failed_type_arguments.insert(key);
+            return Some(None);
+        }
+
         let checkpoint = self.checkpoint();
-        let type_arguments = match self.parse_type_arguments_in_expression() {
+        self.type_argument_speculation_depth += 1;
+        let parsed = self.parse_type_arguments_in_expression();
+        self.type_argument_speculation_depth -= 1;
+        let type_arguments = match parsed {
             Some(type_arguments) if can_follow_type_arguments_in_expression(self.current_token) => {
                 type_arguments
             }
             Some(_) | None => {
                 self.rewind(checkpoint);
                 self.lexer.rewrite_last_collected_token(self.current_token);
+                self.failed_type_arguments.insert(key);
                 return Some(None);
             }
         };
         Some(Some(type_arguments))
+    }
+
+    fn type_argument_key(&self, rule: TypeArgumentRule) -> TypeArgumentKey {
+        TypeArgumentKey {
+            position: self.current_token.start(),
+            context: self.context.bits(),
+            ts_context: self.ts_context.bits(),
+            boundary_context: self.boundary_context.bits(),
+            statement_context: self.statement_context as u8,
+            state: self.state.bits(),
+            lexer_mode: self.lexer.mode as u8,
+            rule,
+            stripped_paren: self.stripped_paren,
+            trailing_comma: self.cover_has_trailing_comma,
+        }
+    }
+
+    fn type_arguments_can_close(&mut self) -> bool {
+        if self.lexer.mode != LexerMode::Normal {
+            return true;
+        }
+        let mut lookahead = mem::take(&mut self.type_argument_lookahead);
+        let token = self.current_token;
+        let jsx = self.lang.is_jsx();
+        let mut peek = self.begin_peek();
+        let can_close = lookahead.can_close(token, &mut peek, jsx);
+        peek.end();
+        self.type_argument_lookahead = lookahead;
+        can_close
     }
 
     fn parse_type_assertion(&mut self) -> Option<Expr> {
