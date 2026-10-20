@@ -2230,7 +2230,17 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         start: u32,
         expression: Expr,
     ) -> Option<Stmt> {
-        let end = self.eat_semicolon(self.lexer.state.prev_token_end)?;
+        let end = self.lexer.state.prev_token_end;
+        let next = self.current_token;
+        let end = self.eat_semicolon(end).or_else(|| {
+            // A rejected continuation can start a new statement in a statement
+            // list. Keep single-statement bodies intact, including an if's else.
+            (self.statement_context.permits_declaration()
+                && self.infix_precedence(next) > max_left_precedence(expression, &self.ast)
+                && is_start_of_expression(next.tag())
+                && !next.tag().is_unconditionally_reserved())
+            .then_some(end)
+        })?;
         Some(
             self.ast
                 .stmt_expression_statement(Span::new(start, end), expression),
@@ -12856,15 +12866,17 @@ fn is_import_expression_or_member_access_on_import_expression(
 #[inline]
 fn max_left_precedence(expression: Expr, ast: &Ast<'_>) -> Precedence {
     match ast.node_kind(expression.node_id()) {
-        NodeKind::ArrowFunctionExpression | NodeKind::YieldExpression => Precedence::Comma,
+        // Their right-hand sides already consumed every tighter continuation.
+        NodeKind::ArrowFunctionExpression
+        | NodeKind::YieldExpression
+        | NodeKind::ConditionalExpression
+        | NodeKind::AssignmentExpression
+        | NodeKind::SequenceExpression => Precedence::Comma,
         NodeKind::UpdateExpression
         | NodeKind::UnaryExpression
         | NodeKind::AwaitExpression
         | NodeKind::BinaryExpression
         | NodeKind::LogicalExpression
-        | NodeKind::ConditionalExpression
-        | NodeKind::AssignmentExpression
-        | NodeKind::SequenceExpression
         | NodeKind::TsAsExpression
         | NodeKind::TsSatisfiesExpression => Precedence::Prefix,
         _ => Precedence::Primary,
@@ -13270,6 +13282,55 @@ mod tests {
             .iter()
             .map(|token| &source[token.start() as usize..token.end() as usize])
             .collect()
+    }
+
+    #[test]
+    fn expression_boundaries() {
+        fn parse(source: &str, options: Options) -> (Vec<Span>, Vec<NodeKind>) {
+            let allocator = Allocator::new();
+            let parsed = Parser::init(&allocator, source, options, NoTokenParserConfig).parse();
+            let ast = &parsed.ast;
+            let errors = parsed.diagnostics.iter().map(|error| error.span).collect();
+            let expressions = ast
+                .root_program()
+                .body(ast)
+                .iter()
+                .map(|id| {
+                    let statement = ast.get_node_in_sub_range(id);
+                    let expression = statement
+                        .as_expression_statement(ast)
+                        .unwrap()
+                        .expression(ast);
+                    ast.node_kind(expression.node_id())
+                })
+                .collect();
+            (errors, expressions)
+        }
+
+        for preserve_parens in [false, true] {
+            let options = Options {
+                preserve_parens,
+                ..Options::default()
+            };
+
+            let (errors, expressions) = parse("x = () => {}\n+ 1;", options);
+            assert!(errors.is_empty());
+            assert_eq!(
+                expressions,
+                [NodeKind::AssignmentExpression, NodeKind::UnaryExpression]
+            );
+
+            let (errors, expressions) = parse("x = () => {} + 1; after;", options);
+            assert_eq!(errors, [Span::new(13, 14)]);
+            assert_eq!(
+                expressions,
+                [
+                    NodeKind::AssignmentExpression,
+                    NodeKind::UnaryExpression,
+                    NodeKind::IdentifierReference
+                ]
+            );
+        }
     }
 
     #[test]
