@@ -45,8 +45,7 @@ See `tasks/benchmark/js/README.md` for setup and artifact interpretation.
 | Assemble browser package | `node scripts/wasm-package/cli.mjs prepare-browser --source-dir target/wasm-package/core`                 |
 | Build all WASM packages  | `pnpm build:wasm [--profile wasm-release]`                                                                |
 | Build one WASM package   | `pnpm --filter <@swc-next/core\|@swc-next/parser\|@swc-next/codegen> build:wasm [--profile wasm-release]` |
-| Test Node.js API         | `pnpm test` (core tests in `npm/core/test`; walker tests in `npm/core/test/walk`)                          |
-| Test walker             | `pnpm --filter @swc-next/core test:walk` (Rstest; integration tests require a core build)                 |
+| Test Node.js API         | `pnpm test` (Node.js API tests live in `npm/core/test`)                                                   |
 | Test Node.js WASM        | `pnpm test:wasm` (after `pnpm build:wasm`)                                                                |
 | Smoke test browser       | `pnpm test:browser` (after building the browser package)                                                  |
 | Develop playground       | `pnpm dev:playground` (requires `wasm32-unknown-unknown`)                                                  |
@@ -138,6 +137,6 @@ Use a small `input.js`/`.ts`/`.tsx` file.
 ### Adding JavaScript Unit Tests
 
 - Test only JS API and FFI boundaries (encoding/decoding, strings/offsets, option forwarding). Keep parser/codegen correctness tests in Rust.
-- Put core API/FFI tests in `npm/core/test` and walker tests in `npm/core/test/walk`. Walker tests use `@rstest/core` and include integration tests that require a core build. Root `pnpm test` runs core and walker tests, and `test:wasm` runs the same tests with `NAPI_RS_FORCE_WASI=error`. The browser package should only have a simple smoke test.
+- New JavaScript tests should only be added to `@swc-next/core`. `test:wasm` runs the same tests with `NAPI_RS_FORCE_WASI=error`. The browser package should only have a simple smoke test.
 
 Update this file when the commands or workflows above change; otherwise do not edit it.
