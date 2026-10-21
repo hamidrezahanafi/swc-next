@@ -420,13 +420,19 @@ function runWalk(root, compiled, state) {
   return root;
 }
 
-/** Walk a supported ESTree/TS-ESTree subtree in place and return its root. */
+/**
+ * Traverse and edit an existing ESTree / TS-ESTree tree synchronously in place.
+ * @type {typeof import("./index.js").walk}
+ */
 export function walk(root, hooks, state) {
   assertNode(root);
   return runWalk(root, compile(hooks), state);
 }
 
-/** Snapshot hooks once; each walk has an independent editing context. */
+/**
+ * Validate and snapshot hooks once for repeated synchronous tree traversal.
+ * @type {typeof import("./index.js").createWalker}
+ */
 export function createWalker(hooks) {
   const compiled = compile(hooks);
   return Object.freeze({

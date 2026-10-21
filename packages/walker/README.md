@@ -14,7 +14,9 @@ walk(program, {
 });
 ```
 
-`program` is an existing AST. `@swc-next/core` also exports `walk`:
+`program` is an existing AST. If you use `@swc-next/core`, you do not need to
+install `@swc-next/walker` separately. Import the walker APIs directly from
+`@swc-next/core`:
 
 ```js
 import { parseSync, printSync, walk } from "@swc-next/core";

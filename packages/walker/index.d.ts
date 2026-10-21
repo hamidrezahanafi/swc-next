@@ -11,35 +11,51 @@ export interface AstNode {
 }
 
 /**
- * Reused across hooks within a walk. Use only in the receiving synchronous hook;
- * do not retain it. A saved reference aliases the position of later hooks.
+ * Current traversal position and editing methods. Reused within each walk;
+ * do not retain it beyond the receiving synchronous hook or detach its methods.
+ * Use context methods for structural edits; assign scalar properties directly.
  */
 export interface WalkContext<State = unknown> {
+  /** Current node, updated by `replace`; the hook's node argument is unchanged. */
   readonly node: AstNode;
+  /** Parent node, or `null` at the root. */
   readonly parent: AstNode | null;
+  /** Child field on the parent, or `null` at the root. */
   readonly key: string | null;
+  /** Current array index, or `null` at the root, in scalar fields, or after removal. */
   readonly index: number | null;
+  /** State passed to this walk, without cloning; `undefined` when omitted. */
   readonly state: State;
-  /** Snapshot ordered from root to parent; allocated only when requested. */
+  /** A new snapshot ordered from root to parent, excluding the current node. */
   ancestors(): AstNode[];
-  /** Enter only. Skip children and remaining enter hooks, but still run leave hooks. */
+  /** Enter only: skip children and remaining enter hooks, but still run leave hooks. */
   skip(): void;
-  /** Stop immediately after this callback, without pending leave hooks. */
+  /** End the entire walk after this callback finishes, without pending leave hooks. */
   stop(): void;
-  /** Replace a non-root node; enter does not run again for the replacement. */
+  /**
+   * Replace a non-root node and end remaining hooks in the current phase.
+   * During enter, visit the replacement's children and leave hooks, without
+   * re-entering it. During leave, do not traverse it. Missing `start` / `end`
+   * inherit the old values. Passing the current node is a no-op.
+   */
   replace(node: AstNode): void;
-  /** Remove the current array element. Scalar fields and the root are rejected. */
+  /**
+   * Remove the current array element, skipping its remaining hooks and children.
+   * Root and scalar-field removal, and further structural edits, throw.
+   */
   remove(): void;
   /** Insert array siblings in order, without visiting the inserted nodes. */
   insertBefore(nodes: AstNode | readonly AstNode[]): void;
-  /** Insert array siblings in order; the inserted nodes will be visited. */
+  /** Insert array siblings in order; they are visited later unless the walk stops. */
   insertAfter(nodes: AstNode | readonly AstNode[]): void;
 }
 
+/** A synchronous callback that must return `undefined`; edit through the context. */
 export type WalkHandler<Node extends AstNode = AstNode, State = unknown> = (
   node: Node,
   context: WalkContext<State>,
 ) => void;
+/** A function runs on enter; an object can register enter and/or leave callbacks. */
 export type WalkHook<Node extends AstNode = AstNode, State = unknown> =
   | WalkHandler<Node, State>
   | { enter?: WalkHandler<Node, State>; leave?: WalkHandler<Node, State> };
@@ -51,6 +67,10 @@ type NodeOfType<
     ? Node & { type: Type }
     : never
   : never;
+/**
+ * Node-type hooks, `Function` / `Class` aliases, and global `enter` / `leave` hooks.
+ * Supply a discriminated `Node` union for field-level typing.
+ */
 export type WalkHooks<State = unknown, Node extends AstNode = AstNode> = {
   [Type in Node["type"]]?: WalkHook<NodeOfType<Node, Type>, State>;
 } & {
@@ -73,7 +93,30 @@ export type WalkHooks<State = unknown, Node extends AstNode = AstNode> = {
   >;
 };
 
-/** Mutates an acyclic AST in place. The root cannot be replaced or removed. */
+/**
+ * Traverse and edit an existing ESTree / TS-ESTree tree synchronously in place.
+ *
+ * Hooks must return `undefined`. Use {@link WalkContext} for structural edits;
+ * the root cannot be replaced or removed. Child traversal follows {@link visitorKeys}.
+ * Use {@link createWalker} to reuse compiled hooks across trees.
+ *
+ * @param root - An acyclic supported node or subtree.
+ * @param hooks - Node-type, alias, and/or global callbacks.
+ * @param state - Optional value exposed as `ctx.state`.
+ * @returns The original root, mutated in place.
+ * @throws {TypeError} For invalid hooks, unsupported nodes, or non-undefined returns.
+ * @throws {Error} For invalid context use or structural edits.
+ *
+ * @example
+ * ```ts
+ * import { parseSync, walk } from "@swc-next/core";
+ *
+ * const { program } = parseSync("debugger; run();");
+ * walk(program, {
+ *   DebuggerStatement(node, ctx) { ctx.remove(); },
+ * });
+ * ```
+ */
 export declare function walk<
   Root extends AstNode,
   State = unknown,
@@ -82,8 +125,37 @@ export declare function walk<
 
 /** A snapshot of hook functions, reusable across independent or nested walks. */
 export interface CompiledWalker<State = unknown> {
+  /**
+   * Like {@link walk}, using captured hooks and an independent context per call.
+   * @param root - An acyclic supported node or subtree.
+   * @param state - Per-call value exposed as `ctx.state`.
+   * @returns The original root, mutated in place.
+   */
   walk<Root extends AstNode>(root: Root, state?: State): Root;
 }
+
+/**
+ * Validate and snapshot hooks once for repeated synchronous tree traversal.
+ * Later hook changes do not affect the snapshot; callback closures remain shared.
+ *
+ * @param hooks - Callbacks with the same rules as {@link walk}.
+ * @returns A frozen walker with a `walk(root, state?)` method.
+ * @throws {TypeError} For invalid hook names or callback definitions.
+ *
+ * @example
+ * ```ts
+ * import { createWalker, parseSync } from "@swc-next/core";
+ *
+ * const collectNames = createWalker<string[]>({
+ *   Identifier(node, ctx) { ctx.state.push(node.name); },
+ * });
+ * for (const source of ["first();", "second();"]) {
+ *   const { program } = parseSync(source);
+ *   const names: string[] = [];
+ *   collectNames.walk(program, names);
+ * }
+ * ```
+ */
 export declare function createWalker<
   State = unknown,
   Node extends AstNode = AstNode,
