@@ -1,5 +1,19 @@
 use super::*;
 
+const CHAIN_LENGTH: usize = 50_000;
+
+fn strip_with_small_stack(source: String) -> (String, usize) {
+    std::thread::Builder::new()
+        .stack_size(1024 * 1024)
+        .spawn(move || {
+            let result = strip_types(&source, options(Lang::Ts));
+            (result.code.into_owned(), result.diagnostics.len())
+        })
+        .unwrap()
+        .join()
+        .unwrap()
+}
+
 #[test]
 fn assertions() {
     assert_strip("const x = value as string;", "const x = value          ;");
@@ -59,6 +73,8 @@ fn assertions() {
 
 #[test]
 fn type_arguments() {
+    assert_strip("hello<T>.world<U>;", "hello   .world   ;");
+
     assert_strip(
         "const value = (fn<A>)! as B;",
         "const value = (fn   )      ;",
@@ -125,4 +141,96 @@ fn literals() {
         "const value = `as Type ${input as Type}`;",
         "const value = `as Type ${input        }`;",
     );
+}
+
+#[test]
+fn expression_chains() {
+    let source = format!("x = {};", vec!["a"; CHAIN_LENGTH].join("+"));
+    let (code, diagnostics) = strip_with_small_stack(source.clone());
+    assert_eq!(code, source);
+    assert_eq!(diagnostics, 0);
+
+    let source = format!("x = {};", vec!["a"; CHAIN_LENGTH].join("||"));
+    let (code, diagnostics) = strip_with_small_stack(source.clone());
+    assert_eq!(code, source);
+    assert_eq!(diagnostics, 0);
+
+    let source = format!("x = a{};", ".b".repeat(CHAIN_LENGTH));
+    let (code, diagnostics) = strip_with_small_stack(source.clone());
+    assert_eq!(code, source);
+    assert_eq!(diagnostics, 0);
+
+    let source = format!("x = a{};", "[b]".repeat(CHAIN_LENGTH));
+    let (code, diagnostics) = strip_with_small_stack(source.clone());
+    assert_eq!(code, source);
+    assert_eq!(diagnostics, 0);
+
+    let source = format!("x = a{};", "()".repeat(CHAIN_LENGTH));
+    let (code, diagnostics) = strip_with_small_stack(source.clone());
+    assert_eq!(code, source);
+    assert_eq!(diagnostics, 0);
+
+    let source = format!("x = a{};", "?.b".repeat(CHAIN_LENGTH));
+    let (code, diagnostics) = strip_with_small_stack(source.clone());
+    assert_eq!(code, source);
+    assert_eq!(diagnostics, 0);
+
+    let source = format!("x = a{};", "`x`".repeat(CHAIN_LENGTH));
+    let (code, diagnostics) = strip_with_small_stack(source.clone());
+    assert_eq!(code, source);
+    assert_eq!(diagnostics, 0);
+}
+
+#[test]
+fn type_expression_chains() {
+    let source = format!("x = a{};", "!".repeat(CHAIN_LENGTH));
+    let (code, diagnostics) = strip_with_small_stack(source);
+    assert_eq!(code, format!("x = a{};", " ".repeat(CHAIN_LENGTH)));
+    assert_eq!(diagnostics, 0);
+
+    let source = format!("x = a{};", " as any".repeat(CHAIN_LENGTH));
+    let (code, diagnostics) = strip_with_small_stack(source);
+    assert_eq!(code, format!("x = a{};", "       ".repeat(CHAIN_LENGTH)));
+    assert_eq!(diagnostics, 0);
+
+    let source = format!("x = a{};", " satisfies any".repeat(CHAIN_LENGTH));
+    let (code, diagnostics) = strip_with_small_stack(source);
+    assert_eq!(
+        code,
+        format!("x = a{};", "              ".repeat(CHAIN_LENGTH))
+    );
+    assert_eq!(diagnostics, 0);
+
+    let source = format!("x = a{};", "<T>.b".repeat(CHAIN_LENGTH));
+    let (code, diagnostics) = strip_with_small_stack(source);
+    assert_eq!(code, format!("x = a{};", "   .b".repeat(CHAIN_LENGTH)));
+    assert_eq!(diagnostics, 0);
+
+    let source = format!("x = a{};", "<T>(b!)[c as C]?.d!".repeat(CHAIN_LENGTH));
+    let (code, diagnostics) = strip_with_small_stack(source);
+    assert_eq!(
+        code,
+        format!("x = a{};", "   (b )[c     ]?.d ".repeat(CHAIN_LENGTH))
+    );
+    assert_eq!(diagnostics, 0);
+}
+
+#[test]
+fn chain_children() {
+    assert_strip(
+        "x = f<A>(b! + c!, d as D)<B>(e!)[f as F]!.g satisfies G;\n",
+        "x = f   (b  + c , d     )   (e )[f     ] .g            ;\n",
+    );
+
+    assert_strip(
+        "x = tag<T>`a${b as B}`<U>`c${d!}`;\n",
+        "x = tag   `a${b     }`   `c${d }`;\n",
+    );
+
+    assert_strip(
+        "f<T>(a! as A)?.[b as B]?.(c satisfies C);\n",
+        "f   (a      )?.[b     ]?.(c            );\n",
+    );
+
+    assert_strip("a as A as B\n(c)\n", "a     ;    \n(c)\n");
 }

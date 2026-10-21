@@ -6,15 +6,17 @@
 use std::borrow::Cow;
 
 use edit::{EditPlan, FixedSubstitution};
-use swc_next_allocator::Allocator;
+use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
 use swc_next_ecma_ast::{
-    Accessibility, ArrowFunctionExpression, Ast, Class, ClassElement, Decl, Decorator,
-    DoWhileStatement, ExportAllDeclaration, ExportDefaultDeclaration, ExportNamedDeclaration, Expr,
-    ForInStatement, ForOfStatement, ForStatement, FormalParameter, FunctionBody, GetSpan,
-    IfStatement, ImportDeclaration, ImportOrExportKind, LabeledStatement, MethodDefinition,
-    Program, PropertyDefinition, Stmt, SubRange, TsAsExpression, TsClassImplements,
-    TsEnumDeclaration, TsExportAssignment, TsFunction, TsGlobalDeclaration,
-    TsImportEqualsDeclaration, TsIndexSignature, TsInterfaceDeclaration, TsMethodDefinition,
+    Accessibility, ArrowFunctionExpression, Ast, BinaryExpression, CallExpression, ChainExpression,
+    Class, ClassElement, Decl, Decorator, DoWhileStatement, ExportAllDeclaration,
+    ExportDefaultDeclaration, ExportNamedDeclaration, Expr, ExprData, ForInStatement,
+    ForOfStatement, ForStatement, FormalParameter, FunctionBody, GetSpan, IfStatement,
+    ImportDeclaration, ImportOrExportKind, LabeledStatement, LogicalExpression, MemberExpression,
+    MethodDefinition, Program, PropertyDefinition, PropertyKey, Stmt, SubRange,
+    TaggedTemplateExpression, TsAsExpression, TsClassImplements, TsEnumDeclaration,
+    TsExportAssignment, TsFunction, TsGlobalDeclaration, TsImportEqualsDeclaration,
+    TsIndexSignature, TsInstantiationExpression, TsInterfaceDeclaration, TsMethodDefinition,
     TsModuleBlock, TsModuleDeclaration, TsModuleDeclarationKind, TsNamespaceExportDeclaration,
     TsNonNullExpression, TsParameterProperty, TsSatisfiesExpression, TsThisParameter,
     TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeAssertion, TsTypeParameterDeclaration,
@@ -87,6 +89,7 @@ pub fn strip_types(source: &str, options: Options) -> StripResult<'_> {
         edits: EditPlan::default(),
         diagnostic: None,
         item_context: ItemContext::default(),
+        expr_frames: ArenaVec::new_in(&allocator),
     };
     program.visit_with(&mut eraser);
     let TypeEraser {
@@ -121,9 +124,153 @@ struct TypeEraser<'ast, 'source, 'tokens> {
     edits: EditPlan,
     diagnostic: Option<Diagnostic<'static>>,
     item_context: ItemContext,
+    expr_frames: ArenaVec<'ast, ExprFrame>,
+}
+
+enum ExprFrame {
+    Expression(Expr),
+    Property(PropertyKey),
+    Call(CallExpression),
+    TaggedTemplate(TaggedTemplateExpression),
+    TypeArguments(TsTypeParameterInstantiation),
+    As(TsAsExpression),
+    Satisfies(TsSatisfiesExpression),
+    NonNull(TsNonNullExpression),
+}
+
+impl ExprFrame {
+    fn visit_remaining(self, eraser: &mut TypeEraser<'_, '_, '_>) {
+        let ast = eraser.ast;
+        match self {
+            Self::Expression(expression) => expression.visit_with(eraser),
+            Self::Property(property) => property.visit_with(eraser),
+            Self::Call(call) => {
+                call.type_arguments(ast).visit_with(eraser);
+                call.arguments(ast).visit_with(eraser);
+            }
+            Self::TaggedTemplate(tagged) => {
+                tagged.type_arguments(ast).visit_with(eraser);
+                tagged.quasi(ast).visit_with(eraser);
+            }
+            Self::TypeArguments(arguments) => arguments.visit_with(eraser),
+            Self::As(assertion) => {
+                eraser.erase_postfix_type_assertion(assertion.expression(ast), assertion.span(ast));
+            }
+            Self::Satisfies(assertion) => {
+                eraser.erase_postfix_type_assertion(assertion.expression(ast), assertion.span(ast));
+            }
+            Self::NonNull(assertion) => {
+                eraser.erase_suffix_expression(assertion.expression(ast), assertion.span(ast));
+            }
+        }
+    }
 }
 
 impl TypeEraser<'_, '_, '_> {
+    fn visit_chain_operand(&mut self, mut node: Expr) {
+        loop {
+            match self.ast.expr_data(node) {
+                ExprData::IdentifierReference(_) => return,
+                // Static property names cannot contain types or side expressions.
+                ExprData::MemberExpression(member) if !member.computed(self.ast) => {
+                    node = member.object(self.ast);
+                }
+                ExprData::ChainExpression(chain) => node = chain.expression(self.ast),
+                ExprData::BinaryExpression(_)
+                | ExprData::LogicalExpression(_)
+                | ExprData::MemberExpression(_)
+                | ExprData::CallExpression(_)
+                | ExprData::TaggedTemplateExpression(_)
+                | ExprData::TsAsExpression(_)
+                | ExprData::TsSatisfiesExpression(_)
+                | ExprData::TsNonNullExpression(_)
+                | ExprData::TsInstantiationExpression(_) => {
+                    self.visit_expr_chain(node);
+                    return;
+                }
+                _ => {
+                    node.visit_with(self);
+                    return;
+                }
+            }
+        }
+    }
+
+    fn visit_expr_chain(&mut self, mut node: Expr) {
+        // The parser builds long left-associative and postfix chains iteratively.
+        // Only nested chain operands need an explicit stack; ordinary expressions
+        // retain the generated visitor's direct dispatch.
+        let stack_bottom = self.expr_frames.len();
+        let mut outer_frame = None;
+        loop {
+            let (next, frame) = match self.ast.expr_data(node) {
+                ExprData::IdentifierReference(_) => break,
+                ExprData::BinaryExpression(binary) => (
+                    binary.left(self.ast),
+                    ExprFrame::Expression(binary.right(self.ast)),
+                ),
+                ExprData::LogicalExpression(logical) => (
+                    logical.left(self.ast),
+                    ExprFrame::Expression(logical.right(self.ast)),
+                ),
+                ExprData::MemberExpression(member) => {
+                    if !member.computed(self.ast) {
+                        node = member.object(self.ast);
+                        continue;
+                    }
+                    (
+                        member.object(self.ast),
+                        ExprFrame::Property(member.property(self.ast)),
+                    )
+                }
+                ExprData::CallExpression(call) => (call.callee(self.ast), ExprFrame::Call(call)),
+                ExprData::TaggedTemplateExpression(tagged) => {
+                    (tagged.tag(self.ast), ExprFrame::TaggedTemplate(tagged))
+                }
+                ExprData::ChainExpression(chain) => {
+                    node = chain.expression(self.ast);
+                    continue;
+                }
+                ExprData::TsAsExpression(assertion) => {
+                    (assertion.expression(self.ast), ExprFrame::As(assertion))
+                }
+                ExprData::TsSatisfiesExpression(assertion) => (
+                    assertion.expression(self.ast),
+                    ExprFrame::Satisfies(assertion),
+                ),
+                ExprData::TsNonNullExpression(assertion) => (
+                    assertion.expression(self.ast),
+                    ExprFrame::NonNull(assertion),
+                ),
+                ExprData::TsInstantiationExpression(instantiation) => (
+                    instantiation.expression(self.ast),
+                    ExprFrame::TypeArguments(instantiation.type_arguments(self.ast)),
+                ),
+                _ => {
+                    node.visit_with(self);
+                    break;
+                }
+            };
+            // A single link needs no heap allocation.
+            if outer_frame.is_none() {
+                outer_frame = Some(frame);
+            } else {
+                self.expr_frames.push(frame);
+            }
+            node = next;
+        }
+
+        // Side expressions may start another chain with outer frames pending.
+        while self.expr_frames.len() > stack_bottom
+            && let Some(frame) = self.expr_frames.pop()
+        {
+            frame.visit_remaining(self);
+        }
+        if let Some(frame) = outer_frame {
+            frame.visit_remaining(self);
+        }
+    }
+
     fn report_erasable_syntax_only(&mut self, span: Span) {
         if self.diagnostic.is_none() {
             self.diagnostic = Some(Diagnostic::error(ERASABLE_SYNTAX_ONLY_MESSAGE, span));
@@ -444,6 +591,37 @@ impl<'ast> Visit<'ast> for TypeEraser<'ast, '_, '_> {
         if !node.is_identifier_reference(self.ast) {
             node.visit_children_with(self);
         }
+    }
+
+    fn visit_binary_expression(&mut self, node: BinaryExpression) {
+        self.visit_chain_operand(node.left(self.ast));
+        node.right(self.ast).visit_with(self);
+    }
+
+    fn visit_logical_expression(&mut self, node: LogicalExpression) {
+        self.visit_chain_operand(node.left(self.ast));
+        node.right(self.ast).visit_with(self);
+    }
+
+    fn visit_member_expression(&mut self, node: MemberExpression) {
+        self.visit_chain_operand(node.object(self.ast));
+        node.property(self.ast).visit_with(self);
+    }
+
+    fn visit_call_expression(&mut self, node: CallExpression) {
+        self.visit_chain_operand(node.callee(self.ast));
+        node.type_arguments(self.ast).visit_with(self);
+        node.arguments(self.ast).visit_with(self);
+    }
+
+    fn visit_chain_expression(&mut self, node: ChainExpression) {
+        self.visit_chain_operand(node.expression(self.ast));
+    }
+
+    fn visit_tagged_template_expression(&mut self, node: TaggedTemplateExpression) {
+        self.visit_chain_operand(node.tag(self.ast));
+        node.type_arguments(self.ast).visit_with(self);
+        node.quasi(self.ast).visit_with(self);
     }
 
     fn visit_program(&mut self, node: Program) {
@@ -839,19 +1017,24 @@ impl<'ast> Visit<'ast> for TypeEraser<'ast, '_, '_> {
 
     fn visit_ts_as_expression(&mut self, node: TsAsExpression) {
         let expression = node.expression(self.ast);
-        expression.visit_with(self);
+        self.visit_chain_operand(expression);
         self.erase_postfix_type_assertion(expression, node.span(self.ast));
     }
 
     fn visit_ts_satisfies_expression(&mut self, node: TsSatisfiesExpression) {
         let expression = node.expression(self.ast);
-        expression.visit_with(self);
+        self.visit_chain_operand(expression);
         self.erase_postfix_type_assertion(expression, node.span(self.ast));
     }
 
     fn visit_ts_non_null_expression(&mut self, node: TsNonNullExpression) {
-        node.visit_children_with(self);
+        self.visit_chain_operand(node.expression(self.ast));
         self.erase_suffix_expression(node.expression(self.ast), node.span(self.ast));
+    }
+
+    fn visit_ts_instantiation_expression(&mut self, node: TsInstantiationExpression) {
+        self.visit_chain_operand(node.expression(self.ast));
+        node.type_arguments(self.ast).visit_with(self);
     }
 
     fn visit_ts_type_assertion(&mut self, node: TsTypeAssertion) {
