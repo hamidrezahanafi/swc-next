@@ -68,6 +68,7 @@ impl<'ast> Transformer<'_, 'ast> {
         };
         let body = ast.add_sub_range(body);
         program.set_body(ast, body);
+        program.set_directives(ast, SubRange::empty());
         // Run over emitted declarations so nested annotations and default interfaces share the
         // same retention, accessor, and computed-key rules as named declarations.
         self.transform_type_surfaces(program, ast);
