@@ -9,7 +9,7 @@ use edit::{EditPlan, FixedSubstitution};
 use swc_next_allocator::{Allocator, vec::Vec as ArenaVec};
 use swc_next_ecma_ast::{
     Accessibility, ArrowFunctionExpression, Ast, BinaryExpression, CallExpression, ChainExpression,
-    Class, ClassElement, Decl, Decorator, DoWhileStatement, ExportAllDeclaration,
+    Class, ClassElement, Decl, DeclData, Decorator, DoWhileStatement, ExportAllDeclaration,
     ExportDefaultDeclaration, ExportNamedDeclaration, Expr, ExprData, ForInStatement,
     ForOfStatement, ForStatement, FormalParameter, FunctionBody, GetSpan, IfStatement,
     ImportDeclaration, ImportOrExportKind, LabeledStatement, LogicalExpression, MemberExpression,
@@ -17,11 +17,10 @@ use swc_next_ecma_ast::{
     TaggedTemplateExpression, TsAsExpression, TsClassImplements, TsEnumDeclaration,
     TsExportAssignment, TsFunction, TsGlobalDeclaration, TsImportEqualsDeclaration,
     TsIndexSignature, TsInstantiationExpression, TsInterfaceDeclaration, TsMethodDefinition,
-    TsModuleBlock, TsModuleDeclaration, TsModuleDeclarationKind, TsNamespaceExportDeclaration,
-    TsNonNullExpression, TsParameterProperty, TsSatisfiesExpression, TsThisParameter,
-    TsTypeAliasDeclaration, TsTypeAnnotation, TsTypeAssertion, TsTypeParameterDeclaration,
-    TsTypeParameterInstantiation, VariableDeclaration, VariableDeclarator, Visit, VisitWith,
-    WhileStatement, WithStatement,
+    TsModuleDeclaration, TsNamespaceExportDeclaration, TsNonNullExpression, TsParameterProperty,
+    TsSatisfiesExpression, TsThisParameter, TsTypeAliasDeclaration, TsTypeAnnotation,
+    TsTypeAssertion, TsTypeParameterDeclaration, TsTypeParameterInstantiation, VariableDeclaration,
+    VariableDeclarator, Visit, VisitWith, WhileStatement, WithStatement,
 };
 pub use swc_next_ecma_ast::{Diagnostic, Label, Lang, Severity, Span};
 pub use swc_next_ecma_parser::Options;
@@ -30,36 +29,49 @@ use swc_next_ecma_parser::{CommentMode, ParseReturn, Parser, Token, TokenParserC
 use crate::token_cursor::TokenCursor;
 
 mod edit;
+mod module;
 mod token_cursor;
 
 const UNSUPPORTED_LANG_MESSAGE: &str = "TypeError: Unsupported lang variant";
 const ERASABLE_SYNTAX_ONLY_MESSAGE: &str =
     "SyntaxError: This syntax is not allowed when `erasableSyntaxOnly` is enabled";
 
-/// The stripped source and all diagnostics produced while processing it.
+/// Stripped output and diagnostics returned by [`strip_types`].
 #[derive(Debug, Eq, PartialEq)]
 pub struct StripResult<'source> {
-    /// Best-effort output with the same UTF-16 length and line layout as the source.
+    /// Stripped source with the same UTF-16 length and line layout as the input.
     ///
-    /// The original source is borrowed when the output is unchanged.
+    /// Borrows the input when no edits are made, including on unsupported [`Lang`]
+    /// variants or unrecoverable parse errors.
     pub code: Cow<'source, str>,
     /// Diagnostics in source order.
     ///
-    /// Parser diagnostics are retained. At most one type-stripping diagnostic is
-    /// added, for the first unsupported construct encountered.
-    ///
-    /// When this is non-empty, `code` is recovery output and is not guaranteed
-    /// to preserve the input program's semantics.
+    /// Contains parser diagnostics and at most one `erasableSyntaxOnly` error for
+    /// the first unsupported TypeScript construct. When non-empty, [`Self::code`]
+    /// is recovery output and may not preserve program semantics.
     pub diagnostics: Vec<Diagnostic<'static>>,
 }
 
-/// Strips TypeScript syntax while preserving source positions.
+/// Strips erasable TypeScript syntax from `source` while preserving UTF-16 offsets
+/// and line layout.
 ///
-/// Only [`Lang::Ts`] and [`Lang::Tsx`] are supported in [`Options::lang`].
-/// Other language variants return the unchanged source with an error diagnostic.
-/// Parentheses are preserved regardless of [`Options::preserve_parens`]. Diagnostics
-/// do not prevent recovery output. Comments are preserved from the original source,
-/// so [`Options::comments`] does not affect the result.
+/// Erased spans are replaced with spaces, with minimal `;`, `(`, and `)` adjustments
+/// where required to keep the remaining JavaScript syntax valid.
+///
+/// Only the TypeScript `erasableSyntaxOnly` subset is supported:
+/// - Non-erasable constructs (`enum`, instantiated `namespace`/`module`/`global`,
+///   parameter properties, `import =`, `export =`, and `<T>` type assertions) are
+///   not lowered. Declarations are erased as whole statements, parameter property
+///   modifiers and `<T>` prefixes are blanked in place, and a diagnostic is
+///   reported.
+/// - Stripping is purely syntactic: names are not resolved and `const enum` values
+///   are not inlined, so type-only imports and exports must use explicit `type`
+///   modifiers.
+///
+/// [`Options::lang`] must be [`Lang::Ts`] or [`Lang::Tsx`]; [`Lang::Tsx`] preserves
+/// JSX syntax without lowering it, and other [`Lang`] variants return `source`
+/// unchanged with an error diagnostic. [`Options::preserve_parens`] and
+/// [`Options::comments`] have no effect on the output.
 #[cfg_attr(feature = "benchmarking", inline(never))]
 pub fn strip_types(source: &str, options: Options) -> StripResult<'_> {
     if !matches!(options.lang, Lang::Ts | Lang::Tsx) {
@@ -570,15 +582,34 @@ impl TypeEraser<'_, '_, '_> {
         self.item_context = saved_context;
     }
 
-    fn erase_ts_module_declaration(&mut self, node: TsModuleDeclaration, is_type_only: bool) {
-        let span = node.span(self.ast);
-        if !is_type_only {
+    fn erase_enum(&mut self, node: TsEnumDeclaration, statement_span: Span) {
+        self.erase_statement(statement_span);
+        if !node.declare(self.ast) {
+            self.report_erasable_syntax_only(node.span(self.ast));
+        }
+    }
+
+    fn erase_module(&mut self, node: TsModuleDeclaration, statement_span: Span) {
+        self.erase_statement(statement_span);
+        if self.diagnostic.is_none()
+            && let Some(span) = module::check(node, self.ast)
+        {
             self.report_erasable_syntax_only(span);
         }
-        self.erase_statement(span);
-        if !is_type_only {
-            node.visit_children_with(self);
+    }
+
+    fn erase_global(&mut self, node: TsGlobalDeclaration, statement_span: Span) {
+        self.erase_statement(statement_span);
+        if self.diagnostic.is_none()
+            && let Some(span) = module::check_global(node, self.ast)
+        {
+            self.report_erasable_syntax_only(span);
         }
+    }
+
+    fn erase_import_equals(&mut self, node: TsImportEqualsDeclaration, statement_span: Span) {
+        self.erase_statement(statement_span);
+        self.report_erasable_syntax_only(node.span(self.ast));
     }
 }
 
@@ -629,10 +660,6 @@ impl<'ast> Visit<'ast> for TypeEraser<'ast, '_, '_> {
     }
 
     fn visit_function_body(&mut self, node: FunctionBody) {
-        self.visit_statement_list(node.body(self.ast), true);
-    }
-
-    fn visit_ts_module_block(&mut self, node: TsModuleBlock) {
         self.visit_statement_list(node.body(self.ast), true);
     }
 
@@ -861,22 +888,15 @@ impl<'ast> Visit<'ast> for TypeEraser<'ast, '_, '_> {
     }
 
     fn visit_ts_enum_declaration(&mut self, node: TsEnumDeclaration) {
-        let span = node.span(self.ast);
-        if node.declare(self.ast) {
-            self.erase_statement(span);
-            return;
-        }
-        self.report_erasable_syntax_only(span);
-        node.visit_children_with(self);
+        self.erase_enum(node, node.span(self.ast));
     }
 
     fn visit_ts_module_declaration(&mut self, node: TsModuleDeclaration) {
-        let is_type_only = is_type_only_module(node, self.ast);
-        self.erase_ts_module_declaration(node, is_type_only);
+        self.erase_module(node, node.span(self.ast));
     }
 
     fn visit_ts_global_declaration(&mut self, node: TsGlobalDeclaration) {
-        self.erase_statement(node.span(self.ast));
+        self.erase_global(node, node.span(self.ast));
     }
 
     fn visit_ts_parameter_property(&mut self, node: TsParameterProperty) {
@@ -884,29 +904,25 @@ impl<'ast> Visit<'ast> for TypeEraser<'ast, '_, '_> {
         let decorators = node.decorators(self.ast);
         let modifiers_start = modifiers_start(span.start, decorators, self.ast);
         let parameter_start = node.parameter(self.ast).span(self.ast).start;
-        let diagnostic_span = self
-            .tokens
-            .first_in_range(modifiers_start, parameter_start)
-            .map_or(span, |modifier| modifier.span());
-
-        self.report_erasable_syntax_only(diagnostic_span);
+        if self.diagnostic.is_none() {
+            let diagnostic_span = self
+                .tokens
+                .first_in_range(modifiers_start, parameter_start)
+                .map_or(span, |modifier| modifier.span());
+            self.report_erasable_syntax_only(diagnostic_span);
+        }
         self.edits
             .blank(Span::new(modifiers_start, parameter_start));
         node.visit_children_with(self);
     }
 
     fn visit_ts_export_assignment(&mut self, node: TsExportAssignment) {
+        self.erase_statement(node.span(self.ast));
         self.report_erasable_syntax_only(node.span(self.ast));
-        node.visit_children_with(self);
     }
 
     fn visit_ts_import_equals_declaration(&mut self, node: TsImportEqualsDeclaration) {
-        let span = node.span(self.ast);
-        if node.import_kind(self.ast) == ImportOrExportKind::Type {
-            self.erase_statement(span);
-            return;
-        }
-        self.report_erasable_syntax_only(span);
+        self.erase_import_equals(node, node.span(self.ast));
     }
 
     fn visit_import_declaration(&mut self, node: ImportDeclaration) {
@@ -938,12 +954,33 @@ impl<'ast> Visit<'ast> for TypeEraser<'ast, '_, '_> {
 
     fn visit_export_named_declaration(&mut self, node: ExportNamedDeclaration) {
         let container = node.span(self.ast);
+        let declaration = node.declaration(self.ast);
+        if let Some(declaration) = declaration {
+            match self.ast.decl_data(declaration) {
+                DeclData::TsEnumDeclaration(enumeration) => {
+                    self.erase_enum(enumeration, container);
+                    return;
+                }
+                DeclData::TsModuleDeclaration(module) => {
+                    self.erase_module(module, container);
+                    return;
+                }
+                DeclData::TsGlobalDeclaration(global) => {
+                    self.erase_global(global, container);
+                    return;
+                }
+                DeclData::TsImportEqualsDeclaration(import) => {
+                    self.erase_import_equals(import, container);
+                    return;
+                }
+                _ => {}
+            }
+        }
         if node.export_kind(self.ast) == ImportOrExportKind::Type {
             self.erase_statement(container);
             return;
         }
 
-        let declaration = node.declaration(self.ast);
         if declaration.is_some_and(|declaration| is_whole_type_declaration(declaration, self.ast)) {
             self.erase_statement(container);
             return;
@@ -964,13 +1001,7 @@ impl<'ast> Visit<'ast> for TypeEraser<'ast, '_, '_> {
                 .map(|specifier| self.ast.get_node_in_sub_range(specifier).span(self.ast));
             self.erase_list_item(item, next, container);
         }
-        if let Some(module) =
-            declaration.and_then(|declaration| declaration.as_ts_module_declaration(self.ast))
-        {
-            self.erase_ts_module_declaration(module, false);
-        } else {
-            declaration.visit_with(self);
-        }
+        declaration.visit_with(self);
     }
 
     fn visit_export_all_declaration(&mut self, node: ExportAllDeclaration) {
@@ -1100,83 +1131,14 @@ fn is_whole_type_declaration(declaration: Decl, ast: &Ast<'_>) -> bool {
     if declaration.is_ts_function(ast)
         || declaration.is_ts_type_alias_declaration(ast)
         || declaration.is_ts_interface_declaration(ast)
-        || declaration.is_ts_global_declaration(ast)
     {
         return true;
     }
     if let Some(class) = declaration.as_class(ast) {
         return class.declare(ast);
     }
-    if let Some(import_equals) = declaration.as_ts_import_equals_declaration(ast) {
-        return import_equals.import_kind(ast) == ImportOrExportKind::Type;
-    }
     if let Some(variable) = declaration.as_variable_declaration(ast) {
         return variable.declare(ast);
     }
-    if let Some(enumeration) = declaration.as_ts_enum_declaration(ast) {
-        return enumeration.declare(ast);
-    }
-    if let Some(module) = declaration.as_ts_module_declaration(ast) {
-        return is_type_only_module(module, ast);
-    }
     false
-}
-
-fn is_type_only_module(module: TsModuleDeclaration, ast: &Ast<'_>) -> bool {
-    if module.kind(ast) == TsModuleDeclarationKind::Module {
-        return module.id(ast).is_string_literal(ast);
-    }
-    if module.declare(ast) {
-        return true;
-    }
-
-    let Some(body) = module.body(ast) else {
-        return false;
-    };
-    if let Some(nested) = body.as_ts_module_declaration(ast) {
-        return is_type_only_module(nested, ast);
-    }
-    let Some(block) = body.as_ts_module_block(ast) else {
-        return false;
-    };
-    let statements = block.body(ast);
-    for statement in statements.iter() {
-        let statement = ast.get_node_in_sub_range(statement);
-        if statement_has_runtime_effect(statement, ast) {
-            return false;
-        }
-    }
-    true
-}
-
-fn statement_has_runtime_effect(statement: Stmt, ast: &Ast<'_>) -> bool {
-    if let Some(declaration) = statement.as_declaration(ast) {
-        return declaration_has_runtime_effect(declaration, ast);
-    }
-    if statement.is_import_declaration(ast) {
-        return false;
-    }
-    if let Some(export) = statement.as_export_named_declaration(ast) {
-        if let Some(declaration) = export.declaration(ast) {
-            return declaration_has_runtime_effect(declaration, ast);
-        }
-        return export.export_kind(ast) != ImportOrExportKind::Type;
-    }
-    !statement.is_ts_namespace_export_declaration(ast)
-}
-
-fn declaration_has_runtime_effect(declaration: Decl, ast: &Ast<'_>) -> bool {
-    if declaration.is_ts_type_alias_declaration(ast) {
-        return false;
-    }
-    if declaration.is_ts_interface_declaration(ast) {
-        return false;
-    }
-    if let Some(import_equals) = declaration.as_ts_import_equals_declaration(ast) {
-        return import_equals.import_kind(ast) != ImportOrExportKind::Type;
-    }
-    if let Some(module) = declaration.as_ts_module_declaration(ast) {
-        return !is_type_only_module(module, ast);
-    }
-    true
 }

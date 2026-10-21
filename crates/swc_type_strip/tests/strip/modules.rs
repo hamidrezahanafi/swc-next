@@ -49,7 +49,7 @@ fn imports() {
         "import { value,        /* comment */ } from 'm';",
     );
 
-    assert_strip(
+    assert_strip_error(
         "import type Alias = Namespace.Member;\nrun();",
         ";                                    \nrun();",
     );
@@ -92,17 +92,27 @@ fn exports() {
         ";                      \nrun();",
     );
 
-    assert_strip(
+    assert_strip_error(
+        "export import Alias = Namespace.Member;",
+        ";                                      ",
+    );
+
+    assert_strip_error(
+        "export import Alias = require('pkg');",
+        ";                                    ",
+    );
+
+    assert_strip_error(
         "export import type Alias = Namespace.Member;",
         ";                                           ",
     );
 
-    assert_strip(
+    assert_strip_error(
         "export import type Alias = require('pkg');",
         ";                                         ",
     );
 
-    assert_strip(
+    assert_strip_error(
         "namespace N { export import type Alias = Namespace.Member; }",
         ";                                                           ",
     );
