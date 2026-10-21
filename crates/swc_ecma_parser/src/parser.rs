@@ -8294,6 +8294,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_identifier(&mut self) -> Option<Expr> {
         let token = self.current_token;
         self.validate_identifier(token, "an identifier");
+        // Only an identifier token can be decoded as one. Anything else was
+        // reported by validate_identifier and must not reach the decoder.
+        if !token.tag().is_identifier_like() {
+            return None;
+        }
         self.parse_identifier_from_token(token)
     }
 
@@ -12571,6 +12576,12 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_binding_identifier(&mut self) -> Option<BindingIdentifier> {
         let token = self.current_token;
         self.validate_identifier(token, "a binding identifier");
+        // Only an identifier token can be decoded as one. A string or template
+        // literal reports `Expected an identifier` above and is left for the
+        // caller's recovery instead of reaching the identifier decoder.
+        if !token.tag().is_identifier_like() {
+            return None;
+        }
         self.advance_without_escape_check()?;
         let name = self.identifier_name(token);
         Some(self.ast.binding_identifier(token.span(), name))
@@ -14939,6 +14950,37 @@ mod tests {
 
         check!(r#"export * as "\uD800" from "m";"#,
             errors: [r#""\uD800""#], statements: [ExportAllDeclaration]);
+    }
+
+    #[test]
+    fn binding_identifier_recovery() {
+        let module = Options {
+            lang: Lang::Js,
+            source_type: SourceType::Module,
+            ..Options::default()
+        };
+        let typescript = Options {
+            lang: Lang::Ts,
+            ..module
+        };
+
+        assert!(has_errors(r#"import * as "\uD800" ns from "x";"#, module));
+
+        assert!(has_errors(r#"import * as "\u{D800}" from "x";"#, module));
+
+        assert!(has_errors(r#"import `\uDC00` from "x";"#, module));
+
+        assert!(has_errors(r#"type T = infer "\uD800";"#, typescript));
+
+        assert!(has_errors(r#"function f<"\uD800">() {}"#, typescript));
+
+        assert!(has_errors(r#"import x = "\uD800";"#, typescript));
+
+        assert!(!has_errors(r#"import a from "x";"#, module));
+
+        assert!(!has_errors(r#"import * as ns from "x";"#, module));
+
+        assert!(!has_errors("type T = infer U;", typescript));
     }
 
     #[test]
