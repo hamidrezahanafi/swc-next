@@ -1,0 +1,34 @@
+---
+title: Overview
+description: A JavaScript and TypeScript toolchain focused on performance, JavaScript extensibility, and correctness.
+---
+
+# SWC Next
+
+SWC Next is a fast JavaScript and TypeScript toolchain written in Rust, focused on performance and JavaScript extensibility.
+
+## Features
+
+- **Fast.** Around **3× faster than SWC** in [native parser benchmarks](/guide/benchmark#rust-parse) and **8×** in [JavaScript parser benchmarks](/guide/benchmark#js-parser).
+- **JavaScript plugins.** Inspect and transform [ESTree](https://github.com/estree/estree)-compatible ASTs using JavaScript.
+- **Correct.** Passes **100% of the Test262 parser conformance suite**. See [results](/guide/testing#parser).
+- **Node.js and browsers.** Native bindings for Node.js and WebAssembly for the browser.
+
+## Get started
+
+```sh
+npm install @swc-next/core
+```
+
+Parse a program and print it back to source:
+
+```js title="index.mjs"
+import { parseSync, printSync } from "@swc-next/core";
+
+const { program } = parseSync("const answer = 42;");
+console.log(printSync(program).code); // const answer = 42;
+```
+
+See [Install](/guide/install) for browser setup, or explore the [JavaScript API](/api/javascript/core).
+
+SWC Next is under development. See [Project status](/guide/status) for available features and the [Roadmap](https://github.com/swc-project/swc-next/issues/181) for planned work.
