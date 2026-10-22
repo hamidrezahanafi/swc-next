@@ -2,14 +2,16 @@
 pageType: doc-wide
 outline: false
 title: Benchmark
-description: Wall time and peak memory comparisons with SWC.
+description: Wall time and peak memory comparisons with SWC and Babel.
 ---
 
 import { BenchmarkGroup } from "../../theme/Benchmarks";
 
 # Benchmark
 
-Benchmarks compare SWC Next with SWC on the same inputs and iteration counts. Wall time and peak resident memory are shown side by side, relative to SWC.
+Benchmarks compare SWC Next with SWC and, for JavaScript API benchmarks, Babel on the same inputs and iteration counts. Wall time and peak resident memory are normalized to **SWC Next = 1×** for each input and metric. Lower values are better; absolute measurements are shown alongside the ratios.
+
+A **batch** is one process running the displayed number of iterations. Wall time covers the whole process, including startup and, for JavaScript benchmarks, validation and warmup. Batch sizes are calibrated separately for each JavaScript case, so parse and parse + walk may use different iteration counts; compare their batch times only when those counts match.
 
 ## Rust parse
 
@@ -26,3 +28,9 @@ Benchmarks compare SWC Next with SWC on the same inputs and iteration counts. Wa
 ## JS parser
 
 <BenchmarkGroup title="JS parser" />
+
+## JS parse + walk
+
+Each iteration parses a fresh AST and counts `Identifier` nodes using SWC Next's `walk`, SWC's `Visitor`, or Babel's `traverse` with `noScope: true`. 
+
+<BenchmarkGroup title="JS parse + walk" />

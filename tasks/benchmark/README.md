@@ -11,6 +11,17 @@ cargo bench -p benchmark --bench parser
 
 Select `visit` or `semantic` instead of `parser` for those components.
 
+## JavaScript parser batches
+
+```sh
+node tasks/benchmark/bin/babel.js tasks/benchmark/files/typescript.js 10
+node tasks/benchmark/bin/babel.js tasks/benchmark/files/typescript.js 10 parse-walk
+```
+
+Use `swc.js` or `swc-next.js` for the other parsers. Each command validates the
+input, warms up five times, then runs the requested number of parses. Replace
+the iteration count with `--calibrate` to report milliseconds per parse.
+
 ## Instructions and profiles
 
 On Linux with Valgrind and the `gungraun-runner` version matching the workspace's
