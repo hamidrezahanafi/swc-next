@@ -21,8 +21,7 @@ use swc_next_ecma_ast::{
 
 use crate::{
     DeclarationId, HoistingMap, NodeSemanticId, Redeclarations, ScopeMap, Semantic,
-    module_record::ModuleRecordBuilder,
-    scope::{Scope, ScopeKind, ScopeTracker, ScopeTree},
+    scope::{Scope, ScopeKind, ScopeTree},
 };
 
 mod aliases;
@@ -1833,9 +1832,7 @@ pub(crate) struct SymbolTracker<'a> {
 pub(crate) enum ExportState {
     #[default]
     None,
-    Named {
-        statement: NodeId,
-    },
+    Named,
     Default,
 }
 
@@ -1848,11 +1845,8 @@ impl ExportState {
         matches!(self, Self::Default)
     }
 
-    pub(crate) fn named(self) -> Option<NodeId> {
-        match self {
-            Self::Named { statement } => Some(statement),
-            Self::None | Self::Default => None,
-        }
+    pub(crate) fn is_named(self) -> bool {
+        matches!(self, Self::Named)
     }
 }
 
@@ -2087,9 +2081,7 @@ impl<'a> SymbolTracker<'a> {
         if declaration.declaration(tree).is_some()
             || declaration.export_kind(tree) != ImportOrExportKind::Type
         {
-            self.export_state = ExportState::Named {
-                statement: declaration.node_id(),
-            };
+            self.export_state = ExportState::Named;
         }
     }
 
@@ -2105,13 +2097,14 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         declaration: VariableDeclaration,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTree<'a>,
+        current_scope: ScopeId,
     ) {
         self.push_saved_context();
         let kind = declaration.kind(tree);
         self.pending = match kind {
             VariableKind::Var => {
-                let target = scope.hoist_target();
+                let target = scope.get(current_scope).hoist_target;
                 let mut excludes = Excludes::FUNCTION_SCOPED_VAR;
                 // JS permits var/function merges in hoist scopes, except modules.
                 if !tree.is_ts() && scope.get(target).kind != ScopeKind::Module {
@@ -2133,7 +2126,7 @@ impl<'a> SymbolTracker<'a> {
                         declaration.declare(tree) || self.ambient,
                     ),
                     excludes: Excludes::BLOCK_SCOPED_VAR,
-                    scope: scope.current,
+                    scope: current_scope,
                 }
             }
             VariableKind::Let => PendingBinding {
@@ -2142,7 +2135,7 @@ impl<'a> SymbolTracker<'a> {
                     declaration.declare(tree) || self.ambient,
                 ),
                 excludes: Excludes::BLOCK_SCOPED_VAR,
-                scope: scope.current,
+                scope: current_scope,
             },
         };
     }
@@ -2151,13 +2144,14 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         function: Function,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTree<'a>,
+        current_scope: ScopeId,
         annex_b_if_body: bool,
     ) {
         self.push_saved_context();
         let is_declaration = function.function_type(tree) == FunctionType::FunctionDeclaration;
         let enclosing = scope
-            .current_scope()
+            .get(current_scope)
             .parent
             .expect("a function scope has an enclosing scope");
         // Declaration placement follows the enclosing code, independently
@@ -2171,7 +2165,7 @@ impl<'a> SymbolTracker<'a> {
         let target = if is_declaration && !branch_local {
             enclosing
         } else {
-            scope.current
+            current_scope
         };
 
         let target_kind = scope.get(target).kind;
@@ -2222,11 +2216,12 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         function: TsFunction,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTree<'a>,
+        current_scope: ScopeId,
     ) {
         self.push_saved_context();
         let target = scope
-            .current_scope()
+            .get(current_scope)
             .parent
             .expect("a TypeScript function scope has a parent");
         self.pending = PendingBinding {
@@ -2239,7 +2234,13 @@ impl<'a> SymbolTracker<'a> {
         }
     }
 
-    pub fn enter_class(&mut self, tree: &Ast<'a>, class: Class, scope: &ScopeTracker<'a>) {
+    pub fn enter_class(
+        &mut self,
+        tree: &Ast<'a>,
+        class: Class,
+        scope: &ScopeTree<'a>,
+        current_scope: ScopeId,
+    ) {
         self.push_saved_context();
         let is_declaration = class.class_type(tree) == ClassType::ClassDeclaration;
         self.pending = PendingBinding {
@@ -2253,11 +2254,11 @@ impl<'a> SymbolTracker<'a> {
             },
             scope: if is_declaration {
                 scope
-                    .current_scope()
+                    .get(current_scope)
                     .parent
                     .expect("a class declaration scope has a parent")
             } else {
-                scope.current
+                current_scope
             },
         };
         // Expression names are local.
@@ -2268,7 +2269,7 @@ impl<'a> SymbolTracker<'a> {
         }
     }
 
-    pub fn enter_formal_parameters(&mut self, scope: &ScopeTracker<'a>) {
+    pub fn enter_formal_parameters(&mut self, current_scope: ScopeId) {
         self.push_saved_context();
         self.pending = PendingBinding {
             flags: (SymbolFlags::FUNCTION_SCOPED_VAR | SymbolFlags::PARAMETER).with(
@@ -2276,7 +2277,7 @@ impl<'a> SymbolTracker<'a> {
                 self.pending.flags.contains(SymbolFlags::AMBIENT),
             ),
             excludes: Excludes::PARAMETER,
-            scope: scope.current,
+            scope: current_scope,
         };
         self.export_state = ExportState::None;
     }
@@ -2305,7 +2306,7 @@ impl<'a> SymbolTracker<'a> {
         self.export_state = ExportState::None;
     }
 
-    pub fn enter_ts_module_block(&mut self, scope: &ScopeTracker<'a>) {
+    pub fn enter_ts_module_block(&mut self, current_scope: ScopeId) {
         self.export_state = ExportState::None;
         let context = self
             .ts_container_stack
@@ -2317,12 +2318,12 @@ impl<'a> SymbolTracker<'a> {
         else {
             return;
         };
-        *body_scope = Some(scope.current);
+        *body_scope = Some(current_scope);
         let views = *views;
-        self.record_ts_scope_views(scope.current, views);
+        self.record_ts_scope_views(current_scope, views);
     }
 
-    pub fn enter_ts_enum_body(&mut self, scope: &ScopeTracker<'a>) {
+    pub fn enter_ts_enum_body(&mut self, current_scope: ScopeId) {
         self.export_state = ExportState::None;
         let owner = *self
             .ts_enum_owner_stack
@@ -2335,7 +2336,7 @@ impl<'a> SymbolTracker<'a> {
             kind: TsMemberViewKind::Enum,
         });
         self.ts_scope_view_records.push((
-            scope.current,
+            current_scope,
             Range {
                 start: start as u32,
                 len: 1,
@@ -2390,19 +2391,19 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         declaration: ImportDeclaration,
-        scope: &ScopeTracker<'a>,
+        current_scope: ScopeId,
     ) {
         self.push_saved_context();
-        self.pending = import_pending(declaration.import_kind(tree), scope.current);
+        self.pending = import_pending(declaration.import_kind(tree), current_scope);
     }
 
     pub fn enter_ts_import_equals_declaration(
         &mut self,
         import_kind: ImportOrExportKind,
-        scope: &ScopeTracker<'a>,
+        current_scope: ScopeId,
     ) {
         self.push_saved_context();
-        self.pending = import_pending(import_kind, scope.current);
+        self.pending = import_pending(import_kind, current_scope);
         self.pending.flags |= SymbolFlags::IMPORT_EQUALS;
     }
 
@@ -2414,12 +2415,12 @@ impl<'a> SymbolTracker<'a> {
         }
     }
 
-    pub fn enter_catch_clause(&mut self, scope: &ScopeTracker<'a>) {
+    pub fn enter_catch_clause(&mut self, current_scope: ScopeId) {
         self.push_saved_context();
         self.pending = PendingBinding {
             flags: SymbolFlags::FUNCTION_SCOPED_VAR | SymbolFlags::CATCH_VAR,
             excludes: Excludes::CATCH_VAR,
-            scope: scope.current,
+            scope: current_scope,
         };
     }
 
@@ -2427,10 +2428,11 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         declaration: TsInterfaceDeclaration,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTree<'a>,
+        current_scope: ScopeId,
     ) {
         // The id binds in the surrounding scope. Type-parameter and
-        // body bindings live in a scope pushed by the tracker.
+        // body bindings live in a scope pushed by the builder.
         self.push_saved_context();
         self.pending = PendingBinding {
             flags: SymbolFlags::INTERFACE.with(
@@ -2439,7 +2441,7 @@ impl<'a> SymbolTracker<'a> {
             ),
             excludes: Excludes::INTERFACE,
             scope: scope
-                .current_scope()
+                .get(current_scope)
                 .parent
                 .expect("an interface scope has a parent"),
         };
@@ -2449,7 +2451,8 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         declaration: TsTypeAliasDeclaration,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTree<'a>,
+        current_scope: ScopeId,
     ) {
         self.push_saved_context();
         self.pending = PendingBinding {
@@ -2459,7 +2462,7 @@ impl<'a> SymbolTracker<'a> {
             ),
             excludes: Excludes::TYPE_ALIAS,
             scope: scope
-                .current_scope()
+                .get(current_scope)
                 .parent
                 .expect("a type alias scope has a parent"),
         };
@@ -2469,7 +2472,7 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         declaration: TsEnumDeclaration,
-        scope: &ScopeTracker<'a>,
+        current_scope: ScopeId,
     ) {
         self.push_saved_context();
         self.pending = PendingBinding {
@@ -2487,7 +2490,7 @@ impl<'a> SymbolTracker<'a> {
             } else {
                 Excludes::REGULAR_ENUM
             },
-            scope: scope.current,
+            scope: current_scope,
         };
     }
 
@@ -2495,7 +2498,7 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         declaration: TsModuleDeclaration,
-        scope: &ScopeTracker<'a>,
+        current_scope: ScopeId,
     ) {
         self.push_saved_context();
         if matches!(
@@ -2529,7 +2532,7 @@ impl<'a> SymbolTracker<'a> {
             } else {
                 Excludes::NAMESPACE_MODULE
             },
-            scope: scope.current,
+            scope: current_scope,
         };
         // `declare` makes the whole body ambient.
         if declaration.declare(tree) {
@@ -2587,7 +2590,8 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         parent: Option<NodeId>,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTree<'a>,
+        current_scope: ScopeId,
     ) {
         // `TsTypeParameter` wraps `<T>` and `infer U`.
         self.push_saved_context();
@@ -2595,14 +2599,14 @@ impl<'a> SymbolTracker<'a> {
         // true branch sees it, even from inside a signature type.
         let target = if parent.is_some_and(|parent| tree.node_kind(parent) == NodeKind::TsInferType)
         {
-            infer_owner(scope)
-        } else if scope.current_scope().kind == ScopeKind::TsTypeParameters {
+            infer_owner(scope, current_scope)
+        } else if scope.get(current_scope).kind == ScopeKind::TsTypeParameters {
             scope
-                .current_scope()
+                .get(current_scope)
                 .parent
                 .expect("type parameters have an owning declaration scope")
         } else {
-            scope.current
+            current_scope
         };
         self.pending = PendingBinding {
             flags: SymbolFlags::TYPE_PARAMETER,
@@ -2635,16 +2639,17 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         parent: Option<NodeId>,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTree<'a>,
+        current_scope: ScopeId,
     ) {
         // Mapped type keys `[K in T]` are bare binding identifiers, so the
         // same pending context as a type parameter applies.
         self.push_saved_context();
         let target = if parent.is_some_and(|parent| tree.node_kind(parent) == NodeKind::TsInferType)
         {
-            infer_owner(scope)
+            infer_owner(scope, current_scope)
         } else {
-            scope.current
+            current_scope
         };
         self.pending = PendingBinding {
             flags: SymbolFlags::TYPE_PARAMETER,
@@ -2654,38 +2659,38 @@ impl<'a> SymbolTracker<'a> {
         self.export_state = ExportState::None;
     }
 
-    pub fn enter_ts_function_type(&mut self, scope: &ScopeTracker<'a>) {
-        self.enter_signature_type(scope);
+    pub fn enter_ts_function_type(&mut self, current_scope: ScopeId) {
+        self.enter_signature_type(current_scope);
     }
 
-    pub fn enter_ts_constructor_type(&mut self, scope: &ScopeTracker<'a>) {
-        self.enter_signature_type(scope);
+    pub fn enter_ts_constructor_type(&mut self, current_scope: ScopeId) {
+        self.enter_signature_type(current_scope);
     }
 
-    pub fn enter_ts_method_signature(&mut self, scope: &ScopeTracker<'a>) {
-        self.enter_signature_type(scope);
+    pub fn enter_ts_method_signature(&mut self, current_scope: ScopeId) {
+        self.enter_signature_type(current_scope);
     }
 
-    pub fn enter_ts_call_signature_declaration(&mut self, scope: &ScopeTracker<'a>) {
-        self.enter_signature_type(scope);
+    pub fn enter_ts_call_signature_declaration(&mut self, current_scope: ScopeId) {
+        self.enter_signature_type(current_scope);
     }
 
-    pub fn enter_ts_construct_signature_declaration(&mut self, scope: &ScopeTracker<'a>) {
-        self.enter_signature_type(scope);
+    pub fn enter_ts_construct_signature_declaration(&mut self, current_scope: ScopeId) {
+        self.enter_signature_type(current_scope);
     }
 
-    pub fn enter_ts_index_signature(&mut self, scope: &ScopeTracker<'a>) {
-        self.enter_signature_type(scope);
+    pub fn enter_ts_index_signature(&mut self, current_scope: ScopeId) {
+        self.enter_signature_type(current_scope);
     }
 
-    fn enter_signature_type(&mut self, scope: &ScopeTracker<'a>) {
+    fn enter_signature_type(&mut self, current_scope: ScopeId) {
         // Erasure does not remove signature parameters from the value namespace.
         // FormalParameters uses the same role; index signatures bind directly.
         self.push_saved_context();
         self.pending = PendingBinding {
             flags: SymbolFlags::FUNCTION_SCOPED_VAR | SymbolFlags::PARAMETER,
             excludes: Excludes::PARAMETER,
-            scope: scope.current,
+            scope: current_scope,
         };
         self.export_state = ExportState::None;
     }
@@ -2809,40 +2814,41 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         identifier: BindingIdentifier,
-        scope: &ScopeTracker<'a>,
-    ) -> bool {
+        scope: &ScopeTree<'a>,
+        current_scope: ScopeId,
+    ) {
         let Some((node, name)) = self.binding_identifier_declaration(tree, identifier, scope)
         else {
-            return false;
+            return;
         };
         let declaration_id = self.declare(tree, name.into(), node);
-        self.finish_binding_identifier(tree, name, declaration_id, scope);
-        true
+        self.finish_binding_identifier(tree, name, declaration_id, scope, current_scope);
     }
 
     pub(crate) fn declare_prepared_binding_identifier(
         &mut self,
         tree: &Ast<'a>,
         identifier: BindingIdentifier,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTree<'a>,
+        current_scope: ScopeId,
         prepared: PreparedDeclaration,
-    ) -> bool {
+    ) {
         let Some((node, name)) = self.binding_identifier_declaration(tree, identifier, scope)
         else {
-            return false;
+            return;
         };
         debug_assert_eq!(prepared.node(), node);
         debug_assert_eq!(prepared.name(), name.into());
         let declaration_id = self.declare_prepared(tree, prepared);
-        self.finish_binding_identifier(tree, name, declaration_id, scope);
-        true
+        self.finish_binding_identifier(tree, name, declaration_id, scope, current_scope);
     }
 
     pub(crate) fn prepare_ts_enum_member(
         &mut self,
         tree: &Ast<'a>,
         member: TsEnumMember,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTree<'a>,
+        current_scope: ScopeId,
     ) -> Option<PreparedDeclaration> {
         self.sync_scope_maps_from(scope);
         // Members are lexically visible inside the enum body:
@@ -2867,7 +2873,7 @@ impl<'a> SymbolTracker<'a> {
             .environment(environment)
             .get(name_text)
             .map(|entry| entry.symbol);
-        let local = self.own_binding(scope.current, name_text);
+        let local = self.own_binding(current_scope, name_text);
         let prepared = PreparedDeclaration {
             declaration: PendingDeclaration {
                 name,
@@ -2875,12 +2881,12 @@ impl<'a> SymbolTracker<'a> {
                 binding: PendingBinding {
                     flags,
                     excludes: Excludes::ENUM_MEMBER,
-                    scope: scope.current,
+                    scope: current_scope,
                 },
             },
             destination: DeclarationDestination::TsMember {
                 environment,
-                body_scope: Some(scope.current),
+                body_scope: Some(current_scope),
                 projection_scope: None,
             },
             local,
@@ -3140,9 +3146,9 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         declaration: TsNamespaceExportDeclaration,
-        scope: &ScopeTracker<'a>,
+        current_scope: ScopeId,
     ) {
-        if scope.current != ScopeId::MODULE || tree.lang() != swc_next_ecma_ast::Lang::Dts {
+        if current_scope != ScopeId::MODULE || tree.lang() != swc_next_ecma_ast::Lang::Dts {
             return;
         }
         let identifier = declaration.id(tree);
@@ -3154,7 +3160,7 @@ impl<'a> SymbolTracker<'a> {
                 binding: PendingBinding {
                     flags: SymbolFlags::UMD_EXPORT,
                     excludes: SymbolFlags::empty(),
-                    scope: scope.current,
+                    scope: current_scope,
                 },
             },
             None,
@@ -3291,13 +3297,14 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         name: BindingIdentifier,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTree<'a>,
+        current_scope: ScopeId,
     ) {
         self.sync_scope_maps_from(scope);
         let symbol = self
             .symbol_of_node(name.node_id())
             .expect("the infer parameter is already declared");
-        self.insert_scope_binding(tree, scope.current, name.name(tree).into(), symbol);
+        self.insert_scope_binding(tree, current_scope, name.name(tree).into(), symbol);
     }
 
     #[inline(always)]
@@ -3305,7 +3312,7 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         identifier: BindingIdentifier,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTree<'a>,
     ) -> Option<(NodeId, AstUtf8)> {
         self.sync_scope_maps_from(scope);
         // The declaration role comes from the enclosing syntax, independently
@@ -3322,14 +3329,15 @@ impl<'a> SymbolTracker<'a> {
         tree: &Ast<'a>,
         name: AstUtf8,
         declaration_id: DeclarationId,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTree<'a>,
+        current_scope: ScopeId,
     ) {
         // Register a hoisting var in every block it passes through so
         // block-scoped redeclarations see it.
         let declaration = self.declarations[declaration_id.index()];
-        if declaration.flags.is_hoisting_var() && scope.current != declaration.scope {
+        if declaration.flags.is_hoisting_var() && current_scope != declaration.scope {
             let name = tree.get_utf8(name).as_bytes();
-            for scope_id in scope.ancestors(Some(scope.current)) {
+            for scope_id in scope.ancestors(Some(current_scope)) {
                 if scope_id == declaration.scope {
                     break;
                 }
@@ -3612,9 +3620,9 @@ impl<'a> SymbolTracker<'a> {
         self.scope_maps[scope.index()].insert(name, id);
     }
 
-    fn sync_scope_maps_from(&mut self, scope: &ScopeTracker<'a>) {
-        if self.scope_maps.len() < scope.scopes.len() {
-            self.sync_scope_maps(scope.scopes.len());
+    fn sync_scope_maps_from(&mut self, scope: &ScopeTree<'a>) {
+        if self.scope_maps.len() < scope.list.len() {
+            self.sync_scope_maps(scope.list.len());
         }
     }
 
@@ -3665,13 +3673,13 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         identifier: IdentifierReference,
-        scope: &ScopeTracker<'a>,
+        current_scope: ScopeId,
         flags: ReferenceFlags,
     ) {
         self.add_reference(
             tree,
             identifier.name(tree),
-            scope.current,
+            current_scope,
             identifier.node_id(),
             flags,
         );
@@ -3681,7 +3689,8 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         specifier: ExportSpecifier,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTree<'a>,
+        current_scope: ScopeId,
         flags: ReferenceFlags,
         type_only: bool,
     ) {
@@ -3692,11 +3701,11 @@ impl<'a> SymbolTracker<'a> {
         let local_reference = self.add_reference(
             tree,
             local.name(tree),
-            scope.current,
+            current_scope,
             local.node_id(),
             flags,
         );
-        let Some(environment) = self.current_ts_namespace_export_environment(scope.current) else {
+        let Some(environment) = self.current_ts_namespace_export_environment(current_scope) else {
             return;
         };
         let exported_name = ts_module_export_name(tree, specifier.exported(tree));
@@ -3730,7 +3739,8 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         node: AssignmentExpression,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTree<'a>,
+        current_scope: ScopeId,
         ancestors: impl Iterator<Item = NodeId>,
     ) {
         if !tree.lang().is_typescript() || node.operator(tree) != AssignmentOperator::Assign {
@@ -3743,7 +3753,7 @@ impl<'a> SymbolTracker<'a> {
         if !member_facts::is_expando_assignment(tree, member) {
             return;
         }
-        let site = TsExpandoBindingSite::new(tree, scope, ancestors);
+        let site = TsExpandoBindingSite::new(tree, scope, current_scope, ancestors);
         self.ts_expando_assignments.push((member, site));
     }
 
@@ -3751,7 +3761,8 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         predicate: TsTypePredicate,
-        scope: &ScopeTracker<'a>,
+        scope: &ScopeTree<'a>,
+        current_scope: ScopeId,
     ) {
         self.sync_scope_maps_from(scope);
         // `param is T` parses `param` as an IdentifierName but it
@@ -3763,13 +3774,13 @@ impl<'a> SymbolTracker<'a> {
             return;
         };
         let name = parameter_name.name(tree);
-        let parameter_scope = if scope.current_scope().kind == ScopeKind::TsSignatureReturn {
+        let parameter_scope = if scope.get(current_scope).kind == ScopeKind::TsSignatureReturn {
             scope
-                .current_scope()
+                .get(current_scope)
                 .parent
                 .expect("a return annotation has an owning signature")
         } else {
-            scope.current
+            current_scope
         };
         let Some(parameter) = self.own_binding(parameter_scope, tree.get_utf8(name).as_bytes())
         else {
@@ -3785,7 +3796,7 @@ impl<'a> SymbolTracker<'a> {
         self.add_reference(
             tree,
             name,
-            scope.current,
+            current_scope,
             parameter_node,
             ReferenceFlags::default()
                 .with_space(ReferenceSpace::Typeof)
@@ -3809,21 +3820,21 @@ impl<'a> SymbolTracker<'a> {
         &mut self,
         tree: &Ast<'a>,
         element: JsxOpeningElement,
-        scope: &ScopeTracker<'a>,
+        current_scope: ScopeId,
     ) {
         // The root of a component tag is a JS binding
         // reference. Lowercase tags are intrinsic element names; the
         // rest of a member chain is property syntax.
-        self.add_jsx_reference(tree, element.name(tree), scope.current);
+        self.add_jsx_reference(tree, element.name(tree), current_scope);
     }
 
     pub fn add_jsx_closing_element_reference(
         &mut self,
         tree: &Ast<'a>,
         element: JsxClosingElement,
-        scope: &ScopeTracker<'a>,
+        current_scope: ScopeId,
     ) {
-        self.add_jsx_reference(tree, element.name(tree), scope.current);
+        self.add_jsx_reference(tree, element.name(tree), current_scope);
     }
 
     fn add_jsx_reference(&mut self, tree: &Ast<'a>, name: JsxElementName, scope: ScopeId) {
@@ -4152,12 +4163,7 @@ impl<'a> SymbolTracker<'a> {
     /// declaration, use, and node indexes and resolves every reference
     /// to its declaring symbol. The result aliases tracker storage and
     /// remains valid for the source tree's arena lifetime.
-    pub fn finalize(
-        mut self,
-        tree: &Ast<'a>,
-        scopes: ScopeTree<'a>,
-        module_record: ModuleRecordBuilder<'a>,
-    ) -> Semantic<'a> {
+    pub fn finalize(mut self, tree: &Ast<'a>, scopes: ScopeTree<'a>) -> Semantic<'a> {
         // The walk must have ended balanced.
         debug_assert!(self.saved_stack.is_empty());
         debug_assert_eq!(self.export_state, ExportState::None);
@@ -4281,7 +4287,6 @@ impl<'a> SymbolTracker<'a> {
             ));
             *slot = NodeSemanticId::Scope(ScopeId::from_usize(index));
         }
-        let module_record = module_record.finalize(&self.node_semantic, &self.references);
         let declarations = self.declarations;
         let redeclarations = self.redeclarations;
         let node_semantic = self.node_semantic;
@@ -4300,7 +4305,6 @@ impl<'a> SymbolTracker<'a> {
             reference_candidates,
             declarations,
             redeclarations,
-            module_record,
             use_ids,
             use_ranges,
             scope_maps: self.scope_maps,
@@ -4636,10 +4640,10 @@ fn import_pending(kind: ImportOrExportKind, scope: ScopeId) -> PendingBinding {
     }
 }
 
-fn infer_owner(scope: &ScopeTracker<'_>) -> ScopeId {
+fn infer_owner(scope: &ScopeTree<'_>, current_scope: ScopeId) -> ScopeId {
     // Like TS7's getInferTypeContainer, select the nearest conditional whose
     // extends subtree contains the declaration, even across nested branches.
-    for id in scope.ancestors(Some(scope.current)) {
+    for id in scope.ancestors(Some(current_scope)) {
         let region = scope.get(id);
         if region.kind == ScopeKind::TsConditionalExtends {
             return region
@@ -4647,7 +4651,7 @@ fn infer_owner(scope: &ScopeTracker<'_>) -> ScopeId {
                 .expect("an extends view has a conditional owner");
         }
     }
-    scope.current
+    current_scope
 }
 
 fn collect_ts_module_path(
