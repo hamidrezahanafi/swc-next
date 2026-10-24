@@ -5,10 +5,10 @@ mod allocator_api;
 pub mod boxed;
 pub mod hash_map;
 pub mod hash_set;
-pub mod multi_index_vec;
-pub mod raw_vec;
 pub mod vec;
 pub mod wtf8;
+
+pub use oxc_index::{Idx, IndexSlice, IndexVec, define_index_type, define_nonmax_u32_index_type};
 
 pub trait CloneIn<'a>: Sized {
     type Cloned;
@@ -60,14 +60,14 @@ where
     }
 }
 
-impl<'a, 'src, C: 'a, T> CloneIn<'a> for vec::Vec<'src, T>
+impl<'a, 'src, C: 'a, T> CloneIn<'a> for vec::ArenaVec<'src, T>
 where
     T: CloneIn<'a, Cloned = C>,
 {
-    type Cloned = vec::Vec<'a, C>;
+    type Cloned = vec::ArenaVec<'a, C>;
 
     fn clone_in(&self, allocator: &'a Allocator) -> Self::Cloned {
-        let mut cloned = vec::Vec::with_capacity_in(self.len(), allocator);
+        let mut cloned = vec::ArenaVec::with_capacity_in(self.len(), allocator);
         for item in self {
             cloned.push(item.clone_in(allocator));
         }
@@ -178,8 +178,8 @@ impl Allocator {
         boxed::Box::new_in(value, self)
     }
 
-    pub fn vec<T>(&self) -> vec::Vec<'_, T> {
-        vec::Vec::new_in(self)
+    pub fn vec<T>(&self) -> vec::ArenaVec<'_, T> {
+        vec::ArenaVec::new_in(self)
     }
 }
 
