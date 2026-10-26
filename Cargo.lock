@@ -2870,6 +2870,7 @@ dependencies = [
 name = "swc_next_bridge"
 version = "0.4.0"
 dependencies = [
+ "encoding_rs",
  "napi",
  "napi-build",
  "napi-derive",
