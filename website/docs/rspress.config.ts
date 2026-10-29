@@ -1,10 +1,25 @@
 import { defineConfig } from "@rspress/core";
+import { pluginOpenGraph } from "rsbuild-plugin-open-graph";
 import { loadConformanceReport } from "./conformance-report";
 import { sidebar } from "./navigation";
 
 export default defineConfig({
   root: "docs",
   builderConfig: {
+    plugins: [
+      pluginOpenGraph({
+        siteName: "SWC Next",
+        type: "website",
+        url: "https://next.swc.rs/",
+        image: "https://next.swc.rs/og.png",
+        description: "A fast, extensible JavaScript and TypeScript toolchain, written in Rust.",
+        twitter: {
+          site: "@swc_rs",
+          card: "summary_large_image",
+          image: "https://next.swc.rs/og.png",
+        },
+      }),
+    ],
     source: {
       define: {
         CONFORMANCE_REPORT: JSON.stringify(loadConformanceReport()),
