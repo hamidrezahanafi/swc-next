@@ -369,7 +369,7 @@ impl<'a, T> RawVec<'a, T> {
     /// #   vector.push_all(&[1, 3, 5, 7, 9]);
     /// # }
     /// ```
-    #[inline(always)]
+    #[inline]
     pub fn reserve(&mut self, used_cap: u32, needed_extra_cap: usize) {
         self.infallible_reserve_internal(used_cap, needed_extra_cap, Amortized)
     }
@@ -540,6 +540,15 @@ impl<'a, T> RawVec<'a, T> {
         self.reserve_internal_or_panic(used_cap, needed_extra_cap, strategy)
     }
 
+    // The caller has already checked that the buffer is full.
+    #[cold]
+    #[inline(never)]
+    pub(super) fn grow_one(&mut self) {
+        debug_assert_eq!(self.len, self.cap_u32());
+        self.reserve_internal_or_panic(self.len, 1, Amortized);
+    }
+
+    #[cold]
     #[inline(never)]
     fn reserve_internal_or_panic(
         &mut self,
