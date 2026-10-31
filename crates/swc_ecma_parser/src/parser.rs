@@ -11327,7 +11327,13 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         let mut key = None;
         let key_token = self.current_token;
 
-        if self.current_token.tag() == TokenTag::Async {
+        // Ordinary `name: value` keys fall through to the single colon-value site
+        // below. `parse_expr` force-inlines the Pratt loop, so a second call site
+        // would duplicate it and hurt instruction-cache locality.
+        if key_token.tag() == TokenTag::Identifier {
+            let name = self.parse_identifier_name()?;
+            key = Some(PropertyKey::IdentifierName(name));
+        } else if key_token.tag() == TokenTag::Async {
             let token = self.current_token;
             self.advance_without_escape_check()?;
             if !self.current_token.has_line_terminator_before()
