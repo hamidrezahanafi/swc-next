@@ -13944,6 +13944,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(())
     }
 
+    #[inline(always)]
     fn expect(&mut self, tag: TokenTag, message: &'static str, help: Option<&'static str>) -> bool {
         if self.current_token.tag() == tag {
             return self.advance().is_some();
