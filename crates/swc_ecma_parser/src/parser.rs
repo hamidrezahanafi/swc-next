@@ -11810,6 +11810,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
+    // Specialize ordinary calls for absent type arguments and a false optional flag.
+    #[inline(always)]
     fn parse_call_expression(
         &mut self,
         callee: Expr,
