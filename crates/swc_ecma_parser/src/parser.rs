@@ -27,6 +27,19 @@ use crate::{
     util::{decode_identifier_escapes, decode_string_escapes},
 };
 
+/// Maximum active guarded native entries; iterative chains do not count.
+///
+/// The budget counts guarded entries, not source levels, so the effective
+/// depth varies by construct. Blocks, parentheses, arrays, and namespaces
+/// each hold one entry per nesting level, so 500 levels parse. Each object
+/// literal level holds two entries (the object cover and its value
+/// expression), so `x = {a: …}` parses through 254 levels and reports at
+/// 255. Function bodies likewise hold two entries per level (statement
+/// plus body), and binding patterns and combined wrappers (such as a
+/// parenthesized object) hold more than one entry per source level and
+/// trip it sooner.
+const MAX_NESTING: usize = 512;
+
 /// Whether comments are collected in a flat, source-ordered list.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum CommentMode {
@@ -436,6 +449,10 @@ impl Default for ReportOptions {
 #[derive(Default)]
 struct ParserDiagnostics {
     entries: Vec<DiagnosticEntry>,
+    /// Set when the nesting limit is exceeded: the single nesting diagnostic
+    /// is final, and direct `push`/`defer` callers (cover cleanup, module
+    /// finalization) must not add more.
+    suppressed: bool,
 }
 
 enum DiagnosticEntry {
@@ -453,11 +470,15 @@ impl ParserDiagnostics {
     }
 
     fn push(&mut self, diagnostic: Diagnostic<'static>) {
-        self.entries.push(DiagnosticEntry::Reported(diagnostic));
+        if !self.suppressed {
+            self.entries.push(DiagnosticEntry::Reported(diagnostic));
+        }
     }
 
     fn defer(&mut self, diagnostic: Diagnostic<'static>) {
-        self.entries.push(DiagnosticEntry::Deferred(diagnostic));
+        if !self.suppressed {
+            self.entries.push(DiagnosticEntry::Deferred(diagnostic));
+        }
     }
 
     fn is_clean_since(&self, checkpoint: usize) -> bool {
@@ -1190,6 +1211,18 @@ pub struct Parser<'a, C: ParserConfig = NoTokenParserConfig> {
     ts_context: TsContext,
     module_detection: ModuleDetection,
     cover: CoverState,
+    /// Active guarded native grammar/conversion calls, excluding flat siblings
+    /// and iterative work-stack entries.
+    ///
+    /// Never restored by rewind: this counts live native frames. Checkpoints
+    /// keep a debug-only copy to verify that trial entries have unwound.
+    nesting_depth: usize,
+    /// Resource exhaustion must not select a different grammar interpretation.
+    nesting_exceeded: bool,
+    /// Span where a trial type-argument parse exhausted the budget. Kept
+    /// until the committed interpretation succeeds (flat comparisons) or
+    /// fails, in which case the nesting failure is the real diagnostic.
+    trial_nesting_span: Option<Span>,
     /// TypeScript grammar alternatives rejected in a particular parse context.
     ///
     /// Failures survive [`Checkpoint`] rollback so enclosing speculation can
@@ -1213,6 +1246,9 @@ pub struct ParseReturn<'a> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Checkpoint {
+    // Assertion only: rollback must not restore the live-frame counter.
+    #[cfg(debug_assertions)]
+    nesting_depth_at_checkpoint: usize,
     // Lexer state.
     lexer_cursor: u32,
     lexer_state: LexerState,
@@ -1496,12 +1532,47 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             },
             module_detection: ModuleDetection::new(options.source_type),
             cover: CoverState::default(),
+            nesting_depth: 0,
+            nesting_exceeded: false,
+            trial_nesting_span: None,
             ts_rejected_speculations: FxHashSet::default(),
             await_identifier_in_async_head: None,
             failed_type_arguments: FxHashMap::default(),
             type_argument_speculation_depth: 0,
             type_argument_lookahead: TypeArgumentLookahead::default(),
         }
+    }
+
+    #[inline(always)]
+    fn enter_nesting(&mut self) -> Option<()> {
+        if self.nesting_depth == MAX_NESTING {
+            // A trial type-argument parse can mimic deep nesting for a flat
+            // comparison chain (`a < b | c > …`). Exhausting the budget there
+            // only rejects the speculation; the committed expression parse
+            // still decides the input, so neither report nor stick.
+            if self.type_argument_speculation_depth != 0 {
+                // Keep the latest trial: an earlier resolved trial must not
+                // mask a later unresolved one at the same finish check.
+                self.trial_nesting_span = Some(self.current_token.span());
+                return None;
+            }
+            return self.report_nesting_limit();
+        }
+        self.nesting_depth += 1;
+        Some(())
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn report_nesting_limit(&mut self) -> Option<()> {
+        self.report(
+            self.current_token.span(),
+            "Parser nesting limit exceeded",
+            ReportOptions::default(),
+        );
+        self.nesting_exceeded = true;
+        self.diagnostics.suppressed = true;
+        None
     }
 
     pub fn parse(mut self) -> ParseReturn<'a> {
@@ -1522,7 +1593,13 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     fn parse_unambiguous_program(mut self) -> ParseReturn<'a> {
         self.enter_program_context(SourceType::Module);
         let body = self.parse_program_body();
-        match self.module_detection.parse_action(&self.diagnostics) {
+        // Resource exhaustion must not select a different grammar interpretation.
+        let action = if self.nesting_exceeded {
+            UnambiguousParseAction::KeepModule
+        } else {
+            self.module_detection.parse_action(&self.diagnostics)
+        };
+        match action {
             UnambiguousParseAction::KeepModule => {}
             UnambiguousParseAction::RelabelAsCommonJs => {
                 self.set_source_type(SourceType::CommonJs);
@@ -1582,8 +1659,30 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.statement_context = source_type.into();
     }
 
+    /// A trial type-argument parse exhausted the budget and the committed
+    /// interpretation failed as well: the nesting failure is the real one.
+    fn apply_trial_nesting_failure(&mut self) {
+        let Some(span) = self.trial_nesting_span.take() else {
+            return;
+        };
+        if !self.diagnostics.has_errors() {
+            return;
+        }
+        self.nesting_exceeded = true;
+        self.diagnostics = ParserDiagnostics {
+            entries: vec![DiagnosticEntry::Reported(Diagnostic::error(
+                "Parser nesting limit exceeded",
+                span,
+            ))],
+            suppressed: true,
+        };
+    }
+
     fn finish_program(mut self, parsed_body: Option<ParsedBody>) -> ParseReturn<'a> {
         debug_assert!(self.cover.initialized_names.is_empty());
+        if parsed_body.is_none() {
+            self.apply_trial_nesting_failure();
+        }
         self.report_module_mode_errors();
         let mut diagnostics = self.diagnostics.finish();
         if parsed_body.is_none() && diagnostics.is_empty() {
@@ -1670,7 +1769,13 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     ) -> Result<Ast<'a>, Vec<Diagnostic<'a>>> {
         self.enter_fragment_context(SourceType::Module, fragment_context);
         let expr = self.parse_value_expression(Precedence::Lowest);
-        match self.module_detection.parse_action(&self.diagnostics) {
+        // Resource exhaustion must not select a different grammar interpretation.
+        let action = if self.nesting_exceeded {
+            UnambiguousParseAction::KeepModule
+        } else {
+            self.module_detection.parse_action(&self.diagnostics)
+        };
+        match action {
             UnambiguousParseAction::KeepModule => {}
             UnambiguousParseAction::RelabelAsCommonJs => {
                 self.set_source_type(SourceType::CommonJs);
@@ -1726,6 +1831,15 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             );
         }
 
+        // A parsed prefix is not a resolved fragment: only skip the trial
+        // nesting failure when the committed parse consumed past the
+        // token where the trial exhausted the budget.
+        let trial_unresolved = self
+            .trial_nesting_span
+            .is_some_and(|span| self.current_token.start() <= span.start);
+        if expr.is_none() || trial_unresolved {
+            self.apply_trial_nesting_failure();
+        }
         self.report_module_mode_errors();
         let diagnostics = self.diagnostics.finish();
         match expr {
@@ -2031,6 +2145,8 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     /// Captures all state needed to commit or discard a speculative parse.
     fn checkpoint(&self) -> Checkpoint {
         Checkpoint {
+            #[cfg(debug_assertions)]
+            nesting_depth_at_checkpoint: self.nesting_depth,
             lexer_cursor: self.lexer.cursor,
             lexer_state: self.lexer.state,
             lexer_mode: self.lexer.mode(),
@@ -2062,8 +2178,16 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         debug_assert!(inserted, "TypeScript speculation was already rejected");
     }
 
-    /// Restores parser state captured by [`Parser::checkpoint`].
-    fn rewind(&mut self, checkpoint: Checkpoint) {
+    /// Restores a syntax trial, but never discards a resource failure.
+    fn rewind(&mut self, checkpoint: Checkpoint) -> Option<()> {
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(
+            self.nesting_depth, checkpoint.nesting_depth_at_checkpoint,
+            "speculative entries must unwind before rewinding"
+        );
+        if self.nesting_exceeded {
+            return None;
+        }
         self.lexer.cursor = checkpoint.lexer_cursor;
         self.lexer.state = checkpoint.lexer_state;
         self.lexer.set_mode(checkpoint.lexer_mode);
@@ -2083,6 +2207,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.cover.rewind(checkpoint.cover_checkpoint);
         self.boundary_context = checkpoint.boundary_context;
         self.await_identifier_in_async_head = checkpoint.await_identifier_in_async_head;
+        Some(())
     }
 
     fn begin_peek(&mut self) -> Peek<'_, 'a, C> {
@@ -2198,6 +2323,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                     self.scratch_statements.append(statement);
                     Some(false)
                 })()?;
+                // Every committed statement boundary settles trial
+                // exhaustion, including the directive-prologue path above
+                // that bypasses `parse_statement`.
+                self.trial_nesting_span = None;
                 if is_directive {
                     directives_end = self.scratch_statements.items.len();
                 }
@@ -2228,9 +2357,16 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     // Dispatch directly from statement lists and bodies without a call per statement.
     #[inline(always)]
     fn parse_statement(&mut self, statement_context: StatementContext) -> Option<Stmt> {
+        self.enter_nesting()?;
         let statement_context = mem::replace(&mut self.statement_context, statement_context);
         let result = self.parse_statement_inner();
         self.statement_context = statement_context;
+        self.nesting_depth -= 1;
+        // A committed statement that parses settles any trial exhaustion
+        // inside it (for example, a flat comparison chain).
+        if result.is_some() {
+            self.trial_nesting_span = None;
+        }
         result
     }
 
@@ -3061,6 +3197,13 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     }
 
     fn parse_destructuring_parameter_pattern(&mut self) -> Option<FormalParameterPattern> {
+        self.enter_nesting()?;
+        let result = self.parse_destructuring_parameter_pattern_inner();
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_destructuring_parameter_pattern_inner(&mut self) -> Option<FormalParameterPattern> {
         match self.current_token.tag() {
             TokenTag::LeftBracket => self
                 .parse_array_pattern()
@@ -3272,6 +3415,18 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     }
 
     fn parse_class_decorated(
+        &mut self,
+        opts: ParseClassOpts,
+        start_from_param: Option<u32>,
+        decorators: SubRange<Decorator>,
+    ) -> Option<Class> {
+        self.enter_nesting()?;
+        let result = self.parse_class_decorated_inner(opts, start_from_param, decorators);
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_class_decorated_inner(
         &mut self,
         opts: ParseClassOpts,
         start_from_param: Option<u32>,
@@ -4060,7 +4215,15 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )
     }
 
+    #[inline(always)]
     fn parse_left_hand_side_expression<const DECORATOR: bool>(&mut self) -> Option<Expr> {
+        self.enter_nesting()?;
+        let result = self.parse_left_hand_side_expression_inner::<DECORATOR>();
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_left_hand_side_expression_inner<const DECORATOR: bool>(&mut self) -> Option<Expr> {
         let expression = match self.current_token.tag() {
             TokenTag::LeftParen => self.parse_parenthesized_expression()?,
             TokenTag::New => self.parse_new_expression()?,
@@ -4451,6 +4614,13 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     // FunctionStatementList[Yield, Await] :
     //   StatementList[?Yield, ?Await, +Return]?
     fn parse_function_body(&mut self) -> Option<FunctionBody> {
+        self.enter_nesting()?;
+        let result = self.parse_function_body_inner();
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_function_body_inner(&mut self) -> Option<FunctionBody> {
         let start = self.current_token.start();
         if !self.expect(
             TokenTag::LeftBrace,
@@ -6303,7 +6473,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         let mut end = parameter_name.span(&self.ast).end;
         let type_annotation = if self.current_token.is_keyword(TokenTag::Is) {
             self.advance()?;
-            let inner = self.parse_type()?;
+            self.enter_nesting()?;
+            let inner = self.parse_type();
+            self.nesting_depth -= 1;
+            let inner = inner?;
             end = inner.span(&self.ast).end;
             Some(self.ast.ts_type_annotation(inner.span(&self.ast), inner))
         } else {
@@ -6384,7 +6557,15 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         parse(self)
     }
 
+    #[inline(always)]
     fn parse_type_no_conditional(&mut self) -> Option<TsType> {
+        self.enter_nesting()?;
+        let result = self.parse_type_no_conditional_inner();
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_type_no_conditional_inner(&mut self) -> Option<TsType> {
         let saved = self.ts_context.disallow_conditional_types();
         self.ts_context
             .insert(TsContext::DISALLOW_CONDITIONAL_TYPES);
@@ -6443,7 +6624,15 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.parse_conditional_type_tail(check_type)
     }
 
+    #[inline(always)]
     fn parse_conditional_type_tail(&mut self, check_type: TsType) -> Option<TsType> {
+        self.enter_nesting()?;
+        let result = self.parse_conditional_type_tail_inner(check_type);
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_conditional_type_tail_inner(&mut self, check_type: TsType) -> Option<TsType> {
         self.advance()?;
         let extends_type = self.parse_type_no_conditional()?;
         // `extends` has committed this grammar alternative. Missing separators
@@ -6591,7 +6780,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 self.ast.ts_array_type(Span::new(start, end), object_type),
             ));
         }
-        let index_type = self.parse_type_with_start_check()?;
+        // `T[]` above is a flat postfix; only an index type can recurse.
+        self.enter_nesting()?;
+        let index_type = self.parse_type_with_start_check();
+        self.nesting_depth -= 1;
+        let index_type = index_type?;
         let end = self.current_token.end();
         if !self.expect(
             TokenTag::RightBracket,
@@ -6731,7 +6924,15 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(self.jsdoc_node_data(inner, kind, true, span))
     }
 
+    #[inline(always)]
     fn parse_parenthesized_type(&mut self) -> Option<TsType> {
+        self.enter_nesting()?;
+        let result = self.parse_parenthesized_type_inner();
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_parenthesized_type_inner(&mut self) -> Option<TsType> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftParen);
         let start = self.current_token.start();
         self.advance()?;
@@ -6750,7 +6951,15 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )))
     }
 
+    #[inline(always)]
     fn parse_tuple_type(&mut self) -> Option<TsType> {
+        self.enter_nesting()?;
+        let result = self.parse_tuple_type_inner();
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_tuple_type_inner(&mut self) -> Option<TsType> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBracket);
         let start = self.current_token.start();
         self.advance()?;
@@ -6947,7 +7156,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             _ => unreachable!(),
         };
         self.advance()?;
-        let type_annotation = self.parse_postfix_type()?;
+        self.enter_nesting()?;
+        let type_annotation = self.parse_postfix_type();
+        self.nesting_depth -= 1;
+        let type_annotation = type_annotation?;
         let span = Span::new(token.start(), type_annotation.span(&self.ast).end);
         Some(TsType::TsTypeOperator(self.ast.ts_type_operator(
             span,
@@ -6994,12 +7206,12 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         let constraint = match self.parse_type_no_conditional() {
             Some(constraint) => constraint,
             None => {
-                self.rewind(checkpoint);
+                self.rewind(checkpoint)?;
                 return Some(None);
             }
         };
         if conditional_allowed && self.current_token.tag() == TokenTag::Question {
-            self.rewind(checkpoint);
+            self.rewind(checkpoint)?;
             self.reject_ts_speculation(key);
             return Some(None);
         }
@@ -7072,11 +7284,19 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 _ => false,
             })
         })();
-        self.rewind(checkpoint);
+        self.rewind(checkpoint)?;
         result
     }
 
+    #[inline(always)]
     fn parse_function_or_constructor_type(&mut self) -> Option<TsType> {
+        self.enter_nesting()?;
+        let result = self.parse_function_or_constructor_type_inner();
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_function_or_constructor_type_inner(&mut self) -> Option<TsType> {
         let start = self.current_token.start();
         let is_abstract = self.eat(TokenTag::Abstract)?;
         let is_constructor = self.eat(TokenTag::New)?;
@@ -7299,7 +7519,15 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         ))
     }
 
+    #[inline(always)]
     fn parse_jsdoc_nullable_or_unknown_type(&mut self) -> Option<TsType> {
+        self.enter_nesting()?;
+        let result = self.parse_jsdoc_nullable_or_unknown_type_inner();
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_jsdoc_nullable_or_unknown_type_inner(&mut self) -> Option<TsType> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::Question);
         let token = self.current_token;
         self.advance()?;
@@ -7317,7 +7545,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LogicalNot);
         let start = self.current_token.start();
         self.advance()?;
-        let type_annotation = self.parse_primary_type()?;
+        self.enter_nesting()?;
+        let type_annotation = self.parse_primary_type();
+        self.nesting_depth -= 1;
+        let type_annotation = type_annotation?;
         let span = Span::new(start, type_annotation.span(&self.ast).end);
         Some(self.jsdoc_node_data(type_annotation, JsDocKind::NonNullable, false, span))
     }
@@ -7394,7 +7625,15 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         )))
     }
 
+    #[inline(always)]
     fn parse_template_literal_type(&mut self) -> Option<TsType> {
+        self.enter_nesting()?;
+        let result = self.parse_template_literal_type_inner();
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_template_literal_type_inner(&mut self) -> Option<TsType> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::TemplateHead);
         let start = self.current_token.start();
         let head = self.current_token;
@@ -7498,7 +7737,15 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         operator.tag() == TokenTag::In
     }
 
+    #[inline(always)]
     fn parse_mapped_type(&mut self, start: u32) -> Option<TsType> {
+        self.enter_nesting()?;
+        let result = self.parse_mapped_type_inner(start);
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_mapped_type_inner(&mut self, start: u32) -> Option<TsType> {
         let readonly = self.parse_mapped_modifier(TokenTag::Readonly)?;
         if !self.expect(
             TokenTag::LeftBracket,
@@ -7585,7 +7832,15 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         Some(modifier)
     }
 
+    #[inline(always)]
     fn parse_type_literal(&mut self, start: u32) -> Option<TsType> {
+        self.enter_nesting()?;
+        let result = self.parse_type_literal_inner(start);
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_type_literal_inner(&mut self, start: u32) -> Option<TsType> {
         let (members, end) = self.parse_object_type_members(TypeParameterContext::Signature)?;
         Some(TsType::TsTypeLiteral(
             self.ast.ts_type_literal(Span::new(start, end), members),
@@ -7984,8 +8239,16 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     /// references until the last argument fails. Keep that speculative chain
     /// off the native stack, carrying its failure keys through the same frames.
     /// Keep its work-stack locals out of the ordinary primary-type parser's frame.
-    #[inline(never)]
+    #[inline(always)]
     fn parse_type_reference_chain(&mut self, start: u32, name: TsTypeName) -> Option<TsType> {
+        self.enter_nesting()?;
+        let result = self.parse_type_reference_chain_inner(start, name);
+        self.nesting_depth -= 1;
+        result
+    }
+
+    #[inline(never)]
+    fn parse_type_reference_chain_inner(&mut self, start: u32, name: TsTypeName) -> Option<TsType> {
         let mut references = Vec::new();
         let scratch_start = self.scratch_a.begin();
         let disallow_conditional_types = self.ts_context.disallow_conditional_types();
@@ -8238,7 +8501,19 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         result
     }
 
+    #[inline(always)]
     fn parse_angle_list(&mut self, kind: AngleListKind, close: AngleClose) -> Option<AngleList> {
+        self.enter_nesting()?;
+        let result = self.parse_angle_list_inner(kind, close);
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_angle_list_inner(
+        &mut self,
+        kind: AngleListKind,
+        close: AngleClose,
+    ) -> Option<AngleList> {
         match kind {
             AngleListKind::Arguments => self.parse_angle_list_with(kind, close, |parser| {
                 Some(parser.parse_type_with_start_check()?.node_id())
@@ -9019,7 +9294,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     // Keep this wrapper inline when the larger Pratt loop below is forced inline.
     #[inline(always)]
     fn parse_expr(&mut self, minimum: Precedence, opts: ParseExpressionOpts) -> Option<Expr> {
-        self.parse_expr_inner(minimum, opts.allow_type_binding_identifiers)
+        self.enter_nesting()?;
+        let result = self.parse_expr_inner(minimum, opts.allow_type_binding_identifiers);
+        self.nesting_depth -= 1;
+        result
     }
 
     #[inline(always)]
@@ -10125,7 +10403,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 parser.current_token.tag() == TokenTag::Arrow && minimum <= Precedence::Assignment;
             if is_arrow {
                 if let Some(checkpoint) = checkpoint {
-                    parser.rewind(checkpoint);
+                    parser.rewind(checkpoint)?;
                     if escaped_async {
                         parser.report_escaped_keyword(async_span);
                     }
@@ -10282,7 +10560,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             Some(arrow)
         })();
         if arrow.is_none() {
-            self.rewind(checkpoint);
+            self.rewind(checkpoint)?;
             self.reject_ts_speculation(key);
         }
         Some(arrow)
@@ -10490,6 +10768,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.cover_to_pattern(expression, PatternContext::Assignment)
     }
 
+    #[inline(always)]
     fn expression_to_pattern(
         &mut self,
         expression: Expr,
@@ -10500,6 +10779,17 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         } else {
             expression
         };
+        self.enter_nesting()?;
+        let result = self.expression_to_pattern_inner(expression, context);
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn expression_to_pattern_inner(
+        &mut self,
+        expression: Expr,
+        context: PatternContext,
+    ) -> Option<BindingPattern> {
         match self.ast.expr_data(expression) {
             ExprData::IdentifierReference(identifier) if context == PatternContext::Assignment => {
                 Some(BindingPattern::SimpleAssignmentTarget(
@@ -11006,6 +11296,16 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         &mut self,
         pattern: BindingPattern,
     ) -> Option<BindingPattern> {
+        self.enter_nesting()?;
+        let result = self.assignment_pattern_to_binding_pattern_inner(pattern);
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn assignment_pattern_to_binding_pattern_inner(
+        &mut self,
+        pattern: BindingPattern,
+    ) -> Option<BindingPattern> {
         match self.ast.binding_pattern_data(pattern) {
             BindingPatternData::BindingIdentifier(_) => Some(pattern),
             BindingPatternData::SimpleAssignmentTarget(target) => self
@@ -11266,7 +11566,15 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     //
     // SingleNameBinding[Yield, Await] :
     //   BindingIdentifier[?Yield, ?Await] Initializer[+In, ?Yield, ?Await]?
+    #[inline(always)]
     fn parse_object_cover(&mut self) -> Option<ObjectCover> {
+        self.enter_nesting()?;
+        let result = self.parse_object_cover_inner();
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_object_cover_inner(&mut self) -> Option<ObjectCover> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LeftBrace);
         let start = self.current_token.start();
         self.advance()?;
@@ -12115,7 +12423,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                     _ => {}
                 }
             }
-            self.rewind(checkpoint);
+            self.rewind(checkpoint)?;
             self.lexer.rewrite_last_collected_token(self.current_token);
         }
 
@@ -12201,7 +12509,12 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         let callee_starts_with_import = self.current_token.tag() == TokenTag::Import;
         let callee = match self.current_token.tag() {
             TokenTag::LeftParen => self.parse_parenthesized_expression()?,
-            TokenTag::New => self.parse_new_expression()?,
+            TokenTag::New => {
+                self.enter_nesting()?;
+                let callee = self.parse_new_expression();
+                self.nesting_depth -= 1;
+                callee?
+            }
             _ => self.parse_primary_expression(Precedence::Primary)?,
         };
         let PostfixExpression {
@@ -12436,7 +12749,15 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         self.set_lexer_mode(LexerMode::Normal);
     }
 
+    #[inline(always)]
     fn parse_jsx_element(&mut self, context: JsxElementContext) -> Option<Expr> {
+        self.enter_nesting()?;
+        let result = self.parse_jsx_element_inner(context);
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn parse_jsx_element_inner(&mut self, context: JsxElementContext) -> Option<Expr> {
         debug_assert_eq!(self.current_token.tag(), TokenTag::LessThan);
         let start = self.current_token.start();
         self.enter_jsx_tag();
@@ -13214,7 +13535,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 type_arguments
             }
             Some(_) | None => {
-                self.rewind(checkpoint);
+                self.rewind(checkpoint)?;
                 self.lexer.rewrite_last_collected_token(self.current_token);
                 // Rewinding restores the opening token and its cache context.
                 self.cache_type_argument_failure(
@@ -13604,6 +13925,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             );
             return None;
         }
+        // Validation above walks through all assertions. Only parentheses are
+        // removed from the returned target; assertion nodes stay intact.
+        let expression = self.unwrap_parens(expression);
         match self.ast.expr_data(expression) {
             ExprData::IdentifierReference(node) => {
                 Some(SimpleAssignmentTarget::IdentifierReference(node))
@@ -13611,49 +13935,32 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             ExprData::MemberExpression(node) if !member_expression_is_optional(node, &self.ast) => {
                 Some(SimpleAssignmentTarget::MemberExpression(node))
             }
-            ExprData::TsAsExpression(node) => {
-                self.expression_to_simple_assignment_target(node.expression(&self.ast))?;
-                Some(SimpleAssignmentTarget::TsAsExpression(node))
-            }
+            ExprData::TsAsExpression(node) => Some(SimpleAssignmentTarget::TsAsExpression(node)),
             ExprData::TsSatisfiesExpression(node) => {
-                self.expression_to_simple_assignment_target(node.expression(&self.ast))?;
                 Some(SimpleAssignmentTarget::TsSatisfiesExpression(node))
             }
-            ExprData::TsTypeAssertion(node) => {
-                self.expression_to_simple_assignment_target(node.expression(&self.ast))?;
-                Some(SimpleAssignmentTarget::TsTypeAssertion(node))
-            }
+            ExprData::TsTypeAssertion(node) => Some(SimpleAssignmentTarget::TsTypeAssertion(node)),
             ExprData::TsNonNullExpression(node) => {
-                self.expression_to_simple_assignment_target(node.expression(&self.ast))?;
                 Some(SimpleAssignmentTarget::TsNonNullExpression(node))
-            }
-            ExprData::ParenthesizedExpression(parenthesized) => {
-                self.expression_to_simple_assignment_target(parenthesized.expression(&self.ast))
             }
             _ => unreachable!("simple assignment targets were validated above"),
         }
     }
 
-    fn is_simple_assignment_target(&self, expression: Expr) -> bool {
-        match self.ast.expr_data(expression) {
-            ExprData::IdentifierReference(_) => true,
-            ExprData::MemberExpression(member) => !member_expression_is_optional(member, &self.ast),
-            ExprData::ParenthesizedExpression(parenthesized) => {
-                self.is_simple_assignment_target(parenthesized.expression(&self.ast))
-            }
-            ExprData::TsNonNullExpression(node) => {
-                self.is_simple_assignment_target(node.expression(&self.ast))
-            }
-            ExprData::TsAsExpression(node) => {
-                self.is_simple_assignment_target(node.expression(&self.ast))
-            }
-            ExprData::TsSatisfiesExpression(node) => {
-                self.is_simple_assignment_target(node.expression(&self.ast))
-            }
-            ExprData::TsTypeAssertion(node) => {
-                self.is_simple_assignment_target(node.expression(&self.ast))
-            }
-            _ => false,
+    fn is_simple_assignment_target(&self, mut expression: Expr) -> bool {
+        loop {
+            expression = match self.ast.expr_data(expression) {
+                ExprData::IdentifierReference(_) => return true,
+                ExprData::MemberExpression(member) => {
+                    return !member_expression_is_optional(member, &self.ast);
+                }
+                ExprData::ParenthesizedExpression(node) => node.expression(&self.ast),
+                ExprData::TsNonNullExpression(node) => node.expression(&self.ast),
+                ExprData::TsAsExpression(node) => node.expression(&self.ast),
+                ExprData::TsSatisfiesExpression(node) => node.expression(&self.ast),
+                ExprData::TsTypeAssertion(node) => node.expression(&self.ast),
+                _ => return false,
+            };
         }
     }
 
@@ -14069,6 +14376,9 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         message: impl Into<Cow<'static, str>>,
         options: ReportOptions,
     ) {
+        if self.nesting_exceeded {
+            return;
+        }
         self.diagnostics.push(Diagnostic {
             severity: options.severity,
             message: message.into(),
@@ -14097,15 +14407,17 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
     }
 }
 
-fn member_expression_is_optional(member: MemberExpression, ast: &Ast<'_>) -> bool {
-    if member.optional(ast) {
-        return true;
-    }
-    match ast.expr_data(member.object(ast)) {
-        ExprData::MemberExpression(object) => member_expression_is_optional(object, ast),
-        ExprData::CallExpression(call) => call.optional(ast),
-        ExprData::ChainExpression(_) => true,
-        _ => false,
+fn member_expression_is_optional(mut member: MemberExpression, ast: &Ast<'_>) -> bool {
+    loop {
+        if member.optional(ast) {
+            return true;
+        }
+        match ast.expr_data(member.object(ast)) {
+            ExprData::MemberExpression(object) => member = object,
+            ExprData::CallExpression(call) => return call.optional(ast),
+            ExprData::ChainExpression(_) => return true,
+            _ => return false,
+        }
     }
 }
 
@@ -14545,6 +14857,483 @@ mod tests {
             .iter()
             .map(|token| &source[token.start() as usize..token.end() as usize])
             .collect()
+    }
+
+    fn nested(open: &str, inner: &str, close: &str, depth: usize) -> String {
+        format!("{}{inner}{}", open.repeat(depth), close.repeat(depth))
+    }
+
+    /// Deep parses must not depend on the test thread's stack size,
+    /// which varies by platform.
+    fn on_large_stack<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+        std::thread::Builder::new()
+            .stack_size(32 << 20)
+            .spawn(work)
+            .unwrap()
+            .join()
+            .unwrap()
+    }
+
+    fn nesting_diagnostics(source: &str, options: Options) -> Vec<Diagnostic<'static>> {
+        let source = source.to_owned();
+        on_large_stack(move || {
+            let allocator = Allocator::new();
+            Parser::init(&allocator, &source, options, NoTokenParserConfig)
+                .parse()
+                .diagnostics
+        })
+    }
+
+    #[track_caller]
+    fn assert_nesting_error(diagnostics: &[Diagnostic<'_>]) {
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].severity, Severity::Error);
+        assert!(diagnostics[0].message.contains("nesting"));
+    }
+
+    #[test]
+    fn nesting_compatibility() {
+        for source_type in [
+            SourceType::Script,
+            SourceType::Module,
+            SourceType::CommonJs,
+            SourceType::Unambiguous,
+        ] {
+            for preserve_parens in [false, true] {
+                let javascript = Options {
+                    source_type,
+                    preserve_parens,
+                    ..Options::default()
+                };
+                let typescript = Options {
+                    lang: Lang::Ts,
+                    ..javascript
+                };
+
+                let errors = nesting_diagnostics(&nested("[", "0", "]", 100), javascript);
+                assert!(errors.is_empty());
+
+                let errors = nesting_diagnostics(&nested("{", "", "}", 100), javascript);
+                assert!(errors.is_empty());
+
+                let errors = nesting_diagnostics(&nested("[", "0", "]", 500), javascript);
+                assert!(errors.is_empty());
+
+                let errors = nesting_diagnostics(&nested("(", "0", ")", 500), javascript);
+                assert!(errors.is_empty());
+
+                let errors = nesting_diagnostics(&nested("{", "", "}", 500), javascript);
+                assert!(errors.is_empty());
+
+                // Each object literal level holds two guarded entries, so
+                // plain object expressions cap out well below 500 levels.
+                let input = format!("x = {};", nested("{a:", "0", "}", 200));
+                let errors = nesting_diagnostics(&input, javascript);
+                assert!(errors.is_empty());
+
+                let input = nested("namespace A {", "", "}", 500);
+                let errors = nesting_diagnostics(&input, typescript);
+                assert!(errors.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn nesting_boundaries() {
+        let options = Options::default();
+
+        // Each nested block keeps one guarded statement entry active.
+        let errors = nesting_diagnostics(&nested("{", "", "}", MAX_NESTING), options);
+        assert!(errors.is_empty());
+
+        let errors = nesting_diagnostics(&nested("{", "", "}", MAX_NESTING + 1), options);
+        assert_nesting_error(&errors);
+    }
+
+    #[test]
+    fn nesting_expressions() {
+        let options = Options::default();
+
+        let errors = nesting_diagnostics(&nested("[", "0", "]", 600), options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&nested("(", "0", ")", 600), options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&nested("({a:", "0", "})", 600), options);
+        assert_nesting_error(&errors);
+
+        // Two guarded entries per level: 500 plain object levels exceed the
+        // 512-entry budget while 500 arrays, parens, and blocks still parse.
+        let input = format!("x = {};", nested("{a:", "0", "}", 500));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&nested("!", "x", "", 600), options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&nested("`${", "0", "}`", 600), options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&nested("x => ", "0", "", 600), options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&nested("new ", "A", "", 600), options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&nested("f(", "0", ")", 600), options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&nested("a[", "0", "]", 600), options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&nested("a = ", "0", "", 600), options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&nested("2 ** ", "0", "", 600), options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&nested("a ? ", "0", " : 0", 600), options);
+        assert_nesting_error(&errors);
+    }
+
+    #[test]
+    fn nesting_statements() {
+        let options = Options::default();
+
+        let errors = nesting_diagnostics(&nested("{", "", "}", 600), options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&nested("if (x) ", ";", "", 600), options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&nested("function f(){", "", "}", 600), options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&nested("class A { x = ", "0", "}", 600), options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&nested("class A extends ", "B", " {}", 600), options);
+        assert_nesting_error(&errors);
+
+        let input = format!("let {} = a;", nested("[", "x", "]", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        // A binding pattern level holds both the pattern production and its
+        // cover expression live, so both count toward the nesting limit.
+        let input = format!("let {} = a;", nested("{a:", "x", "}", 500));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let input = format!("let {} = a;", nested("{a:", "x", "}", 100));
+        let errors = nesting_diagnostics(&input, options);
+        assert!(errors.is_empty());
+
+        let input = format!("({} = a) => 0", nested("[", "x", "]", 100));
+        let errors = nesting_diagnostics(&input, options);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn nesting_types() {
+        let options = Options {
+            lang: Lang::Ts,
+            ..Options::default()
+        };
+
+        let errors = nesting_diagnostics(&nested("namespace A {", "", "}", 600), options);
+        assert_nesting_error(&errors);
+
+        let input = format!("type A = {};", nested("[", "number", "]", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let input = format!("type A = {};", nested("keyof ", "T", "", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let input = format!("type A = {};", nested("!", "T", "", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let input = format!("type A = {};", nested("() => ", "T", "", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let input = format!("type A = {};", nested("T extends U ? ", "T", " : T", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let input = format!("f<{}T{}>(x);", "(".repeat(600), ")".repeat(600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+        let input = format!("type A = {};", nested("A<", "T", ">", 500));
+        let errors = nesting_diagnostics(&input, options);
+        assert!(errors.is_empty());
+
+        let input = format!("type A = {};", nested("A<", "T", ">", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let input = format!("type A = {};", nested("(", "T", ")", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let input = format!("type A = {};", nested("{x:", "T", "}", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let input = format!("type A = {};", nested("{[K in keyof T]:", "T", "}", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let input = format!("type A = {};", nested("T[", "K", "]", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let input = format!("type A = {};", nested("? ", "T", "", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let input = format!("type A = {};", nested("this is ", "T", "", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let input = format!("type A = {};", nested("`${", "T", "}`", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+    }
+
+    #[test]
+    fn nesting_jsx() {
+        for lang in [Lang::Jsx, Lang::Tsx] {
+            let options = Options {
+                lang,
+                ..Options::default()
+            };
+
+            let errors = nesting_diagnostics(&nested("<a>", "", "</a>", 600), options);
+            assert_nesting_error(&errors);
+
+            let errors = nesting_diagnostics(&nested("<>", "", "</>", 600), options);
+            assert_nesting_error(&errors);
+
+            let errors = nesting_diagnostics(&nested("<a>{", "0", "}</a>", 600), options);
+            assert_nesting_error(&errors);
+
+            let errors = nesting_diagnostics(&nested("<a b=", "<b/>", "/>", 600), options);
+            assert_nesting_error(&errors);
+        }
+    }
+
+    #[test]
+    fn nesting_recovery() {
+        let options = Options {
+            lang: Lang::Ts,
+            ..Options::default()
+        };
+
+        // A failed heritage expression must unwind before the type-argument trial rewinds.
+        let errors = nesting_diagnostics(r#"f<import("m", { with: class extends ) >();"#, options);
+        assert!(!errors.is_empty());
+        assert!(
+            errors
+                .iter()
+                .all(|error| !error.message.contains("nesting"))
+        );
+
+        let errors = nesting_diagnostics(&format!("f<{};", nested("[", "T", "]", 600)), options);
+        assert_nesting_error(&errors);
+
+        let input = format!("async({});", nested("[", "x", "]", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let input = format!("<T extends {}>(x)", nested("[", "T", "]", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let input = format!("type A = infer T extends {};", nested("[", "T", "]", 600));
+        let errors = nesting_diagnostics(&input, options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&"[".repeat(600), options);
+        assert_nesting_error(&errors);
+
+        let errors = nesting_diagnostics(&format!("{};", "async([x]);".repeat(600)), options);
+        assert!(errors.is_empty());
+
+        let input = format!("{}{}", "f<T> + x;".repeat(600), nested("[", "0", "]", 500));
+        let errors = nesting_diagnostics(&input, options);
+        assert!(errors.is_empty());
+
+        // The first invalid statement aborts the whole body, so sibling
+        // failures never accumulate; nesting state must not leak either.
+        let errors = nesting_diagnostics(&"throw;".repeat(600), options);
+        assert_eq!(errors.len(), 1);
+        assert!(!errors[0].message.contains("nesting"));
+    }
+
+    #[test]
+    fn nesting_entry_modes() {
+        fn check<C: ParserConfig + Send + 'static>(source: &str, options: Options, config: C) {
+            let source = source.to_owned();
+            on_large_stack(move || {
+                let allocator = Allocator::new();
+                let parsed = Parser::init(&allocator, &source, options, config.clone()).parse();
+                assert_nesting_error(&parsed.diagnostics);
+                assert!(parsed.ast.root_program().body(&parsed.ast).is_empty());
+
+                let parser = Parser::init(&allocator, &source, options, config);
+                let fragment = parser.parse_expression_fragment(FragmentContext::AsyncFunction);
+                let errors = fragment.err().unwrap();
+                assert_nesting_error(&errors);
+            });
+        }
+
+        for source_type in [
+            SourceType::Script,
+            SourceType::Module,
+            SourceType::Unambiguous,
+        ] {
+            for preserve_parens in [false, true] {
+                let options = Options {
+                    source_type,
+                    preserve_parens,
+                    ..Options::default()
+                };
+                let source = nested("[", "0", "]", 600);
+                check(&source, options, NoTokenParserConfig);
+                check(&source, options, TokenParserConfig);
+            }
+        }
+    }
+
+    #[test]
+    fn nesting_flat_input() {
+        let javascript = Options::default();
+        let typescript = Options {
+            lang: Lang::Ts,
+            ..javascript
+        };
+
+        let errors = nesting_diagnostics(&"{} [0];".repeat(2000), javascript);
+        assert!(errors.is_empty());
+
+        let errors = nesting_diagnostics(&format!("{}0", "0 + ".repeat(20000)), javascript);
+        assert!(errors.is_empty());
+
+        let errors = nesting_diagnostics(&format!("a{} = 0", ".b".repeat(20000)), javascript);
+        assert!(errors.is_empty());
+
+        let errors = nesting_diagnostics(&format!("a{} = 0", "!".repeat(20000)), typescript);
+        assert!(errors.is_empty());
+
+        let input = format!("type A = {}T;", "T | ".repeat(20000));
+        let errors = nesting_diagnostics(&input, typescript);
+        assert!(errors.is_empty());
+
+        // A flat comparison chain only mimics deep type nesting inside the
+        // speculative type-argument trial; it must still parse as comparisons.
+        let source = format!("{}{}e", "a < b | ".repeat(511), "c > d | ".repeat(511));
+        on_large_stack(move || {
+            let allocator = Allocator::new();
+            let init = Parser::init(&allocator, &source, typescript, NoTokenParserConfig);
+            let fragment = init.parse_expression_fragment(FragmentContext::TopLevel);
+            let ast = fragment.unwrap();
+            let expression = ast.root_expression().as_binary_expression(&ast).unwrap();
+            assert_eq!(expression.operator(&ast), BinaryOperator::BitwiseOr);
+            let left = expression.left(&ast).as_binary_expression(&ast).unwrap();
+            assert_eq!(left.operator(&ast), BinaryOperator::BitwiseOr);
+        });
+    }
+
+    #[test]
+    fn nesting_exhaustion_finality() {
+        fn fragment_errors(source: &str, options: Options) -> Vec<String> {
+            let source = source.to_owned();
+            on_large_stack(move || {
+                let allocator = Allocator::new();
+                let parser = Parser::init(&allocator, &source, options, NoTokenParserConfig);
+                match parser.parse_expression_fragment(FragmentContext::TopLevel) {
+                    Ok(_) => panic!("exhaustion must fail the fragment"),
+                    Err(errors) => errors.iter().map(|e| e.message.to_string()).collect(),
+                }
+            })
+        }
+
+        let typescript = Options {
+            lang: Lang::Ts,
+            ..Options::default()
+        };
+        let unambiguous = Options {
+            source_type: SourceType::Unambiguous,
+            ..typescript
+        };
+
+        // Trial exhaustion becomes the nesting error when the committed
+        // comparison interpretation also fails.
+        let input = format!("f<{}T>(x);", "keyof ".repeat(600));
+        let errors = nesting_diagnostics(&input, typescript);
+        assert_nesting_error(&errors);
+
+        // A successful directive-prologue statement settles trial
+        // exhaustion: the later `throw;` keeps its own diagnostic.
+        let input = format!(
+            "\"s\" < b | {}c > d | {}e;throw;",
+            "a < b | ".repeat(511),
+            "c > d | ".repeat(511)
+        );
+        let errors = nesting_diagnostics(&input, typescript);
+        assert_eq!(errors.len(), 1);
+        assert!(!errors[0].message.contains("nesting"));
+
+        // Cover cleanup must not add diagnostics after exhaustion.
+        let source = format!("({{a=0,b:{}}})", nested("[", "0", "]", 600));
+        let errors = fragment_errors(&source, typescript);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("nesting"));
+
+        // Module finalization must not add diagnostics after exhaustion.
+        let input = format!("<!-- comment\n{}", nested("[", "0", "]", 600));
+        let errors = nesting_diagnostics(&input, unambiguous);
+        assert_nesting_error(&errors);
+
+        // A fragment that only parses a prefix has not resolved the trial:
+        // the nesting failure is the real diagnostic.
+        let module_typescript = Options {
+            source_type: SourceType::Module,
+            ..typescript
+        };
+        let input = format!("f<{}T>(x)", "keyof ".repeat(600));
+        let errors = fragment_errors(&input, module_typescript);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("nesting"));
+
+        // An earlier resolved trial must not mask a later unresolved one.
+        let input = format!(
+            "{}c > d | {}e, f<{}T>(x)",
+            "a < b | ".repeat(512),
+            "c > d | ".repeat(512),
+            "keyof ".repeat(600)
+        );
+        let errors = fragment_errors(&input, module_typescript);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("nesting"));
+
+        // A successful fragment expression keeps its own trailing-token
+        // diagnostic instead of the trial nesting failure.
+        let input = format!("{}{}e}}", "a < b | ".repeat(512), "c > d | ".repeat(512));
+        let errors = fragment_errors(&input, typescript);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("Expected end of fragment"));
+
+        // An unambiguous expression fragment must not retry away exhaustion.
+        let source = format!("await + {}", nested("[", "0", "]", 510));
+        let errors = fragment_errors(&source, unambiguous);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("nesting"));
     }
 
     fn error_spans(source: &str, options: Options) -> Vec<&str> {
