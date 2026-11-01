@@ -1219,9 +1219,9 @@ pub struct Parser<'a, C: ParserConfig = NoTokenParserConfig> {
     nesting_depth: usize,
     /// Resource exhaustion must not select a different grammar interpretation.
     nesting_exceeded: bool,
-    /// Span where a trial type-argument parse exhausted the budget. Kept
-    /// until the committed interpretation succeeds (flat comparisons) or
-    /// fails, in which case the nesting failure is the real diagnostic.
+    /// Latest unresolved type-argument trial exhaustion. A successful
+    /// committed expression retires it once its span covers the exhausted
+    /// token; otherwise finishing reports it instead of fallback errors.
     trial_nesting_span: Option<Span>,
     /// TypeScript grammar alternatives rejected in a particular parse context.
     ///
@@ -1680,9 +1680,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
 
     fn finish_program(mut self, parsed_body: Option<ParsedBody>) -> ParseReturn<'a> {
         debug_assert!(self.cover.initialized_names.is_empty());
-        if parsed_body.is_none() {
-            self.apply_trial_nesting_failure();
-        }
+        self.apply_trial_nesting_failure();
         self.report_module_mode_errors();
         let mut diagnostics = self.diagnostics.finish();
         if parsed_body.is_none() && diagnostics.is_empty() {
@@ -1831,15 +1829,7 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
             );
         }
 
-        // A parsed prefix is not a resolved fragment: only skip the trial
-        // nesting failure when the committed parse consumed past the
-        // token where the trial exhausted the budget.
-        let trial_unresolved = self
-            .trial_nesting_span
-            .is_some_and(|span| self.current_token.start() <= span.start);
-        if expr.is_none() || trial_unresolved {
-            self.apply_trial_nesting_failure();
-        }
+        self.apply_trial_nesting_failure();
         self.report_module_mode_errors();
         let diagnostics = self.diagnostics.finish();
         match expr {
@@ -2323,10 +2313,6 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                     self.scratch_statements.append(statement);
                     Some(false)
                 })()?;
-                // Every committed statement boundary settles trial
-                // exhaustion, including the directive-prologue path above
-                // that bypasses `parse_statement`.
-                self.trial_nesting_span = None;
                 if is_directive {
                     directives_end = self.scratch_statements.items.len();
                 }
@@ -2362,11 +2348,6 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         let result = self.parse_statement_inner();
         self.statement_context = statement_context;
         self.nesting_depth -= 1;
-        // A committed statement that parses settles any trial exhaustion
-        // inside it (for example, a flat comparison chain).
-        if result.is_some() {
-            self.trial_nesting_span = None;
-        }
         result
     }
 
@@ -9386,6 +9367,15 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
                 self.parse_infix(precedence, left)?
             };
         }
+        // A successful committed expression settles any trial exhaustion
+        // whose token it consumed. A parsed prefix leaves later exhaustion
+        // pending; a type-argument trial cannot settle its own exhaustion.
+        if let Some(span) = self.trial_nesting_span
+            && self.type_argument_speculation_depth == 0
+            && left.span(&self.ast).end >= span.end
+        {
+            self.trial_nesting_span = None;
+        }
         Some(left)
     }
 
@@ -14863,6 +14853,14 @@ mod tests {
         format!("{}{inner}{}", open.repeat(depth), close.repeat(depth))
     }
 
+    fn comparison_chain(less_than: usize, greater_than: usize) -> String {
+        format!(
+            "{}{}e",
+            "a < b | ".repeat(less_than),
+            "c > d | ".repeat(greater_than)
+        )
+    }
+
     /// Deep parses must not depend on the test thread's stack size,
     /// which varies by platform.
     fn on_large_stack<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
@@ -15068,6 +15066,7 @@ mod tests {
         let input = format!("f<{}T{}>(x);", "(".repeat(600), ")".repeat(600));
         let errors = nesting_diagnostics(&input, options);
         assert_nesting_error(&errors);
+
         let input = format!("type A = {};", nested("A<", "T", ">", 500));
         let errors = nesting_diagnostics(&input, options);
         assert!(errors.is_empty());
@@ -15236,7 +15235,7 @@ mod tests {
 
         // A flat comparison chain only mimics deep type nesting inside the
         // speculative type-argument trial; it must still parse as comparisons.
-        let source = format!("{}{}e", "a < b | ".repeat(511), "c > d | ".repeat(511));
+        let source = comparison_chain(511, 511);
         on_large_stack(move || {
             let allocator = Allocator::new();
             let init = Parser::init(&allocator, &source, typescript, NoTokenParserConfig);
@@ -15280,14 +15279,32 @@ mod tests {
 
         // A successful directive-prologue statement settles trial
         // exhaustion: the later `throw;` keeps its own diagnostic.
-        let input = format!(
-            "\"s\" < b | {}c > d | {}e;throw;",
-            "a < b | ".repeat(511),
-            "c > d | ".repeat(511)
-        );
+        let input = format!("\"s\" < b | {};throw;", comparison_chain(511, 512));
         let errors = nesting_diagnostics(&input, typescript);
         assert_eq!(errors.len(), 1);
         assert!(!errors[0].message.contains("nesting"));
+
+        // Once a committed expression resolves the trial, statement
+        // terminators and later operands retain their own diagnostics.
+        for options in [typescript, unambiguous] {
+            let input = format!("{})", comparison_chain(512, 512));
+            let errors = nesting_diagnostics(&input, options);
+            assert_eq!(errors.len(), 1);
+            assert!(!errors[0].message.contains("nesting"));
+            assert_eq!(errors[0].span.start, input.len() as u32 - 1);
+
+            let input = format!("let value = {})", comparison_chain(512, 512));
+            let errors = nesting_diagnostics(&input, options);
+            assert_eq!(errors.len(), 1);
+            assert!(!errors[0].message.contains("nesting"));
+            assert_eq!(errors[0].span.start, input.len() as u32 - 1);
+
+            let input = format!("{} + ;", comparison_chain(512, 512));
+            let errors = nesting_diagnostics(&input, options);
+            assert_eq!(errors.len(), 1);
+            assert!(!errors[0].message.contains("nesting"));
+            assert_eq!(errors[0].span.start, input.len() as u32 - 1);
+        }
 
         // Cover cleanup must not add diagnostics after exhaustion.
         let source = format!("({{a=0,b:{}}})", nested("[", "0", "]", 600));
@@ -15312,19 +15329,15 @@ mod tests {
         assert!(errors[0].contains("nesting"));
 
         // An earlier resolved trial must not mask a later unresolved one.
-        let input = format!(
-            "{}c > d | {}e, f<{}T>(x)",
-            "a < b | ".repeat(512),
-            "c > d | ".repeat(512),
-            "keyof ".repeat(600)
-        );
+        let comparisons = comparison_chain(512, 513);
+        let input = format!("{comparisons}, f<{}T>(x)", "keyof ".repeat(600));
         let errors = fragment_errors(&input, module_typescript);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].contains("nesting"));
 
         // A successful fragment expression keeps its own trailing-token
         // diagnostic instead of the trial nesting failure.
-        let input = format!("{}{}e}}", "a < b | ".repeat(512), "c > d | ".repeat(512));
+        let input = format!("{}}}", comparison_chain(512, 512));
         let errors = fragment_errors(&input, typescript);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].contains("Expected end of fragment"));
