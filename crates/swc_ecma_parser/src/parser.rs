@@ -3607,7 +3607,10 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         else {
             unreachable!("parse_index_signature always creates a TS index signature")
         };
-        if self.current_token.tag() == TokenTag::Semicolon {
+        if matches!(
+            self.current_token.tag(),
+            TokenTag::Semicolon | TokenTag::Comma
+        ) {
             self.extend_span_to(signature, self.current_token.end());
             self.advance()?;
         }
@@ -17280,6 +17283,24 @@ mod tests {
 
         let fields = parse_fields("class A { a\\u0073ync\nfoo }", Lang::Js);
         assert_eq!(fields, [("async".into(), false), ("foo".into(), false)]);
+    }
+
+    #[test]
+    fn class_index_signature_separators() {
+        let options = Options {
+            lang: Lang::Ts,
+            ..Options::default()
+        };
+
+        assert!(!has_errors("class C { [k: string]: T, a: U }", options));
+
+        assert!(!has_errors("class C { [k: string]: T, }", options));
+
+        assert!(has_errors("class C { [k: string]: T,, a: U }", options));
+
+        assert!(has_errors("class C { a: T, b: U }", options));
+
+        assert!(has_errors("class C { m() {}, n() {} }", options));
     }
 
     #[test]
