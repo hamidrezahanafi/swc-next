@@ -6374,6 +6374,11 @@ impl<'a, C: ParserConfig> Parser<'a, C> {
         let token = self.current_token;
         // Non-reserved IdentifierNames already satisfy the type-start predicate.
         if token.tag().is_unconditionally_reserved() && !is_start_of_type(token.tag()) {
+            // `a < super.b > (0)` and `a < delete[0] > (0)` are comparisons: a word
+            // that can start an expression keeps the comparison reading available.
+            if self.type_argument_speculation_depth != 0 && is_start_of_expression(token.tag()) {
+                return None;
+            }
             self.report_expected(token.span(), "Expected a type", ReportOptions::default());
         }
         parse(self)
@@ -15450,6 +15455,20 @@ mod tests {
             let (errors, kind) = parse("a < {[a < {[x]: 1}]: 1};", options, expression_kind);
             assert!(errors.is_empty());
             assert_eq!(kind, NodeKind::BinaryExpression);
+
+            let (errors, kind) = parse("a < super.b > (0);", options, expression_kind);
+            assert!(errors.is_empty());
+            assert_eq!(kind, NodeKind::BinaryExpression);
+
+            let (errors, kind) = parse("a < b < super.c >> (0);", options, expression_kind);
+            assert!(errors.is_empty());
+            assert_eq!(kind, NodeKind::BinaryExpression);
+
+            let (errors, kind) = parse("a < delete[0] > (0);", options, expression_kind);
+            assert!(errors.is_empty());
+            assert_eq!(kind, NodeKind::BinaryExpression);
+
+            assert!(has_errors("f<super>();", options));
         }
     }
 
